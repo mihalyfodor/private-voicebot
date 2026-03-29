@@ -41,13 +41,24 @@ def save_shortmem(session_turns):
         with open(SHORTMEM_PATH, "r") as f:
             existing = f.read().strip()
 
-    summary_prompt = (
-        "Extract only NEW concrete facts learned about the user in this session that are not already in the existing memory below. "
-        "One fact per line. No duplicates, no filler, no meta-commentary. "
-        "If nothing new was learned, reply with exactly: NOTHING\n\n"
-        f"Existing memory:\n{existing}"
-    )
-    messages = session_turns + [{"role": "user", "content": summary_prompt}]
+    session_text = "\n".join(f"{t['role'].capitalize()}: {t['content']}" for t in session_turns)
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You extract new facts about a user from a conversation transcript. "
+                "Compare against existing memory and output only facts that are genuinely new. "
+                "One fact per line. No duplicates, no filler, no commentary. "
+                "If nothing new was learned, reply with exactly: NOTHING"
+            )
+        },
+        {
+            "role": "user",
+            "content": f"Existing memory:\n{existing}\n\nNew session transcript:\n{session_text}"
+        }
+    ]
+
     response = requests.post(OLLAMA_URL, json={
         "model": OLLAMA_MODEL,
         "messages": messages,
