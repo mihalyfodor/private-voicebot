@@ -1,6 +1,11 @@
 import os
+import sys
+from datetime import datetime
+import tty
+import termios
 import tempfile
 import subprocess
+import numpy as np
 import requests
 import sounddevice as sd
 import soundfile as sf
@@ -16,7 +21,9 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "gemma3:4b"
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
 
-SYSTEM_PROMPT = "You are a helpful voice assistant. Keep responses concise and conversational."
+SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today is {datetime.now().strftime('%A, %B %d %Y %H:%M')}."
+
+SAMPLERATE = 16000
 
 
 def load_shortmem():
@@ -24,15 +31,21 @@ def load_shortmem():
         with open(SHORTMEM_PATH, "r") as f:
             content = f.read().strip()
         if content:
-            return f"{SYSTEM_PROMPT}\n\nWhat you know about the user and past conversations:\n{content}"
+            return f"{SYSTEM_PROMPT}\n\nBackground context about the user — silent context only. Use it to inform your understanding, never bring it up unless the user does first:\n{content}"
     return SYSTEM_PROMPT
 
 
 def save_shortmem(session_turns):
+    existing = ""
+    if os.path.exists(SHORTMEM_PATH):
+        with open(SHORTMEM_PATH, "r") as f:
+            existing = f.read().strip()
+
     summary_prompt = (
-        "Extract only concrete facts learned about the user in this session: name, preferences, goals, topics discussed. "
-        "One fact per line. No filler, no meta-commentary, no mention of what wasn't discussed. "
-        "If nothing meaningful was learned, write nothing."
+        "Extract only NEW concrete facts learned about the user in this session that are not already in the existing memory below. "
+        "One fact per line. No duplicates, no filler, no meta-commentary. "
+        "If nothing new was learned, reply with exactly: NOTHING\n\n"
+        f"Existing memory:\n{existing}"
     )
     messages = session_turns + [{"role": "user", "content": summary_prompt}]
     response = requests.post(OLLAMA_URL, json={
@@ -42,27 +55,25 @@ def save_shortmem(session_turns):
         "options": {"num_ctx": 32768}
     })
     summary = response.json()["message"]["content"].strip()
+
+    if not summary or summary.upper() == "NOTHING" or len(summary) < 10:
+        print("\n[Nothing new to save]")
+        return
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     with open(SHORTMEM_PATH, "a") as f:
-        f.write(f"\n---\n{summary}\n")
-    print(f"\n[Memory saved to shortmem.txt]")
+        f.write(f"\n--- {timestamp} ---\n{summary}\n")
+    print("\n[Memory saved to shortmem.txt]")
 
 
-# Init Kokoro once to avoid cold start on every turn
-print("Loading Kokoro TTS...")
-kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
-print("Ready.\n")
-
-conversation = [{"role": "system", "content": load_shortmem()}]
-session_turns = []
-
-
-def record_audio(duration=5, samplerate=16000):
-    print("Listening...")
-    audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=1)
-    sd.wait()
-    tmp = tempfile.mktemp(suffix=".wav")
-    sf.write(tmp, audio, samplerate)
-    return tmp
+def get_keypress():
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
 def transcribe(wav_path):
@@ -95,20 +106,69 @@ def speak(text):
     sd.wait()
 
 
+# Init Kokoro once
+print("Loading Kokoro TTS...")
+kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
+print("Ready. Press SPACE to start/stop recording. Ctrl+C to quit.\n")
+
+conversation = [{"role": "system", "content": load_shortmem()}]
+session_turns = []
+
 if __name__ == "__main__":
     try:
         while True:
-            wav = record_audio(duration=5)
-            text = transcribe(wav)
-            os.remove(wav)
+            print("[Idle] Press SPACE to speak...", end="\r", flush=True)
+            key = get_keypress()
+
+            if key == "\x03":  # Ctrl+C
+                raise KeyboardInterrupt
+
+            if key != " ":
+                continue
+
+            # Start recording
+            audio_chunks = []
+            def callback(indata, frames, time, status):
+                audio_chunks.append(indata.copy())
+
+            print("[RECORDING...] Press SPACE to stop.   ", flush=True)
+            stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
+            stream.start()
+
+            # Wait for space again
+            while True:
+                key = get_keypress()
+                if key == "\x03":
+                    stream.stop()
+                    stream.close()
+                    raise KeyboardInterrupt
+                if key == " ":
+                    break
+
+            stream.stop()
+            stream.close()
+
+            if not audio_chunks:
+                continue
+
+            print("[Processing...]                        ", flush=True)
+            audio = np.concatenate(audio_chunks, axis=0)
+            tmp = tempfile.mktemp(suffix=".wav")
+            sf.write(tmp, audio, SAMPLERATE)
+
+            text = transcribe(tmp)
+            os.remove(tmp)
 
             if not text:
+                print("[No speech detected]")
                 continue
 
             print(f"You: {text}")
+            print("[Thinking...]")
             response = ask_llm(text)
             print(f"Bot: {response}")
             speak(response)
+
     except KeyboardInterrupt:
         print("\nExiting...")
         if session_turns:
