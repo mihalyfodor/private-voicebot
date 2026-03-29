@@ -1,0 +1,8 @@
+kokoro-onnx
+sounddevice
+soundfile
+requests
+numpy
+fastapi
+uvicorn
+websockets
