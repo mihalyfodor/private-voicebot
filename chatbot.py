@@ -1,15 +1,19 @@
 import os
-import sys
-from datetime import datetime
-import tty
-import termios
+import asyncio
 import tempfile
 import subprocess
+import threading
+import webbrowser
+from datetime import datetime
+
 import numpy as np
 import requests
 import sounddevice as sd
 import soundfile as sf
 from kokoro_onnx import Kokoro
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+import uvicorn
 
 WHISPER_CLI = "/opt/homebrew/bin/whisper-cli"
 WHISPER_MODEL = os.path.expanduser("~/whisper-models/ggml-small.bin")
@@ -20,6 +24,7 @@ KOKORO_VOICE = "af_heart"
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "gemma3:4b"
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
+INDEX_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 
 SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today is {datetime.now().strftime('%A, %B %d %Y %H:%M')}."
 
@@ -31,7 +36,7 @@ def load_shortmem():
         with open(SHORTMEM_PATH, "r") as f:
             content = f.read().strip()
         if content:
-            return f"{SYSTEM_PROMPT}\n\nBackground context about the user — silent context only. Use it to inform your understanding, never bring it up unless the user does first:\n{content}"
+            return f"{SYSTEM_PROMPT}\n\nThe following is background context about the USER you are speaking with — it describes them, not you. Use it silently to inform your understanding. Never bring it up unless the user does first:\n{content}"
     return SYSTEM_PROMPT
 
 
@@ -77,16 +82,6 @@ def save_shortmem(session_turns):
     print("\n[Memory saved to shortmem.txt]")
 
 
-def get_keypress():
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        return sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-
-
 def transcribe(wav_path):
     result = subprocess.run(
         [WHISPER_CLI, "-m", WHISPER_MODEL, "-f", wav_path, "--no-timestamps", "-nt"],
@@ -117,70 +112,145 @@ def speak(text):
     sd.wait()
 
 
-# Init Kokoro once
+# Init
 print("Loading Kokoro TTS...")
 kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
-print("Ready. Press SPACE to start/stop recording. Ctrl+C to quit.\n")
+print("Ready.\n")
 
 conversation = [{"role": "system", "content": load_shortmem()}]
 session_turns = []
 
-if __name__ == "__main__":
-    try:
-        while True:
-            print("[Idle] Press SPACE to speak...", end="\r", flush=True)
-            key = get_keypress()
+# State
+recording = False
+processing = False
+audio_chunks = []
+stream = None
+ws_client = None  # single active WebSocket
 
-            if key == "\x03":  # Ctrl+C
-                raise KeyboardInterrupt
 
-            if key != " ":
-                continue
+async def send(msg: dict):
+    if ws_client:
+        try:
+            await ws_client.send_json(msg)
+        except Exception:
+            pass
 
-            # Start recording
-            audio_chunks = []
-            def callback(indata, frames, time, status):
+
+def handle_toggle(loop):
+    global recording, processing, audio_chunks, stream
+
+    if processing:
+        return
+
+    if not recording:
+        # Start recording
+        recording = True
+        audio_chunks = []
+
+        def callback(indata, frames, time, status):
+            if recording:
                 audio_chunks.append(indata.copy())
 
-            print("[RECORDING...] Press SPACE to stop.   ", flush=True)
-            stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
-            stream.start()
+        stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
+        stream.start()
+        asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "recording"}), loop)
+        print("[RECORDING...]")
 
-            # Wait for space again
-            while True:
-                key = get_keypress()
-                if key == "\x03":
-                    stream.stop()
-                    stream.close()
-                    raise KeyboardInterrupt
-                if key == " ":
-                    break
+    else:
+        # Stop recording
+        recording = False
+        stream.stop()
+        stream.close()
+        processing = True
+        asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "processing"}), loop)
 
-            stream.stop()
-            stream.close()
+        def process():
+            global processing
+            try:
+                if not audio_chunks:
+                    return
+                audio = np.concatenate(audio_chunks, axis=0)
+                tmp = tempfile.mktemp(suffix=".wav")
+                sf.write(tmp, audio, SAMPLERATE)
 
-            if not audio_chunks:
-                continue
+                text = transcribe(tmp)
+                os.remove(tmp)
 
-            print("[Processing...]                        ", flush=True)
-            audio = np.concatenate(audio_chunks, axis=0)
-            tmp = tempfile.mktemp(suffix=".wav")
-            sf.write(tmp, audio, SAMPLERATE)
+                if not text:
+                    return
 
-            text = transcribe(tmp)
-            os.remove(tmp)
+                print(f"You: {text}")
+                asyncio.run_coroutine_threadsafe(send({"type": "transcript", "role": "user", "text": text}), loop)
+                asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "thinking"}), loop)
 
-            if not text:
-                print("[No speech detected]")
-                continue
+                reply = ask_llm(text)
+                print(f"Bot: {reply}")
+                asyncio.run_coroutine_threadsafe(send({"type": "transcript", "role": "assistant", "text": reply}), loop)
+                asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "speaking"}), loop)
 
-            print(f"You: {text}")
-            print("[Thinking...]")
-            response = ask_llm(text)
-            print(f"Bot: {response}")
-            speak(response)
+                speak(reply)
+            except Exception as e:
+                print(f"[Error] {e}")
+            finally:
+                processing = False
+                asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
 
+        threading.Thread(target=process, daemon=True).start()
+
+
+def greet(loop):
+    reply = ask_llm("(The user just opened the app. Give a short, natural greeting. Do not mention memory or context.)")
+    print(f"Bot: {reply}")
+    asyncio.run_coroutine_threadsafe(send({"type": "transcript", "role": "assistant", "text": reply}), loop)
+    asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "speaking"}), loop)
+    speak(reply)
+    asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
+
+
+app = FastAPI()
+
+
+@app.get("/")
+async def index():
+    return FileResponse(INDEX_PATH)
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global ws_client
+    await websocket.accept()
+    ws_client = websocket
+    loop = asyncio.get_event_loop()
+    await send({"type": "state", "value": "thinking"})
+    loop = asyncio.get_event_loop()
+    threading.Thread(target=greet, args=(loop,), daemon=True).start()
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            if msg.get("action") == "toggle":
+                threading.Thread(target=handle_toggle, args=(loop,), daemon=True).start()
+            elif msg.get("action") == "shutdown":
+                print("\nShutdown requested from UI...")
+                if session_turns:
+                    save_shortmem(session_turns)
+                os._exit(0)
+    except WebSocketDisconnect:
+        ws_client = None
+
+
+def open_browser():
+    import time
+    time.sleep(1)
+    webbrowser.open("http://localhost:8000")
+
+
+if __name__ == "__main__":
+    threading.Thread(target=open_browser, daemon=True).start()
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
     except KeyboardInterrupt:
+        pass
+    finally:
         print("\nExiting...")
         if session_turns:
             save_shortmem(session_turns)
