@@ -153,6 +153,7 @@
           btn.className = state === 'idle' ? '' : state;
           btn.textContent = btnText[state] || '...';
           status.textContent = statusText[state] || '';
+          btn.disabled = !(state === 'idle' || state === 'recording');
         } else if (msg.type === 'transcript') {
           addMessage(msg.role, msg.text);
         }

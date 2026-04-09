@@ -1,5 +1,7 @@
 import os
 import asyncio
+from dotenv import load_dotenv
+load_dotenv()
 import tempfile
 import subprocess
 import threading
@@ -26,7 +28,7 @@ OLLAMA_MODEL = "gemma4:e2b"
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
 INDEX_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 
-SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today's date is {datetime.now().strftime('%A, %B %d %Y')}. Use the get_time tool when asked for the current time."
+SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today's date is {datetime.now().strftime('%A, %B %d %Y')}. Use the get_time tool when asked for the current time. Use the get_weather tool when asked about the weather — when reporting weather, give a full summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind."
 
 SAMPLERATE = 16000
 
@@ -38,13 +40,69 @@ TOOLS = [
             "description": "Returns the current local time.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
-    }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": f"Returns the current weather in {LOCATION_NAME}.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
+
+LOCATION_NAME = os.getenv("LOCATION_NAME", "Unknown")
+LOCATION_LAT = float(os.getenv("LOCATION_LAT", "0"))
+LOCATION_LON = float(os.getenv("LOCATION_LON", "0"))
+LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "UTC")
+
+WMO_CODES = {
+    0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
+    45: "foggy", 48: "icy fog", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle",
+    61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow",
+    75: "heavy snow", 77: "snow grains", 80: "light showers", 81: "showers", 82: "heavy showers",
+    85: "snow showers", 86: "heavy snow showers", 95: "thunderstorm",
+    96: "thunderstorm with hail", 99: "thunderstorm with heavy hail",
+}
 
 
 def run_tool(name, args):
     if name == "get_time":
         return datetime.now().strftime("%H:%M:%S")
+    if name == "get_weather":
+        resp = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": LOCATION_LAT,
+                "longitude": LOCATION_LON,
+                "current": "temperature_2m,apparent_temperature,weathercode,windspeed_10m,wind_direction_10m",
+                "daily": "temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum",
+                "temperature_unit": "celsius",
+                "windspeed_unit": "kmh",
+                "timezone": LOCATION_TIMEZONE,
+                "forecast_days": 1,
+            },
+            timeout=5,
+        )
+        data = resp.json()
+        c = data["current"]
+        d = data["daily"]
+        dirs = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"]
+        condition = WMO_CODES.get(c["weathercode"], "unknown")
+        outlook = WMO_CODES.get(d["weathercode"][0], "unknown")
+        temp = round(c['temperature_2m'])
+        feels = round(c['apparent_temperature'])
+        low = round(d['temperature_2m_min'][0])
+        high = round(d['temperature_2m_max'][0])
+        wind = round(c['windspeed_10m'])
+        wind_dir = dirs[round(c['wind_direction_10m'] / 45) % 8]
+        return (
+            f"Read out this full weather report naturally: "
+            f"Currently {condition}, {temp} degrees Celsius, feels like {feels} degrees Celsius. "
+            f"Today's low is {low} degrees Celsius and the high is {high} degrees Celsius. "
+            f"Outlook: {outlook}. "
+            f"Wind: {wind} kilometers per hour from the {wind_dir}."
+        )
     return "unknown tool"
 
 
@@ -165,6 +223,7 @@ session_turns = []
 # State
 recording = False
 processing = False
+greeted = False
 audio_chunks = []
 stream = None
 ws_client = None  # single active WebSocket
@@ -260,12 +319,16 @@ async def index():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     global ws_client
+    global greeted
     await websocket.accept()
     ws_client = websocket
     loop = asyncio.get_event_loop()
-    await send({"type": "state", "value": "thinking"})
-    loop = asyncio.get_event_loop()
-    threading.Thread(target=greet, args=(loop,), daemon=True).start()
+    if not greeted:
+        greeted = True
+        await send({"type": "state", "value": "thinking"})
+        threading.Thread(target=greet, args=(loop,), daemon=True).start()
+    else:
+        await send({"type": "state", "value": "idle"})
     try:
         while True:
             msg = await websocket.receive_json()
