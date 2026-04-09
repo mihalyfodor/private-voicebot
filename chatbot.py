@@ -22,13 +22,30 @@ KOKORO_VOICES = os.path.expanduser("~/kokoro/voices-v1.0.bin")
 KOKORO_VOICE = "af_heart"
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "gemma3:4b"
+OLLAMA_MODEL = "gemma4:e2b"
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
 INDEX_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 
-SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today is {datetime.now().strftime('%A, %B %d %Y %H:%M')}."
+SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today's date is {datetime.now().strftime('%A, %B %d %Y')}. Use the get_time tool when asked for the current time."
 
 SAMPLERATE = 16000
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_time",
+            "description": "Returns the current local time.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    }
+]
+
+
+def run_tool(name, args):
+    if name == "get_time":
+        return datetime.now().strftime("%H:%M:%S")
+    return "unknown tool"
 
 
 def load_shortmem():
@@ -94,13 +111,38 @@ def transcribe(wav_path):
 def ask_llm(user_text):
     conversation.append({"role": "user", "content": user_text})
     session_turns.append({"role": "user", "content": user_text})
+
     response = requests.post(OLLAMA_URL, json={
         "model": OLLAMA_MODEL,
         "messages": conversation,
+        "tools": TOOLS,
         "stream": False,
         "options": {"num_ctx": 32768}
     })
-    reply = response.json()["message"]["content"]
+    data = response.json()
+    if "message" not in data:
+        print(f"[Ollama error] {data}")
+        raise KeyError(f"No 'message' in response: {data}")
+    msg = data["message"]
+
+    if msg.get("tool_calls"):
+        conversation.append(msg)
+        for tc in msg["tool_calls"]:
+            name = tc["function"]["name"]
+            args = tc["function"].get("arguments", {})
+            result = run_tool(name, args)
+            print(f"[Tool] {name}() → {result}")
+            conversation.append({"role": "tool", "content": result})
+
+        response = requests.post(OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "messages": conversation,
+            "stream": False,
+            "options": {"num_ctx": 32768}
+        })
+        msg = response.json()["message"]
+
+    reply = msg["content"]
     conversation.append({"role": "assistant", "content": reply})
     session_turns.append({"role": "assistant", "content": reply})
     return reply
