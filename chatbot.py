@@ -8,6 +8,9 @@ import threading
 import webbrowser
 from datetime import datetime
 
+import xml.etree.ElementTree as ET
+from html.parser import HTMLParser
+
 import numpy as np
 import requests
 import sounddevice as sd
@@ -28,9 +31,14 @@ OLLAMA_MODEL = "gemma4:e2b"
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
 INDEX_PATH = os.path.join(os.path.dirname(__file__), "index.html")
 
-SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Today's date is {datetime.now().strftime('%A, %B %d %Y')}. Use the get_time tool when asked for the current time. Use the get_weather tool when asked about the weather — when reporting weather, give a full summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind."
+SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short and conversational. Talk like a person, not a chatbot. Never use markdown, bullet points, asterisks, or any special formatting — plain spoken sentences only. Today's date is {datetime.now().strftime('%A, %B %d %Y')}. Use the get_time tool when asked for the current time. Use the get_weather tool when asked about the weather — when reporting weather, give a full summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind. Use the get_news tool when asked about the news or current events. When the user asks for more details on a headline, use the get_news_detail tool with the URL from the previous get_news result — never say you cannot look it up."
 
 SAMPLERATE = 16000
+
+LOCATION_NAME = os.getenv("LOCATION_NAME", "Unknown")
+LOCATION_LAT = float(os.getenv("LOCATION_LAT", "0"))
+LOCATION_LON = float(os.getenv("LOCATION_LON", "0"))
+LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "UTC")
 
 TOOLS = [
     {
@@ -44,6 +52,28 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_news",
+            "description": "Returns the latest BBC world news headlines with URLs.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_news_detail",
+            "description": "Fetches the full text of a BBC news article by URL for a deeper summary.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "The BBC article URL to fetch."}
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_weather",
             "description": f"Returns the current weather in {LOCATION_NAME}.",
             "parameters": {"type": "object", "properties": {}, "required": []},
@@ -51,10 +81,29 @@ TOOLS = [
     },
 ]
 
-LOCATION_NAME = os.getenv("LOCATION_NAME", "Unknown")
-LOCATION_LAT = float(os.getenv("LOCATION_LAT", "0"))
-LOCATION_LON = float(os.getenv("LOCATION_LON", "0"))
-LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "UTC")
+class _TextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._parts = []
+        self._skip = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style", "nav", "header", "footer"):
+            self._skip = True
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style", "nav", "header", "footer"):
+            self._skip = False
+        if tag in ("p", "li", "h1", "h2", "h3"):
+            self._parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self._parts.append(data)
+
+    def get_text(self):
+        return " ".join(" ".join(self._parts).split())
+
 
 WMO_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
@@ -69,6 +118,24 @@ WMO_CODES = {
 def run_tool(name, args):
     if name == "get_time":
         return datetime.now().strftime("%H:%M:%S")
+    if name == "get_news":
+        resp = requests.get(
+            "http://feeds.bbci.co.uk/news/world/rss.xml",
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        root = ET.fromstring(resp.content)
+        items = root.findall(".//item")[:5]
+        entries = [(item.findtext("title", "").strip(), item.findtext("link", "").strip()) for item in items]
+        lines = " | ".join(f"{i+1}. {t} (URL: {u})" for i, (t, u) in enumerate(entries))
+        return "Read out these top 5 BBC world news headlines naturally, without mentioning the URLs: " + lines
+    if name == "get_news_detail":
+        url = args.get("url", "")
+        resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        parser = _TextExtractor()
+        parser.feed(resp.text)
+        text = parser.get_text()[:4000]
+        return f"Give a detailed spoken summary of this BBC article for a voice listener — cover the key facts, context, and any notable quotes, in around 150 to 200 words: {text}"
     if name == "get_weather":
         resp = requests.get(
             "https://api.open-meteo.com/v1/forecast",
