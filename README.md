@@ -1,8 +1,10 @@
 # Voicebot
 
-A local voice assistant with memory. Runs entirely on your machine — no cloud, no API keys.
+A local voice assistant with memory and real-time tools. Runs entirely on your machine — no cloud LLM, no API keys.
 
-**Stack:** Whisper (STT) → Ollama/Gemma (LLM) → Kokoro (TTS)
+**Stack:** Whisper (STT) → Ollama/Gemma 4 (LLM) → Kokoro (TTS)
+
+**Built-in tools:** current time, weather (open-meteo), BBC world news headlines + article detail
 
 ## Requirements
 
@@ -37,7 +39,7 @@ curl -L -o ~/kokoro/voices-v1.0.bin \
   https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin
 
 # Pull the LLM
-ollama pull gemma3:4b
+ollama pull gemma4:e2b
 
 # Python environment
 python3 -m venv .venv
@@ -54,6 +56,19 @@ python3 chatbot.py    # opens browser automatically
 ```
 
 Press **Space** or click the button to start/stop recording. Use **Shut down** in the browser to exit cleanly.
+
+## Weather configuration
+
+Weather uses [open-meteo](https://open-meteo.com) (no API key). Set your location via env vars before running:
+
+```bash
+export LOCATION_NAME="Budapest"
+export LOCATION_LAT=47.4979
+export LOCATION_LON=19.0402
+export LOCATION_TIMEZONE="Europe/Budapest"
+```
+
+Defaults to Seychelles if unset. Enjoy the tropical weather reports.
 
 ## Memory
 

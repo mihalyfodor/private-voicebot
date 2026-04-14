@@ -35,10 +35,10 @@ SYSTEM_PROMPT = f"You are a voice assistant with memory. Keep responses short an
 
 SAMPLERATE = 16000
 
-LOCATION_NAME = os.getenv("LOCATION_NAME", "Unknown")
-LOCATION_LAT = float(os.getenv("LOCATION_LAT", "0"))
-LOCATION_LON = float(os.getenv("LOCATION_LON", "0"))
-LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "UTC")
+LOCATION_NAME = os.getenv("LOCATION_NAME", "Seychelles")
+LOCATION_LAT = float(os.getenv("LOCATION_LAT", "-4.6796"))
+LOCATION_LON = float(os.getenv("LOCATION_LON", "55.4920"))
+LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "Indian/Mahe")
 
 TOOLS = [
     {
