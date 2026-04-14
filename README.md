@@ -62,10 +62,10 @@ Press **Space** or click the button to start/stop recording. Use **Shut down** i
 Weather uses [open-meteo](https://open-meteo.com) (no API key). Set your location via env vars before running:
 
 ```bash
-export LOCATION_NAME="Budapest"
-export LOCATION_LAT=47.4979
-export LOCATION_LON=19.0402
-export LOCATION_TIMEZONE="Europe/Budapest"
+export LOCATION_NAME="Seychelles"
+export LOCATION_LAT=-4.6796
+export LOCATION_LON=55.4920
+export LOCATION_TIMEZONE="Indian/Mahe"
 ```
 
 Defaults to Seychelles if unset. Enjoy the tropical weather reports.
