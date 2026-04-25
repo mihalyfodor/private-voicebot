@@ -73,3 +73,7 @@ Defaults to Seychelles if unset. Enjoy the tropical weather reports.
 ## Memory
 
 Conversations are summarized and saved to `shortmem.txt` on exit. This file is loaded on next startup as background context. It is gitignored — personal to your machine.
+
+## Development process
+
+This project follows the [side-project-sdlc](https://github.com/mihalyfodor/side-project-sdlc) — a lightweight 3-phase process (Exploration → Implementation → Refactoring) for building personal apps with AI assistance.
