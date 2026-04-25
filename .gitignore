@@ -3,4 +3,7 @@ shortmem.txt
 .env
 credentials.json
 token.json
+__pycache__/
+*.pyc
+session.log
 
