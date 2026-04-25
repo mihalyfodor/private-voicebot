@@ -6,4 +6,7 @@ token.json
 __pycache__/
 *.pyc
 session.log
+.DS_Store
+.pytest_cache/
+context.md
 
