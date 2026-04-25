@@ -38,7 +38,7 @@ voicebot/
 
 ## Active PRDs
 
-None — all features at `done`.
+- [02-llm-robustness-tests.md](02-llm-robustness-tests.md) — LLM tool-trigger robustness tests (implementation)
 
 ## Completed PRDs
 
