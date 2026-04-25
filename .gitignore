@@ -1,4 +1,6 @@
 shortmem.txt
 .venv/
 .env
+credentials.json
+token.json
 
