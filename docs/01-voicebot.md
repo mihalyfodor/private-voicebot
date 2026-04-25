@@ -1,5 +1,7 @@
 # PRD: Local Voice Chatbot
 
+Status: done
+
 ## Overview
 
 A fully offline, privacy-first voice chatbot that runs entirely on a MacBook. The user speaks, the system listens, thinks, and speaks back — no internet required, no API keys, no cloud services.
