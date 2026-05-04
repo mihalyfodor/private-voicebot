@@ -49,6 +49,7 @@ pip install -r requirements.txt
 
 ## Run
 
+**Voice assistant:**
 ```bash
 ollama serve          # if not already running
 source .venv/bin/activate
@@ -56,6 +57,14 @@ python3 chatbot.py    # opens browser automatically
 ```
 
 Press **Space** or click the button to start/stop recording. Use **Shut down** in the browser to exit cleanly.
+
+**Email triage dashboard:**
+```bash
+source .venv/bin/activate
+python3 workflows/email_classification.py   # opens browser automatically
+```
+
+Fetches your Gmail inbox, classifies each email via local LLM (category, urgency, confidence), and streams results to a browser dashboard. Click ▲/▼ to adjust urgency or the category badge to change category — corrections are remembered and applied automatically on future runs. Requires Gmail API credentials (`credentials.json`) in the project root.
 
 ## Weather configuration
 
