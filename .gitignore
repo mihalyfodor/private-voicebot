@@ -6,6 +6,11 @@ token.json
 __pycache__/
 *.pyc
 session.log
+workflows/classification_cache.json
+workflows/classification_rules.py
+workflows/classification.log
+workflows/classification_feedback.json
+workflows/classification_learned_rules.json
 .DS_Store
 .pytest_cache/
 context.md
