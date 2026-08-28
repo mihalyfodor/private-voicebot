@@ -326,7 +326,7 @@ def get_last_tool_calls() -> list:
 
 
 def save_memory():
-    """Summarise this session into shortmem.txt. Idempotent: turns are cleared once saved."""
+    """Fold this session into the memory.json profile. Idempotent: turns are cleared once saved."""
     global _session_turns
     if _session_turns:
         turns, _session_turns = _session_turns, []
