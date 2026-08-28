@@ -49,9 +49,13 @@ const btn = document.getElementById('btn');
 const status = document.getElementById('status');
 const transcript = document.getElementById('transcript');
 const avatarNote = document.getElementById('avatar-note');
+let shutdownRequested = false;
 document.getElementById('shutdown').onclick = () => {
+  shutdownRequested = true;
   ws.send(JSON.stringify({ action: 'shutdown' }));
-  window.close();
+  openDrawer(false);
+  status.textContent = 'shutting down…';
+  window.close(); // only works for script-opened tabs; otherwise the status line tells the story
 };
 document.getElementById('reload-characters').onclick = () => {
   ws.send(JSON.stringify({ action: 'reload_characters' }));
@@ -452,6 +456,7 @@ function connect() {
 
   ws.onopen = () => render();
   ws.onclose = (e) => {
+    if (shutdownRequested) { status.textContent = 'shut down — close this tab'; btn.disabled = true; return; }
     if (e.code === 4000) {
       status.textContent = 'opened in another tab — reload to use here';
       return; // do not auto-reconnect: the other tab now owns the connection
