@@ -86,6 +86,7 @@ def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
+        ws.receive_json()  # hands_free
         ws.receive_json()  # initial idle state (greeted already True)
         ws.send_json({"action": "set_avatar", "key": "natori"})
 
@@ -122,6 +123,7 @@ def test_reload_characters_ws_action(monkeypatch):
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
+        ws.receive_json()  # hands_free
         ws.receive_json()  # initial idle state
         ws.send_json({"action": "reload_characters"})
         msg = ws.receive_json()
@@ -141,6 +143,7 @@ def test_reconnect_replays_transcript(monkeypatch):
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
         assert ws.receive_json() == {"type": "transcript", "role": "user", "text": "hello"}
+        assert ws.receive_json()["type"] == "hands_free"
         assert ws.receive_json()["type"] == "state"
 
 

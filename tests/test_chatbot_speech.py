@@ -96,18 +96,14 @@ def test_empty_transcript_still_sends_idle_state(monkeypatch):
         sent.append(msg)
 
     monkeypatch.setattr(chatbot, "send", fake_send)
-    monkeypatch.setattr(chatbot, "transcribe", lambda path: "")
-    monkeypatch.setattr(chatbot.sf, "write", lambda *a, **k: None)
-    monkeypatch.setattr(chatbot.os, "remove", lambda path: None)
-    monkeypatch.setattr(chatbot, "recording", True)
-    monkeypatch.setattr(chatbot, "audio_chunks", [np.zeros((10, 1), dtype=np.float32)])
-    monkeypatch.setattr(chatbot, "stream", SimpleNamespace(stop=lambda: None, close=lambda: None))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: ""))
+    monkeypatch.setattr(chatbot, "processing", False)
 
     loop = asyncio.new_event_loop()
     loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
     loop_thread.start()
     try:
-        chatbot.handle_toggle(loop)
+        chatbot.handle_utterance(np.zeros(10, dtype=np.float32), loop)
         for _ in range(100):
             if not chatbot.processing:
                 break
@@ -121,6 +117,41 @@ def test_empty_transcript_still_sends_idle_state(monkeypatch):
         loop_thread.join(timeout=2)
 
     assert {"type": "state", "value": "idle"} in sent
+    assert not any(m["type"] == "transcript" for m in sent)
+
+
+def test_nonempty_transcript_sends_transcript_and_calls_respond(monkeypatch):
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    respond_calls = []
+
+    monkeypatch.setattr(chatbot, "send", fake_send)
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "hello there"))
+    monkeypatch.setattr(chatbot, "respond", lambda text, loop: respond_calls.append(text))
+    monkeypatch.setattr(chatbot, "processing", False)
+
+    loop = asyncio.new_event_loop()
+    loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
+    loop_thread.start()
+    try:
+        chatbot.handle_utterance(np.zeros(10, dtype=np.float32), loop)
+        for _ in range(100):
+            if not chatbot.processing:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("processing never finished")
+        time.sleep(0.05)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        loop_thread.join(timeout=2)
+
+    assert respond_calls == ["hello there"]
+    assert {"type": "transcript", "role": "user", "text": "hello there"} in sent
+    assert not any(m == {"type": "state", "value": "idle"} for m in sent)
 
 
 def test_disconnect_only_clears_the_current_ws_client():
@@ -142,18 +173,3 @@ def test_disconnect_only_clears_the_current_ws_client():
         assert chatbot.ws_client is second_client
 
 
-def test_mic_open_failure_stays_idle(monkeypatch):
-    import asyncio
-    sent = []
-
-    class BoomStream:
-        def __init__(self, *a, **k):
-            raise RuntimeError("PaErrorCode -9986")
-
-    monkeypatch.setattr(chatbot.sd, "InputStream", BoomStream)
-    monkeypatch.setattr(chatbot, "recording", False)
-    monkeypatch.setattr(chatbot, "processing", False)
-    monkeypatch.setattr(chatbot.asyncio, "run_coroutine_threadsafe", lambda coro, loop: (sent.append(coro), coro.close()))
-    chatbot.handle_toggle(loop=None)
-    assert chatbot.recording is False
-    assert len(sent) == 2  # error + idle
