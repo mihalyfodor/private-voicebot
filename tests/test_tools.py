@@ -1,4 +1,5 @@
 import re
+import pytest
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -22,6 +23,9 @@ def test_get_news():
 
 
 def test_get_emails():
+    from tools import gmail
+    if not gmail.is_configured():
+        pytest.skip("Gmail not configured (credentials.json missing)")
     result = run_tool("get_emails", {"max_results": 1})
     assert "From" in result or "empty" in result, f"Unexpected email result: {result}"
 
@@ -29,3 +33,9 @@ def test_get_emails():
 def test_unknown_tool():
     result = run_tool("nonexistent", {})
     assert result == "unknown tool"
+
+
+def test_gmail_unconfigured_returns_message(monkeypatch):
+    from tools import gmail
+    monkeypatch.setattr(gmail, "is_configured", lambda: False)
+    assert "not set up" in gmail.run({})
