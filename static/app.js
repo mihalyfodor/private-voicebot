@@ -11,7 +11,7 @@ const PROFILES = {
   },
   wanko: {
     modelUrl: '/static/models/wanko/Wanko.model3.json',
-    avatarScale: 1.0, avatarTopCrop: -0.05, idle: 'Idle',
+    avatarScale: 1.0, avatarTopCrop: 0.12, idle: 'Idle',
     mouthParam: 'PARAM_MOUTH_OPEN_Y',
     // No expression files: hand-built parameter sets, applied each frame with a lerped weight.
     expressions: {
@@ -57,12 +57,39 @@ const backdrop = document.getElementById('drawer-backdrop');
 const avatarList = document.getElementById('avatar-list');
 let avatarOptions = [];
 let currentAvatarKey = null;
+let backdropOptions = [];
+let currentBackdropKey = 'none';
+const backdropEl = document.getElementById('backdrop');
+const backdropList = document.getElementById('backdrop-list');
+
+function applyBackdrop(key) {
+  currentBackdropKey = key;
+  const b = backdropOptions.find(x => x.key === key);
+  if (b && b.file) {
+    backdropEl.style.backgroundImage = `url("${b.file}")`;
+    backdropEl.classList.add('on');
+  } else {
+    backdropEl.classList.remove('on');
+  }
+  const credit = document.getElementById('credit');
+  credit.textContent = [profile.credit, b && b.credit].filter(Boolean).join('  ·  ');
+}
+
+function renderBackdropList() {
+  backdropList.replaceChildren(...backdropOptions.map(b => {
+    const c = document.createElement('button');
+    c.className = 'chip' + (b.key === currentBackdropKey ? ' active' : '');
+    c.textContent = b.name;
+    c.onclick = () => ws.send(JSON.stringify({ action: 'set_backdrop', key: b.key }));
+    return c;
+  }));
+}
 
 function openDrawer(open) {
   drawer.classList.toggle('open', open);
   drawer.setAttribute('aria-hidden', String(!open));
   backdrop.hidden = !open;
-  if (open) renderAvatarList();
+  if (open) { renderAvatarList(); renderBackdropList(); }
 }
 document.getElementById('menu-btn').onclick = () => openDrawer(!drawer.classList.contains('open'));
 backdrop.onclick = () => openDrawer(false);
@@ -158,6 +185,8 @@ const avatar = {
       avatarOptions = cfg.avatars || [];
       currentAvatarKey = cfg.avatar;
       avatarName = cfg.name || avatarName;
+      backdropOptions = cfg.backdrops || [];
+      currentBackdropKey = cfg.backdrop || 'none';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
 
     const canvas = document.getElementById('stage');
@@ -171,7 +200,7 @@ const avatar = {
 
   async load(key) {
     profile = PROFILES[key] || profile;
-    document.getElementById('credit').textContent = profile.credit || '';
+    applyBackdrop(currentBackdropKey);
     if (this.model) { this.app.stage.removeChild(this.model); this.model.destroy(); this.model = null; }
     this.paramTarget = {}; this.paramWeight = 0; this.currentEmotion = 'neutral';
 
@@ -250,6 +279,7 @@ function connect() {
       currentAvatarKey = msg.key; avatarName = msg.name;
       avatar.load(msg.key);
     }
+    else if (msg.type === 'backdrop') { applyBackdrop(msg.key); renderBackdropList(); }
     else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); }
   };
 

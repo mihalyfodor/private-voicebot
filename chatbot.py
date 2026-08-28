@@ -13,6 +13,7 @@ import llm
 import splitter
 import fillers
 import avatars
+import backdrops
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -220,9 +221,19 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+def current_backdrop() -> str:
+    try:
+        return backdrops.validate(avatars.load_settings().get("backdrop") or backdrops.DEFAULT)
+    except ValueError:
+        return backdrops.DEFAULT
+
+
 @app.get("/api/config")
 async def api_config():
-    return {"avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing()}
+    return {
+        "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
+        "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
+    }
 
 
 @app.get("/")
@@ -249,6 +260,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 threading.Thread(target=handle_toggle, args=(loop,), daemon=True).start()
             elif action == "playback_done":
                 playback_done.set()
+            elif action == "set_backdrop":
+                try:
+                    key = backdrops.validate(msg.get("key", ""))
+                    avatars.save_setting("backdrop", key)
+                    await send({"type": "backdrop", "key": key})
+                except ValueError as e:
+                    await send({"type": "error", "text": str(e)})
             elif action == "set_avatar":
                 if processing:
                     await send({"type": "error", "text": "Wait until the reply finishes."})

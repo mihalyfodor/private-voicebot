@@ -32,12 +32,23 @@ DEFAULT = "wanko"
 _current: str | None = None
 
 
-def _load_saved() -> str | None:
+def load_settings() -> dict:
     try:
         with open(SETTINGS_PATH) as f:
-            return json.load(f).get("avatar")
+            return json.load(f)
     except (OSError, ValueError):
-        return None
+        return {}
+
+
+def save_setting(key: str, value) -> None:
+    data = load_settings()
+    data[key] = value
+    with open(SETTINGS_PATH, "w") as f:
+        json.dump(data, f)
+
+
+def _load_saved() -> str | None:
+    return load_settings().get("avatar")
 
 
 def _validate(key: str) -> str:
@@ -57,8 +68,7 @@ def current_key() -> str:
 def set_current(key: str) -> dict:
     global _current
     _current = _validate(key)
-    with open(SETTINGS_PATH, "w") as f:
-        json.dump({"avatar": _current}, f)
+    save_setting("avatar", _current)
     return current()
 
 
