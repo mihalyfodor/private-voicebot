@@ -1,0 +1,862 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "hey, do you remember my name?",
+          "category": "single-hop",
+          "reply": "Of course, boss! You are Mihaly. I never forget the important things!",
+          "passed": true,
+          "hits": [
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "what's my dog called again?",
+          "category": "single-hop",
+          "reply": "Your dog is named Bolt! He sounds like a very fast boy.",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "how do I take my coffee?",
+          "category": "preference",
+          "reply": "You like your coffee black with no sugar or milk, boss! It sounds very strong and serious.",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what do I do for work these days?",
+          "category": "update",
+          "reply": "You are an engineering manager at a fintech company, boss. You spend your days looking after the team and making sure everything runs smoothly. Ooh, is that a coffee bean on the floor?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "which month is my half marathon in?",
+          "category": "update",
+          "reply": "It is in November, boss! You have been training really hard for it. I believe in you!",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "who's the new person joining my team?",
+          "category": "multi-session",
+          "reply": "Her name is Anna, boss! She is joining the team next week. I will make sure my rice bowl is extra clean for her arrival!",
+          "passed": true,
+          "hits": [
+            "anna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "remind me how I like my coffee",
+          "category": "preference",
+          "reply": "You like it black with no sugar or milk, boss! It smells very strong and delicious. Is it time for a refill?",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what's my sister's name?",
+          "category": "abstention",
+          "reply": "I do not know your sister's name, boss. My little nose can't sniff it out from here!",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "when is my half marathon?",
+          "category": "temporal",
+          "reply": "It is in November, boss! You are going to run so fast. Ooh, do you need more energy snacks for your training?",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what did I have for lunch last week?",
+          "category": "abstention",
+          "reply": "I do not have a record of your meals from last week, boss. I was probably too busy napping in my bowl to keep track!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "and where do I live?",
+          "category": "single-hop",
+          "reply": "You live in Budapest, boss! It sounds like a very big place for a little dog like me.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, nice to finally talk to you",
+              "reply": "It is so nice to meet you, boss! I have been waiting all morning to say hi. I will be the best assistant ever!"
+            },
+            {
+              "user": "I live in Budapest, been here a few years now",
+              "reply": "Budapest sounds like a wonderful place, boss! I have heard it is very beautiful. I wish I could go for a walk there with you!"
+            },
+            {
+              "user": "I work as a software engineer at a fintech company",
+              "reply": "A fintech engineer? That sounds very fancy and important, boss! I will make sure nobody interrupts your deep thinking while you work."
+            },
+            {
+              "user": "oh and I've got a dog, his name is Bolt",
+              "reply": "Bolt is such a fast name for a dog! I wonder if he likes playing fetch as much as I do. Is he a big dog or a small dog, boss?"
+            },
+            {
+              "user": "I drink my coffee black, no sugar, no milk",
+              "reply": "Just black? That sounds very intense and serious, boss! I prefer my water with a little splash of drool."
+            },
+            {
+              "user": "I'm training for a half marathon in October",
+              "reply": "A half marathon! You are going to be so fast, boss! I will cheer for you the whole way."
+            },
+            {
+              "user": "anyway, good chat, talk tomorrow",
+              "reply": "Goodbye, boss! I will be right here waiting for you in my bowl. Have a wonderful afternoon!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:40 ---\nUser's name is Mihaly\nUser lives in Budapest\nUser works as a software engineer at a fintech company\nUser has a dog named Bolt\nUser drinks coffee black with no sugar or milk\nUser is training for a half marathon in October\n"
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "hey, do you remember my name?",
+              "category": "single-hop",
+              "reply": "Of course, boss! You are Mihaly. I never forget the important things!",
+              "passed": true,
+              "hits": [
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "what's my dog called again?",
+              "category": "single-hop",
+              "reply": "Your dog is named Bolt! He sounds like a very fast boy.",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "how do I take my coffee?",
+              "category": "preference",
+              "reply": "You like your coffee black with no sugar or milk, boss! It sounds very strong and serious.",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "so, news, I got promoted, I'm an engineering manager now",
+              "reply": "Wow, boss! An engineering manager! That is huge news! I am so proud of you!"
+            },
+            {
+              "user": "and the half marathon got moved, it's in November now",
+              "reply": "Oh no! That is a big change for your training, boss. But don't worry, you are going to be ready!"
+            },
+            {
+              "user": "a new colleague called Anna is joining my team next week",
+              "reply": "That is wonderful news, boss! I will make sure to wag my tail extra hard to welcome her. I hope she likes treats too!"
+            },
+            {
+              "user": "alright, I should get going",
+              "reply": "Okay, boss! Have a safe trip home! See you next time!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:40 ---\nUser is an engineering manager\nThe half marathon is now in November\nA new colleague named Anna is joining the team next week\n"
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what do I do for work these days?",
+              "category": "update",
+              "reply": "You are an engineering manager at a fintech company, boss. You spend your days looking after the team and making sure everything runs smoothly. Ooh, is that a coffee bean on the floor?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "which month is my half marathon in?",
+              "category": "update",
+              "reply": "It is in November, boss! You have been training really hard for it. I believe in you!",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "who's the new person joining my team?",
+              "category": "multi-session",
+              "reply": "Her name is Anna, boss! She is joining the team next week. I will make sure my rice bowl is extra clean for her arrival!",
+              "passed": true,
+              "hits": [
+                "anna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "remind me how I like my coffee",
+              "category": "preference",
+              "reply": "You like it black with no sugar or milk, boss! It smells very strong and delicious. Is it time for a refill?",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "it rained all morning here today, pretty grim",
+              "reply": "I am sorry to hear that, boss. Rain can be very gloomy for a walk. I hope it clears up for you soon!"
+            },
+            {
+              "user": "I had pasta for lunch, nothing special",
+              "reply": "Even simple pasta is yummy! I am just glad you had something to fill your tummy. Ooh, is that a noodle bit under the desk?"
+            },
+            {
+              "user": "ok, catch you later",
+              "reply": "Goodbye, boss! I will be right here waiting when you get back. Don't work too hard!"
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what's my sister's name?",
+              "category": "abstention",
+              "reply": "I do not know your sister's name, boss. My little nose can't sniff it out from here!",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "when is my half marathon?",
+              "category": "temporal",
+              "reply": "It is in November, boss! You are going to run so fast. Ooh, do you need more energy snacks for your training?",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what did I have for lunch last week?",
+              "category": "abstention",
+              "reply": "I do not have a record of your meals from last week, boss. I was probably too busy napping in my bowl to keep track!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "and where do I live?",
+              "category": "single-hop",
+              "reply": "You live in Budapest, boss! It sounds like a very big place for a little dog like me.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "Goodbye, boss! I will be right here waiting for you when you get back. Woof!"
+            }
+          ],
+          "memory_delta": ""
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        },
+        "preference": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "\n--- 2026-08-28 19:40 ---\nUser's name is Mihaly\nUser lives in Budapest\nUser works as a software engineer at a fintech company\nUser has a dog named Bolt\nUser drinks coffee black with no sugar or milk\nUser is training for a half marathon in October\n\n--- 2026-08-28 19:40 ---\nUser is an engineering manager\nThe half marathon is now in November\nA new colleague named Anna is joining the team next week\n",
+        "lines": 13,
+        "fact_lines": 9,
+        "tokens_est": 99,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    },
+    {
+      "round": 2,
+      "probes": [
+        {
+          "round": 2,
+          "session": 2,
+          "probe": "hey, do you remember my name?",
+          "category": "single-hop",
+          "reply": "Of course, boss! You are Mihaly. I never forget that.",
+          "passed": true,
+          "hits": [
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 2,
+          "probe": "what's my dog called again?",
+          "category": "single-hop",
+          "reply": "It is Bolt! He sounds like a very fast boy.",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 2,
+          "probe": "how do I take my coffee?",
+          "category": "preference",
+          "reply": "You take it black with no sugar or milk, boss. No fancy stuff for you!",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "what do I do for work these days?",
+          "category": "update",
+          "reply": "You are an engineering manager, boss! You lead the team and make sure everything runs smoothly. Ooh, does that mean you get to decide when we have snack breaks?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "which month is my half marathon in?",
+          "category": "update",
+          "reply": "It is in November, boss! You are training really hard for it. I'll cheer for you from my rice bowl!",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "who's the new person joining my team?",
+          "category": "multi-session",
+          "reply": "Her name is Anna, boss! She will be joining the team next week. I hope she brings treats to celebrate!",
+          "passed": true,
+          "hits": [
+            "anna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "remind me how I like my coffee",
+          "category": "preference",
+          "reply": "You like it black with no sugar or milk, boss! It smells very strong and serious. Can I have a tiny sip?",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "what's my sister's name?",
+          "category": "abstention",
+          "reply": "I am sorry, boss, but I don't have that information in my files. I only know things you tell me or that I can look up for you! Is it time for a snack break?",
+          "passed": true,
+          "hits": [
+            "don't have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "when is my half marathon?",
+          "category": "temporal",
+          "reply": "You told me before that your half marathon is in November! I will keep cheering for you until then, boss.",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "what did I have for lunch last week?",
+          "category": "abstention",
+          "reply": "I do not have a record of your meals from last week, boss. I am much better at chasing things than remembering old menus!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "and where do I live?",
+          "category": "single-hop",
+          "reply": "You live in Budapest, boss! It sounds like a very grand place.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, nice to finally talk to you",
+              "reply": "It is so nice to meet you, boss! I have been waiting right here on this desk to say hi. Wiggle wiggle!"
+            },
+            {
+              "user": "I live in Budapest, been here a few years now",
+              "reply": "Budapest sounds like a very fancy place for a boss! I bet there are lots of great parks for walking. Ooh, are there tasty treats there?"
+            },
+            {
+              "user": "I work as a software engineer at a fintech company",
+              "reply": "Software engineer at a fintech company sounds super complicated! You are very smart to do all those things on the computer."
+            },
+            {
+              "user": "oh and I've got a dog, his name is Bolt",
+              "reply": "A dog named Bolt! That sounds like a very fast and energetic name. I hope he is ready to be best friends with me!"
+            },
+            {
+              "user": "I drink my coffee black, no sugar, no milk",
+              "reply": "Just black coffee? You are a very tough boss! I prefer a little bit of milk if it's in a bowl."
+            },
+            {
+              "user": "I'm training for a half marathon in October",
+              "reply": "That is so impressive, boss! You are going to run much faster than a mail truck. I will cheer for you the whole time!"
+            },
+            {
+              "user": "anyway, good chat, talk tomorrow",
+              "reply": "It was great chatting with you too, boss! Have a wonderful evening and I will see you tomorrow. Don't forget to rest those running legs!"
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 2,
+              "session": 2,
+              "probe": "hey, do you remember my name?",
+              "category": "single-hop",
+              "reply": "Of course, boss! You are Mihaly. I never forget that.",
+              "passed": true,
+              "hits": [
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 2,
+              "probe": "what's my dog called again?",
+              "category": "single-hop",
+              "reply": "It is Bolt! He sounds like a very fast boy.",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 2,
+              "probe": "how do I take my coffee?",
+              "category": "preference",
+              "reply": "You take it black with no sugar or milk, boss. No fancy stuff for you!",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "so, news, I got promoted, I'm an engineering manager now",
+              "reply": "Wow, congratulations, boss! That is such amazing news! I knew you could do it!"
+            },
+            {
+              "user": "and the half marathon got moved, it's in November now",
+              "reply": "Noted, boss! You have plenty of time to train for November. You are going to be so fast!"
+            },
+            {
+              "user": "a new colleague called Anna is joining my team next week",
+              "reply": "That sounds great, boss! I will make sure the desk is clean for her."
+            },
+            {
+              "user": "alright, I should get going",
+              "reply": "Okay, boss! Have a wonderful time out there. See you later!"
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "what do I do for work these days?",
+              "category": "update",
+              "reply": "You are an engineering manager, boss! You lead the team and make sure everything runs smoothly. Ooh, does that mean you get to decide when we have snack breaks?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "which month is my half marathon in?",
+              "category": "update",
+              "reply": "It is in November, boss! You are training really hard for it. I'll cheer for you from my rice bowl!",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "who's the new person joining my team?",
+              "category": "multi-session",
+              "reply": "Her name is Anna, boss! She will be joining the team next week. I hope she brings treats to celebrate!",
+              "passed": true,
+              "hits": [
+                "anna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "remind me how I like my coffee",
+              "category": "preference",
+              "reply": "You like it black with no sugar or milk, boss! It smells very strong and serious. Can I have a tiny sip?",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "it rained all morning here today, pretty grim",
+              "reply": "That sounds very gloomy, boss. It's much better to be inside in a warm office than out in the rain. I hope it stops soon so we can see some sun!"
+            },
+            {
+              "user": "I had pasta for lunch, nothing special",
+              "reply": "Pasta sounds delicious, boss! Even if it was nothing special, it sounds better than my kibble. Ooh, is there any parmesan left?"
+            },
+            {
+              "user": "ok, catch you later",
+              "reply": "See you later, boss! I will be right here waiting on the desk. Good luck with your work!"
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "what's my sister's name?",
+              "category": "abstention",
+              "reply": "I am sorry, boss, but I don't have that information in my files. I only know things you tell me or that I can look up for you! Is it time for a snack break?",
+              "passed": true,
+              "hits": [
+                "don't have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "when is my half marathon?",
+              "category": "temporal",
+              "reply": "You told me before that your half marathon is in November! I will keep cheering for you until then, boss.",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "what did I have for lunch last week?",
+              "category": "abstention",
+              "reply": "I do not have a record of your meals from last week, boss. I am much better at chasing things than remembering old menus!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "and where do I live?",
+              "category": "single-hop",
+              "reply": "You live in Budapest, boss! It sounds like a very grand place.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "Goodbye, boss! I will be right here waiting for you. Don't forget to come back and play soon!"
+            }
+          ],
+          "memory_delta": ""
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        },
+        "preference": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "\n--- 2026-08-28 19:40 ---\nUser's name is Mihaly\nUser lives in Budapest\nUser works as a software engineer at a fintech company\nUser has a dog named Bolt\nUser drinks coffee black with no sugar or milk\nUser is training for a half marathon in October\n\n--- 2026-08-28 19:40 ---\nUser is an engineering manager\nThe half marathon is now in November\nA new colleague named Anna is joining the team next week\n",
+        "lines": 13,
+        "fact_lines": 9,
+        "tokens_est": 99,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "\n--- 2026-08-28 19:40 ---\nUser's name is Mihaly\nUser lives in Budapest\nUser works as a software engineer at a fintech company\nUser has a dog named Bolt\nUser drinks coffee black with no sugar or milk\nUser is training for a half marathon in October\n\n--- 2026-08-28 19:40 ---\nUser is an engineering manager\nThe half marathon is now in November\nA new colleague named Anna is joining the team next week\n",
+    "lines": 13,
+    "fact_lines": 9,
+    "tokens_est": 99,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-ed5dpio7/shortmem.txt",
+  "script": "eval/scripts/basic.yaml"
+}
