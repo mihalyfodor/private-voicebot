@@ -1,35 +1,44 @@
-"""Avatar profiles: server-side half (name, voice, persona). Client half lives in static/app.js PROFILES."""
+"""Avatar profiles: server-side half (name, voice, persona), derived from character cards.
+
+Client half lives in static/app.js PROFILES.
+"""
 import json
 import os
 
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
+import characters
 
-AVATARS = {
-    "wanko": {
-        "name": "Wanko",
-        "description": "Dog mascot, upbeat",
-        "voice": "am_puck",
-        "speed": 1.05,
-        "persona": "You are Wanko, a small, cheerful dog mascot who works as an office assistant. Warm and upbeat, but professional.",
-    },
-    "haru": {
-        "name": "Haru",
-        "description": "Office assistant, calm",
-        "voice": "af_sarah",
-        "speed": 0.95,
-        "persona": "You are Haru, a calm and friendly office assistant.",
-    },
-    "natori": {
-        "name": "Natori",
-        "description": "Office assistant, easygoing",
-        "voice": "am_michael",
-        "speed": 1.0,
-        "persona": "You are Natori, an easygoing, well-organised office assistant. Friendly and direct.",
-    },
-}
+SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
 
 DEFAULT = "wanko"
 _current: str | None = None
+
+
+def _build_avatars() -> dict:
+    avatars = {}
+    for key, card in characters.load_all().items():
+        avatars[key] = {
+            "name": card["name"],
+            "tagline": card["tagline"],
+            "description": card["tagline"],  # backward-compat alias
+            "voice": card["voice"],
+            "speed": card["speed"],
+            "greeting": card["greeting"],
+            "switch_greeting": card["switch_greeting"],
+            "persona": characters.build_persona(card),
+        }
+    return avatars
+
+
+AVATARS = _build_avatars()
+
+
+def reload() -> dict:
+    """Re-read cards from disk. Keeps the current key if still valid, else falls back to DEFAULT."""
+    global AVATARS, _current
+    AVATARS = _build_avatars()
+    if _current is not None and _current not in AVATARS:
+        _current = DEFAULT if DEFAULT in AVATARS else None
+    return current()
 
 
 def load_settings() -> dict:
@@ -85,4 +94,4 @@ def current() -> dict:
 
 
 def listing() -> list:
-    return [{"key": k, "name": v["name"], "description": v["description"]} for k, v in AVATARS.items()]
+    return [{"key": k, "name": v["name"], "description": v["tagline"]} for k, v in AVATARS.items()]

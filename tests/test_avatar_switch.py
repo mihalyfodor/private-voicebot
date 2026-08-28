@@ -45,6 +45,8 @@ def test_ws_set_avatar_switches_and_is_blocked_while_processing(monkeypatch):
     from fastapi.testclient import TestClient
     import chatbot
     chatbot.greeted = True  # skip greeting thread
+    # The switch greeting runs in a thread and flips `processing`; neutralise it for determinism.
+    monkeypatch.setattr(chatbot, "_switch_greet", lambda loop: setattr(chatbot, "processing", False))
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["type"] == "state"
@@ -57,3 +59,19 @@ def test_ws_set_avatar_switches_and_is_blocked_while_processing(monkeypatch):
         ws.send_json({"action": "set_avatar", "key": "haru"})
         assert ws.receive_json()["type"] == "error"
         assert avatars.current_key() == "natori"
+
+
+def test_switch_claims_processing_immediately(monkeypatch):
+    from fastapi.testclient import TestClient
+    import chatbot
+    chatbot.greeted = True
+    monkeypatch.setattr(chatbot, "_switch_greet", lambda loop: None)  # never releases → stays busy
+    monkeypatch.setattr(chatbot, "processing", False)
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"action": "set_avatar", "key": "haru"})
+        assert ws.receive_json()["type"] == "avatar"
+        ws.send_json({"action": "set_avatar", "key": "natori"})
+        assert ws.receive_json()["type"] == "error"
+    chatbot.processing = False

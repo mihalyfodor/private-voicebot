@@ -53,6 +53,9 @@ document.getElementById('shutdown').onclick = () => {
   ws.send(JSON.stringify({ action: 'shutdown' }));
   window.close();
 };
+document.getElementById('reload-characters').onclick = () => {
+  ws.send(JSON.stringify({ action: 'reload_characters' }));
+};
 
 // ---------- menu drawer ----------
 const drawer = document.getElementById('drawer');
@@ -310,6 +313,14 @@ function connect() {
       avatar.load(msg.key);
     }
     else if (msg.type === 'backdrop') { applyBackdrop(msg.key); renderBackdropList(); }
+    else if (msg.type === 'characters_reloaded') {
+      avatarOptions = msg.avatars || avatarOptions;
+      currentAvatarKey = msg.avatar;
+      avatarName = msg.name || avatarName;
+      renderAvatarList();
+      status.textContent = 'characters reloaded';
+      setTimeout(() => { status.textContent = statusText[state] || ''; }, 1500);
+    }
     else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); }
   };
 

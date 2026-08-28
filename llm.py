@@ -18,7 +18,8 @@ LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
 def build_system_prompt(avatar: dict) -> str:
     return (
-    f"{avatar['persona']} You have memory of past conversations. "
+    f"{avatar['persona']} "
+    f"You have memory of past conversations. "
     f"Keep responses short and conversational: at most two sentences. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
@@ -97,6 +98,12 @@ def set_avatar():
     _conversation[0] = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + (note if len(_conversation) > 1 else "")}
 
 
+def record_assistant(text: str) -> None:
+    """Append a canned (non-LLM-generated) assistant turn to the conversation/session history."""
+    _conversation.append({"role": "assistant", "content": text})
+    _session_turns.append({"role": "assistant", "content": text})
+
+
 def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks."""
     global _last_tool_calls
@@ -160,8 +167,11 @@ def get_last_tool_calls() -> list:
 
 
 def save_memory():
+    """Summarise this session into shortmem.txt. Idempotent: turns are cleared once saved."""
+    global _session_turns
     if _session_turns:
-        memory.save(_session_turns, client(), OMLX_MODEL)
+        turns, _session_turns = _session_turns, []
+        memory.save(turns, client(), OMLX_MODEL)
 
 
 def _log(user_text: str, tool_calls: list, reply: str):

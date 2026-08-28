@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 10 — Character cards (SillyTavern-style personalities)
 

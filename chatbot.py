@@ -1,5 +1,6 @@
 import os
 import io
+import signal
 import base64
 import asyncio
 from dotenv import load_dotenv
@@ -143,6 +144,14 @@ def make_sender(loop):
     return send_sync
 
 
+def _wait_for_playback_then_idle(send_sync):
+    """Common tail: wait for the browser to report playback_done (or time out), then go idle."""
+    if ws_client is not None:
+        # Fallback timeout: generous, since the browser normally reports playback_done.
+        playback_done.wait(timeout=120)
+    send_sync({"type": "state", "value": "idle"})
+
+
 def respond(user_text: str, loop):
     """LLM → sentence-streamed TTS → wait for browser playback → idle."""
     send_sync = make_sender(loop)
@@ -151,10 +160,17 @@ def respond(user_text: str, loop):
     reply = speak_stream(llm.ask_events(user_text), send_sync)
     print(f"Bot: {reply}")
     send_sync({"type": "transcript", "role": "assistant", "text": reply})
-    if ws_client is not None:
-        # Fallback timeout: generous, since the browser normally reports playback_done.
-        playback_done.wait(timeout=120)
-    send_sync({"type": "state", "value": "idle"})
+    _wait_for_playback_then_idle(send_sync)
+
+
+def say_canned(text: str, send_sync, tts=None):
+    """Speak a canned (non-LLM) line: same state/speech/speech_end shape as speak_stream,
+    plus a transcript message. Returns the clean (tag-stripped) text.
+    """
+    playback_done.clear()
+    reply = speak_stream([("delta", text)], send_sync, tts=tts)
+    send_sync({"type": "transcript", "role": "assistant", "text": reply})
+    return reply
 
 
 def handle_toggle(loop):
@@ -220,11 +236,31 @@ def handle_toggle(loop):
         threading.Thread(target=process, daemon=True).start()
 
 
+def _switch_greet(loop):
+    """Speak the newly-applied avatar's switch_greeting after a set_avatar action."""
+    global processing
+    processing = True
+    send_sync = make_sender(loop)
+    try:
+        reply = say_canned(AVATAR["switch_greeting"], send_sync)
+        llm.record_assistant(reply)
+        _wait_for_playback_then_idle(send_sync)
+    except Exception as e:
+        print(f"[Error] {e}")
+        send_sync({"type": "state", "value": "idle"})
+    finally:
+        processing = False
+
+
 def greet(loop):
     global processing
     processing = True
+    send_sync = make_sender(loop)
     try:
-        respond("(The user just opened the app. Give a short, natural greeting. Do not mention memory or context.)", loop)
+        send_sync({"type": "state", "value": "thinking"})
+        reply = say_canned(AVATAR["greeting"], send_sync)
+        llm.record_assistant(reply)
+        _wait_for_playback_then_idle(send_sync)
     except Exception as e:
         print(f"[Error] {e}")
         asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
@@ -233,6 +269,15 @@ def greet(loop):
 
 
 app = FastAPI()
+
+
+@app.on_event("shutdown")
+async def _on_shutdown():
+    """Runs on graceful shutdown (SIGTERM/SIGINT/UI shutdown) — the place session memory is saved."""
+    try:
+        llm.save_memory()
+    except Exception as e:
+        print(f"[Memory error] {e}")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -258,7 +303,7 @@ async def index():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global ws_client, greeted
+    global ws_client, greeted, processing
     await websocket.accept()
     ws_client = websocket
     loop = asyncio.get_event_loop()
@@ -289,12 +334,21 @@ async def websocket_endpoint(websocket: WebSocket):
                     try:
                         a = apply_avatar(msg.get("key", ""))
                         await send({"type": "avatar", "key": a["key"], "name": a["name"]})
+                        processing = True  # claimed here so a second switch is refused deterministically
+                        threading.Thread(target=_switch_greet, args=(loop,), daemon=True).start()
                     except ValueError as e:
                         await send({"type": "error", "text": str(e)})
+            elif action == "reload_characters":
+                a = avatars.reload()
+                apply_avatar(a["key"])
+                await send({
+                    "type": "characters_reloaded",
+                    "avatar": AVATAR["key"], "name": AVATAR["name"],
+                    "avatars": avatars.listing(),
+                })
             elif action == "shutdown":
                 print("\nShutdown requested from UI...")
-                llm.save_memory()
-                os._exit(0)
+                os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
     except WebSocketDisconnect:
         if ws_client is websocket:
             ws_client = None
@@ -313,10 +367,5 @@ if __name__ == "__main__":
     kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
     print("Ready.\n")
     threading.Thread(target=open_browser, daemon=True).start()
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("\nExiting...")
-        llm.save_memory()
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+    print("\nExiting...")
