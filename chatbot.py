@@ -307,6 +307,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     ws_client = websocket
     loop = asyncio.get_event_loop()
+    playback_done.set()  # a new page cannot finish the previous page's playback
     # Replay what has been said so a reloaded page shows the conversation so far.
     for turn in llm.get_session_turns():
         await send({"type": "transcript", "role": turn["role"], "text": splitter.strip_tag(turn["content"])})
