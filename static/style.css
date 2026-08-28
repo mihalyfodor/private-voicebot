@@ -33,19 +33,19 @@ body {
 .drawer-spacer { flex: 1; }
 .drawer-title {
   font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #666; margin: 0 6px 8px;
+  color: #9a9a9a; margin: 0 6px 8px;
 }
 .drawer-item {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 8px; border: 1px solid transparent;
-  background: none; color: #ddd; font: inherit; cursor: pointer;
+  background: none; color: #f2f2f2; font: inherit; cursor: pointer;
 }
 .drawer-item:hover { background: rgba(255,255,255,0.05); }
 .drawer-item.active { border-color: #4a90d9; background: rgba(74,144,217,0.10); }
-.drawer-item:disabled { opacity: 0.4; cursor: default; }
+.drawer-item:disabled { opacity: 0.6; cursor: default; }
 .drawer-item .name { font-size: 14px; font-weight: 600; }
-.drawer-item .desc { font-size: 11px; color: #777; }
-.drawer-item.danger { color: #c85050; font-size: 13px; letter-spacing: 0.05em; }
+.drawer-item .desc { font-size: 11px; color: #b0b0b0; }
+.drawer-item.danger { color: #e06060; font-size: 13px; letter-spacing: 0.05em; }
 .drawer-item.danger:hover { background: rgba(200,50,50,0.10); }
 
 /* ---- stage: full viewport, Haru centered ---- */
