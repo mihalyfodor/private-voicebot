@@ -12,6 +12,7 @@ import webbrowser
 import llm
 import splitter
 import fillers
+import avatars
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -24,8 +25,9 @@ WHISPER_CLI = os.getenv("WHISPER_CLI", "/opt/homebrew/bin/whisper-cli")
 WHISPER_MODEL = os.path.expanduser(os.getenv("WHISPER_MODEL", "~/models/whisper/ggml-small.bin"))
 KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/models/kokoro/kokoro-v1.0.onnx"))
 KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/voices-v1.0.bin"))
-KOKORO_VOICE = os.getenv("KOKORO_VOICE", "af_sarah")
-KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", "0.95"))
+AVATAR = avatars.current()
+KOKORO_VOICE = os.getenv("KOKORO_VOICE", AVATAR["voice"])
+KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", AVATAR["speed"]))
 PORT = int(os.getenv("PORT", "8010"))
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -206,6 +208,11 @@ def greet(loop):
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/api/config")
+async def api_config():
+    return {"avatar": AVATAR["key"], "name": AVATAR["name"]}
 
 
 @app.get("/")

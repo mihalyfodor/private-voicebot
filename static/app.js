@@ -1,15 +1,38 @@
 // ---------- config ----------
-const CONFIG = {
-  modelUrl: '/static/models/haru/haru_greeter_t03.model3.json',
-  // emotion → Haru expression name (see expressions in the model3.json). null = neutral/reset.
-  expressions: { neutral: null, happy: 'f04', surprised: 'f05', thinking: 'f07', apologetic: 'f06' },
-  expressionWeight: 0.7,
-  expressionHoldMs: 500,
-  mouthGain: 6.0,      // RMS → mouth openness multiplier
-  mouthSmooth: 0.35,   // 0..1, higher = snappier
-  avatarScale: 1.15,   // model height relative to viewport height (model has transparent margins)
-  avatarTopCrop: 0.0, // fraction of model height hidden above the top edge
+// Server picks the avatar (AVATAR in .env); the matching client profile is loaded from here.
+const PROFILES = {
+  haru: {
+    modelUrl: '/static/models/haru/haru_greeter_t03.model3.json',
+    avatarScale: 1.15, avatarTopCrop: 0.0, idle: 'Idle',
+    mouthParam: 'ParamMouthOpenY',
+    // Haru ships expression files (f00–f07); see docs/04-avatar.md for what each looks like.
+    expressions: { happy: { expr: 'f04' }, surprised: { expr: 'f05' }, thinking: { expr: 'f07' }, apologetic: { expr: 'f06' } },
+    credit: 'Haru © Live2D Inc.',
+  },
+  wanko: {
+    modelUrl: '/static/models/wanko/Wanko.model3.json',
+    avatarScale: 1.0, avatarTopCrop: -0.05, idle: 'Idle',
+    mouthParam: 'PARAM_MOUTH_OPEN_Y',
+    // No expression files: hand-built parameter sets, applied each frame with a lerped weight.
+    expressions: {
+      happy:      { params: { PARAM_MOUTH_FORM: 1, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_TERE: 0.5 } },
+      surprised:  { params: { PARAM_EYE_L_OPEN: 1.3, PARAM_EYE_R_OPEN: 1.3, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_BODY_ANGLE_Y: -6 } },
+      thinking:   { params: { PARAM_FACE_01: 1, PARAM_EYE_L_OPEN: 0.75, PARAM_EYE_R_OPEN: 0.75, PARAM_ANGLE_Z: 8 } },
+      apologetic: { params: { PARAM_TERE: 1, PARAM_MOUTH_FORM: -1, PARAM_EAR_L: -1, PARAM_EAR_R: -1, PARAM_ANGLE_Y: -10 } },
+    },
+    credit: 'Wanko © Live2D Inc.',
+  },
 };
+
+const CONFIG = {
+  expressionWeight: 0.7,
+  expressionFade: 0.12,  // per-frame lerp toward target weight
+  expressionHoldMs: 500,
+  mouthGain: 6.0,        // RMS → mouth openness multiplier
+  mouthSmooth: 0.35,     // 0..1, higher = snappier
+};
+let profile = PROFILES.haru;
+let avatarName = 'Haru';
 
 // ---------- DOM ----------
 const btn = document.getElementById('btn');
@@ -85,10 +108,19 @@ function finishReply() {
 // ---------- avatar ----------
 const avatar = {
   model: null,
-  currentExpr: undefined,
+  currentEmotion: 'neutral',
+  paramTarget: {},   // param id → target value for the active params-expression
+  paramWeight: 0,    // current lerped weight of paramTarget
 
   async init() {
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
+    try {
+      const cfg = await (await fetch('/api/config')).json();
+      profile = PROFILES[cfg.avatar] || profile;
+      avatarName = cfg.name || avatarName;
+    } catch (e) { console.warn('config fetch failed, using default profile', e); }
+    document.getElementById('credit').textContent = profile.credit || '';
+
     const canvas = document.getElementById('stage');
     const app = new PIXI.Application({
       view: canvas, backgroundAlpha: 0, resizeTo: canvas.parentElement, antialias: true,
@@ -96,7 +128,7 @@ const avatar = {
     });
     let model;
     try {
-      model = await PIXI.live2d.Live2DModel.from(CONFIG.modelUrl);
+      model = await PIXI.live2d.Live2DModel.from(profile.modelUrl);
     } catch (e) {
       console.warn('Live2D model failed to load', e);
       avatarNote.hidden = false;
@@ -107,37 +139,50 @@ const avatar = {
     this.fit(app);
     app.renderer.on('resize', () => this.fit(app));
 
+    const core = model.internalModel.coreModel;
     model.internalModel.on('afterMotionUpdate', () => {
+      // lip-sync
       const target = Math.min(1, rms() * CONFIG.mouthGain);
       mouth += (target - mouth) * CONFIG.mouthSmooth;
-      model.internalModel.coreModel.setParameterValueById('ParamMouthOpenY', playing ? mouth : 0);
+      core.setParameterValueById(profile.mouthParam, playing ? mouth : 0);
+      // parameter-based expression (blend toward target on top of the motion's values)
+      const wantWeight = Object.keys(this.paramTarget).length ? CONFIG.expressionWeight : 0;
+      this.paramWeight += (wantWeight - this.paramWeight) * CONFIG.expressionFade;
+      if (this.paramWeight > 0.01) {
+        for (const [id, v] of Object.entries(this.paramTarget)) {
+          const cur = core.getParameterValueById(id);
+          core.setParameterValueById(id, cur + (v - cur) * this.paramWeight);
+        }
+      }
     });
-    model.motion('Idle');
+    model.motion(profile.idle);
   },
 
   fit(app) {
-    // The model canvas has generous transparent margins; scale so the body fills
-    // ~92% of the viewport height, centered horizontally, head near the top.
+    // Model canvases have generous transparent margins; scale relative to viewport height.
     const m = this.model;
     const natural = { w: m.width / m.scale.x, h: m.height / m.scale.y };
-    const scale = (app.screen.height / natural.h) * CONFIG.avatarScale;
+    const scale = (app.screen.height / natural.h) * profile.avatarScale;
     m.scale.set(scale);
     m.x = (app.screen.width - natural.w * scale) / 2;
-    m.y = -natural.h * scale * CONFIG.avatarTopCrop;
+    m.y = -natural.h * scale * profile.avatarTopCrop;
   },
 
   setEmotion(emotion) {
-    if (!this.model) return;
-    const name = CONFIG.expressions[emotion] ?? null;
-    if (name === this.currentExpr) return;
-    this.currentExpr = name;
+    if (!this.model || emotion === this.currentEmotion) return;
+    this.currentEmotion = emotion;
+    const def = profile.expressions[emotion];
     const em = this.model.internalModel.motionManager.expressionManager;
+
+    if (def && def.params) {
+      this.paramTarget = def.params;
+      if (em) em.resetExpression();
+      return;
+    }
+    this.paramTarget = {};
     if (!em) return;
-    if (name === null) { em.resetExpression(); return; }
-    this.model.expression(name).then(() => {
-      const expr = em.expressions?.[em.expressionIndex ?? -1];
-      if (expr && typeof expr.setWeight === 'function') expr.setWeight(CONFIG.expressionWeight);
-    }).catch(e => console.warn('expression failed', e));
+    if (!def) { em.resetExpression(); return; }
+    this.model.expression(def.expr).catch(e => console.warn('expression failed', e));
   },
 };
 
@@ -171,7 +216,7 @@ function setState(value) {
 function addMessage(role, text) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  const r = document.createElement('span'); r.className = 'role'; r.textContent = role === 'user' ? 'You' : 'Haru';
+  const r = document.createElement('span'); r.className = 'role'; r.textContent = role === 'user' ? 'You' : avatarName;
   const t = document.createElement('span'); t.className = 'text'; t.textContent = text;
   div.append(r, t);
   transcript.appendChild(div);

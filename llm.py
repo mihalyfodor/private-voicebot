@@ -5,6 +5,7 @@ from typing import Iterator
 from openai import OpenAI
 
 import memory
+import avatars
 from tools import TOOLS, run_tool
 
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
@@ -14,8 +15,10 @@ LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
 EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic")
 
+_AVATAR = avatars.current()
+
 SYSTEM_PROMPT = (
-    f"You are Haru, a calm and friendly office assistant with memory. "
+    f"{_AVATAR['persona']} You have memory of past conversations. "
     f"Keep responses short and conversational: at most two sentences. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "

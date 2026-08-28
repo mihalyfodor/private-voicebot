@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-# Downloads browser libs and the Live2D "Haru" sample model into static/ (gitignored).
-# Cubism Core and the sample model are Live2D-licensed and must not be committed.
+# Downloads browser libs and Live2D sample models into static/ (gitignored).
+# Cubism Core and the sample models are Live2D-licensed and must not be committed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VENDOR=static/vendor
-MODEL_DIR=static/models/haru
-HARU_BASE="https://raw.githubusercontent.com/guansss/pixi-live2d-display/master/test/assets/haru"
-
-mkdir -p "$VENDOR" "$MODEL_DIR"
+mkdir -p "$VENDOR"
 
 echo "→ pixi.js v6"
 curl -sSL -o "$VENDOR/pixi.min.js" https://cdn.jsdelivr.net/npm/pixi.js@6.5.10/dist/browser/pixi.min.js
@@ -17,15 +14,18 @@ curl -sSL -o "$VENDOR/cubism4.min.js" https://cdn.jsdelivr.net/npm/pixi-live2d-d
 echo "→ Live2D Cubism Core"
 curl -sSL -o "$VENDOR/live2dcubismcore.min.js" https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js
 
-echo "→ Haru model"
-curl -sSL -o "$MODEL_DIR/haru_greeter_t03.model3.json" "$HARU_BASE/haru_greeter_t03.model3.json"
-python3 - "$MODEL_DIR" "$HARU_BASE" <<'PY'
-import json, os, sys, urllib.request
-d, base = sys.argv[1], sys.argv[2]
-refs = json.load(open(os.path.join(d, "haru_greeter_t03.model3.json")))["FileReferences"]
-files = [refs.get("Moc"), refs.get("Physics"), refs.get("Pose")]
+# fetch_model <target dir> <base url> <model3.json name>
+fetch_model() {
+  local dir=$1 base=$2 model3=$3
+  echo "→ model $model3"
+  mkdir -p "$dir"
+  curl -sSL -o "$dir/$model3" "$base/$model3"
+  python3 - "$dir" "$base" "$model3" <<'PY'
+import json, os, sys, urllib.request, urllib.error
+d, base, model3 = sys.argv[1:4]
+refs = json.load(open(os.path.join(d, model3)))["FileReferences"]
 optional = {refs.get("DisplayInfo")}
-files.append(refs.get("DisplayInfo"))
+files = [refs.get("Moc"), refs.get("Physics"), refs.get("Pose"), refs.get("DisplayInfo")]
 files += refs.get("Textures", [])
 files += [e["File"] for e in refs.get("Expressions", [])]
 for group in refs.get("Motions", {}).values():
@@ -36,10 +36,18 @@ for f in filter(None, files):
     try:
         urllib.request.urlretrieve(f"{base}/{f}", dst)
         print("   ", f)
-    except urllib.error.HTTPError as e:
+    except urllib.error.HTTPError:
         if f in optional:
             print("   ", f, "(optional, skipped)")
         else:
             raise
 PY
+}
+
+fetch_model static/models/haru \
+  https://raw.githubusercontent.com/guansss/pixi-live2d-display/master/test/assets/haru \
+  haru_greeter_t03.model3.json
+fetch_model static/models/wanko \
+  https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Wanko \
+  Wanko.model3.json
 echo "done."
