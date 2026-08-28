@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 11 — Context budget, history trimming, reply length
 

@@ -31,25 +31,18 @@ _model_context_len_warned = False
 
 
 def resolve_verbosity(avatar: dict) -> str:
-    """settings.json > VERBOSITY env > avatar card > 'normal'."""
-    saved = avatars.load_settings().get("verbosity")
-    if saved:
-        if saved in VERBOSITY_RULES:
-            return saved
-        print(f"[llm] warning: invalid saved verbosity {saved!r}; ignoring")
-
-    env_val = os.getenv("VERBOSITY")
-    if env_val:
-        if env_val in VERBOSITY_RULES:
-            return env_val
-        print(f"[llm] warning: invalid VERBOSITY env value {env_val!r}; ignoring")
-
-    card_val = avatar.get("verbosity")
-    if card_val:
-        if card_val in VERBOSITY_RULES:
-            return card_val
-        print(f"[llm] warning: invalid card verbosity {card_val!r}; ignoring")
-
+    """settings.json > VERBOSITY env > avatar card > 'normal'. Invalid values warn and fall through."""
+    sources = (
+        ("saved verbosity", avatars.load_settings().get("verbosity")),
+        ("VERBOSITY env value", os.getenv("VERBOSITY")),
+        ("card verbosity", avatar.get("verbosity")),
+    )
+    for label, value in sources:
+        if not value:
+            continue
+        if value in VERBOSITY_RULES:
+            return value
+        print(f"[llm] warning: invalid {label} {value!r}; ignoring")
     return "normal"
 
 
@@ -104,30 +97,31 @@ def context_budget() -> int:
 
 
 def estimate_tokens(messages: list) -> int:
+    """Rough token count: ~4 characters per token, plus ~4 tokens of per-message framing."""
     total = 0
     for m in messages:
-        content = m.get("content")
-        size = len(str(content or ""))
-        tool_calls = m.get("tool_calls")
-        if tool_calls:
-            size += len(json.dumps(tool_calls))
+        size = len(str(m.get("content") or ""))
+        if m.get("tool_calls"):
+            size += len(json.dumps(m["tool_calls"]))
         total += size // 4 + 4
     return total
 
 
 def trim_history() -> None:
-    """Drop the oldest non-system, non-latest-user turns until under budget."""
+    """Drop the oldest turns until the conversation fits the budget.
+
+    Index 0 (the system message) and the final turn (normally the latest user message) are
+    never dropped. An assistant turn with tool_calls takes its tool results with it, so no
+    tool result is ever left orphaned.
+    """
     budget = context_budget() - _effective_max_tokens()
     trimmed = False
-    while estimate_tokens(_conversation) > budget and len(_conversation) > 2:
-        # index 0 is system, last is the latest user turn — never drop those.
-        idx = 1
-        turn = _conversation[idx]
-        del _conversation[idx]
+    while len(_conversation) > 2 and estimate_tokens(_conversation) > budget:
+        turn = _conversation.pop(1)
         trimmed = True
-        if turn.get("role") == "assistant" and turn.get("tool_calls"):
-            while idx < len(_conversation) and _conversation[idx].get("role") == "tool":
-                del _conversation[idx]
+        if turn.get("tool_calls"):
+            while len(_conversation) > 2 and _conversation[1].get("role") == "tool":
+                del _conversation[1]
     if trimmed:
         print(f"[llm] trimmed conversation history to fit context budget ({budget} tokens)")
 
@@ -210,12 +204,12 @@ def _tool_round(msg) -> None:
 def _rebuild_system_prompt(note: str = "") -> None:
     """Rebuild SYSTEM_PROMPT from the current avatar and swap `_conversation[0]` in place."""
     global SYSTEM_PROMPT
-    a = avatars.current()
-    SYSTEM_PROMPT = build_system_prompt(a)
+    SYSTEM_PROMPT = build_system_prompt(avatars.current())
+    system = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + note}
     if _conversation:
-        _conversation[0] = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + note}
+        _conversation[0] = system
     else:
-        _conversation.append({"role": "system", "content": memory.load(SYSTEM_PROMPT) + note})
+        _conversation.append(system)
 
 
 def set_avatar():
