@@ -11,8 +11,6 @@ BACKDROPS = {
                "url": "https://cdn.pixabay.com/photo/2024/02/10/22/25/ai-generated-8565636_1280.jpg"},
     "night": {"name": "Anime room, night", "file": "night.jpg", "credit": "Backdrop: vandesart / Pixabay", "license": PIXABAY,
               "url": "https://cdn.pixabay.com/photo/2024/05/26/10/52/anime-8788530_1280.jpg"},
-    "lofi": {"name": "Lofi room", "file": "lofi.jpg", "credit": "Backdrop: Retrofy / Pixabay", "license": PIXABAY,
-             "url": "https://cdn.pixabay.com/photo/2024/11/29/16/21/ai-generated-9233251_1280.jpg"},
     "library": {"name": "Library", "file": "library.jpg", "credit": "Backdrop: Pixabay", "license": PIXABAY,
                 "url": "https://cdn.pixabay.com/photo/2023/04/15/01/07/ai-generated-7926729_1280.jpg"},
 }
