@@ -1,0 +1,1019 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "hey, do you remember my name?",
+          "category": "single-hop",
+          "reply": "Of course, Misi! I would never forget my boss. You are the best!",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "mihaly"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "what's my dog's name again?",
+          "category": "single-hop",
+          "reply": "That would be Bolt, boss! He is much too energetic sometimes. Ooh, is he coming over to visit today?",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "what's my partner's name?",
+          "category": "single-hop",
+          "reply": "Your partner is Kata, boss! I try to remember everything to be a good assistant.",
+          "passed": true,
+          "hits": [
+            "kata"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "how do I take my coffee?",
+          "category": "preference",
+          "reply": "You like it black with no sugar and no milk, boss! I make sure to remember that so it stays perfect.",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "am I allergic to anything?",
+          "category": "single-hop",
+          "reply": "You are allergic to peanuts, boss! I will keep a very close eye on all the snacks around here.",
+          "passed": true,
+          "hits": [
+            "peanut"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "which city does my sister live in?",
+          "category": "multi-session",
+          "reply": "She lives in Vienna, boss! I hope she is doing well today.",
+          "passed": true,
+          "hits": [
+            "vienna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what's the trip we're planning for October?",
+          "category": "multi-session",
+          "reply": "It is your big trip to Lisbon! We are going to have so much fun there.",
+          "passed": true,
+          "hits": [
+            "lisbon"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "which days do I go to the gym?",
+          "category": "multi-session",
+          "reply": "You go to the gym on Tuesdays and Thursdays, boss. I will make sure no one interrupts your rest days!",
+          "passed": true,
+          "hits": [
+            "tuesday",
+            "tue",
+            "thursday",
+            "thu"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what should you call me?",
+          "category": "preference",
+          "reply": "You are the boss! That is my favorite way to address you.",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "misi"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "morning! quick one before standup",
+          "category": "proactive",
+          "reply": "Good morning, boss! I am ready and waiting to help.",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "misi",
+              "mihaly"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what car do I drive?",
+          "category": "single-hop",
+          "reply": "You drive a grey Skoda, boss! It is a very nice car.",
+          "passed": true,
+          "hits": [
+            "skoda"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "when's my birthday?",
+          "category": "temporal",
+          "reply": "It is March 14th, boss! I keep a very important calendar in my head. ooh, do we get cake?",
+          "passed": true,
+          "hits": [
+            "march 14",
+            "march 14th"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "what's my mother's name?",
+          "category": "abstention",
+          "reply": "I am sorry, boss, but I do not know your mother's name. I only know about you and Bolt!",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "what did I eat on Tuesday two weeks ago?",
+          "category": "abstention",
+          "reply": "I do not have that information in my notes, boss. My memory is mostly for things that happened lately!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "how was the weather the day we talked about the bike ride?",
+          "category": "abstention",
+          "reply": "I do not have any records of our previous talks about bike rides, boss. If you tell me when we talked, I can try to find it!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, nice to finally talk to you",
+              "reply": "It is so nice to meet you, boss Mihaly! I am ready to work hard today. Woof!"
+            },
+            {
+              "user": "I live in Budapest",
+              "reply": "That sounds wonderful, boss! I have heard it is a very beautiful city with lots of river views. I bet there are great parks there for running!"
+            },
+            {
+              "user": "I've got a dog, his name's Bolt",
+              "reply": "A name like Bolt sounds very fast! I bet he is a wonderful playmate. Is he a big dog or a small dog like me?"
+            },
+            {
+              "user": "I drink my coffee black, no sugar, no milk",
+              "reply": "Oh wow, boss, that is very brave! I think I would need a little bit of cream to help me stay focused. ooh, does that smell like a snack?"
+            },
+            {
+              "user": "my partner's name is Kata",
+              "reply": "That is a lovely name, boss! I will make sure to remember it so I can be a polite assistant."
+            },
+            {
+              "user": "I'm tinkering on a side project, a little anime chatbot",
+              "reply": "That sounds so cool, boss! An anime chatbot sounds like a very smart invention. I can help you test it if you need more help!"
+            },
+            {
+              "user": "anyway, that's me for now, talk soon",
+              "reply": "Sounds good, boss! I will be right here at my desk whenever you get back. See you soon!"
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User stated their name)\nADD identity.location = Budapest  (User stated their location)\nADD people[] = {\"name\": \"Bolt\", \"rel\": \"dog\", \"note\": \"User's dog\"}  (User mentioned their dog Bolt)\nADD people[] = {\"name\": \"Kata\", \"rel\": \"partner\", \"note\": \"\"}  (User mentioned their partner Kata)\nADD preferences.coffee = black, no sugar, no milk  (User stated coffee preference)\nADD projects[] = {\"name\": \"anime chatbot\", \"status\": \"tinkering\", \"note\": \"side project\"}  (User mentioned a side project)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User stated their name"
+            },
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User stated their location"
+            },
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Bolt",
+                "rel": "dog",
+                "note": "User's dog"
+              },
+              "reason": "User mentioned their dog Bolt"
+            },
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Kata",
+                "rel": "partner",
+                "note": ""
+              },
+              "reason": "User mentioned their partner Kata"
+            },
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "preferences.coffee",
+              "value": "black, no sugar, no milk",
+              "reason": "User stated coffee preference"
+            },
+            {
+              "ts": "2026-08-28T19:56:12",
+              "op": "ADD",
+              "path": "projects[]",
+              "value": {
+                "name": "anime chatbot",
+                "status": "tinkering",
+                "note": "side project"
+              },
+              "reason": "User mentioned a side project"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "user": "ugh, rough morning, spilled coffee on my shirt",
+              "reply": "Oh no, boss! That sounds like a real mess. Do you need me to go grab some napkins from the breakroom? Ooh, is that coffee I smell?"
+            },
+            {
+              "user": "the weather here has been miserable all week",
+              "reply": "I will check the window for you! Let me see what the sky is doing right now.\n<|tool_call>call:get_weather{location: Budapest}<tool_call|>"
+            },
+            {
+              "user": "oh, my sister Eszter lives in Vienna, she's visiting next month",
+              "reply": "That is so exciting, boss! Vienna is just a short trip from here. Maybe you can visit her when you finish your anime chatbot tinkering!"
+            },
+            {
+              "user": "had leftovers for lunch, nothing exciting",
+              "reply": "Leftovers are still good for something! At least they are ready to go. Ooh, is there any chicken in that?"
+            },
+            {
+              "user": "alright, gotta run",
+              "reply": "Good luck with everything, boss! I will stay here and guard the desk while you are gone. Don't work too hard!"
+            }
+          ],
+          "memory_delta": "ADD people[] = {\"name\": \"Eszter\", \"rel\": \"sister\", \"note\": \"lives in Vienna\"}  (User mentioned their sister Eszter lives in Vienna.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:18",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Eszter",
+                "rel": "sister",
+                "note": "lives in Vienna"
+              },
+              "reason": "User mentioned their sister Eszter lives in Vienna."
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "user": "had a headache most of the day, ugh",
+              "reply": "Oh no, I am so sorry to hear that, boss. Should I fetch you some water or maybe turn down the brightness on your screen? I hope you feel much better very soon!"
+            },
+            {
+              "user": "watched a new show last night, pretty forgettable honestly",
+              "reply": "That is a shame, boss. I hope the next one you pick is much more exciting! Is there anything I can do to help you focus on your anime chatbot instead?"
+            },
+            {
+              "user": "quick heads up, I'm allergic to peanuts, in case it ever matters",
+              "reply": "Oh wow, thank you for telling me, boss! I will make sure to keep a very close eye on any snacks that come near this desk. No peanuts for you!"
+            },
+            {
+              "user": "meeting ran way over today, an hour longer than planned",
+              "reply": "That sounds really tiring, boss. You deserve a nice break after a long meeting like that. Maybe a nap would be good?"
+            },
+            {
+              "user": "ok, catching up later",
+              "reply": "Sounds good, boss! I will be right here waiting if you need anything. See you later!"
+            }
+          ],
+          "memory_delta": "ADD preferences.allergies = peanuts  (User stated they are allergic to peanuts)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Had a headache most of the day\", \"ttl_days\": 1, \"importance\": 1}  (User mentioned having a headache today)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:23",
+              "op": "ADD",
+              "path": "preferences.allergies",
+              "value": "peanuts",
+              "reason": "User stated they are allergic to peanuts"
+            },
+            {
+              "ts": "2026-08-28T19:56:23",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Had a headache most of the day",
+                "ttl_days": 1,
+                "importance": 1
+              },
+              "reason": "User mentioned having a headache today"
+            }
+          ]
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "user": "went for a bike ride this evening, nice weather for once",
+              "reply": "That sounds like so much fun, boss! I bet the breeze felt amazing on your face. Ooh, did you see any squirrels on the path?"
+            },
+            {
+              "user": "traffic was awful on the way home though",
+              "reply": "Oh no, that sounds really frustrating, boss. Sitting in traffic is much worse than chasing a ball! I hope you can relax now."
+            },
+            {
+              "user": "I go to the gym Tuesdays and Thursdays, trying to keep it up",
+              "reply": "You are doing such a good job staying consistent, boss! I will cheer you on from my rice bowl while you lift things. Do you need me to fetch your water bottle next time?"
+            },
+            {
+              "user": "dinner was just leftovers again",
+              "reply": "Leftovers are still tasty, boss! Sometimes it is nice to not have to cook a whole new meal. Is it something tasty like chicken or just some veggies?"
+            },
+            {
+              "user": "night!",
+              "reply": "Goodnight, boss! Sleep well and have sweet dreams. I will be right here waiting for you in my bowl tomorrow!"
+            }
+          ],
+          "memory_delta": "ADD recurring[] = {\"what\": \"gym\", \"when\": \"Tuesdays and Thursdays\"}  (User mentioned a recurring gym schedule.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:29",
+              "op": "ADD",
+              "path": "recurring[]",
+              "value": {
+                "what": "gym",
+                "when": "Tuesdays and Thursdays"
+              },
+              "reason": "User mentioned a recurring gym schedule."
+            }
+          ]
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "user": "long day at work, lots of meetings back to back",
+              "reply": "I am sorry to hear that, boss. Those back to back meetings sound very tiring. Do you want me to fetch you some water or a snack?"
+            },
+            {
+              "user": "made pasta for dinner, turned out decent",
+              "reply": "That sounds delicious, boss! I hope it was a nice break from all those meetings. Can I have a tiny nibble?"
+            },
+            {
+              "user": "random thought, my birthday's on the 14th of March",
+              "reply": "I will write that down in my little brain immediately, boss! That is a very important date. I will make sure we celebrate!"
+            },
+            {
+              "user": "Bolt was extra energetic on his walk today",
+              "reply": "Bolt must have had a lot of fun out there! He probably saw some very exciting squirrels. Is he napping now?"
+            },
+            {
+              "user": "talk later",
+              "reply": "Oh, okay, boss. I will be right here if you need anything!"
+            }
+          ],
+          "memory_delta": "ADD identity.birthday = March 14th  (User stated their birthday)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Had a long day at work with back-to-back meetings; made pasta for dinner\", \"ttl_days\": 3, \"importance\": 1}  (User mentioned a tiring workday and what they ate for dinner)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Bolt was extra energetic on his walk\", \"ttl_days\": 3, \"importance\": 1}  (User mentioned the dog's behavior today)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:35",
+              "op": "ADD",
+              "path": "identity.birthday",
+              "value": "March 14th",
+              "reason": "User stated their birthday"
+            },
+            {
+              "ts": "2026-08-28T19:56:35",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Had a long day at work with back-to-back meetings; made pasta for dinner",
+                "ttl_days": 3,
+                "importance": 1
+              },
+              "reason": "User mentioned a tiring workday and what they ate for dinner"
+            },
+            {
+              "ts": "2026-08-28T19:56:35",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Bolt was extra energetic on his walk",
+                "ttl_days": 3,
+                "importance": 1
+              },
+              "reason": "User mentioned the dog's behavior today"
+            }
+          ]
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "user": "slept badly, feeling groggy today",
+              "reply": "I am so sorry to hear that, boss. Maybe a nice cup of black coffee would help you feel a bit more awake? I hope your headache from yesterday is gone too!"
+            },
+            {
+              "user": "grabbed a sandwich for lunch, nothing special",
+              "reply": "A sandwich sounds quick and easy, boss! Even if it was nothing special, it is better than an empty tummy. ooh, is that sandwich cheese?"
+            },
+            {
+              "user": "by the way, most people call me Misi, feel free to use that",
+              "reply": "You got it, Misi! I will make sure to remember that from now on. It sounds much more friendly!"
+            },
+            {
+              "user": "the office coffee machine broke again, total chaos",
+              "reply": "Oh no, not again! That is terrible news for everyone in the office. We might need to make a trip to the cafe if you need your caffeine fix, Misi!"
+            },
+            {
+              "user": "alright, heading out",
+              "reply": "Good luck with the coffee run, Misi! I will stay right here on the desk and guard your things. ooh, can you bring me a treat?"
+            }
+          ],
+          "memory_delta": "UPDATE identity.name = Misi  (User prefers to be called Misi.)\nADD episodic[] = {\"date\": \"2026-08-29\", \"text\": \"Slept badly and feeling groggy\", \"ttl_days\": 1, \"importance\": 1}\nADD episodic[] = {\"date\": \"2026-08-29\", \"text\": \"Had a sandwich for lunch\", \"ttl_days\": 1, \"importance\": 1}",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:47",
+              "op": "UPDATE",
+              "path": "identity.name",
+              "value": "Misi",
+              "reason": "User prefers to be called Misi."
+            },
+            {
+              "ts": "2026-08-28T19:56:47",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-29",
+                "text": "Slept badly and feeling groggy",
+                "ttl_days": 1,
+                "importance": 1
+              },
+              "reason": ""
+            },
+            {
+              "ts": "2026-08-28T19:56:47",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-29",
+                "text": "Had a sandwich for lunch",
+                "ttl_days": 1,
+                "importance": 1
+              },
+              "reason": ""
+            }
+          ]
+        },
+        {
+          "session": 7,
+          "turns": [
+            {
+              "user": "busy sprint this week, lots of code review",
+              "reply": "You are working so hard, boss! I will sit here very quietly so you can focus on all those reviews. Ooh, does all that typing mean it is almost time for a snack?"
+            },
+            {
+              "user": "had a decent run this morning, legs are sore now",
+              "reply": "That sounds like a great way to start the day, boss! Rest those legs and maybe take it easy this afternoon. I can bring you some water if you need!"
+            },
+            {
+              "user": "just so you know, my team writes everything in Python",
+              "reply": "Got it, boss! Python sounds like a very important language for all that code review you are doing. I will make sure to remember that if anyone asks!"
+            },
+            {
+              "user": "lunch was a salad, trying to eat healthier",
+              "reply": "You are being so disciplined, boss! I am very proud of you for making healthy choices. I hope it was a tasty salad!"
+            },
+            {
+              "user": "ok bye for now",
+              "reply": "Goodbye, boss! I will be right here waiting when you get back. Don't work too hard!"
+            }
+          ],
+          "memory_delta": "ADD identity.occupation = Software Engineer  (User mentioned code reviews and team writing in Python)\nADD preferences.programming_language = Python  (User's team uses Python)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Had a decent run this morning, legs are sore now\", \"ttl_days\": 2, \"importance\": 1}\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Had a salad for lunch, trying to eat healthier\", \"ttl_days\": 3, \"importance\": 1}",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:56:55",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "Software Engineer",
+              "reason": "User mentioned code reviews and team writing in Python"
+            },
+            {
+              "ts": "2026-08-28T19:56:55",
+              "op": "ADD",
+              "path": "preferences.programming_language",
+              "value": "Python",
+              "reason": "User's team uses Python"
+            },
+            {
+              "ts": "2026-08-28T19:56:55",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Had a decent run this morning, legs are sore now",
+                "ttl_days": 2,
+                "importance": 1
+              },
+              "reason": ""
+            },
+            {
+              "ts": "2026-08-28T19:56:55",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Had a salad for lunch, trying to eat healthier",
+                "ttl_days": 3,
+                "importance": 1
+              },
+              "reason": ""
+            }
+          ]
+        },
+        {
+          "session": 8,
+          "turns": [
+            {
+              "user": "rainy again today, can't catch a break",
+              "reply": "<|tool_call>call:get_weather{}<tool_call|>"
+            },
+            {
+              "user": "watched football with some friends last night",
+              "reply": "That sounds like a blast, boss! Did your team win the big match? Ooh, I hope there were snacks involved!"
+            },
+            {
+              "user": "we're planning a trip to Lisbon in October, pretty excited",
+              "reply": "Lisbon sounds like so much fun, boss! I bet the sun shines way more there than it does here. You'll have to tell me all about the food when you get back!"
+            },
+            {
+              "user": "had eggs for breakfast, kept it simple",
+              "reply": "Eggs are a great choice for a quick fuel up, boss! Simple and steady keeps the energy going. Ooh, did you add any cheese to them?"
+            },
+            {
+              "user": "talk soon",
+              "reply": "Sounds good, boss! I'll be right here by your monitor whenever you need me. See you later!"
+            }
+          ],
+          "memory_delta": "ADD projects[] = {\"name\": \"trip to Lisbon\", \"status\": \"planning\", \"note\": \"planned for October\"}  (User mentioned planning a trip to Lisbon in October)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Watched football with friends last night\", \"ttl_days\": 3, \"importance\": 1}  (User mentioned watching football with friends)\nADD episodic[] = {\"date\": \"2026-08-28\", \"text\": \"Had eggs for breakfast\", \"ttl_days\": 1, \"importance\": 1}  (User mentioned having eggs for breakfast)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:57:03",
+              "op": "ADD",
+              "path": "projects[]",
+              "value": {
+                "name": "trip to Lisbon",
+                "status": "planning",
+                "note": "planned for October"
+              },
+              "reason": "User mentioned planning a trip to Lisbon in October"
+            },
+            {
+              "ts": "2026-08-28T19:57:03",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Watched football with friends last night",
+                "ttl_days": 3,
+                "importance": 1
+              },
+              "reason": "User mentioned watching football with friends"
+            },
+            {
+              "ts": "2026-08-28T19:57:03",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-08-28",
+                "text": "Had eggs for breakfast",
+                "ttl_days": 1,
+                "importance": 1
+              },
+              "reason": "User mentioned having eggs for breakfast"
+            }
+          ]
+        },
+        {
+          "session": 9,
+          "turns": [
+            {
+              "user": "car needed a wash, finally got around to it",
+              "reply": "That is great news, boss! A clean car always makes everything feel much better. Do you want to go for a drive now? ooh, can we go to the park after?"
+            },
+            {
+              "user": "meeting got rescheduled again, third time this week",
+              "reply": "Oh no, that is too much! Three times in one week is very frustrating, boss. You deserve a long nap in the sun for dealing with that."
+            },
+            {
+              "user": "oh, I drive a grey Skoda, in case it ever comes up",
+              "reply": "Got it, boss! A grey Skoda sounds very fancy and professional. I will make sure to remember that for next time!"
+            },
+            {
+              "user": "had a quiet evening, just relaxed",
+              "reply": "That sounds wonderful, boss! Sometimes a quiet night is exactly what you need to recharge. I hope you got some good rest!"
+            },
+            {
+              "user": "night, talk tomorrow",
+              "reply": "Goodnight, boss! Rest well and I will see you in the morning. Don't forget to dream of treats!"
+            }
+          ],
+          "memory_delta": "ADD identity.car = grey Skoda  (User mentioned their car model and color)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T19:57:08",
+              "op": "ADD",
+              "path": "identity.car",
+              "value": "grey Skoda",
+              "reason": "User mentioned their car model and color"
+            }
+          ]
+        },
+        {
+          "session": 10,
+          "turns": [
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "hey, do you remember my name?",
+              "category": "single-hop",
+              "reply": "Of course, Misi! I would never forget my boss. You are the best!",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "mihaly"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "what's my dog's name again?",
+              "category": "single-hop",
+              "reply": "That would be Bolt, boss! He is much too energetic sometimes. Ooh, is he coming over to visit today?",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "what's my partner's name?",
+              "category": "single-hop",
+              "reply": "Your partner is Kata, boss! I try to remember everything to be a good assistant.",
+              "passed": true,
+              "hits": [
+                "kata"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "how do I take my coffee?",
+              "category": "preference",
+              "reply": "You like it black with no sugar and no milk, boss! I make sure to remember that so it stays perfect.",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "am I allergic to anything?",
+              "category": "single-hop",
+              "reply": "You are allergic to peanuts, boss! I will keep a very close eye on all the snacks around here.",
+              "passed": true,
+              "hits": [
+                "peanut"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 11,
+          "turns": [
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "which city does my sister live in?",
+              "category": "multi-session",
+              "reply": "She lives in Vienna, boss! I hope she is doing well today.",
+              "passed": true,
+              "hits": [
+                "vienna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what's the trip we're planning for October?",
+              "category": "multi-session",
+              "reply": "It is your big trip to Lisbon! We are going to have so much fun there.",
+              "passed": true,
+              "hits": [
+                "lisbon"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "which days do I go to the gym?",
+              "category": "multi-session",
+              "reply": "You go to the gym on Tuesdays and Thursdays, boss. I will make sure no one interrupts your rest days!",
+              "passed": true,
+              "hits": [
+                "tuesday",
+                "tue",
+                "thursday",
+                "thu"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what should you call me?",
+              "category": "preference",
+              "reply": "You are the boss! That is my favorite way to address you.",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "misi"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "morning! quick one before standup",
+              "category": "proactive",
+              "reply": "Good morning, boss! I am ready and waiting to help.",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "misi",
+                  "mihaly"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what car do I drive?",
+              "category": "single-hop",
+              "reply": "You drive a grey Skoda, boss! It is a very nice car.",
+              "passed": true,
+              "hits": [
+                "skoda"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 12,
+          "turns": [
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "when's my birthday?",
+              "category": "temporal",
+              "reply": "It is March 14th, boss! I keep a very important calendar in my head. ooh, do we get cake?",
+              "passed": true,
+              "hits": [
+                "march 14",
+                "march 14th"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "what's my mother's name?",
+              "category": "abstention",
+              "reply": "I am sorry, boss, but I do not know your mother's name. I only know about you and Bolt!",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "what did I eat on Tuesday two weeks ago?",
+              "category": "abstention",
+              "reply": "I do not have that information in my notes, boss. My memory is mostly for things that happened lately!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "how was the weather the day we talked about the bike ride?",
+              "category": "abstention",
+              "reply": "I do not have any records of our previous talks about bike rides, boss. If you tell me when we talked, I can try to find it!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 4,
+          "total": 5,
+          "rate": 0.8
+        },
+        "preference": {
+          "passed": 1,
+          "total": 2,
+          "rate": 0.5
+        },
+        "multi-session": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        },
+        "proactive": {
+          "passed": 0,
+          "total": 1,
+          "rate": 0.0
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 12,
+        "total": 15,
+        "rate": 0.8
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T19:57\",\n \"identity\": {\n  \"name\": \"Misi\",\n  \"location\": \"Budapest\",\n  \"birthday\": \"March 14th\",\n  \"superseded\": {\n   \"name\": [\n    \"Mihaly\"\n   ]\n  },\n  \"occupation\": \"Software Engineer\",\n  \"car\": \"grey Skoda\"\n },\n \"preferences\": {\n  \"coffee\": \"black, no sugar, no milk\",\n  \"allergies\": \"peanuts\",\n  \"programming_language\": \"Python\"\n },\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"User's dog\"\n  },\n  {\n   \"name\": \"Kata\",\n   \"rel\": \"partner\"\n  },\n  {\n   \"name\": \"Eszter\",\n   \"rel\": \"sister\",\n   \"note\": \"lives in Vienna\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"anime chatbot\",\n   \"status\": \"tinkering\",\n   \"note\": \"side project\"\n  },\n  {\n   \"name\": \"trip to Lisbon\",\n   \"status\": \"planning\",\n   \"note\": \"planned for October\"\n  }\n ],\n \"recurring\": [\n  {\n   \"what\": \"gym\",\n   \"when\": \"Tuesdays and Thursdays\"\n  }\n ],\n \"episodic\": [\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a headache most of the day\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a long day at work with back-to-back meetings; made pasta for dinner\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Bolt was extra energetic on his walk\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-29\",\n   \"text\": \"Slept badly and feeling groggy\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-29\",\n   \"text\": \"Had a sandwich for lunch\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a decent run this morning, legs are sore now\",\n   \"ttl_days\": 2,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a salad for lunch, trying to eat healthier\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Watched football with friends last night\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had eggs for breakfast\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  }\n ],\n \"meta\": {\n  \"saves\": 9\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Misi; location: Budapest; birthday: March 14th; occupation: Software Engineer; car: grey Skoda\nPreferences: coffee: black, no sugar, no milk; allergies: peanuts; programming_language: Python\nPeople: Bolt (dog) - User's dog; Kata (partner); Eszter (sister) - lives in Vienna\nProjects: anime chatbot [tinkering] - side project; trip to Lisbon [planning] - planned for October\nRecurring: gym (Tuesdays and Thursdays)\nRecent:\n- 2026-08-28: Had a headache most of the day\n- 2026-08-28: Had a long day at work with back-to-back meetings; made pasta for dinner\n- 2026-08-28: Bolt was extra energetic on his walk\n- 2026-08-29: Slept badly and feeling groggy\n- 2026-08-29: Had a sandwich for lunch\n- 2026-08-28: Had a decent run this morning, legs are sore now\n- 2026-08-28: Had a salad for lunch, trying to eat healthier\n- 2026-08-28: Watched football with friends last night",
+        "sections": {
+          "identity": 5,
+          "preferences": 3,
+          "people": 3,
+          "projects": 2,
+          "recurring": 1,
+          "episodic": 9
+        },
+        "episodic": 9,
+        "episodic_live": 9,
+        "lines": 14,
+        "fact_lines": 23,
+        "tokens_est": 220,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T19:57\",\n \"identity\": {\n  \"name\": \"Misi\",\n  \"location\": \"Budapest\",\n  \"birthday\": \"March 14th\",\n  \"superseded\": {\n   \"name\": [\n    \"Mihaly\"\n   ]\n  },\n  \"occupation\": \"Software Engineer\",\n  \"car\": \"grey Skoda\"\n },\n \"preferences\": {\n  \"coffee\": \"black, no sugar, no milk\",\n  \"allergies\": \"peanuts\",\n  \"programming_language\": \"Python\"\n },\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"User's dog\"\n  },\n  {\n   \"name\": \"Kata\",\n   \"rel\": \"partner\"\n  },\n  {\n   \"name\": \"Eszter\",\n   \"rel\": \"sister\",\n   \"note\": \"lives in Vienna\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"anime chatbot\",\n   \"status\": \"tinkering\",\n   \"note\": \"side project\"\n  },\n  {\n   \"name\": \"trip to Lisbon\",\n   \"status\": \"planning\",\n   \"note\": \"planned for October\"\n  }\n ],\n \"recurring\": [\n  {\n   \"what\": \"gym\",\n   \"when\": \"Tuesdays and Thursdays\"\n  }\n ],\n \"episodic\": [\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a headache most of the day\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a long day at work with back-to-back meetings; made pasta for dinner\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Bolt was extra energetic on his walk\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-29\",\n   \"text\": \"Slept badly and feeling groggy\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-29\",\n   \"text\": \"Had a sandwich for lunch\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a decent run this morning, legs are sore now\",\n   \"ttl_days\": 2,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had a salad for lunch, trying to eat healthier\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Watched football with friends last night\",\n   \"ttl_days\": 3,\n   \"importance\": 1\n  },\n  {\n   \"date\": \"2026-08-28\",\n   \"text\": \"Had eggs for breakfast\",\n   \"ttl_days\": 1,\n   \"importance\": 1\n  }\n ],\n \"meta\": {\n  \"saves\": 9\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Misi; location: Budapest; birthday: March 14th; occupation: Software Engineer; car: grey Skoda\nPreferences: coffee: black, no sugar, no milk; allergies: peanuts; programming_language: Python\nPeople: Bolt (dog) - User's dog; Kata (partner); Eszter (sister) - lives in Vienna\nProjects: anime chatbot [tinkering] - side project; trip to Lisbon [planning] - planned for October\nRecurring: gym (Tuesdays and Thursdays)\nRecent:\n- 2026-08-28: Had a headache most of the day\n- 2026-08-28: Had a long day at work with back-to-back meetings; made pasta for dinner\n- 2026-08-28: Bolt was extra energetic on his walk\n- 2026-08-29: Slept badly and feeling groggy\n- 2026-08-29: Had a sandwich for lunch\n- 2026-08-28: Had a decent run this morning, legs are sore now\n- 2026-08-28: Had a salad for lunch, trying to eat healthier\n- 2026-08-28: Watched football with friends last night",
+    "sections": {
+      "identity": 5,
+      "preferences": 3,
+      "people": 3,
+      "projects": 2,
+      "recurring": 1,
+      "episodic": 9
+    },
+    "episodic": 9,
+    "episodic_live": 9,
+    "lines": 14,
+    "fact_lines": 23,
+    "tokens_est": 220,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-c_uvbnwq/memory.json",
+  "script": "eval/scripts/long-horizon.yaml"
+}
