@@ -173,7 +173,23 @@ async function playNext() {
     playNext();
     return;
   }
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') {
+    // Autoplay policy: no user gesture on this page yet. Ask for one and wait.
+    await audioCtx.resume().catch(() => {});
+    if (audioCtx.state !== 'running') {
+      status.textContent = 'click anywhere to enable audio';
+      await new Promise(resolve => {
+        const unlock = () => audioCtx.resume().then(() => {
+          document.removeEventListener('click', unlock);
+          document.removeEventListener('keydown', unlock);
+          resolve();
+        });
+        document.addEventListener('click', unlock);
+        document.addEventListener('keydown', unlock);
+      });
+      status.textContent = statusText[state] || '';
+    }
+  }
   avatar.setEmotion(item.emotion);
   const src = audioCtx.createBufferSource();
   src.buffer = item.buffer;

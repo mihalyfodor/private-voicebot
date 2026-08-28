@@ -142,3 +142,14 @@ def test_reconnect_replays_transcript(monkeypatch):
         assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
         assert ws.receive_json() == {"type": "transcript", "role": "user", "text": "hello"}
         assert ws.receive_json()["type"] == "state"
+
+
+def test_new_connection_releases_stale_playback_wait():
+    from fastapi.testclient import TestClient
+    import chatbot, llm
+    chatbot.greeted = True
+    llm.reset()
+    chatbot.playback_done.clear()
+    with TestClient(chatbot.app).websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert chatbot.playback_done.is_set()
