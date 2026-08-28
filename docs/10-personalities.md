@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 10 — Character cards (SillyTavern-style personalities)
 
