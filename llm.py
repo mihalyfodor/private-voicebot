@@ -146,10 +146,13 @@ def build_system_prompt(avatar: dict) -> str:
     f"When the user asks for more details on a headline, use the get_news_detail tool with the URL "
     f"from the previous get_news result — never say you cannot look it up. "
     f"Use the get_emails tool when asked to check email, read emails, or see the inbox. "
-    f"IMPORTANT: You have no clock, no weather data, no news and no inbox of your own. "
-    f"Whenever the user asks about the time, weather, news, or email you MUST call the matching tool "
-    f"before answering — never guess or make up an answer. "
-    f"Never announce that you are checking or looking something up; state the result directly."
+    f"Never announce that you are checking or looking something up; state the result directly.\n\n"
+    f"Tools are mandatory. You have no clock, no weather data, no news feed and no inbox of your own. "
+    f"For anything about the time, the weather (including \"should I bring a jacket\", \"how's it "
+    f"looking outside\"), news or current events (\"what's going on in the world\"), or email and "
+    f"messages (\"did I get anything today\"), you must call the matching tool BEFORE answering. "
+    f"Never invent conditions, times, headlines, senders or message contents — not even in character, "
+    f"{avatar['name']} included. Stay in character only in how you phrase the tool's result."
     )
 
 
