@@ -1,39 +1,21 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+html, body { height: 100%; overflow: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f0f0f;
+  background: radial-gradient(ellipse 70% 60% at 50% 35%, #1c1c20 0%, #0f0f0f 70%);
   color: #e0e0e0;
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 #shutdown {
-  position: fixed; top: 16px; right: 20px;
+  position: fixed; top: 16px; right: 20px; z-index: 3;
   background: none; border: none; color: #444;
   font-size: 13px; cursor: pointer; letter-spacing: 0.05em;
 }
 #shutdown:hover { color: #cc2222; }
 
-main {
-  display: flex;
-  gap: 40px;
-  align-items: center;
-  max-width: 1000px;
-  width: 92vw;
-}
-
-#avatar {
-  position: relative;
-  width: 360px;
-  height: 520px;
-  flex: none;
-  border-radius: 12px;
-  background: #151515;
-  overflow: hidden;
-}
+/* ---- stage: full viewport, Haru centered ---- */
+#avatar { position: fixed; inset: 0; z-index: 0; }
 #stage { width: 100%; height: 100%; display: block; }
 #avatar-note {
   position: absolute; inset: 0;
@@ -43,51 +25,58 @@ main {
 #avatar-note[hidden] { display: none; }
 #avatar-note code { color: #999; }
 
+/* ---- bottom overlay: captions + control ---- */
 #panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  min-width: 0;
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+  height: 38vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 14px;
+  padding: 0 24px 26px;
+  background: linear-gradient(to top, rgba(10,10,10,0.94) 0%, rgba(10,10,10,0.75) 55%, rgba(10,10,10,0) 100%);
+  pointer-events: none;
 }
-
-#btn {
-  width: 120px; height: 120px; border-radius: 50%;
-  border: 3px solid #444; background: #1a1a1a; color: #e0e0e0;
-  font-size: 14px; font-weight: 600; letter-spacing: 0.05em;
-  cursor: pointer; transition: all 0.15s ease; outline: none;
-  text-transform: uppercase;
-}
-#btn:hover { border-color: #888; }
-#btn.recording {
-  background: #3a0000; border-color: #cc2222; color: #ff6666;
-  box-shadow: 0 0 24px rgba(200, 0, 0, 0.4);
-}
-#btn.thinking, #btn.processing, #btn.speaking {
-  border-color: #555; color: #888; cursor: default;
-}
-
-#status {
-  font-size: 13px; color: #666; letter-spacing: 0.08em;
-  text-transform: uppercase; height: 18px;
-}
+#panel > * { pointer-events: auto; }
 
 #transcript {
-  width: 100%;
-  max-height: 45vh;
+  width: min(640px, 92vw);
+  max-height: 22vh;
   overflow-y: auto;
-  display: flex; flex-direction: column; gap: 12px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;
+  text-align: center;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
 }
-.msg { display: flex; flex-direction: column; gap: 3px; }
+#transcript::-webkit-scrollbar { display: none; }
+
+.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.45; transition: opacity 0.4s; }
+.msg:nth-last-child(-n+2) { opacity: 0.7; }
+.msg:last-child { opacity: 1; }
 .msg .role {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.1em;
-  text-transform: uppercase; color: #555;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
+  text-transform: uppercase; color: #666;
 }
 .msg.user .role { color: #4a90d9; }
-.msg.assistant .role { color: #7a7a7a; }
-.msg .text { font-size: 15px; line-height: 1.5; color: #e0e0e0; }
+.msg .text { font-size: 16px; line-height: 1.45; color: #ececec; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
+.msg.user .text { color: #bfc7d0; font-size: 14px; }
 
-#transcript::-webkit-scrollbar { width: 4px; }
-#transcript::-webkit-scrollbar-track { background: transparent; }
-#transcript::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+#btn {
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 2px solid #555; background: rgba(26,26,26,0.85); color: #e0e0e0;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  cursor: pointer; transition: all 0.15s ease; outline: none;
+  text-transform: uppercase; backdrop-filter: blur(6px);
+}
+#btn:hover { border-color: #999; }
+#btn.recording {
+  background: #3a0000; border-color: #cc2222; color: #ff6666;
+  box-shadow: 0 0 28px rgba(200, 0, 0, 0.45);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 50% { box-shadow: 0 0 10px rgba(200,0,0,0.25); } }
+#btn.thinking, #btn.processing, #btn.speaking { border-color: #444; color: #777; cursor: default; }
+
+#status {
+  font-size: 11px; color: #666; letter-spacing: 0.1em;
+  text-transform: uppercase; height: 14px;
+}

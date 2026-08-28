@@ -7,6 +7,8 @@ const CONFIG = {
   expressionHoldMs: 500,
   mouthGain: 6.0,      // RMS → mouth openness multiplier
   mouthSmooth: 0.35,   // 0..1, higher = snappier
+  avatarScale: 1.15,   // model height relative to viewport height (model has transparent margins)
+  avatarTopCrop: 0.0, // fraction of model height hidden above the top edge
 };
 
 // ---------- DOM ----------
@@ -90,6 +92,7 @@ const avatar = {
     const canvas = document.getElementById('stage');
     const app = new PIXI.Application({
       view: canvas, backgroundAlpha: 0, resizeTo: canvas.parentElement, antialias: true,
+      resolution: window.devicePixelRatio || 1, autoDensity: true,
     });
     let model;
     try {
@@ -113,11 +116,14 @@ const avatar = {
   },
 
   fit(app) {
+    // The model canvas has generous transparent margins; scale so the body fills
+    // ~92% of the viewport height, centered horizontally, head near the top.
     const m = this.model;
-    const scale = Math.min(app.screen.width / m.width, app.screen.height / m.height) * 1.15;
+    const natural = { w: m.width / m.scale.x, h: m.height / m.scale.y };
+    const scale = (app.screen.height / natural.h) * CONFIG.avatarScale;
     m.scale.set(scale);
-    m.x = (app.screen.width - m.width) / 2;
-    m.y = app.screen.height * 0.02;
+    m.x = (app.screen.width - natural.w * scale) / 2;
+    m.y = -natural.h * scale * CONFIG.avatarTopCrop;
   },
 
   setEmotion(emotion) {
