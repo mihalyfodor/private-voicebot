@@ -80,7 +80,7 @@ voicebot/
     ├── 10-personalities.md      # PRD: character cards (done)
     ├── 11-context-and-length.md # PRD: context budget, trimming, verbosity (done)
     ├── 12-turn-controller.md    # PRD: session, turn controller, protocol hardening (done)
-    └── 13-streamed-first-call.md # PRD: stream the first LLM call (exploration)
+    └── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
 ```
 
 ## Active PRDs
@@ -94,7 +94,7 @@ voicebot/
 - [10-personalities.md](10-personalities.md) — character cards, canned greetings (done)
 - [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (done)
 - [12-turn-controller.md](12-turn-controller.md) — session, turn controller, turn ids, origin check, atomic settings (done)
-- [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (exploration)
+- [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (done)
 
 ## Completed PRDs
 

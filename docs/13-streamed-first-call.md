@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 13 — Stream the first LLM call
 
@@ -21,6 +21,7 @@ Status: implementation
 2. Mocked stream with tool_call fragments split across chunks → reassembled name/arguments; `run_tool` called once; second call streamed.
 3. Rollback on exception mid-stream keeps `_conversation` clean (existing test extended).
 4. Live probe (2026-08-28, gemma-4-26B on oMLX): tool call arrives as ONE `tool_calls` delta with `finish_reason="tool_calls"` after 1.14 s, no preceding text; no-tool reply: first text delta at 0.54 s, whole reply 0.71 s (oMLX emits coarse chunks). So the design is viable; expected gain ≈ 0.2 s on short replies, proportionally more on `long`.
+   Measured after (3 runs each, same box): no-tool "tell me a joke" — first delta 0.81 s avg (0.60 s warm), full reply 1.15 s avg (0.98 s warm); tool path "what time is it?" — first spoken delta 1.20 s avg (after the tool round), full reply 1.55 s avg. No pre-tool text was ever emitted, so the discard-and-warn guard never fired.
 
 ## Out of scope
 Parallel tool calls; changing the tool set.

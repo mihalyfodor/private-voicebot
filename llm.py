@@ -178,30 +178,33 @@ def reset():
     _last_tool_calls = []
 
 
-def _tool_round(msg) -> None:
-    """Execute tool calls from an assistant message and append results to the conversation."""
+def _tool_round(tool_calls: list[dict], content: str = "") -> None:
+    """Execute accumulated tool calls and append the assistant + tool messages to the conversation.
+
+    `tool_calls` is a list of plain dicts: {"id", "name", "arguments"} (arguments is a JSON string).
+    """
     _conversation.append({
         "role": "assistant",
-        "content": msg.content or "",
+        "content": content or "",
         "tool_calls": [
             {
-                "id": tc.id,
+                "id": tc["id"],
                 "type": "function",
-                "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
+                "function": {"name": tc["name"], "arguments": tc["arguments"] or "{}"},
             }
-            for tc in msg.tool_calls
+            for tc in tool_calls
         ],
     })
-    for tc in msg.tool_calls:
-        name = tc.function.name
+    for tc in tool_calls:
+        name = tc["name"]
         try:
-            args = json.loads(tc.function.arguments or "{}")
+            args = json.loads(tc["arguments"] or "{}")
         except json.JSONDecodeError:
             args = {}
         _last_tool_calls.append({"name": name, "args": args})
         result = run_tool(name, args)
         print(f"[Tool] {name}() → {result}")
-        _conversation.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
+        _conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
 
 
 def _rebuild_system_prompt(note: str = "") -> None:
@@ -229,6 +232,22 @@ def record_assistant(text: str) -> None:
     _session_turns.append({"role": "assistant", "content": text})
 
 
+def _accumulate_tool_calls(pending: dict, fragments) -> None:
+    """Merge OpenAI-style streamed tool_call fragments into `pending` keyed by index."""
+    for frag in fragments:
+        index = getattr(frag, "index", None) or 0
+        entry = pending.setdefault(index, {"id": None, "name": None, "arguments": ""})
+        if getattr(frag, "id", None):
+            entry["id"] = entry["id"] or frag.id
+        func = getattr(frag, "function", None)
+        if func is None:
+            continue
+        if getattr(func, "name", None):
+            entry["name"] = entry["name"] or func.name
+        if getattr(func, "arguments", None):
+            entry["arguments"] += func.arguments
+
+
 def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks."""
     global _last_tool_calls
@@ -243,28 +262,40 @@ def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
     max_tokens = _effective_max_tokens()
 
     try:
-        # Non-streamed first pass so tool calls can be resolved.
+        # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_conversation, tools=TOOLS, max_tokens=max_tokens,
+            model=OMLX_MODEL, messages=_conversation, tools=TOOLS, stream=True, max_tokens=max_tokens,
         )
-        msg = first.choices[0].message
+        parts: list[str] = []
+        pending: dict = {}
+        for chunk in first:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            text = getattr(delta, "content", None)
+            if text:
+                parts.append(text)
+                yield ("delta", text)
+            fragments = getattr(delta, "tool_calls", None)
+            if fragments:
+                _accumulate_tool_calls(pending, fragments)
 
-        if msg.tool_calls:
-            yield ("tool_calls", [tc.function.name for tc in msg.tool_calls])
-            _tool_round(msg)
+        if pending:
+            tool_calls = [pending[i] for i in sorted(pending)]
+            if parts:
+                print("[llm] warning: text before tool call was spoken")
+                parts = []  # already spoken; don't record it as the reply
+            yield ("tool_calls", [tc["name"] for tc in tool_calls])
+            _tool_round(tool_calls)
             stream = client().chat.completions.create(
                 model=OMLX_MODEL, messages=_conversation, stream=True, max_tokens=max_tokens,
             )
-            parts = []
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
                     parts.append(delta)
                     yield ("delta", delta)
-            reply = "".join(parts)
-        else:
-            reply = msg.content or ""
-            yield ("delta", reply)
+        reply = "".join(parts)
     except Exception:
         del _conversation[conv_len:]
         del _session_turns[turns_len:]

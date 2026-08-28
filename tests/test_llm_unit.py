@@ -9,16 +9,18 @@ import pytest
 import llm
 
 
-def _msg(content=None, tool_calls=None):
-    return SimpleNamespace(content=content, tool_calls=tool_calls)
-
-
-def _completion(msg):
-    return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-
-
 def _chunks(*texts):
-    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t))]) for t in texts]
+    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t, tool_calls=None))]) for t in texts]
+
+
+def _tc_chunk(index=0, id=None, name=None, arguments=None, finish_reason=None):
+    """One streamed chunk carrying a tool_call fragment."""
+    frag = SimpleNamespace(
+        index=index, id=id,
+        function=SimpleNamespace(name=name, arguments=arguments),
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
 
 
 class FakeClient:
@@ -37,7 +39,7 @@ def setup_function():
 
 
 def test_ask_returns_reply_and_records_turn():
-    fake = FakeClient([_completion(_msg(content="[happy] Hello there."))])
+    fake = FakeClient([iter(_chunks("[happy] Hello there."))])
     with patch.object(llm, "_client", fake):
         reply = llm.ask("hi")
     assert reply == "[happy] Hello there."
@@ -46,9 +48,8 @@ def test_ask_returns_reply_and_records_turn():
 
 
 def test_tool_round_then_streamed_answer():
-    tc = SimpleNamespace(id="call_1", function=SimpleNamespace(name="get_time", arguments="{}"))
     fake = FakeClient([
-        _completion(_msg(content=None, tool_calls=[tc])),
+        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
         iter(_chunks("[neutral] It is ", "noon.")),
     ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00") as rt:
@@ -63,8 +64,10 @@ def test_tool_round_then_streamed_answer():
 
 
 def test_ask_stream_yields_only_deltas():
-    tc = SimpleNamespace(id="call_1", function=SimpleNamespace(name="get_time", arguments="{}"))
-    fake = FakeClient([_completion(_msg(content=None, tool_calls=[tc])), iter(_chunks("[neutral] Noon."))])
+    fake = FakeClient([
+        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
+        iter(_chunks("[neutral] Noon.")),
+    ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
         assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
 
