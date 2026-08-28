@@ -13,6 +13,9 @@ const PROFILES = {
     modelUrl: '/static/models/wanko/Wanko.model3.json',
     avatarScale: 1.0, avatarTopCrop: 0.12, idle: 'Idle',
     mouthParam: 'PARAM_MOUTH_OPEN_Y',
+    // Wanko uses legacy param ids, so the library's built-in mouse-follow focus doesn't
+    // reach them; we replicate it manually in afterMotionUpdate using these ids.
+    focusParams: { angleX: 'PARAM_ANGLE_X', angleY: 'PARAM_ANGLE_Y', angleZ: 'PARAM_ANGLE_Z', bodyX: 'PARAM_BODY_ANGLE_X' },
     // No expression files: hand-built parameter sets, applied each frame with a lerped weight.
     expressions: {
       happy:      { params: { PARAM_MOUTH_FORM: 1, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_TERE: 0.5 } },
@@ -223,6 +226,17 @@ const avatar = {
       const target = Math.min(1, rms() * CONFIG.mouthGain);
       mouth += (target - mouth) * CONFIG.mouthSmooth;
       core.setParameterValueById(profile.mouthParam, playing ? mouth : 0);
+      // mouse-follow focus for models with legacy param ids (the library's built-in
+      // focus only writes to the standard Cubism 4 ids); mirrors the library's own
+      // formulas/behavior (add on top of the motion's current value).
+      if (profile.focusParams) {
+        const fp = profile.focusParams;
+        const fc = model.internalModel.focusController;
+        if (fp.angleX) core.setParameterValueById(fp.angleX, core.getParameterValueById(fp.angleX) + 30 * fc.x);
+        if (fp.angleY) core.setParameterValueById(fp.angleY, core.getParameterValueById(fp.angleY) + 30 * fc.y);
+        if (fp.angleZ) core.setParameterValueById(fp.angleZ, core.getParameterValueById(fp.angleZ) + fc.x * fc.y * -30);
+        if (fp.bodyX) core.setParameterValueById(fp.bodyX, core.getParameterValueById(fp.bodyX) + 10 * fc.x);
+      }
       // parameter-based expression (blend toward target on top of the motion's values)
       const wantWeight = Object.keys(this.paramTarget).length ? CONFIG.expressionWeight : 0;
       this.paramWeight += (wantWeight - this.paramWeight) * CONFIG.expressionFade;
