@@ -244,7 +244,10 @@ def _dup_profile():
         identity={"name": "Mihaly"},
         preferences={"coffee": "black"},
         people=[{"name": "Anna", "rel": "colleague"}, {"name": "anna", "note": "joined the team"}],
-        episodic=[{"date": _days_ago(40), "text": "rained all morning", "ttl_days": 3, "importance": 1}],
+        episodic=[{"date": _days_ago(40), "text": "rained all morning", "ttl_days": 3, "importance": 1},
+                  {"date": _days_ago(9), "text": "Went to the gym after work", "ttl_days": 30, "importance": 2},
+                  {"date": _days_ago(7), "text": "Gym session, legs day", "ttl_days": 30, "importance": 2},
+                  {"date": _days_ago(2), "text": "Hit the gym again on Thursday", "ttl_days": 30, "importance": 2}],
     )
 
 
