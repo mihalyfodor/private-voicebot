@@ -151,6 +151,26 @@ body {
 @keyframes pulse-soft { 50% { box-shadow: 0 0 8px rgba(60, 180, 60, 0.14); } }
 
 .drawer-section + .drawer-section { margin-top: 18px; }
+
+.verbosity-control { padding: 0 4px; height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.verbosity-control input[type="range"] {
+  -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+  border-radius: 999px; background: #333; outline: none; margin: 0;
+}
+.verbosity-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: #4a90d9; cursor: pointer; border: none;
+}
+.verbosity-control input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%; background: #4a90d9; cursor: pointer; border: none;
+}
+.verbosity-labels { display: flex; justify-content: space-between; }
+.verbosity-label {
+  width: 40px; font-size: 11px; text-align: center; color: #9a9a9a; transition: color 0.15s;
+}
+.verbosity-label:first-child { text-align: left; }
+.verbosity-label:last-child { text-align: right; }
+.verbosity-label.active { color: #f2f2f2; }
 .chip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px; }
 .chip {
   padding: 6px 10px; border-radius: 999px; border: 1px solid #3a3a3a;

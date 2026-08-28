@@ -1,4 +1,4 @@
-Status: exploration
+Status: done
 
 # 11 — Context budget, history trimming, reply length
 
@@ -19,14 +19,17 @@ Bound the conversation to a token budget tied to the loaded model, trim old turn
   - Token estimate: `len(text) // 4` (no tokenizer dependency).
   - Before each request: while estimated size of `_conversation` > budget − `MAX_TOKENS`, drop the oldest non-system turn; if it is an assistant turn with `tool_calls`, drop its following `tool` turns with it (never leave an orphaned tool result).
   - `max_tokens=MAX_TOKENS` on every completion (env, default 400).
-  - Verbosity → prompt rule text:
-    - `concise`: "at most two sentences"
+  - Verbosity (`short` | `normal` | `long`) → prompt rule text:
+    - `short`: "at most two sentences" (today's behaviour)
     - `normal` (default): "two to four sentences; a little longer only when actually explaining something"
-    - `detailed`: "as long as the answer needs, but still spoken prose — no lists or headings"
-    Resolution order: card `verbosity` > `VERBOSITY` env > `normal`.
+    - `long`: "as long as the answer needs, but still spoken prose — no lists or headings"
+    Resolution order: `settings.json` (slider) > `VERBOSITY` env > card `verbosity` > `normal`.
+    `llm.set_verbosity(value)` rebuilds the system prompt in place (like `set_avatar`).
+- UI: ☰ menu gets a **Reply length** section with a 3-position slider (short · normal · long). Change → WS `{"action":"set_verbosity","value":...}` → persisted → broadcast `{"type":"verbosity","value":...}`; `/api/config` includes `verbosity`.
 - `memory.py`: inject only the last `MEMORY_LINES` (default 60) lines of `shortmem.txt`.
-- `characters/*.yaml`: optional `verbosity` field (Wanko: concise; Haru, Natori: normal).
+- `characters/*.yaml`: optional `verbosity` field (Wanko: short; Haru, Natori: normal) — used only when no slider value is saved.
 - `.env.example`: `CONTEXT_BUDGET`, `MAX_TOKENS`, `VERBOSITY`, `MEMORY_LINES`.
+- `MAX_TOKENS` default 400 for short/normal, 800 for long (env overrides both).
 
 ### Decisions
 
@@ -37,17 +40,17 @@ Bound the conversation to a token budget tied to the loaded model, trim old turn
 
 ## Data model
 
-No new persisted state. `_conversation` invariants: index 0 is always the system message; every `tool` turn is preceded (transitively) by its assistant `tool_calls` turn.
+`settings.json` gains `verbosity`. `_conversation` invariants: index 0 is always the system message; every `tool` turn is preceded (transitively) by its assistant `tool_calls` turn.
 
 ## Test scenarios
 
 1. Trimming: 30 turns with a tiny budget → oldest dropped first, system message kept, total under budget.
 2. Trimming never orphans a tool result: assistant(tool_calls) + tool + assistant sequence dropped as a unit.
 3. `max_tokens` present in every `create()` call (mocked client) and equals `MAX_TOKENS`.
-4. Verbosity resolution: card > env > default; the prompt contains the matching rule text.
+4. Verbosity resolution: settings > env > card > default; the prompt contains the matching rule text; WS `set_verbosity` persists and broadcasts; invalid value → error message.
 5. `memory.load` with a 200-line file injects only the last 60.
 6. `/v1/models` unavailable → fallback budget = `CONTEXT_BUDGET`, warning printed, no crash.
 
 ## Out of scope
 
-Summarising trimmed history into memory mid-session; a menu control for verbosity (later); token-exact accounting.
+Summarising trimmed history into memory mid-session; token-exact accounting.

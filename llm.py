@@ -15,12 +15,125 @@ OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
 OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
 LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
+CONTEXT_BUDGET = int(os.getenv("CONTEXT_BUDGET", "16000"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "0"))  # 0 = derive from verbosity
+
+VERBOSITY_RULES = {
+    "short": "at most two sentences",
+    "normal": "two to four sentences; a little longer only when actually explaining something",
+    "long": "as long as the answer needs, but still spoken prose — no lists or headings",
+}
+VERBOSITY_MAX_TOKENS = {"short": 400, "normal": 400, "long": 800}
+
+_verbosity = "normal"
+_model_context_len_cache: int | None = None
+_model_context_len_warned = False
+
+
+def resolve_verbosity(avatar: dict) -> str:
+    """settings.json > VERBOSITY env > avatar card > 'normal'. Invalid values warn and fall through."""
+    sources = (
+        ("saved verbosity", avatars.load_settings().get("verbosity")),
+        ("VERBOSITY env value", os.getenv("VERBOSITY")),
+        ("card verbosity", avatar.get("verbosity")),
+    )
+    for label, value in sources:
+        if not value:
+            continue
+        if value in VERBOSITY_RULES:
+            return value
+        print(f"[llm] warning: invalid {label} {value!r}; ignoring")
+    return "normal"
+
+
+def current_verbosity() -> str:
+    return _verbosity
+
+
+def set_verbosity(value: str) -> None:
+    global _verbosity
+    if value not in VERBOSITY_RULES:
+        raise ValueError(f"Unknown verbosity {value!r}; valid: {', '.join(VERBOSITY_RULES)}")
+    _verbosity = value
+    avatars.save_setting("verbosity", value)
+    _rebuild_system_prompt()
+
+
+def _effective_max_tokens() -> int:
+    if MAX_TOKENS:
+        return MAX_TOKENS
+    return VERBOSITY_MAX_TOKENS.get(_verbosity, 400)
+
+
+def model_context_len() -> int | None:
+    """Lazily query /v1/models for OMLX_MODEL's max_model_len. Returns None on any failure."""
+    global _model_context_len_cache, _model_context_len_warned
+    if _model_context_len_cache is not None:
+        return _model_context_len_cache
+    try:
+        models = client().models.list()
+        for m in models:
+            if getattr(m, "id", None) == OMLX_MODEL:
+                max_len = getattr(m, "max_model_len", None)
+                if max_len is None:
+                    dumped = m.model_dump() if hasattr(m, "model_dump") else {}
+                    max_len = dumped.get("max_model_len")
+                if max_len:
+                    _model_context_len_cache = int(max_len)
+                    return _model_context_len_cache
+        return None
+    except Exception as e:
+        if not _model_context_len_warned:
+            _model_context_len_warned = True
+            print(f"[llm] warning: could not query model context length ({e}); using CONTEXT_BUDGET only")
+        return None
+
+
+def context_budget() -> int:
+    model_len = model_context_len()
+    if model_len:
+        return min(CONTEXT_BUDGET, model_len)
+    return CONTEXT_BUDGET
+
+
+def estimate_tokens(messages: list) -> int:
+    """Rough token count: ~4 characters per token, plus ~4 tokens of per-message framing."""
+    total = 0
+    for m in messages:
+        size = len(str(m.get("content") or ""))
+        if m.get("tool_calls"):
+            size += len(json.dumps(m["tool_calls"]))
+        total += size // 4 + 4
+    return total
+
+
+def trim_history() -> None:
+    """Drop the oldest turns until the conversation fits the budget.
+
+    Index 0 (the system message) and the final turn (normally the latest user message) are
+    never dropped. An assistant turn with tool_calls takes its tool results with it, so no
+    tool result is ever left orphaned.
+    """
+    budget = context_budget() - _effective_max_tokens()
+    trimmed = False
+    while len(_conversation) > 2 and estimate_tokens(_conversation) > budget:
+        turn = _conversation.pop(1)
+        trimmed = True
+        if turn.get("tool_calls"):
+            while len(_conversation) > 2 and _conversation[1].get("role") == "tool":
+                del _conversation[1]
+    if trimmed:
+        print(f"[llm] trimmed conversation history to fit context budget ({budget} tokens)")
+
 
 def build_system_prompt(avatar: dict) -> str:
+    global _verbosity
+    verbosity = resolve_verbosity(avatar)
+    _verbosity = verbosity
     return (
     f"{avatar['persona']} "
     f"You have memory of past conversations. "
-    f"Keep responses short and conversational: at most two sentences. "
+    f"Keep responses conversational: {VERBOSITY_RULES[verbosity]}. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
     f"Begin every reply with exactly one emotion tag from this list, then a space: "
@@ -88,14 +201,23 @@ def _tool_round(msg) -> None:
         _conversation.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
 
 
+def _rebuild_system_prompt(note: str = "") -> None:
+    """Rebuild SYSTEM_PROMPT from the current avatar and swap `_conversation[0]` in place."""
+    global SYSTEM_PROMPT
+    SYSTEM_PROMPT = build_system_prompt(avatars.current())
+    system = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + note}
+    if _conversation:
+        _conversation[0] = system
+    else:
+        _conversation.append(system)
+
+
 def set_avatar():
     """Swap the persona in place, keeping the conversation history."""
-    global SYSTEM_PROMPT
     a = avatars.current()
-    SYSTEM_PROMPT = build_system_prompt(a)
     note = (f"\n\n(Note: from now on you are {a['name']}. Earlier assistant turns in this conversation "
             f"were spoken by a previous character; continue naturally as {a['name']}.)")
-    _conversation[0] = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + (note if len(_conversation) > 1 else "")}
+    _rebuild_system_prompt(note if len(_conversation) > 1 else "")
 
 
 def record_assistant(text: str) -> None:
@@ -113,11 +235,14 @@ def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
     _conversation.append({"role": "user", "content": user_text})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
+    trim_history()
+
+    max_tokens = _effective_max_tokens()
 
     try:
         # Non-streamed first pass so tool calls can be resolved.
         first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_conversation, tools=TOOLS,
+            model=OMLX_MODEL, messages=_conversation, tools=TOOLS, max_tokens=max_tokens,
         )
         msg = first.choices[0].message
 
@@ -125,7 +250,7 @@ def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
             yield ("tool_calls", [tc.function.name for tc in msg.tool_calls])
             _tool_round(msg)
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_conversation, stream=True,
+                model=OMLX_MODEL, messages=_conversation, stream=True, max_tokens=max_tokens,
             )
             parts = []
             for chunk in stream:

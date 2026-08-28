@@ -258,6 +258,7 @@ async def api_config():
         "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
         "hands_free": hands_free,
+        "verbosity": llm.current_verbosity(),
     }
 
 
@@ -354,6 +355,14 @@ async def _action_reload_characters(msg, loop):
     })
 
 
+async def _action_set_verbosity(msg, loop):
+    try:
+        llm.set_verbosity(msg.get("value"))
+        await send({"type": "verbosity", "value": llm.current_verbosity()})
+    except ValueError as e:
+        await send({"type": "error", "text": str(e)})
+
+
 async def _action_shutdown(msg, loop):
     print("\nShutdown requested from UI...")
     os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
@@ -366,6 +375,7 @@ ACTIONS = {
     "set_backdrop": _action_set_backdrop,
     "set_avatar": _action_set_avatar,
     "reload_characters": _action_reload_characters,
+    "set_verbosity": _action_set_verbosity,
     "shutdown": _action_shutdown,
 }
 

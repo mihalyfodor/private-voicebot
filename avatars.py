@@ -24,6 +24,7 @@ def _build_avatars() -> dict:
             "speed": card["speed"],
             "greeting": card["greeting"],
             "switch_greeting": card["switch_greeting"],
+            "verbosity": card["verbosity"],
             "persona": characters.build_persona(card),
         }
     return avatars

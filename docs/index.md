@@ -77,7 +77,7 @@ voicebot/
     ├── 08-backdrops.md          # PRD: selectable backdrops (done)
     ├── 09-continuous-mode.md    # PRD: hands-free conversation mode (done)
     ├── 10-personalities.md      # PRD: character cards (done)
-    └── 11-context-and-length.md # PRD: context budget, trimming, verbosity (exploration)
+    └── 11-context-and-length.md # PRD: context budget, trimming, verbosity (done)
 ```
 
 ## Active PRDs
@@ -90,7 +90,7 @@ voicebot/
 - [08-backdrops.md](08-backdrops.md) — selectable backdrops (done)
 - [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (done)
 - [10-personalities.md](10-personalities.md) — character cards, canned greetings (done)
-- [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (exploration)
+- [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (done)
 
 ## Completed PRDs
 
