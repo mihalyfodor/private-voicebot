@@ -137,6 +137,10 @@ analyser.fftSize = 1024;
 analyser.connect(audioCtx.destination);
 const timeData = new Float32Array(analyser.fftSize);
 
+function unlockAudio() {
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+}
+
 // ---------- microphone capture ----------
 // Uses the SAME audioCtx that plays TTS so Chrome's echo cancellation has the
 // far-end reference signal. Streams 16 kHz mono Int16 frames over the WS
@@ -418,16 +422,10 @@ function renderHandsFreeToggle() {
 // Recomputes the Speak button + status line from state/handsFree/muted/listening.
 function render() {
   const busy = state === 'processing' || state === 'thinking' || state === 'speaking';
-  if (handsFree) {
-    if (busy) {
-      btn.className = state;
-      btn.textContent = btnText[state] || '...';
-      status.textContent = statusText[state] || '';
-      btn.disabled = true;
-      return;
-    }
+  if (handsFree && !busy) {
+    // Idle hands-free: the button is a mute switch, the status shows VAD activity.
     const hearing = listening === 'hearing';
-    btn.className = muted ? '' : (hearing ? 'hearing' : '');
+    btn.className = !muted && hearing ? 'hearing' : '';
     btn.textContent = muted ? 'MUTED' : 'MUTE';
     status.textContent = muted ? 'muted' : (hearing ? 'hearing you…' : 'listening…');
     btn.disabled = false;
@@ -451,7 +449,7 @@ function addMessage(role, text) {
 
 // Push-to-talk: Space/click starts capture on press, stops it on the next press.
 async function pttToggle() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  unlockAudio();
   if (state === 'idle') {
     const ok = await mic.start();
     if (!ok) return;
@@ -488,13 +486,16 @@ btn.addEventListener('click', btnAction);
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); btnAction(); }
 });
-document.addEventListener('click', () => { if (audioCtx.state === 'suspended') audioCtx.resume(); }, { once: true });
-// Lazily (re)start the mic if hands-free was already on at load (e.g. after a
+// Any click counts as the user gesture Chrome wants: unlock audio playback, and
+// lazily (re)start the mic if hands-free was already on at load (e.g. after a
 // reload) and hasn't captured a start gesture yet.
-document.addEventListener('click', () => { if (handsFree && !mic.started) mic.start(); });
+document.addEventListener('click', () => {
+  unlockAudio();
+  if (handsFree && !mic.started) mic.start();
+});
 
 document.getElementById('hands-free-toggle').onclick = async () => {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  unlockAudio();
   const desired = !handsFree;
   if (desired) {
     const ok = await mic.start();

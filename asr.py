@@ -1,8 +1,7 @@
 """In-process speech-to-text via mlx-whisper.
 
-Replaces the whisper-cli subprocess: accepts a float32 16 kHz mono array and
-returns transcribed text, filtering out common whisper hallucination
-artifacts on near-silent/junk audio.
+Accepts a float32 16 kHz mono array and returns transcribed text, filtering
+out common whisper hallucination artifacts on near-silent/junk audio.
 """
 
 import os
@@ -14,31 +13,19 @@ _JUNK_PATTERNS = [
     re.compile(r"^\[blank_audio\]$"),
     re.compile(r"^\(blank\)$"),
     re.compile(r"^\[music\]$"),
-    re.compile(r"^♪+$"),
 ]
 
 
 def is_junk(text, avg_logprob=None):
-    if text is None:
-        return True
-    stripped = text.strip()
-    if not stripped:
-        return True
-
+    """True for empty text, whisper's silence artifacts, and low-confidence one-word blips."""
+    stripped = (text or "").strip()
     normalized = stripped.lower().strip("♪ ").strip()
     if not normalized:
         return True
-    for pattern in _JUNK_PATTERNS:
-        if pattern.match(normalized):
-            return True
-    # Catch stray artifact tokens even if embedded with other punctuation.
-    if "♪" in stripped and len(stripped.strip("♪ \t")) == 0:
+    if any(pattern.match(normalized) for pattern in _JUNK_PATTERNS):
         return True
-
-    words = stripped.split()
-    if len(words) < 2 and avg_logprob is not None and avg_logprob < -1.0:
+    if len(stripped.split()) < 2 and avg_logprob is not None and avg_logprob < -1.0:
         return True
-
     return False
 
 

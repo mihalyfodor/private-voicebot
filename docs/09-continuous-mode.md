@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 09 — Hands-free conversation mode
 

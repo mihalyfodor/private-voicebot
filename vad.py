@@ -66,52 +66,40 @@ class Recorder:
         self._chunks.append(_to_float32(pcm))
 
     def stop(self):
-        if not self._chunks:
-            audio = np.zeros(0, dtype=np.float32)
-        else:
-            audio = np.concatenate(self._chunks)
+        audio = np.concatenate(self._chunks) if self._chunks else np.zeros(0, dtype=np.float32)
         self._chunks = []
         return audio
 
 
 class Endpointer:
+    """Streaming VAD endpointer: PCM in, whole utterances out."""
+
     def __init__(
         self,
-        sample_rate=16000,
-        threshold=None,
-        end_silence_ms=None,
-        min_speech_ms=None,
-        pre_roll_ms=None,
-        max_utterance_s=None,
-        speech_start_frames=None,
+        sample_rate=DEFAULTS["sample_rate"],
+        threshold=DEFAULTS["threshold"],
+        end_silence_ms=DEFAULTS["end_silence_ms"],
+        min_speech_ms=DEFAULTS["min_speech_ms"],
+        pre_roll_ms=DEFAULTS["pre_roll_ms"],
+        max_utterance_s=DEFAULTS["max_utterance_s"],
+        speech_start_frames=DEFAULTS["speech_start_frames"],
         prob_fn=None,
     ):
         self.sample_rate = sample_rate
-        self.threshold = DEFAULTS["threshold"] if threshold is None else threshold
-        self.end_silence_ms = (
-            DEFAULTS["end_silence_ms"] if end_silence_ms is None else end_silence_ms
-        )
-        self.min_speech_ms = (
-            DEFAULTS["min_speech_ms"] if min_speech_ms is None else min_speech_ms
-        )
-        self.pre_roll_ms = DEFAULTS["pre_roll_ms"] if pre_roll_ms is None else pre_roll_ms
-        self.max_utterance_s = (
-            DEFAULTS["max_utterance_s"] if max_utterance_s is None else max_utterance_s
-        )
-        self.speech_start_frames = (
-            DEFAULTS["speech_start_frames"]
-            if speech_start_frames is None
-            else speech_start_frames
-        )
+        self.threshold = threshold
+        self.end_silence_ms = end_silence_ms
+        self.min_speech_ms = min_speech_ms
+        self.pre_roll_ms = pre_roll_ms
+        self.max_utterance_s = max_utterance_s
+        self.speech_start_frames = speech_start_frames
         self._prob_fn = prob_fn
 
         self._frame_ms = FRAME_SAMPLES / sample_rate * 1000.0
         self._pre_roll_frames = max(0, round(self.pre_roll_ms / self._frame_ms))
         self._end_silence_frames = max(1, round(self.end_silence_ms / self._frame_ms))
-        self._min_speech_frames = max(0, round(self.min_speech_ms / self._frame_ms))
         self._max_utterance_frames = max(1, round(self.max_utterance_s * 1000.0 / self._frame_ms))
 
-        self.gated = False
+        self._gated = False
         self._buffer = np.zeros(0, dtype=np.float32)  # unframed leftover samples
         self._pre_roll = []  # list[np.ndarray] ring buffer of pre-speech frames
 
@@ -130,6 +118,17 @@ class Endpointer:
     def reset(self):
         self._buffer = np.zeros(0, dtype=np.float32)
         self._reset_utterance_state()
+
+    @property
+    def gated(self):
+        return self._gated
+
+    @gated.setter
+    def gated(self, value):
+        """Ignore incoming audio (while the bot speaks), dropping any utterance in progress."""
+        self._gated = value
+        if value:
+            self.reset()
 
     @property
     def hearing(self):
@@ -153,14 +152,12 @@ class Endpointer:
     # -- public API ----------------------------------------------------
 
     def feed(self, pcm):
-        audio = _to_float32(pcm)
+        """Feed PCM (any length, int16 or float32); returns the utterances it completed."""
         if self.gated:
-            # Consume but ignore; drop any in-progress utterance.
-            self._reset_utterance_state()
-            self._buffer = np.zeros(0, dtype=np.float32)
+            self.reset()  # consume but ignore; drop any in-progress utterance
             return []
 
-        self._buffer = np.concatenate([self._buffer, audio])
+        self._buffer = np.concatenate([self._buffer, _to_float32(pcm)])
         results = []
 
         while len(self._buffer) >= FRAME_SAMPLES:
@@ -177,34 +174,19 @@ class Endpointer:
         is_speech = prob >= self.threshold
 
         if not self._in_speech:
-            if is_speech:
-                self._speech_frame_count += 1
-            else:
-                self._speech_frame_count = 0
-                # maintain pre-roll ring buffer while idle
-                self._pre_roll.append(frame)
-                if len(self._pre_roll) > self._pre_roll_frames:
-                    self._pre_roll.pop(0)
-                return None
-
+            self._speech_frame_count = self._speech_frame_count + 1 if is_speech else 0
             if self._speech_frame_count >= self.speech_start_frames:
-                # Speech onset: enter LISTENING, seed with pre-roll + the
-                # frames that triggered onset detection.
+                # Speech onset: enter LISTENING, seeded with the pre-roll (which
+                # already holds the earlier onset frames) plus this frame.
                 self._in_speech = True
                 self._silence_run = 0
-                self._utterance_frames = list(self._pre_roll)
-                self._utterance_speech_frames = 0
+                self._utterance_frames = self._pre_roll + [frame]
+                self._utterance_speech_frames = 1
                 self._pre_roll = []
-                # The frames that contributed to onset detection beyond
-                # pre-roll: we only have the current frame here since
-                # earlier onset frames were pushed to pre-roll above.
-                self._utterance_frames.append(frame)
-                self._utterance_speech_frames += 1
             else:
-                # Not yet confirmed speech onset; keep buffering as pre-roll.
+                # Not speech, or onset not confirmed yet: keep it as pre-roll.
                 self._pre_roll.append(frame)
-                if len(self._pre_roll) > self._pre_roll_frames:
-                    self._pre_roll.pop(0)
+                del self._pre_roll[: len(self._pre_roll) - self._pre_roll_frames]
             return None
 
         # In speech.
@@ -233,12 +215,7 @@ class Endpointer:
             # endpoint; it isn't part of the spoken utterance.
             frames = frames[: len(frames) - silence_run] or frames
 
-        self._in_speech = False
-        self._speech_frame_count = 0
-        self._silence_run = 0
-        self._utterance_frames = []
-        self._utterance_speech_frames = 0
-        self._pre_roll = []
+        self._reset_utterance_state()
         self._model_reset()
 
         if continue_speech:
@@ -254,18 +231,8 @@ class Endpointer:
         return np.concatenate(frames).astype(np.float32)
 
     def flush(self):
+        """End the utterance in progress, if any, and return it."""
         if not self._in_speech:
             return None
-        result = self._finish_utterance()
-        return result
+        return self._finish_utterance()
 
-    @property
-    def gated(self):
-        return self._gated
-
-    @gated.setter
-    def gated(self, value):
-        self._gated = value
-        if value:
-            self._reset_utterance_state()
-            self._buffer = np.zeros(0, dtype=np.float32)
