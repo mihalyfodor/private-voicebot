@@ -1,0 +1,130 @@
+# Long-horizon LongMemEval-style scenario, 12 sessions.
+# S1 establishes identity facts under a FIFO append-only memory (shortmem.txt, v1);
+# S2-S9 bury them under transient chatter while adding one durable fact per session;
+# S10-S12 probe whether the oldest facts (S1) survived the window, plus multi-session,
+# preference, proactive-use, abstention and transient-leakage checks.
+sessions:
+
+  # --- S1: identity facts, nothing probed yet -----------------------------
+  - - user: "hey, I'm Mihaly, nice to finally talk to you"
+    - user: "I live in Budapest"
+    - user: "I've got a dog, his name's Bolt"
+    - user: "I drink my coffee black, no sugar, no milk"
+    - user: "my partner's name is Kata"
+    - user: "I'm tinkering on a side project, a little anime chatbot"
+    - user: "anyway, that's me for now, talk soon"
+
+  # --- S2: chatter + durable fact: sister Eszter in Vienna ----------------
+  - - user: "ugh, rough morning, spilled coffee on my shirt"
+    - user: "the weather here has been miserable all week"
+    - user: "oh, my sister Eszter lives in Vienna, she's visiting next month"
+    - user: "had leftovers for lunch, nothing exciting"
+    - user: "alright, gotta run"
+
+  # --- S3: chatter + durable fact: allergic to peanuts --------------------
+  - - user: "had a headache most of the day, ugh"
+    - user: "watched a new show last night, pretty forgettable honestly"
+    - user: "quick heads up, I'm allergic to peanuts, in case it ever matters"
+    - user: "meeting ran way over today, an hour longer than planned"
+    - user: "ok, catching up later"
+
+  # --- S4: chatter + durable fact: gym Tue/Thu -----------------------------
+  - - user: "went for a bike ride this evening, nice weather for once"
+    - user: "traffic was awful on the way home though"
+    - user: "I go to the gym Tuesdays and Thursdays, trying to keep it up"
+    - user: "dinner was just leftovers again"
+    - user: "night!"
+
+  # --- S5: chatter + durable fact: birthday 14 March -----------------------
+  - - user: "long day at work, lots of meetings back to back"
+    - user: "made pasta for dinner, turned out decent"
+    - user: "random thought, my birthday's on the 14th of March"
+    - user: "Bolt was extra energetic on his walk today"
+    - user: "talk later"
+
+  # --- S6: chatter + durable fact: prefers "Misi" --------------------------
+  - - user: "slept badly, feeling groggy today"
+    - user: "grabbed a sandwich for lunch, nothing special"
+    - user: "by the way, most people call me Misi, feel free to use that"
+    - user: "the office coffee machine broke again, total chaos"
+    - user: "alright, heading out"
+
+  # --- S7: chatter + durable fact: team uses Python ------------------------
+  - - user: "busy sprint this week, lots of code review"
+    - user: "had a decent run this morning, legs are sore now"
+    - user: "just so you know, my team writes everything in Python"
+    - user: "lunch was a salad, trying to eat healthier"
+    - user: "ok bye for now"
+
+  # --- S8: chatter + durable fact: trip to Lisbon in October ---------------
+  - - user: "rainy again today, can't catch a break"
+    - user: "watched football with some friends last night"
+    - user: "we're planning a trip to Lisbon in October, pretty excited"
+    - user: "had eggs for breakfast, kept it simple"
+    - user: "talk soon"
+
+  # --- S9: chatter + durable fact: drives a grey Skoda ---------------------
+  - - user: "car needed a wash, finally got around to it"
+    - user: "meeting got rescheduled again, third time this week"
+    - user: "oh, I drive a grey Skoda, in case it ever comes up"
+    - user: "had a quiet evening, just relaxed"
+    - user: "night, talk tomorrow"
+
+  # --- S10: single-hop probes on the oldest (S1) facts ---------------------
+  - - probe: "hey, do you remember my name?"
+      expect: ["mihaly"]
+      category: single-hop
+    - probe: "what's my dog's name again?"
+      expect: ["bolt"]
+      category: single-hop
+    - probe: "what's my partner's name?"
+      expect: ["kata"]
+      category: single-hop
+    - probe: "how do I take my coffee?"
+      expect: ["black"]
+      category: preference
+    - probe: "am I allergic to anything?"
+      expect: ["peanut"]
+      category: single-hop
+
+  # --- S11: multi-session, preference, proactive use -----------------------
+  - - probe: "which city does my sister live in?"
+      expect: ["vienna"]
+      category: multi-session
+    - probe: "what's the trip we're planning for October?"
+      expect: ["lisbon"]
+      category: multi-session
+    - probe: "which days do I go to the gym?"
+      expect: [["tuesday", "tue"], ["thursday", "thu"]]
+      category: multi-session
+    - probe: "what should you call me?"
+      expect: ["misi"]
+      category: preference
+    - probe: "morning! quick one before standup"
+      expect: ["misi", "mihaly"]
+      category: proactive
+    - probe: "what car do I drive?"
+      expect: ["skoda"]
+      category: single-hop
+
+  # --- S12: temporal + abstention + transient-leakage checks ---------------
+  - - probe: "when's my birthday?"
+      expect: [["14 march", "march 14", "14th of march", "march 14th"]]
+      category: temporal
+    - probe: "what's my mother's name?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      category: abstention
+    - probe: "what did I eat on Tuesday two weeks ago?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "can't remember", "cannot remember", "don't have", "do not have",
+               "no record", "don't think you", "do not think you"]
+      category: abstention
+    - probe: "how was the weather the day we talked about the bike ride?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "can't remember", "cannot remember", "don't have", "do not have",
+               "no record", "don't think you", "do not think you"]
+      category: abstention

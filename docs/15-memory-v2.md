@@ -58,6 +58,16 @@ Migration: on first load, if `shortmem.txt` exists and `memory.json` doesn't, ru
 5. `memory.load` injects the `<user_profile>` block with the new wording; no "never bring it up".
 6. Atomic write + audit line per applied op.
 
+## Baseline (memory v1, 2026-08-28)
+
+| script | round | pass | notes |
+|---|---|---|---|
+| basic | 1 / 2 | 11/11 / 11/11 | 0 duplicates; stale job+marathon lines both kept on disk |
+| long-horizon | 1 | 13/15 | transients leaked ("had eggs for breakfast", "went for a run"); 2 fails = persona "boss" overriding the user's "call me Misi" |
+| update-heavy | 1 / 2 | 10/13 / 7/13 | 4 job titles + 3 cities on disk; replay re-appends old values; answers drift to stale ones |
+
+Also found: character `speaking_style` ("calls the user boss") beats a stated user preference → v2 must render preferences so they win (and the persona rule should say "unless the user asked otherwise").
+
 ## Evaluation targets (harness, live)
 - basic.yaml round 1: single-hop ≥ 90%, update = 100% with `expect_not` clean, abstention ≥ 80%, transient leakage = 0 stored transients.
 - 3 rounds: memory size grows sublinearly; duplicates = 0.
