@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 13 — Stream the first LLM call
 
