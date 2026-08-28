@@ -50,6 +50,12 @@ const status = document.getElementById('status');
 const transcript = document.getElementById('transcript');
 const avatarNote = document.getElementById('avatar-note');
 let shutdownRequested = false;
+function showShutdownScreen() {
+  document.getElementById('avatar').classList.add('gone');
+  document.getElementById('panel').classList.add('gone');
+  document.getElementById('menu-btn').classList.add('gone');
+  document.getElementById('shutdown-screen').hidden = false;
+}
 document.getElementById('shutdown').onclick = () => {
   shutdownRequested = true;
   ws.send(JSON.stringify({ action: 'shutdown' }));
@@ -456,7 +462,7 @@ function connect() {
 
   ws.onopen = () => render();
   ws.onclose = (e) => {
-    if (shutdownRequested) { status.textContent = 'shut down — close this tab'; btn.disabled = true; return; }
+    if (shutdownRequested) { showShutdownScreen(); return; }
     if (e.code === 4000) {
       status.textContent = 'opened in another tab — reload to use here';
       return; // do not auto-reconnect: the other tab now owns the connection

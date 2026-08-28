@@ -178,3 +178,14 @@ body {
 }
 .chip:hover { border-color: #666; }
 .chip.active { border-color: #4a90d9; background: rgba(74,144,217,0.15); }
+
+/* ---- shutdown screen ---- */
+.gone { opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
+#shutdown-screen {
+  position: fixed; inset: 0; z-index: 10;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+  background: #0f0f0f; color: #e0e0e0;
+}
+#shutdown-screen[hidden] { display: none; }
+#shutdown-screen .title { font-size: 20px; font-weight: 600; letter-spacing: 0.04em; }
+#shutdown-screen .sub { font-size: 13px; color: #888; }
