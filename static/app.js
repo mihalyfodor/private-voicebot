@@ -142,21 +142,34 @@ function rms() {
   return Math.sqrt(s / timeData.length);
 }
 
-async function enqueueSpeech(msg) {
+function enqueueSpeech(msg) {
   const bytes = Uint8Array.from(atob(msg.wav), c => c.charCodeAt(0));
-  const buffer = await audioCtx.decodeAudioData(bytes.buffer);
-  queue.push({ emotion: msg.emotion, buffer });
+  // Push synchronously so message order is preserved even though decoding is async;
+  // playNext() awaits `ready` before playing each item.
+  const item = { emotion: msg.emotion, buffer: null, ready: null };
+  item.ready = audioCtx.decodeAudioData(bytes.buffer)
+    .then(buffer => { item.buffer = buffer; })
+    .catch(e => { console.warn('audio decode failed, skipping chunk', e); item.buffer = null; });
+  queue.push(item);
   playNext();
 }
 
-function playNext() {
+async function playNext() {
   if (playing) return;
-  const item = queue.shift();
+  const item = queue[0];
   if (!item) {
     if (replyEnded) finishReply();
     return;
   }
   playing = true;
+  await item.ready;
+  queue.shift();
+  if (!item.buffer) {
+    // Decode failed: skip this chunk without stalling the queue.
+    playing = false;
+    playNext();
+    return;
+  }
   if (audioCtx.state === 'suspended') audioCtx.resume();
   avatar.setEmotion(item.emotion);
   const src = audioCtx.createBufferSource();
@@ -182,7 +195,6 @@ const avatar = {
   app: null,
 
   async init() {
-    if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
     try {
       const cfg = await (await fetch('/api/config')).json();
       avatarOptions = cfg.avatars || [];
@@ -191,6 +203,9 @@ const avatar = {
       backdropOptions = cfg.backdrops || [];
       currentBackdropKey = cfg.backdrop || 'none';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
+    applyBackdrop(currentBackdropKey);
+
+    if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
 
     const canvas = document.getElementById('stage');
     this.app = new PIXI.Application({
@@ -204,6 +219,7 @@ const avatar = {
   async load(key) {
     profile = PROFILES[key] || profile;
     applyBackdrop(currentBackdropKey);
+    if (!this.app) return; // PIXI/Live2D unavailable: nothing more to render
     if (this.model) { this.app.stage.removeChild(this.model); this.model.destroy(); this.model = null; }
     this.paramTarget = {}; this.paramWeight = 0; this.currentEmotion = 'neutral';
 
@@ -222,10 +238,10 @@ const avatar = {
 
     const core = model.internalModel.coreModel;
     model.internalModel.on('afterMotionUpdate', () => {
-      // lip-sync
-      const target = Math.min(1, rms() * CONFIG.mouthGain);
+      // lip-sync (skip the analyser read entirely when nothing is playing)
+      const target = playing ? Math.min(1, rms() * CONFIG.mouthGain) : 0;
       mouth += (target - mouth) * CONFIG.mouthSmooth;
-      core.setParameterValueById(profile.mouthParam, playing ? mouth : 0);
+      core.setParameterValueById(profile.mouthParam, mouth);
       // mouse-follow focus for models with legacy param ids (the library's built-in
       // focus only writes to the standard Cubism 4 ids); mirrors the library's own
       // formulas/behavior (add on top of the motion's current value).

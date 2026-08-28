@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 07 — Third avatar (Natori) and in-app menu with live switching
 

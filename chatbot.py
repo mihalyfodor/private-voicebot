@@ -35,7 +35,8 @@ def apply_avatar(key: str) -> dict:
     """Switch avatar at runtime: persona, voice, filler cache. Returns the new profile."""
     global AVATAR, KOKORO_VOICE, KOKORO_SPEED
     AVATAR = avatars.set_current(key)
-    KOKORO_VOICE, KOKORO_SPEED = AVATAR["voice"], AVATAR["speed"]
+    KOKORO_VOICE = os.getenv("KOKORO_VOICE", AVATAR["voice"])
+    KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", AVATAR["speed"]))
     llm.set_avatar()
     _filler_wavs.clear()
     return AVATAR
@@ -102,16 +103,19 @@ def speak_stream(events, send_sync, tts=None):
             _filler_wavs[phrase] = tts(phrase)
         emit("thinking", phrase, _filler_wavs[phrase])
 
-    for kind, payload in events:
-        if kind == "tool_calls":
-            filler(payload)
-        elif kind == "delta":
-            for emotion, sentence in sp.feed(payload):
-                say(emotion, sentence)
-    for emotion, sentence in sp.close():
-        say(emotion, sentence)
+    try:
+        for kind, payload in events:
+            if kind == "tool_calls":
+                filler(payload)
+            elif kind == "delta":
+                for emotion, sentence in sp.feed(payload):
+                    say(emotion, sentence)
+        for emotion, sentence in sp.close():
+            say(emotion, sentence)
+    finally:
+        if started:
+            send_sync({"type": "speech_end"})
 
-    send_sync({"type": "speech_end"})
     return " ".join(sentences)
 
 
@@ -147,8 +151,9 @@ def respond(user_text: str, loop):
     reply = speak_stream(llm.ask_events(user_text), send_sync)
     print(f"Bot: {reply}")
     send_sync({"type": "transcript", "role": "assistant", "text": reply})
-    # Fallback timeout: generous, since the browser normally reports playback_done.
-    playback_done.wait(timeout=120)
+    if ws_client is not None:
+        # Fallback timeout: generous, since the browser normally reports playback_done.
+        playback_done.wait(timeout=120)
     send_sync({"type": "state", "value": "idle"})
 
 
@@ -159,15 +164,22 @@ def handle_toggle(loop):
         return
 
     if not recording:
-        recording = True
         audio_chunks = []
 
         def callback(indata, frames, time, status):
             if recording:
                 audio_chunks.append(indata.copy())
 
-        stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
-        stream.start()
+        try:
+            stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
+            stream.start()
+        except Exception as e:
+            # Typical cause: default input device changed (headset plugged/unplugged). Stay idle.
+            print(f"[Mic error] {e}")
+            asyncio.run_coroutine_threadsafe(send({"type": "error", "text": "Microphone unavailable — check input device."}), loop)
+            asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
+            return
+        recording = True
         asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "recording"}), loop)
         print("[RECORDING...]")
 
@@ -180,6 +192,7 @@ def handle_toggle(loop):
 
         def process():
             global processing
+            responded = False
             try:
                 if not audio_chunks:
                     return
@@ -196,10 +209,12 @@ def handle_toggle(loop):
                 print(f"You: {text}")
                 asyncio.run_coroutine_threadsafe(send({"type": "transcript", "role": "user", "text": text}), loop)
                 respond(text, loop)
+                responded = True
             except Exception as e:
                 print(f"[Error] {e}")
-                asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
             finally:
+                if not responded:
+                    asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
                 processing = False
 
         threading.Thread(target=process, daemon=True).start()
@@ -281,8 +296,9 @@ async def websocket_endpoint(websocket: WebSocket):
                 llm.save_memory()
                 os._exit(0)
     except WebSocketDisconnect:
-        ws_client = None
-        playback_done.set()
+        if ws_client is websocket:
+            ws_client = None
+            playback_done.set()
 
 
 def open_browser():

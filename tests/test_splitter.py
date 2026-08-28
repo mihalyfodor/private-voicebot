@@ -38,3 +38,8 @@ def test_strip_tag():
 def test_leaked_thought_line_is_dropped():
     out = list(split_stream(["thought\n\n[neutral] It is noon."]))
     assert out == [("neutral", "It is noon.")]
+
+
+def test_leaked_thought_prefix_split_across_deltas():
+    out = list(split_stream(["thought", "\n", "[happy]", " It is 3pm."]))
+    assert out == [("happy", "It is 3pm.")]

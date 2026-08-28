@@ -61,7 +61,15 @@ def _validate(key: str) -> str:
 def current_key() -> str:
     global _current
     if _current is None:
-        _current = _validate(_load_saved() or os.getenv("AVATAR") or DEFAULT)
+        saved = _load_saved()
+        if saved:
+            try:
+                _current = _validate(saved)
+            except ValueError:
+                print(f"[avatars] warning: invalid saved avatar {saved!r}; falling back")
+                _current = _validate(os.getenv("AVATAR") or DEFAULT)
+        else:
+            _current = _validate(os.getenv("AVATAR") or DEFAULT)
     return _current
 
 

@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 06 — Switchable avatars, Wanko default
 

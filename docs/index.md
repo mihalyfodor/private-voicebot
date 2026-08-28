@@ -61,23 +61,23 @@ voicebot/
     ├── index.md               # this file
     ├── process.md              # development process
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
-    ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (implementation)
-    ├── 04-avatar.md             # PRD: Live2D avatar + oMLX backend (implementation)
-    ├── 05-fillers.md            # PRD: tool-intent spoken fillers (implementation)
-    ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (implementation)
-    ├── 07-avatar-menu.md        # PRD: Natori + in-app menu with live switching (implementation)
-    ├── 08-backdrops.md          # PRD: selectable backdrops (implementation)
+    ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
+    ├── 04-avatar.md             # PRD: Live2D avatar + oMLX backend (done)
+    ├── 05-fillers.md            # PRD: tool-intent spoken fillers (done)
+    ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (done)
+    ├── 07-avatar-menu.md        # PRD: Natori + in-app menu with live switching (done)
+    ├── 08-backdrops.md          # PRD: selectable backdrops (done)
     └── 09-continuous-mode.md    # PRD: hands-free conversation mode (exploration)
 ```
 
 ## Active PRDs
 
-- [02-llm-robustness-tests.md](02-llm-robustness-tests.md) — LLM tool-trigger robustness tests (implementation)
-- [04-avatar.md](04-avatar.md) — Live2D avatar, browser playback, oMLX backend (implementation)
-- [05-fillers.md](05-fillers.md) — tool-intent spoken fillers (implementation)
-- [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (implementation)
-- [07-avatar-menu.md](07-avatar-menu.md) — third avatar (Natori) and in-app menu with live switching (implementation)
-- [08-backdrops.md](08-backdrops.md) — selectable backdrops (implementation)
+- [02-llm-robustness-tests.md](02-llm-robustness-tests.md) — LLM tool-trigger robustness tests (done)
+- [04-avatar.md](04-avatar.md) — Live2D avatar, browser playback, oMLX backend (done)
+- [05-fillers.md](05-fillers.md) — tool-intent spoken fillers (done)
+- [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (done)
+- [07-avatar-menu.md](07-avatar-menu.md) — third avatar (Natori) and in-app menu with live switching (done)
+- [08-backdrops.md](08-backdrops.md) — selectable backdrops (done)
 - [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (exploration)
 
 ## Completed PRDs

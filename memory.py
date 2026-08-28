@@ -43,7 +43,10 @@ def save(session_turns: list, client, model: str):
     ]
 
     response = client.chat.completions.create(model=model, messages=messages)
-    summary = (response.choices[0].message.content or "").strip()
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("memory.save: LLM returned no content for the summary")
+    summary = content.strip()
 
     if not summary or summary.upper() == "NOTHING" or len(summary) < 10:
         print("\n[Nothing new to save]")

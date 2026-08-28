@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import datetime
 from typing import Iterator
@@ -6,6 +7,7 @@ from openai import OpenAI
 
 import memory
 import avatars
+from splitter import EMOTIONS
 from tools import TOOLS, run_tool
 
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
@@ -13,7 +15,6 @@ OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
 OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
 LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
-EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic")
 
 def build_system_prompt(avatar: dict) -> str:
     return (
@@ -76,7 +77,6 @@ def _tool_round(msg) -> None:
     })
     for tc in msg.tool_calls:
         name = tc.function.name
-        import json
         try:
             args = json.loads(tc.function.arguments or "{}")
         except json.JSONDecodeError:
@@ -101,32 +101,39 @@ def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks."""
     global _last_tool_calls
 
+    conv_len = len(_conversation)
+    turns_len = len(_session_turns)
     _conversation.append({"role": "user", "content": user_text})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
 
-    # Non-streamed first pass so tool calls can be resolved.
-    first = client().chat.completions.create(
-        model=OMLX_MODEL, messages=_conversation, tools=TOOLS,
-    )
-    msg = first.choices[0].message
-
-    if msg.tool_calls:
-        yield ("tool_calls", [tc.function.name for tc in msg.tool_calls])
-        _tool_round(msg)
-        stream = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_conversation, stream=True,
+    try:
+        # Non-streamed first pass so tool calls can be resolved.
+        first = client().chat.completions.create(
+            model=OMLX_MODEL, messages=_conversation, tools=TOOLS,
         )
-        parts = []
-        for chunk in stream:
-            delta = chunk.choices[0].delta.content if chunk.choices else None
-            if delta:
-                parts.append(delta)
-                yield ("delta", delta)
-        reply = "".join(parts)
-    else:
-        reply = msg.content or ""
-        yield ("delta", reply)
+        msg = first.choices[0].message
+
+        if msg.tool_calls:
+            yield ("tool_calls", [tc.function.name for tc in msg.tool_calls])
+            _tool_round(msg)
+            stream = client().chat.completions.create(
+                model=OMLX_MODEL, messages=_conversation, stream=True,
+            )
+            parts = []
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    parts.append(delta)
+                    yield ("delta", delta)
+            reply = "".join(parts)
+        else:
+            reply = msg.content or ""
+            yield ("delta", reply)
+    except Exception:
+        del _conversation[conv_len:]
+        del _session_turns[turns_len:]
+        raise
 
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})

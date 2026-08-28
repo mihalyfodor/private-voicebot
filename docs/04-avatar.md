@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 04 — Animated Avatar (Live2D office assistant)
 

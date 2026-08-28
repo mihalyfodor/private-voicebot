@@ -4,6 +4,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 import llm
 
 
@@ -65,3 +67,22 @@ def test_ask_stream_yields_only_deltas():
     fake = FakeClient([_completion(_msg(content=None, tool_calls=[tc])), iter(_chunks("[neutral] Noon."))])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
         assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
+
+
+class RaisingClient:
+    """Mimics FakeClient but its first create() call raises."""
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kw):
+        raise RuntimeError("boom")
+
+
+def test_ask_events_rolls_back_conversation_on_error():
+    fake = RaisingClient()
+    with patch.object(llm, "_client", fake):
+        with pytest.raises(RuntimeError, match="boom"):
+            list(llm.ask_events("hi"))
+    assert llm._conversation == [llm._conversation[0]]
+    assert llm._conversation[0]["role"] == "system"
+    assert llm._session_turns == []

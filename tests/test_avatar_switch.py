@@ -13,6 +13,13 @@ def isolated_settings(tmp_path, monkeypatch):
     yield
 
 
+def test_current_key_falls_back_on_invalid_persisted_key(capsys):
+    with open(avatars.SETTINGS_PATH, "w") as f:
+        json.dump({"avatar": "miku"}, f)
+    assert avatars.current_key() == "wanko"
+    assert "miku" in capsys.readouterr().out
+
+
 def test_set_current_persists_and_validates():
     avatars.set_current("natori")
     assert avatars.current()["name"] == "Natori"

@@ -35,6 +35,14 @@ class SentenceSplitter:
         stripped = self._buf.lstrip()
         if stripped.startswith("[") and "]" not in stripped:
             return False  # tag may still be arriving
+        # Leaked "thought" line may still be followed by a [tag] in a later
+        # delta; keep waiting while the buffer is only a (partial) prefix of
+        # "thought", or "thought" plus trailing whitespace.
+        lowered = stripped.lower()
+        if lowered and "thought".startswith(lowered):
+            return False
+        if lowered.startswith("thought") and lowered[len("thought"):].strip() == "":
+            return False
         if stripped:  # text present and it is not a tag
             self._emotion = "neutral"
             return True
