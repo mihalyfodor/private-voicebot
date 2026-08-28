@@ -5,6 +5,7 @@ import yaml
 
 CHARACTERS_DIR = os.path.join(os.path.dirname(__file__), "characters")
 PERSONA_WORD_CAP = 250
+VALID_VERBOSITY = ("short", "normal", "long")
 
 # Files loaded first, in this order, so downstream iteration order is deterministic;
 # any additional cards follow alphabetically by key.
@@ -34,6 +35,12 @@ def load_card(path: str) -> dict:
     if not voice:
         raise ValueError(f"{fname}: missing required field 'voice'")
 
+    verbosity = raw.get("verbosity")
+    if verbosity is not None and verbosity not in VALID_VERBOSITY:
+        raise ValueError(
+            f"{fname}: invalid verbosity {verbosity!r}; valid: {', '.join(VALID_VERBOSITY)}"
+        )
+
     example_dialogue = []
     for item in raw.get("example_dialogue") or []:
         example_dialogue.append({
@@ -53,6 +60,7 @@ def load_card(path: str) -> dict:
         "example_dialogue": example_dialogue,
         "greeting": raw.get("greeting", "") or "",
         "switch_greeting": raw.get("switch_greeting", "") or "",
+        "verbosity": verbosity,
     }
 
 

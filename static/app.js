@@ -91,6 +91,23 @@ function renderBackdropList() {
   }));
 }
 
+// ---------- reply length (verbosity) ----------
+const verbosityLevels = ['short', 'normal', 'long'];
+let currentVerbosity = 'normal';
+const verbositySlider = document.getElementById('verbosity-slider');
+const verbosityLabels = document.querySelectorAll('.verbosity-label');
+
+function renderVerbosity() {
+  const idx = Math.max(0, verbosityLevels.indexOf(currentVerbosity));
+  verbositySlider.value = String(idx);
+  verbosityLabels.forEach(l => l.classList.toggle('active', Number(l.dataset.value) === idx));
+}
+
+verbositySlider.addEventListener('change', () => {
+  const idx = Number(verbositySlider.value);
+  ws.send(JSON.stringify({ action: 'set_verbosity', value: verbosityLevels[idx] }));
+});
+
 function openDrawer(open) {
   drawer.classList.toggle('open', open);
   drawer.setAttribute('aria-hidden', String(!open));
@@ -274,9 +291,11 @@ const avatar = {
       backdropOptions = cfg.backdrops || [];
       currentBackdropKey = cfg.backdrop || 'none';
       handsFree = !!cfg.hands_free;
+      currentVerbosity = verbosityLevels.includes(cfg.verbosity) ? cfg.verbosity : 'normal';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
     renderHandsFreeToggle();
+    renderVerbosity();
     render();
 
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
@@ -400,7 +419,11 @@ function connect() {
       renderHandsFreeToggle();
       render();
     }
-    else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); }
+    else if (msg.type === 'verbosity') {
+      currentVerbosity = verbosityLevels.includes(msg.value) ? msg.value : currentVerbosity;
+      renderVerbosity();
+    }
+    else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); renderVerbosity(); }
   };
 
   ws.onopen = () => render();

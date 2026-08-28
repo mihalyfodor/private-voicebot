@@ -2,12 +2,14 @@ import os
 from datetime import datetime
 
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
+MEMORY_LINES = int(os.getenv("MEMORY_LINES", "60"))
 
 
 def load(system_prompt: str) -> str:
     if os.path.exists(SHORTMEM_PATH):
         with open(SHORTMEM_PATH, "r") as f:
-            content = f.read().strip()
+            lines = f.read().splitlines()
+        content = "\n".join(lines[-MEMORY_LINES:]).strip()
         if content:
             return (
                 f"{system_prompt}\n\n"
