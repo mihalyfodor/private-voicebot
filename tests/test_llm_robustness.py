@@ -1,6 +1,8 @@
 import pytest
 import llm
 
+pytestmark = pytest.mark.live  # needs a running oMLX server
+
 THRESHOLD = 0.70
 SAMPLES = 3  # runs per phrase; a phrase "hits" on a majority (>= 2/3)
 

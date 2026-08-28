@@ -5,10 +5,13 @@ from types import SimpleNamespace
 
 import numpy as np
 import soundfile as sf
-from unittest.mock import patch
+import pytest
+from fastapi.testclient import TestClient
 
 import chatbot
 import llm
+from session import Session
+from tests.conftest import Blocker
 
 
 def fake_tts(text):
@@ -31,7 +34,6 @@ FAKE_AVATAR = {
 
 def test_say_canned_emits_state_speech_speech_end_and_transcript():
     sent = []
-    chatbot.playback_done.clear()
     reply = chatbot.say_canned("[happy] Hi boss.", sent.append, tts=fake_tts)
 
     assert reply == "Hi boss."
@@ -53,36 +55,61 @@ def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
     monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(llm, "_client", BoomClient())
-    monkeypatch.setattr(chatbot, "_wait_for_playback_then_idle", lambda send_sync: send_sync({"type": "state", "value": "idle"}))
-    monkeypatch.setattr(chatbot, "ws_client", None)
 
     sent = []
-    loop = SimpleNamespace()
-    monkeypatch.setattr(chatbot, "make_sender", lambda loop: sent.append)
+    monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)
 
-    chatbot.greet(loop)
+    sess = Session(websocket=None)  # no socket → no playback wait
+    chatbot.greet(sess, sess.next_turn(), SimpleNamespace())
 
-    assert chatbot.processing is False
+    assert chatbot.is_busy() is False
     assert llm._conversation[-1] == {"role": "assistant", "content": "Morning! Natori here."}
     assert llm._session_turns[-1] == {"role": "assistant", "content": "Morning! Natori here."}
     assert {"type": "transcript", "role": "assistant", "text": "Morning! Natori here."} in sent
+    assert {"type": "state", "value": "idle"} in sent
+
+
+def test_greet_messages_carry_the_turn_id(monkeypatch):
+    """Every state/speech/speech_end/assistant-transcript message is tagged with its turn."""
+    llm.reset()
+    monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
+    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    monkeypatch.setattr(chatbot, "send", fake_send)
+    import asyncio
+    loop = asyncio.new_event_loop()
+    t = threading.Thread(target=loop.run_forever, daemon=True)
+    t.start()
+    try:
+        sess = Session(websocket=None)
+        chatbot.greet(sess, sess.next_turn(), loop)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        t.join(timeout=2)
+
+    types = [m["type"] for m in sent]
+    assert types[:2] == ["state", "state"]  # thinking, then speaking
+    assert types[-3:] == ["speech_end", "transcript", "state"]
+    assert all(m["turn"] == 1 for m in sent)
 
 
 def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
-    from fastapi.testclient import TestClient
     import avatars
 
     llm.reset()
-    chatbot.greeted = True
-    chatbot.processing = False
-
     fake_profile = dict(FAKE_AVATAR)
 
     monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
     monkeypatch.setattr(llm, "set_avatar", lambda: None)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(chatbot, "_filler_wavs", {})
-    monkeypatch.setattr(chatbot, "_wait_for_playback_then_idle", lambda send_sync: send_sync({"type": "state", "value": "idle"}))
+    monkeypatch.setattr(chatbot, "_wait_for_playback_then_idle",
+                        lambda sess, send_sync: send_sync({"type": "state", "value": "idle"}))
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
@@ -102,15 +129,31 @@ def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
                 break
         assert speech_msg is not None
         assert speech_msg["text"] == "Natori taking over now."
+        assert speech_msg["turn"] == 1
+
+
+def test_set_avatar_refused_while_a_turn_runs(monkeypatch):
+    """The switch claims the controller synchronously, so a second switch is refused."""
+    import avatars
+    llm.reset()
+    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(llm, "set_avatar", lambda: None)
+    monkeypatch.setattr(avatars, "set_current", lambda key: dict(FAKE_AVATAR))
+
+    blocker = Blocker()
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.receive_json()
+        blocker.hold(chatbot.controller)
+        ws.send_json({"action": "set_avatar", "key": "natori"})
+        assert ws.receive_json()["type"] == "error"
+        blocker.free(chatbot.controller)
 
 
 def test_reload_characters_ws_action(monkeypatch):
-    import llm; llm.reset()
-    from fastapi.testclient import TestClient
     import avatars
-
-    chatbot.greeted = True
-    chatbot.processing = False
+    llm.reset()
 
     fake_profile = dict(FAKE_AVATAR)
     fake_listing = [{"key": "natori", "name": "Natori", "description": "Office assistant, easygoing"}]
@@ -133,12 +176,10 @@ def test_reload_characters_ws_action(monkeypatch):
         assert msg["avatars"] == fake_listing
 
 
-def test_reconnect_replays_transcript(monkeypatch):
-    from fastapi.testclient import TestClient
-    import chatbot, llm
-    chatbot.greeted = True
+def test_reconnect_replays_transcript():
     llm.reset()
-    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi boss."}, {"role": "user", "content": "hello"}]
+    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi boss."},
+                             {"role": "user", "content": "hello"}]
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
@@ -147,12 +188,15 @@ def test_reconnect_replays_transcript(monkeypatch):
         assert ws.receive_json()["type"] == "state"
 
 
-def test_new_connection_releases_stale_playback_wait():
-    from fastapi.testclient import TestClient
-    import chatbot, llm
-    chatbot.greeted = True
+def test_new_connection_releases_the_previous_playback_wait():
     llm.reset()
-    chatbot.playback_done.clear()
-    with TestClient(chatbot.app).websocket_connect("/ws") as ws:
-        ws.receive_json()
-        assert chatbot.playback_done.is_set()
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws1:
+        ws1.receive_json()
+        first = chatbot.session
+        first.playback_done.clear()
+        with client.websocket_connect("/ws") as ws2:
+            ws2.receive_json()
+            assert chatbot.session is not first
+            assert first.playback_done.is_set()
+            assert first.websocket is None

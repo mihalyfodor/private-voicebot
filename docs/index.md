@@ -12,10 +12,10 @@ python3 chatbot.py    # opens http://localhost:8010 automatically
 
 ```bash
 source .venv/bin/activate
-# full suite
+# unit suite (no oMLX needed) — pytest.ini excludes the `live` marker by default
 python3 -m pytest tests/
-# unit-only (no oMLX needed):
-python3 -m pytest tests/ --deselect tests/test_llm_robustness.py --deselect tests/test_llm.py --deselect tests/test_tools.py
+# live tests (needs oMLX on :8000)
+python3 -m pytest -m live tests/
 ```
 
 ## Folder tree

@@ -42,19 +42,36 @@ def reload() -> dict:
     return current()
 
 
+SETTINGS_VERSION = 1
+
+
 def load_settings() -> dict:
+    """Read settings.json. A missing file is silently {}; a corrupt one warns and is {}."""
     try:
         with open(SETTINGS_PATH) as f:
-            return json.load(f)
-    except (OSError, ValueError):
+            data = json.load(f)
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError) as e:
+        print(f"[avatars] warning: could not read {SETTINGS_PATH} ({e}); using defaults")
+        return {}
+    if not isinstance(data, dict):
+        print(f"[avatars] warning: {SETTINGS_PATH} is not an object; using defaults")
+        return {}
+    return data
 
 
 def save_setting(key: str, value) -> None:
+    """Persist one setting atomically (tmp file + os.replace), stamping the schema version."""
     data = load_settings()
     data[key] = value
-    with open(SETTINGS_PATH, "w") as f:
+    data["version"] = SETTINGS_VERSION
+    tmp = SETTINGS_PATH + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(data, f)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SETTINGS_PATH)
 
 
 def _load_saved() -> str | None:

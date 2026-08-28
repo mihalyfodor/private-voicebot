@@ -6,6 +6,8 @@ import llm
 import pytest
 import warnings
 
+pytestmark = pytest.mark.live  # needs a running oMLX server
+
 
 def _omlx_available() -> bool:
     try:

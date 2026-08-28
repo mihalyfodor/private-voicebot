@@ -1,6 +1,5 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,6 +8,7 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
+from tests.conftest import Blocker, untagged
 
 
 @pytest.fixture(autouse=True)
@@ -20,15 +20,9 @@ def isolated_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def reset_chatbot_state(monkeypatch):
-    """chatbot's capture state is module-level (single client); reset it around every test."""
-    monkeypatch.setattr(chatbot, "greeted", True)  # skip the greeting thread
-    monkeypatch.setattr(chatbot, "processing", False)
+def reset_capture_state(monkeypatch):
+    """hands_free is a persisted app setting (module-level); the rest lives on the session."""
     monkeypatch.setattr(chatbot, "hands_free", False)
-    monkeypatch.setattr(chatbot, "endpointer", None)
-    monkeypatch.setattr(chatbot, "recorder", None)
-    monkeypatch.setattr(chatbot, "ptt_active", False)
-    monkeypatch.setattr(chatbot, "_hearing", False)
     yield
 
 
@@ -55,16 +49,18 @@ class FakeEndpointer:
         self.hearing = False
 
 
+def fake_respond(sess, turn, text, send_sync):
+    """Stand-in for the LLM half of a turn."""
+    return text
+
+
 def frame_bytes(n=512):
     return np.zeros(n, dtype=np.int16).tobytes()
 
 
 def drain_initial(ws):
     """Consume the hands_free announce + idle state sent right after connect."""
-    msgs = []
-    for _ in range(2):
-        msgs.append(ws.receive_json())
-    return msgs
+    return [ws.receive_json() for _ in range(2)]
 
 
 def test_set_hands_free_true_persists_and_announces_and_reflects_in_config():
@@ -95,7 +91,8 @@ def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
     monkeypatch.setattr(chatbot.vad, "Endpointer", FakeEndpointer)
     monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "hello there"))
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond", lambda text, loop: respond_calls.append(text))
+    monkeypatch.setattr(chatbot, "respond",
+                        lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
@@ -106,47 +103,58 @@ def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
 
         ws.send_bytes(frame_bytes())  # call 2: nothing
 
-        ws.send_bytes(frame_bytes())  # call 3: utterance emitted -> handle_utterance thread
+        ws.send_bytes(frame_bytes())  # call 3: utterance emitted -> turn submitted
         msg1 = ws.receive_json()
         msg2 = ws.receive_json()
-        assert msg1 == {"type": "state", "value": "processing"}
+        assert msg1 == {"type": "state", "value": "processing", "turn": 1}
         assert msg2 == {"type": "transcript", "role": "user", "text": "hello there"}
+        assert isinstance(chatbot.session.endpointer, FakeEndpointer)
 
-    assert respond_calls == ["hello there"]
-    assert isinstance(chatbot.endpointer, FakeEndpointer)
+    chatbot.controller.join_idle(timeout=5)
+    assert respond_calls == [(1, "hello there")]
 
 
-def test_hands_free_frames_gated_while_processing_do_not_respond(monkeypatch):
+def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
+    """Scenario 2: the endpointer is gated synchronously in the frame handler."""
     monkeypatch.setattr(chatbot, "hands_free", True)
-    monkeypatch.setattr(chatbot, "processing", True)
     fake = FakeEndpointer()
-    monkeypatch.setattr(chatbot, "endpointer", fake)
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond", lambda text, loop: respond_calls.append(text))
+    monkeypatch.setattr(chatbot, "respond",
+                        lambda sess, turn, text, send_sync: respond_calls.append(text))
     monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "should not run"))
 
+    blocker = Blocker()
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         drain_initial(ws)
-        ws.send_bytes(frame_bytes())
-        ws.send_json({"action": "playback_done"})  # round-trip to be sure the frame was processed
-        chatbot.playback_done.wait(timeout=1)
+        chatbot.session.endpointer = fake
+        blocker.hold(chatbot.controller)  # controller.busy is now True
 
-    assert fake.gated is True
+        for _ in range(3):  # feed #3 would emit an utterance if it were not gated
+            ws.send_bytes(frame_bytes())
+        ws.send_json({"action": "set_backdrop", "key": "none"})  # round-trip: frames are processed
+        assert ws.receive_json()["type"] == "backdrop"
+
+        assert fake.gated is True
+        assert fake.calls == 3
+        blocker.free(chatbot.controller)
+
     assert respond_calls == []
 
 
 def test_ptt_start_then_stop_transcribes_and_responds(monkeypatch):
     monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "ptt hello"))
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond", lambda text, loop: respond_calls.append(text))
+    monkeypatch.setattr(chatbot, "respond",
+                        lambda sess, turn, text, send_sync: respond_calls.append(text))
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         drain_initial(ws)
 
         ws.send_json({"action": "ptt", "value": "start"})
-        assert ws.receive_json() == {"type": "state", "value": "recording"}
+        assert untagged(ws.receive_json()) == {"type": "state", "value": "recording"}
+        assert chatbot.session.ptt_active is True
 
         # Enough samples to clear the 0.3s-min-length discard.
         ws.send_bytes(np.zeros(5000, dtype=np.int16).tobytes())
@@ -154,17 +162,36 @@ def test_ptt_start_then_stop_transcribes_and_responds(monkeypatch):
         ws.send_json({"action": "ptt", "value": "stop"})
         msg1 = ws.receive_json()
         msg2 = ws.receive_json()
-        assert msg1 == {"type": "state", "value": "processing"}
+        assert msg1 == {"type": "state", "value": "processing", "turn": 1}
         assert msg2 == {"type": "transcript", "role": "user", "text": "ptt hello"}
+        assert chatbot.session.ptt_active is False
 
+    chatbot.controller.join_idle(timeout=5)
     assert respond_calls == ["ptt hello"]
 
 
-def test_ptt_start_ignored_while_processing(monkeypatch):
-    monkeypatch.setattr(chatbot, "processing", True)
+def test_ptt_start_ignored_while_a_turn_runs():
+    blocker = Blocker()
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         drain_initial(ws)
+        blocker.hold(chatbot.controller)
         ws.send_json({"action": "ptt", "value": "start"})
-        ws.send_json({"action": "playback_done"})  # forces a round trip; no "recording" should appear first
-    assert chatbot.ptt_active is False
+        ws.send_json({"action": "set_backdrop", "key": "none"})  # round trip
+        assert ws.receive_json()["type"] == "backdrop"  # no "recording" came first
+        assert chatbot.session.ptt_active is False
+        blocker.free(chatbot.controller)
+
+
+def test_stray_ptt_stop_while_busy_emits_nothing():
+    """Scenario 11: a stop with no active recording must not emit `state idle`."""
+    blocker = Blocker()
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        drain_initial(ws)
+        blocker.hold(chatbot.controller)
+        ws.send_json({"action": "ptt", "value": "stop"})
+        ws.send_json({"action": "set_backdrop", "key": "none"})  # round trip
+        assert ws.receive_json()["type"] == "backdrop"  # nothing between
+        assert chatbot.session.recorder is None
+        blocker.free(chatbot.controller)

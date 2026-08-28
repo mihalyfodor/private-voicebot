@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 12 — Session, turn controller, protocol hardening
 

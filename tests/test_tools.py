@@ -6,6 +6,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tools import run_tool
 
+pytestmark = pytest.mark.live  # needs a running oMLX server
+
 
 def test_get_time():
     result = run_tool("get_time", {})
