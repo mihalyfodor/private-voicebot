@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 15 — Memory v2: structured profile with upsert + reflection
 
