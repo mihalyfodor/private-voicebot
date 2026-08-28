@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 14 — Memory evaluation harness (text-only)
 

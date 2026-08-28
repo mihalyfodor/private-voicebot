@@ -52,6 +52,7 @@ voicebot/
 ├── workflows/
 │   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
 │   └── classification_rules.example.py
+├── eval/             # memory eval harness: harness.py, scripts/*.yaml, results/
 ├── tests/
 │   ├── test_splitter.py         # SentenceSplitter / split_stream / strip_tag
 │   ├── test_llm_unit.py          # llm.py with a mocked OpenAI client, no oMLX needed
@@ -80,7 +81,9 @@ voicebot/
     ├── 10-personalities.md      # PRD: character cards (done)
     ├── 11-context-and-length.md # PRD: context budget, trimming, verbosity (done)
     ├── 12-turn-controller.md    # PRD: session, turn controller, protocol hardening (done)
-    └── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
+    ├── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
+    ├── 14-memory-eval.md        # PRD: text-only memory evaluation harness (done)
+    └── 15-memory-v2.md          # PRD: structured profile memory (exploration)
 ```
 
 ## Active PRDs
@@ -95,6 +98,8 @@ voicebot/
 - [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (done)
 - [12-turn-controller.md](12-turn-controller.md) — session, turn controller, turn ids, origin check, atomic settings (done)
 - [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (done)
+- [14-memory-eval.md](14-memory-eval.md) — memory evaluation harness, `python -m eval.harness` (done)
+- [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (exploration)
 
 ## Completed PRDs
 
