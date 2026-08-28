@@ -104,6 +104,7 @@ def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
 
 
 def test_reload_characters_ws_action(monkeypatch):
+    import llm; llm.reset()
     from fastapi.testclient import TestClient
     import avatars
 
@@ -128,3 +129,16 @@ def test_reload_characters_ws_action(monkeypatch):
         assert msg["avatar"] == "natori"
         assert msg["name"] == "Natori"
         assert msg["avatars"] == fake_listing
+
+
+def test_reconnect_replays_transcript(monkeypatch):
+    from fastapi.testclient import TestClient
+    import chatbot, llm
+    chatbot.greeted = True
+    llm.reset()
+    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi boss."}, {"role": "user", "content": "hello"}]
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
+        assert ws.receive_json() == {"type": "transcript", "role": "user", "text": "hello"}
+        assert ws.receive_json()["type"] == "state"

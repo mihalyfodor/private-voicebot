@@ -307,6 +307,9 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     ws_client = websocket
     loop = asyncio.get_event_loop()
+    # Replay what has been said so a reloaded page shows the conversation so far.
+    for turn in llm.get_session_turns():
+        await send({"type": "transcript", "role": turn["role"], "text": splitter.strip_tag(turn["content"])})
     if not greeted:
         greeted = True
         threading.Thread(target=greet, args=(loop,), daemon=True).start()
