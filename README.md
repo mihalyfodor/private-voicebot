@@ -1,15 +1,15 @@
 # Voicebot
 
-A local voice assistant with memory and real-time tools. Runs entirely on your machine — no cloud LLM, no API keys.
+A local voice assistant with memory, real-time tools and an animated Live2D avatar (Haru, an office assistant) that lip-syncs to speech. Runs entirely on your machine — no cloud LLM.
 
-**Stack:** Whisper (STT) → Ollama/Gemma 4 (LLM) → Kokoro (TTS)
+**Stack:** Whisper (STT) → oMLX/Gemma 4 (LLM) → Kokoro (TTS) → Live2D avatar in the browser
 
 **Built-in tools:** current time, weather (open-meteo), BBC world news headlines + article detail
 
 ## Requirements
 
 - macOS or Linux (WSL not supported — audio passthrough too unreliable)
-- [Ollama](https://ollama.com) installed and running
+- [oMLX](https://github.com/jundot/omlx) serving an OpenAI-compatible API on `http://localhost:8000/v1` with Gemma 4 loaded
 
 ## Setup
 
@@ -38,25 +38,27 @@ curl -L -o ~/kokoro/kokoro-v1.0.onnx \
 curl -L -o ~/kokoro/voices-v1.0.bin \
   https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin
 
-# Pull the LLM
-ollama pull gemma4:e2b
-
 # Python environment
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+
+# Browser libs + Live2D Haru model (not committed — Live2D license)
+scripts/fetch_assets.sh
+
+# Config
+cp .env.example .env   # set OMLX_MODEL to the id shown by: curl http://localhost:8000/v1/models
 ```
 
 ## Run
 
 **Voice assistant:**
 ```bash
-ollama serve          # if not already running
 source .venv/bin/activate
-python3 chatbot.py    # opens browser automatically
+python3 chatbot.py    # opens http://localhost:8010 automatically
 ```
 
-Press **Space** or click the button to start/stop recording. Use **Shut down** in the browser to exit cleanly.
+Press **Space** or click the button to start/stop recording. Use **Shut down** in the browser to exit cleanly. Audio plays in the browser; Haru's mouth follows the audio and her expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Tune the mapping in `CONFIG` at the top of `static/app.js`.
 
 **Email triage dashboard:**
 ```bash

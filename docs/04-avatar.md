@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 04 — Animated Avatar (Live2D office assistant)
 
@@ -50,7 +50,7 @@ Stack: existing FastAPI + WebSocket server; `pixi.js` + `pixi-live2d-display` in
 4. **`index.html`** → split into `static/index.html`, `static/app.js`, `static/style.css`. Add:
    - Audio queue: decode base64 → `AudioContext.decodeAudioData` → play sequentially through an `AnalyserNode`.
    - Lip-sync loop (`requestAnimationFrame`): RMS of analyser time-domain data → smoothed → `coreModel.setParameterValueById('ParamMouthOpenY', v)`.
-   - Expression handling: emotion → Haru expression id (mapping in `config` section of `app.js`), fade in/out.
+   - Expression handling: emotion → Haru expression id (mapping in `CONFIG` in `app.js`; Haru's expressions are named `f00`–`f07`), fade in/out.
    - Model load, `Idle` motion group looping, scaled to fit the left column.
 5. **`scripts/fetch_assets.sh`** — downloads `pixi.min.js`, `pixi-live2d-display` cubism4 bundle, `live2dcubismcore.min.js`, and Haru model into `static/vendor/` and `static/models/haru/` (both gitignored).
 6. **System prompt** — persona: calm, friendly office assistant; ≤2 sentences; must begin with exactly one of `[neutral] [happy] [thinking] [surprised] [apologetic]`. Keep existing tool instructions.

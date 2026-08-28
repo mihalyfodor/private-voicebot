@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voicebot</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <button id="shutdown">shut down</button>
+
+  <main>
+    <section id="avatar">
+      <canvas id="stage"></canvas>
+      <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
+    </section>
+
+    <section id="panel">
+      <div id="transcript"></div>
+      <button id="btn">Speak</button>
+      <div id="status">connecting...</div>
+    </section>
+  </main>
+
+  <script src="/static/vendor/pixi.min.js"></script>
+  <script src="/static/vendor/live2dcubismcore.min.js"></script>
+  <script src="/static/vendor/cubism4.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

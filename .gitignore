@@ -15,3 +15,5 @@ workflows/classification_learned_rules.json
 .pytest_cache/
 context.md
 
+static/vendor/
+static/models/

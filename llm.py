@@ -1,21 +1,29 @@
 import os
-import requests
 from datetime import datetime
+from typing import Iterator
+
+from openai import OpenAI
 
 import memory
 from tools import TOOLS, run_tool
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "gemma4:e2b"
+OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
+OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
+OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
 LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
+EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic")
+
 SYSTEM_PROMPT = (
-    f"You are a voice assistant with memory. Keep responses short and conversational. "
-    f"Talk like a person, not a chatbot. Never use markdown, bullet points, asterisks, or any "
+    f"You are Haru, a calm and friendly office assistant with memory. "
+    f"Keep responses short and conversational: at most two sentences. "
+    f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
+    f"Begin every reply with exactly one emotion tag from this list, then a space: "
+    f"{' '.join(f'[{e}]' for e in EMOTIONS)}. "
     f"Today's date is {datetime.now().strftime('%A, %B %d %Y')}. "
     f"Use the get_time tool when asked for the current time. "
-    f"Use the get_weather tool when asked about the weather — when reporting weather, give a full "
+    f"Use the get_weather tool when asked about the weather — when reporting weather, give a "
     f"summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind. "
     f"Use the get_news tool when asked about the news or current events. "
     f"When the user asks for more details on a headline, use the get_news_detail tool with the URL "
@@ -23,9 +31,17 @@ SYSTEM_PROMPT = (
     f"Use the get_emails tool when asked to check email, read emails, or see the inbox."
 )
 
+_client: OpenAI | None = None
 _conversation: list = []
 _session_turns: list = []
 _last_tool_calls: list = []
+
+
+def client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(base_url=OMLX_BASE_URL, api_key=OMLX_API_KEY)
+    return _client
 
 
 def reset():
@@ -35,50 +51,70 @@ def reset():
     _last_tool_calls = []
 
 
-def ask(user_text: str) -> str:
+def _tool_round(msg) -> None:
+    """Execute tool calls from an assistant message and append results to the conversation."""
+    _conversation.append({
+        "role": "assistant",
+        "content": msg.content or "",
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {"name": tc.function.name, "arguments": tc.function.arguments or "{}"},
+            }
+            for tc in msg.tool_calls
+        ],
+    })
+    for tc in msg.tool_calls:
+        name = tc.function.name
+        import json
+        try:
+            args = json.loads(tc.function.arguments or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        _last_tool_calls.append({"name": name, "args": args})
+        result = run_tool(name, args)
+        print(f"[Tool] {name}() → {result}")
+        _conversation.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
+
+
+def ask_stream(user_text: str) -> Iterator[str]:
+    """Yield text deltas of the assistant reply. Tool rounds run non-streamed first."""
     global _last_tool_calls
 
     _conversation.append({"role": "user", "content": user_text})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
 
-    response = requests.post(OLLAMA_URL, json={
-        "model": OLLAMA_MODEL,
-        "messages": _conversation,
-        "tools": TOOLS,
-        "stream": False,
-        "options": {"num_ctx": 32768},
-    })
-    data = response.json()
-    if "message" not in data:
-        print(f"[Ollama error] {data}")
-        raise KeyError(f"No 'message' in response: {data}")
-    msg = data["message"]
+    # Non-streamed first pass so tool calls can be resolved.
+    first = client().chat.completions.create(
+        model=OMLX_MODEL, messages=_conversation, tools=TOOLS,
+    )
+    msg = first.choices[0].message
 
-    if msg.get("tool_calls"):
-        _conversation.append(msg)
-        for tc in msg["tool_calls"]:
-            name = tc["function"]["name"]
-            args = tc["function"].get("arguments", {})
-            _last_tool_calls.append({"name": name, "args": args})
-            result = run_tool(name, args)
-            print(f"[Tool] {name}() → {result}")
-            _conversation.append({"role": "tool", "content": result})
+    if msg.tool_calls:
+        _tool_round(msg)
+        stream = client().chat.completions.create(
+            model=OMLX_MODEL, messages=_conversation, stream=True,
+        )
+        parts = []
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                parts.append(delta)
+                yield delta
+        reply = "".join(parts)
+    else:
+        reply = msg.content or ""
+        yield reply
 
-        response = requests.post(OLLAMA_URL, json={
-            "model": OLLAMA_MODEL,
-            "messages": _conversation,
-            "stream": False,
-            "options": {"num_ctx": 32768},
-        })
-        msg = response.json()["message"]
-
-    reply = msg["content"]
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
-
     _log(user_text, _last_tool_calls, reply)
-    return reply
+
+
+def ask(user_text: str) -> str:
+    return "".join(ask_stream(user_text))
 
 
 def get_session_turns() -> list:
@@ -91,7 +127,7 @@ def get_last_tool_calls() -> list:
 
 def save_memory():
     if _session_turns:
-        memory.save(_session_turns, OLLAMA_URL, OLLAMA_MODEL)
+        memory.save(_session_turns, client(), OMLX_MODEL)
 
 
 def _log(user_text: str, tool_calls: list, reply: str):

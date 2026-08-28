@@ -1,5 +1,4 @@
 import os
-import requests
 from datetime import datetime
 
 SHORTMEM_PATH = os.path.join(os.path.dirname(__file__), "shortmem.txt")
@@ -19,7 +18,7 @@ def load(system_prompt: str) -> str:
     return system_prompt
 
 
-def save(session_turns: list, ollama_url: str, ollama_model: str):
+def save(session_turns: list, client, model: str):
     existing = ""
     if os.path.exists(SHORTMEM_PATH):
         with open(SHORTMEM_PATH, "r") as f:
@@ -43,13 +42,8 @@ def save(session_turns: list, ollama_url: str, ollama_model: str):
         },
     ]
 
-    response = requests.post(ollama_url, json={
-        "model": ollama_model,
-        "messages": messages,
-        "stream": False,
-        "options": {"num_ctx": 32768},
-    })
-    summary = response.json()["message"]["content"].strip()
+    response = client.chat.completions.create(model=model, messages=messages)
+    summary = (response.choices[0].message.content or "").strip()
 
     if not summary or summary.upper() == "NOTHING" or len(summary) < 10:
         print("\n[Nothing new to save]")
