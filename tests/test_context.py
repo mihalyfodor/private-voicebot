@@ -9,16 +9,18 @@ import pytest
 import llm
 
 
-def _msg(content=None, tool_calls=None):
-    return SimpleNamespace(content=content, tool_calls=tool_calls)
-
-
-def _completion(msg):
-    return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-
-
 def _chunks(*texts):
-    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t))]) for t in texts]
+    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t, tool_calls=None))]) for t in texts]
+
+
+def _tc_chunk(index=0, id=None, name=None, arguments=None, finish_reason=None):
+    """One streamed chunk carrying a tool_call fragment."""
+    frag = SimpleNamespace(
+        index=index, id=id,
+        function=SimpleNamespace(name=name, arguments=arguments),
+    )
+    return SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
 
 
 class FakeClient:
@@ -101,9 +103,8 @@ def test_trim_history_no_trim_when_under_budget(monkeypatch, capsys):
 def test_max_tokens_passed_on_every_create_call(monkeypatch):
     monkeypatch.setattr(llm, "MAX_TOKENS", 0)
     monkeypatch.setattr(llm, "_verbosity", "long")
-    tc = SimpleNamespace(id="call_1", function=SimpleNamespace(name="get_time", arguments="{}"))
     fake = FakeClient([
-        _completion(_msg(content=None, tool_calls=[tc])),
+        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
         iter(_chunks("[neutral] Noon.")),
     ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
@@ -115,7 +116,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
 
 def test_max_tokens_env_override(monkeypatch):
     monkeypatch.setattr(llm, "MAX_TOKENS", 123)
-    fake = FakeClient([_completion(_msg(content="[happy] hi"))])
+    fake = FakeClient([iter(_chunks("[happy] hi"))])
     with patch.object(llm, "_client", fake):
         llm.ask("hi")
     assert fake.calls[0]["max_tokens"] == 123
