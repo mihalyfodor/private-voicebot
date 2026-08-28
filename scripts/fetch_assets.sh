@@ -53,4 +53,19 @@ fetch_model static/models/wanko \
 fetch_model static/models/natori \
   https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Natori \
   Natori.model3.json
+echo "→ backdrops"
+mkdir -p static/backdrops
+python3 - <<'PY'
+import urllib.request, os, sys
+sys.path.insert(0, ".")
+from backdrops import BACKDROPS
+for b in BACKDROPS.values():
+    if not b["url"]:
+        continue
+    dst = os.path.join("static/backdrops", b["file"])
+    req = urllib.request.Request(b["url"], headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req) as r, open(dst, "wb") as f:
+        f.write(r.read())
+    print("   ", b["file"])
+PY
 echo "done."
