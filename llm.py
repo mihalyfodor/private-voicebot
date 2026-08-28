@@ -134,6 +134,8 @@ def build_system_prompt(avatar: dict) -> str:
     f"{avatar['persona']} "
     f"You have memory of past conversations. "
     f"Keep responses conversational: {VERBOSITY_RULES[verbosity]}. "
+    f"If the user profile records a preferred name or nickname, address the user by it; that "
+    f"overrides any habit from your character. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
     f"Begin every reply with exactly one emotion tag from this list, then a space: "

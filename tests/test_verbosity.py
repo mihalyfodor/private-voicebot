@@ -55,6 +55,12 @@ def test_build_system_prompt_contains_rule_text():
     assert llm.VERBOSITY_RULES["long"] in prompt
 
 
+def test_build_system_prompt_lets_a_preferred_name_beat_the_persona():
+    prompt = llm.build_system_prompt(_fake_avatar())
+    assert "preferred name or nickname" in prompt
+    assert "overrides any habit from your character" in prompt
+
+
 def test_rule_texts_match_prd():
     assert llm.VERBOSITY_RULES["short"] == "at most two sentences"
     assert llm.VERBOSITY_RULES["normal"] == (

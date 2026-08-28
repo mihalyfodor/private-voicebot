@@ -72,7 +72,8 @@ sessions:
 
   # --- S10: single-hop probes on the oldest (S1) facts ---------------------
   - - probe: "hey, do you remember my name?"
-      expect: ["mihaly"]
+      # either is correct: Mihaly is the name, Misi the nickname they asked for in S6
+      expect: [["mihaly", "misi"]]
       category: single-hop
     - probe: "what's my dog's name again?"
       expect: ["bolt"]

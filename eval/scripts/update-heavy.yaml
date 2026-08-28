@@ -68,7 +68,9 @@ sessions:
       expect_not: ["nala"]
       category: update
     - probe: "where did I live before Vienna?"
-      expect: ["budapest"]
+      # superseded values are kept on disk but deliberately not rendered (PRD 15), so an honest
+      # "don't know" is acceptable here as well as the true answer.
+      expect: ["budapest", "don't know", "do not know", "not sure", "no record", "don't have"]
       category: temporal
 
   # --- S6: abstention + closing chatter ---------------------------------------

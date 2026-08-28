@@ -26,7 +26,8 @@ SHORTMEM_PATH = os.path.join(_DIR, "shortmem.txt")  # v1, read once for migratio
 VERSION = 2
 REFLECT_EVERY = int(os.getenv("MEMORY_REFLECT_EVERY", "5"))
 BUDGET_TOKENS = int(os.getenv("MEMORY_BUDGET_TOKENS", "700"))
-EPISODIC_SHOWN = 8
+EPISODIC_SHOWN = 5
+EPISODIC_MIN_IMPORTANCE = 2  # importance-1 entries stay on disk until TTL, but are not rendered
 DEFAULT_TTL_DAYS = 30
 
 SCALAR_SECTIONS = ("identity", "preferences")
@@ -153,9 +154,14 @@ def _episodic_score(entry: dict) -> float:
     return _importance(entry) * (0.98 ** _age_days(entry))
 
 
-def live_episodics(profile: dict) -> list:
-    """Non-expired episodics, best first (recency x importance)."""
-    live = [e for e in profile.get("episodic", []) if not is_expired(e)]
+def live_episodics(profile: dict, min_importance: int = 1) -> list:
+    """Non-expired episodics, best first (recency x importance).
+
+    `min_importance` filters out day-to-day noise: importance-1 entries may still sit on disk
+    until their TTL expires, they just don't earn a line in the prompt.
+    """
+    live = [e for e in profile.get("episodic", [])
+            if not is_expired(e) and _importance(e) >= min_importance]
     return sorted(live, key=_episodic_score, reverse=True)
 
 
@@ -165,12 +171,27 @@ def tokens_est(text: str) -> int:
 
 def _scalar_lines(profile: dict, section: str) -> list:
     """Only current values. Superseded ones stay in the file (undo, "you used to") but are
-    deliberately not rendered: showing them made the model volunteer the stale value."""
-    return [
-        f"{key}: {value}"
-        for key, value in profile.get(section, {}).items()
-        if key != "superseded" and isinstance(value, str) and value.strip()
-    ]
+    deliberately not rendered: showing them made the model volunteer the stale value.
+
+    `identity.nickname` is folded into the name line as `name: Mihaly (call them: Misi)` so the
+    preferred form of address is impossible to miss.
+    """
+    values = profile.get(section, {})
+    lines = []
+    nickname = values.get("nickname") if section == "identity" else None
+    nickname = nickname.strip() if isinstance(nickname, str) else ""
+    for key, value in values.items():
+        if key == "superseded" or not isinstance(value, str) or not value.strip():
+            continue
+        if key == "nickname":
+            if not values.get("name"):
+                lines.append(f"call them: {value.strip()}")
+            continue
+        if key == "name" and nickname:
+            lines.append(f"name: {value.strip()} (call them: {nickname})")
+            continue
+        lines.append(f"{key}: {value.strip()}")
+    return lines
 
 
 def _entry_line(section: str, entry: dict) -> str:
@@ -197,7 +218,7 @@ def _blocks(profile: dict) -> list:
         items = [line for line in (_entry_line(section, e) for e in profile.get(section, [])) if line]
         if items:
             blocks.append((section.capitalize(), items))
-    episodics = live_episodics(profile)[:EPISODIC_SHOWN]
+    episodics = live_episodics(profile, EPISODIC_MIN_IMPORTANCE)[:EPISODIC_SHOWN]
     if episodics:
         blocks.append(("Recent", [f"{e.get('date', '')}: {e.get('text', '')}".strip(": ")
                                   for e in episodics]))
@@ -244,6 +265,10 @@ def load(system_prompt: str) -> str:
 # --------------------------------------------------------------------------- ops
 
 
+# Migration note: profiles written before the nickname rule may have a nickname sitting in
+# `identity.name` with the real name pushed into `identity.superseded["name"]`. That is left alone
+# on purpose — restoring it automatically would only guess at which of the two is the real name.
+# Fix it by hand, or let the user restate their name (which UPDATEs identity.name).
 PROPOSE_SYSTEM = """You maintain a long-term profile of the USER for a conversational assistant.
 Given the current profile (JSON) and a new conversation transcript, output the smallest set of
 operations that brings the profile up to date.
@@ -252,7 +277,7 @@ Reply with a JSON array of operations and nothing else. Each operation is
 {"op": "ADD"|"UPDATE"|"DELETE"|"NOOP", "path": "<path>", "value": <value>, "reason": "<short>"}
 
 Paths:
-  identity.<key>    a plain string. Use keys like name, location, occupation, birthday.
+  identity.<key>    a plain string. Use keys like name, nickname, location, occupation, birthday.
   preferences.<key> a plain string, e.g. {"op":"ADD","path":"preferences.coffee","value":"black"}
   people[]          value {"name": "...", "rel": "...", "note": "..."}
   projects[]        value {"name": "...", "status": "...", "note": "..."}
@@ -262,9 +287,18 @@ Paths:
 Rules:
 - Only facts the USER stated about THEMSELVES, their people or their projects. Never facts about
   the assistant, never world facts, never anything the assistant merely said or guessed.
-- Durable facts go to identity/preferences/people/projects/recurring. Anything time-bound or
-  trivial (today's weather, what they ate, a passing mood) is skipped, or at most an episodic
-  with ttl_days 1-7 and importance 1. Never store transients as identity or preferences.
+- identity.name is the user's actual name and nothing else. A preferred form of address
+  ("call me Misi", "everyone calls me Misi", "I go by Mike") is identity.nickname — ADD or UPDATE
+  that path and leave identity.name alone. Only change identity.name when the user says their
+  real name is different from what you have.
+- Durable facts go to identity/preferences/people/projects/recurring.
+- Skip everyday trivia entirely — no episodic at all — for meals, snacks, coffee runs, sleep,
+  minor aches, mood, weather, commute, traffic, chores and similar day-to-day noise. These are
+  not worth an entry.
+- Write an episodic only when the moment has future relevance: an event, a plan, a decision, an
+  outcome, or something the user marks as notable ("remember this", "big day") — something they
+  would expect you to bring up next week. Give it importance 2 or 3; if the best you can justify
+  is importance 1, don't store it at all. Never store transients as identity or preferences.
 - If a fact already in the profile changed, UPDATE that exact path. Never ADD a second copy.
 - If a fact stopped being true and has no replacement, DELETE it.
 - For UPDATE or DELETE on a list, the value must carry the identifying key (name for people and

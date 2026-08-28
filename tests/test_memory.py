@@ -180,16 +180,39 @@ def test_episodic_cap_drops_least_important_and_oldest_first():
 
 def test_render_orders_episodics_by_recency_times_importance_and_drops_expired():
     profile = _profile(episodic=[
-        {"date": _days_ago(1), "text": "minor thing", "ttl_days": 30, "importance": 1},
+        {"date": _days_ago(1), "text": "medium thing", "ttl_days": 30, "importance": 2},
         {"date": _days_ago(2), "text": "big thing", "ttl_days": 30, "importance": 3},
         {"date": _days_ago(40), "text": "expired thing", "ttl_days": 7, "importance": 3},
     ])
     block = memory.render(profile)
     assert "expired thing" not in block
-    assert block.index("big thing") < block.index("minor thing")
+    assert block.index("big thing") < block.index("medium thing")
 
 
-def test_render_shows_at_most_eight_episodics_and_stays_in_budget():
+def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
+    """Everyday trivia that slipped through is stored until its TTL, never prompted."""
+    profile = _profile(episodic=[
+        {"date": _days_ago(0), "text": "had a sandwich for lunch", "ttl_days": 3, "importance": 1},
+        {"date": _days_ago(0), "text": "signed the flat contract", "ttl_days": 30, "importance": 3},
+    ])
+    block = memory.render(profile)
+    assert "sandwich" not in block
+    assert "flat contract" in block
+    assert len(profile["episodic"]) == 2
+    assert len(memory.live_episodics(profile)) == 2  # unfiltered view still sees both
+
+
+def test_render_folds_nickname_into_the_name_line():
+    profile = _profile(identity={"name": "Mihaly", "nickname": "Misi", "location": "Budapest"})
+    assert memory.render(profile) == "Identity: name: Mihaly (call them: Misi); location: Budapest"
+
+
+def test_render_shows_a_nickname_without_a_name():
+    profile = _profile(identity={"nickname": "Misi"})
+    assert memory.render(profile) == "Identity: call them: Misi"
+
+
+def test_render_shows_at_most_five_episodics_and_stays_in_budget():
     profile = _profile(
         identity={"name": "Mihaly"},
         episodic=[{"date": _days_ago(i), "text": f"episode number {i} " + "x" * 200,
