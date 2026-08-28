@@ -27,7 +27,7 @@ Unchanged layout. Transcript label uses the avatar's name. Wanko is framed large
 
 - Chose server-side selection (env) over a URL param because the voice is chosen server-side; one source of truth.
 - Chose per-frame param overrides for Wanko expressions because the sample ships no `.exp3.json`; same mechanism later works for any model.
-- Wanko voice: Kokoro `bm_lewis` at 1.05 — warm British male; user found `am_puck` too deep. Alternatives sampled in `/tmp/voices/`.
+- Wanko voice: Kokoro `am_puck` at 1.05 — chosen by ear over `bm_lewis`. Alternatives sampled in `/tmp/voices/`.
 - Risk: Wanko's `PARAM_FACE_01` may look smug rather than thoughtful; tune by eye.
 
 ## Data model
