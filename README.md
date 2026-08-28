@@ -17,13 +17,7 @@ A local voice assistant with memory, real-time tools and an animated Live2D avat
 
 **Apple Silicon Mac required** for speech recognition (`mlx-whisper`; the model `mlx-community/whisper-small-mlx` downloads on first run). **Chrome** is the target browser: microphone capture happens in the page (echo cancellation / noise suppression), so allow the mic permission when prompted.
 
-**Both**
 ```bash
-# Download Whisper model
-mkdir -p ~/models/whisper
-curl -L -o ~/models/whisper/ggml-small.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
-
 # Download Kokoro models
 mkdir -p ~/models/kokoro
 curl -L -o ~/models/kokoro/kokoro-v1.0.onnx \
