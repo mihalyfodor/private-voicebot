@@ -33,3 +33,8 @@ def test_first_sentence_emitted_before_stream_ends():
 def test_strip_tag():
     assert strip_tag("[happy] Hi there.") == "Hi there."
     assert strip_tag("Hi there.") == "Hi there."
+
+
+def test_leaked_thought_line_is_dropped():
+    out = list(split_stream(["thought\n\n[neutral] It is noon."]))
+    assert out == [("neutral", "It is noon.")]

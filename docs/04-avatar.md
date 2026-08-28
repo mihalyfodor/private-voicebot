@@ -64,6 +64,7 @@ Stack: existing FastAPI + WebSocket server; `pixi.js` + `pixi-live2d-display` in
 - Chose amplitude-based lip-sync over viseme (Rhubarb) because it's ~30 lines and good enough for a first slice; viseme is a follow-up PRD if it looks off.
 - Chose sentence-level streaming to TTS over full-reply TTS because it cuts perceived latency by roughly the reply length.
 - Chose OpenAI client for oMLX over raw `requests` because tool-calling format is standard and streaming is built in. Assume oMLX supports `tools`; if not, fall back to prompt-based tool triggering (revisit).
+- Measured: with the original prompt (tuned for Gemma 4 4B) the 26B model called tools 0/12 times and guessed answers instead; adding an explicit "you have no clock/weather/news/inbox, you MUST call the tool" rule gave 12/12. oMLX supports OpenAI `tools`, so no fallback needed.
 - Risk: Gemma forgets the `[tag]` prefix on some replies → splitter defaults to `neutral`, never breaks playback.
 - Risk: Docker on macOS has no GPU → oMLX stays native; the app itself stays native for this slice (Docker is out of scope).
 

@@ -28,7 +28,10 @@ SYSTEM_PROMPT = (
     f"Use the get_news tool when asked about the news or current events. "
     f"When the user asks for more details on a headline, use the get_news_detail tool with the URL "
     f"from the previous get_news result — never say you cannot look it up. "
-    f"Use the get_emails tool when asked to check email, read emails, or see the inbox."
+    f"Use the get_emails tool when asked to check email, read emails, or see the inbox. "
+    f"IMPORTANT: You have no clock, no weather data, no news and no inbox of your own. "
+    f"Whenever the user asks about the time, weather, news, or email you MUST call the matching tool "
+    f"before answering — never guess or make up an answer."
 )
 
 _client: OpenAI | None = None

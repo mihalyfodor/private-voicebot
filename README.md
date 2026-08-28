@@ -27,15 +27,15 @@ apt install portaudio19-dev
 **Both**
 ```bash
 # Download Whisper model
-mkdir -p ~/whisper-models
-curl -L -o ~/whisper-models/ggml-small.bin \
+mkdir -p ~/models/whisper
+curl -L -o ~/models/whisper/ggml-small.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 
 # Download Kokoro models
-mkdir -p ~/kokoro
-curl -L -o ~/kokoro/kokoro-v1.0.onnx \
+mkdir -p ~/models/kokoro
+curl -L -o ~/models/kokoro/kokoro-v1.0.onnx \
   https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/kokoro-v1.0.onnx
-curl -L -o ~/kokoro/voices-v1.0.bin \
+curl -L -o ~/models/kokoro/voices-v1.0.bin \
   https://github.com/nazdridoy/kokoro-tts/releases/download/v1.0.0/voices-v1.0.bin
 
 # Python environment

@@ -20,9 +20,9 @@ from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 WHISPER_CLI = os.getenv("WHISPER_CLI", "/opt/homebrew/bin/whisper-cli")
-WHISPER_MODEL = os.path.expanduser(os.getenv("WHISPER_MODEL", "~/whisper-models/ggml-small.bin"))
-KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/kokoro/kokoro-v1.0.onnx"))
-KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/kokoro/voices-v1.0.bin"))
+WHISPER_MODEL = os.path.expanduser(os.getenv("WHISPER_MODEL", "~/models/whisper/ggml-small.bin"))
+KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/models/kokoro/kokoro-v1.0.onnx"))
+KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/voices-v1.0.bin"))
 KOKORO_VOICE = os.getenv("KOKORO_VOICE", "af_sarah")
 KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", "0.95"))
 PORT = int(os.getenv("PORT", "8010"))
