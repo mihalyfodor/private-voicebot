@@ -24,5 +24,5 @@ static/backdrops/
 eval/results/*
 !eval/results/baseline.json
 !eval/results/v1-*.json
-!eval/results/v2-*.json
+!eval/results/v*.json
 .claude/worktrees/
