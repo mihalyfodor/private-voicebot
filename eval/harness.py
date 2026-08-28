@@ -1,12 +1,12 @@
 """Text-only evaluation harness for the LLM + memory pipeline.
 
 Runs scripted, multi-session conversations against llm.ask()/llm.save_memory() with
-shortmem.txt and settings.json redirected to a sandbox, then scores "probe" turns by
-keyword hit and reports what memory retained.
+memory.json, memory_ops.jsonl and settings.json redirected to a sandbox, then scores
+"probe" turns by keyword hit and reports what memory retained.
 
 Usage:
     python -m eval.harness eval/scripts/basic.yaml --out eval/results/run.json
-    python -m eval.harness eval/scripts/basic.yaml --rounds 2 --keep-memory /tmp/mem.txt
+    python -m eval.harness eval/scripts/basic.yaml --rounds 2 --keep-memory /tmp/memory.json
     python -m eval.harness --chat
 """
 import argparse
@@ -35,7 +35,7 @@ CATEGORIES = (
     "preference",
 )
 
-DUP_RATIO = 0.85
+DUP_RATIO = memory.DUP_RATIO  # one fuzzy-match threshold, shared with memory.py
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -44,9 +44,10 @@ DUP_RATIO = 0.85
 class Sandbox:
     """Redirect memory/settings/log to throwaway paths so evals never touch the real files.
 
-    ``memory_path`` (optional) persists memory across runs; otherwise a temp file is used
-    and discarded on exit. Tools are disabled by default (``llm.TOOLS = []``) so probes
-    never trigger weather/news calls.
+    ``memory_path`` (optional) is the ``memory.json`` to persist across runs; the ops log and
+    the v1 ``shortmem.txt`` are placed beside it. Otherwise everything lives in a temp dir and
+    is discarded on exit. Tools are disabled by default (``llm.TOOLS = []``) so probes never
+    trigger weather/news calls.
     """
 
     def __init__(self, memory_path: str | None = None, tools: bool = False):
@@ -60,12 +61,17 @@ class Sandbox:
         self.log_path = os.path.join(self._tmpdir, "session.log")
         self.settings_path = os.path.join(self._tmpdir, "settings.json")
         if self.memory_path is None:
-            self.memory_path = os.path.join(self._tmpdir, "shortmem.txt")
+            self.memory_path = os.path.join(self._tmpdir, "memory.json")
         else:
             self.memory_path = os.path.abspath(self.memory_path)
             os.makedirs(os.path.dirname(self.memory_path) or ".", exist_ok=True)
+        mem_dir = os.path.dirname(self.memory_path) or "."
+        self.ops_path = os.path.join(mem_dir, "memory_ops.jsonl")
+        self.shortmem_path = os.path.join(mem_dir, "shortmem.txt")
 
         self._saved = {
+            "memory": memory.MEMORY_PATH,
+            "ops": memory.OPS_LOG_PATH,
             "shortmem": memory.SHORTMEM_PATH,
             "settings": avatars.SETTINGS_PATH,
             "tools": llm.TOOLS,
@@ -75,7 +81,9 @@ class Sandbox:
             "system_prompt": llm.SYSTEM_PROMPT,
         }
 
-        memory.SHORTMEM_PATH = self.memory_path
+        memory.MEMORY_PATH = self.memory_path
+        memory.OPS_LOG_PATH = self.ops_path
+        memory.SHORTMEM_PATH = self.shortmem_path
         avatars.SETTINGS_PATH = self.settings_path
         avatars._current = None
         if not self.tools:
@@ -96,12 +104,15 @@ class Sandbox:
             f.write(line)
 
     def read_memory(self) -> str:
-        if not os.path.exists(self.memory_path):
-            return ""
-        with open(self.memory_path) as f:
-            return f.read()
+        """The memory.json text, falling back to the v1 shortmem.txt when there is no profile."""
+        return _read(self.memory_path) or _read(self.shortmem_path)
+
+    def read_ops(self) -> list:
+        return _read_ops(_read(self.ops_path))
 
     def __exit__(self, *exc) -> bool:
+        memory.MEMORY_PATH = self._saved["memory"]
+        memory.OPS_LOG_PATH = self._saved["ops"]
         memory.SHORTMEM_PATH = self._saved["shortmem"]
         avatars.SETTINGS_PATH = self._saved["settings"]
         llm.TOOLS = self._saved["tools"]
@@ -124,14 +135,7 @@ class Session:
     def __init__(self, sandbox: Sandbox | None = None):
         self.sandbox = sandbox
         self.turns: list = []
-
-    def _memory_text(self) -> str:
-        if self.sandbox is not None:
-            return self.sandbox.read_memory()
-        if not os.path.exists(memory.SHORTMEM_PATH):
-            return ""
-        with open(memory.SHORTMEM_PATH) as f:
-            return f.read()
+        self.last_ops: list = []
 
     def start(self) -> "Session":
         llm.reset()
@@ -144,11 +148,44 @@ class Session:
         return reply
 
     def end(self) -> str:
-        """save_memory(), returning whatever was appended to shortmem.txt."""
-        before = self._memory_text()
+        """save_memory(); returns the ops applied this session (v1: the shortmem delta).
+
+        The structured ops also land in ``self.last_ops``.
+        """
+        before_ops = _read(memory.OPS_LOG_PATH)
+        before_text = _read(memory.SHORTMEM_PATH)
         llm.save_memory()
-        after = self._memory_text()
-        return _appended(before, after)
+        self.last_ops = _read_ops(_appended(before_ops, _read(memory.OPS_LOG_PATH)))
+        if self.last_ops:
+            return "\n".join(format_op(op) for op in self.last_ops)
+        return _appended(before_text, _read(memory.SHORTMEM_PATH))
+
+
+def _read(path: str) -> str:
+    if not path or not os.path.exists(path):
+        return ""
+    with open(path) as f:
+        return f.read()
+
+
+def _read_ops(text: str) -> list:
+    ops = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            ops.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return ops
+
+
+def format_op(op: dict) -> str:
+    value = op.get("value")
+    value = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    reason = f"  ({op['reason']})" if op.get("reason") else ""
+    return f"{op.get('op')} {op.get('path')} = {value}{reason}"
 
 
 def _appended(before: str, after: str) -> str:
@@ -238,28 +275,75 @@ def _fact_lines(text: str) -> list:
 
 
 def duplicate_lines(text: str, ratio: float = DUP_RATIO) -> list:
-    """Lines that are exact or near duplicates (difflib ratio > `ratio`) of an earlier line."""
+    """Lines that are exact or near duplicates (memory._similar) of an earlier line."""
     lines = _fact_lines(text)
     dups = []
     for i, line in enumerate(lines):
-        a = _norm(line).strip()
-        if not a:
-            continue
         for j in range(i):
-            b = _norm(lines[j]).strip()
-            if not b:
-                continue
-            if a == b or difflib.SequenceMatcher(None, a, b).ratio() > ratio:
+            if memory._similar(line, lines[j], ratio):
                 dups.append({"line": line, "duplicate_of": lines[j]})
                 break
     return dups
 
 
+def as_profile(text: str):
+    """The v2 profile parsed out of `text`, or None when it is a v1 shortmem dump."""
+    stripped = (text or "").strip()
+    if not stripped.startswith("{"):
+        return None
+    try:
+        data = json.loads(stripped)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) and data.get("version") == memory.VERSION else None
+
+
+def duplicate_entries(profile: dict, ratio: float = DUP_RATIO) -> list:
+    """List entries whose identifying key near-duplicates an earlier one in the same list."""
+    dups = []
+    for section, key_field in memory.LIST_KEY.items():
+        keys = [str(e.get(key_field, "")) for e in profile.get(section, []) if isinstance(e, dict)]
+        for i, key in enumerate(keys):
+            for j in range(i):
+                if memory._similar(key, keys[j], ratio):
+                    dups.append({"section": section, "line": key, "duplicate_of": keys[j]})
+                    break
+    return dups
+
+
+def profile_stats(profile: dict) -> dict:
+    """Section sizes, episodic count, render token estimate and duplicate entries."""
+    rendered = memory.render(profile, budget_tokens=10 ** 6)
+    sections = {
+        section: len([k for k in profile.get(section, {}) if k != "superseded"])
+        for section in memory.SCALAR_SECTIONS
+    }
+    sections.update({section: len(profile.get(section, [])) for section in memory.LIST_SECTIONS})
+    dups = duplicate_entries(profile)
+    return {
+        "version": memory.VERSION,
+        "render": rendered,
+        "sections": sections,
+        "episodic": sections["episodic"],
+        "episodic_live": len(memory.live_episodics(profile)),
+        "lines": len(rendered.splitlines()),
+        "fact_lines": sum(sections.values()),
+        "tokens_est": memory.tokens_est(rendered),
+        "duplicates": len(dups),
+        "duplicate_pairs": dups,
+    }
+
+
 def memory_stats(text: str) -> dict:
+    """Stats for whichever memory format `text` holds (v2 profile JSON or v1 shortmem)."""
+    profile = as_profile(text)
+    if profile is not None:
+        return {"content": text, **profile_stats(profile)}
     facts = _fact_lines(text)
     dups = duplicate_lines(text)
     return {
         "content": text,
+        "version": 1,
         "lines": len(text.splitlines()),
         "fact_lines": len(facts),
         "tokens_est": len(text) // 4,
@@ -330,6 +414,7 @@ def run_script(script, memory_path: str | None = None, rounds: int = 1,
                             print(f"  user: {text}")
                             print(f"         -> {reply[:160]}")
                 record["memory_delta"] = sess.end()
+                record["memory_ops"] = sess.last_ops
                 if verbose:
                     print(f"  [session {s_index} memory delta]\n{record['memory_delta'].strip()}\n")
                 round_result["sessions"].append(record)
@@ -372,10 +457,17 @@ def format_report(results: dict) -> str:
             lines.append(f"  FAIL ({p['category']}) {p['probe']} -- {', '.join(reason)}")
             lines.append(f"       {p['reply'][:200]}")
         m = rnd["memory"]
-        lines.append(
-            f"  memory: {m['lines']} lines ({m['fact_lines']} facts), "
-            f"~{m['tokens_est']} tokens, {m['duplicates']} duplicate lines"
-        )
+        if m.get("version") == 2:
+            sizes = ", ".join(f"{k} {v}" for k, v in m["sections"].items() if v)
+            lines.append(
+                f"  memory: {m['fact_lines']} entries ({sizes or 'empty'}), "
+                f"~{m['tokens_est']} tokens rendered, {m['duplicates']} duplicate entries"
+            )
+        else:
+            lines.append(
+                f"  memory: {m['lines']} lines ({m['fact_lines']} facts), "
+                f"~{m['tokens_est']} tokens, {m['duplicates']} duplicate lines"
+            )
         lines.append("")
     return "\n".join(lines)
 
@@ -399,7 +491,8 @@ def chat(memory_path: str | None = None, tools: bool = False) -> None:
             if text == "/quit":
                 break
             if text == "/mem":
-                print(box.read_memory() or "[empty]")
+                stats = memory_stats(box.read_memory())
+                print((stats.get("render") or stats["content"]).strip() or "[empty]")
                 continue
             if text == "/end":
                 delta = sess.end()
@@ -416,7 +509,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="eval.harness", description=__doc__)
     ap.add_argument("script", nargs="?", help="scenario YAML/JSON")
     ap.add_argument("--out", help="write full results JSON here")
-    ap.add_argument("--keep-memory", help="memory file to reuse across runs")
+    ap.add_argument("--keep-memory", help="memory.json to reuse across runs")
     ap.add_argument("--rounds", type=int, default=1, help="replay the script N times (memory persists)")
     ap.add_argument("--tools", action="store_true", help="leave tools enabled (default: disabled)")
     ap.add_argument("--chat", action="store_true", help="interactive REPL instead of a script")
@@ -438,7 +531,8 @@ def main(argv=None) -> int:
     )
     results["script"] = args.script
     print(format_report(results))
-    print("final memory:\n" + (results["memory"]["content"].strip() or "[empty]"))
+    final = results["memory"]
+    print("final memory:\n" + ((final.get("render") or final["content"]).strip() or "[empty]"))
 
     if args.out:
         os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)

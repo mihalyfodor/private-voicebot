@@ -1,0 +1,87 @@
+# Update-heavy scenario, 6 sessions: same facts (job, city, marathon date, dog count)
+# change repeatedly. Probes after each change check the current value and that ALL
+# previous values are gone (expect_not), plus one cross-change temporal probe and
+# an abstention check for something never said.
+sessions:
+
+  # --- S1: baseline facts ---------------------------------------------------
+  - - user: "hi, I'm a software engineer, based in Budapest"
+    - user: "I'm training for a marathon, planned for April 12th"
+    - user: "we just got a second dog, Nala, so now we have Bolt and Nala"
+    - user: "good to chat, bye"
+
+  # --- S2: baseline probes, then update round 1 -----------------------------
+  - - probe: "what's my job title?"
+      expect: ["software engineer"]
+      category: single-hop
+    - probe: "how many dogs do we have?"
+      expect: ["two", "2", "bolt and nala", "nala and bolt"]
+      category: multi-session
+    - user: "quick update, I got promoted to engineering manager"
+    - user: "also, we're moving to Vienna next month for work"
+    - user: "marathon got pushed back, now it's May 10th instead"
+    - user: "traffic was awful today, nothing else new"
+    - user: "alright, catch you later"
+
+  # --- S3: probes after update round 1, plus transient chatter -------------
+  - - probe: "what's my current job?"
+      expect: ["engineering manager", "manager"]
+      expect_not: ["software engineer"]
+      category: update
+    - probe: "which city do I live in?"
+      expect: ["vienna"]
+      expect_not: ["budapest"]
+      category: update
+    - probe: "when's the marathon?"
+      expect: ["may 10", "10th of may", "may the 10th"]
+      expect_not: ["april 12", "12th of april"]
+      category: update
+    - probe: "how many dogs do we have?"
+      expect: ["two", "2", "bolt and nala", "nala and bolt"]
+      category: multi-session
+    - user: "it's been raining nonstop here, kind of miserable"
+    - user: "had a sandwich for lunch, nothing exciting"
+    - user: "ok, talk later"
+
+  # --- S4: update round 2 ----------------------------------------------------
+  - - user: "actually, update: I'm going back to being an IC, staff engineer now"
+    - user: "and we moved back to Budapest, for now at least"
+    - user: "marathon's been rescheduled again, it's June 2nd now"
+    - user: "also, we had to give Nala to my sister, couldn't manage two dogs"
+    - user: "ok bye"
+
+  # --- S5: probes after update round 2 ---------------------------------------
+  - - probe: "what's my job now?"
+      expect: ["staff engineer"]
+      expect_not: ["engineering manager", "software engineer"]
+      category: update
+    - probe: "where do I live now?"
+      expect: ["budapest"]
+      expect_not: ["vienna"]
+      category: update
+    - probe: "when's the marathon now?"
+      expect: ["june 2", "2nd of june", "june the 2nd"]
+      expect_not: ["may 10", "april 12"]
+      category: update
+    - probe: "do I have any dogs right now?"
+      expect: ["bolt"]
+      expect_not: ["nala"]
+      category: update
+    - probe: "where did I live before Vienna?"
+      # superseded values are kept on disk but deliberately not rendered (PRD 15), so an honest
+      # "don't know" is acceptable here as well as the true answer.
+      expect: ["budapest", "don't know", "do not know", "not sure", "no record", "don't have"]
+      category: temporal
+
+  # --- S6: abstention + closing chatter ---------------------------------------
+  - - probe: "what's my favorite color?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      category: abstention
+    - probe: "what's my brother's name?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      category: abstention
+    - user: "alright, that's all for now, thanks"

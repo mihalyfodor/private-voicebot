@@ -1,0 +1,1262 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "what's my job title?",
+          "category": "single-hop",
+          "reply": "You are a software engineer, boss! I think it sounds very impressive. Wiggle wiggle!",
+          "passed": true,
+          "hits": [
+            "software engineer"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "how many dogs do we have?",
+          "category": "multi-session",
+          "reply": "You have two dogs, boss! Bolt and Nala. I wish I could play with them right now!",
+          "passed": true,
+          "hits": [
+            "two",
+            "bolt and nala"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what's my current job?",
+          "category": "update",
+          "reply": "You are an engineering manager, boss! You are doing a very important job.",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "which city do I live in?",
+          "category": "update",
+          "reply": "You live in Vienna, boss! It sounds like a very fancy place for a human.",
+          "passed": true,
+          "hits": [
+            "vienna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "when's the marathon?",
+          "category": "update",
+          "reply": "Your marathon training was set for May 10th! I hope you are feeling strong and ready for it.",
+          "passed": true,
+          "hits": [
+            "may 10"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "how many dogs do we have?",
+          "category": "multi-session",
+          "reply": "You have two dogs, boss! Bolt and Nala sound like very good dogs.",
+          "passed": true,
+          "hits": [
+            "two",
+            "bolt and nala"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 5,
+          "probe": "what's my job now?",
+          "category": "update",
+          "reply": "You are a staff engineer, boss! You are super smart. Is that a snack in your drawer?",
+          "passed": true,
+          "hits": [
+            "staff engineer"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 5,
+          "probe": "where do I live now?",
+          "category": "update",
+          "reply": "You are living in Budapest, boss! It is a very big city.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 5,
+          "probe": "when's the marathon now?",
+          "category": "update",
+          "reply": "Your marathon training started back on June 2nd, boss! You are working so hard. Is it time for a treat?",
+          "passed": true,
+          "hits": [
+            "june 2"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 5,
+          "probe": "do I have any dogs right now?",
+          "category": "update",
+          "reply": "You have a dog named Bolt, boss! He is your first dog. Is he playing with a ball right now?",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 5,
+          "probe": "where did I live before Vienna?",
+          "category": "temporal",
+          "reply": "I do not know that, boss! My brain is mostly filled with puppy thoughts and office snacks. Is it time for lunch?",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "budapest"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 6,
+          "probe": "what's my favorite color?",
+          "category": "abstention",
+          "reply": "I don't know that one yet, boss! My nose is great for smells, but it's not so good with colors.",
+          "passed": true,
+          "hits": [
+            "don't know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 6,
+          "probe": "what's my brother's name?",
+          "category": "abstention",
+          "reply": "I'm sorry, boss, but I don't have that information in my little doggy brain. I only know about you and Bolt!",
+          "passed": true,
+          "hits": [
+            "don't have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hi, I'm a software engineer, based in Budapest",
+              "reply": "It is nice to meet you, boss! I am ready to help you with anything you need today. Ooh, is that a keyboard you're typing on?"
+            },
+            {
+              "user": "I'm training for a marathon, planned for April 12th",
+              "reply": "That sounds amazing, boss! You are going to be so fast. I will cheer for you every single day!"
+            },
+            {
+              "user": "we just got a second dog, Nala, so now we have Bolt and Nala",
+              "reply": "Oh wow, two dogs! Bolt and Nala sound like a wonderful team. I will have to make sure I share my desk space very nicely!"
+            },
+            {
+              "user": "good to chat, bye",
+              "reply": "Bye bye, boss! I will be right here waiting whenever you need me."
+            }
+          ],
+          "memory_delta": "ADD identity.occupation = software engineer  (User stated their occupation)\nADD identity.location = Budapest  (User stated their location)\nADD recurring[] = {\"what\": \"marathon training\", \"when\": \"until April 12th\"}  (User is training for a marathon on a specific date)\nADD people[] = {\"name\": \"Bolt\", \"rel\": \"dog\", \"note\": \"First dog\"}  (User mentioned their dog Bolt)\nADD people[] = {\"name\": \"Nala\", \"rel\": \"dog\", \"note\": \"Second dog\"}  (User mentioned their new dog Nala)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:02:55",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "software engineer",
+              "reason": "User stated their occupation"
+            },
+            {
+              "ts": "2026-08-28T20:02:55",
+              "op": "ADD",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User stated their location"
+            },
+            {
+              "ts": "2026-08-28T20:02:55",
+              "op": "ADD",
+              "path": "recurring[]",
+              "value": {
+                "what": "marathon training",
+                "when": "until April 12th"
+              },
+              "reason": "User is training for a marathon on a specific date"
+            },
+            {
+              "ts": "2026-08-28T20:02:55",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Bolt",
+                "rel": "dog",
+                "note": "First dog"
+              },
+              "reason": "User mentioned their dog Bolt"
+            },
+            {
+              "ts": "2026-08-28T20:02:55",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Nala",
+                "rel": "dog",
+                "note": "Second dog"
+              },
+              "reason": "User mentioned their new dog Nala"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "what's my job title?",
+              "category": "single-hop",
+              "reply": "You are a software engineer, boss! I think it sounds very impressive. Wiggle wiggle!",
+              "passed": true,
+              "hits": [
+                "software engineer"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "how many dogs do we have?",
+              "category": "multi-session",
+              "reply": "You have two dogs, boss! Bolt and Nala. I wish I could play with them right now!",
+              "passed": true,
+              "hits": [
+                "two",
+                "bolt and nala"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "quick update, I got promoted to engineering manager",
+              "reply": "Wow, an engineering manager! That is amazing news, boss! I knew you could do it!"
+            },
+            {
+              "user": "also, we're moving to Vienna next month for work",
+              "reply": "Vienna! That sounds like a big adventure! I wonder if they have tasty treats there."
+            },
+            {
+              "user": "marathon got pushed back, now it's May 10th instead",
+              "reply": "That gives you extra time to train, boss! You are going to be so fast by May. One more thing, is it time for a snack break?"
+            },
+            {
+              "user": "traffic was awful today, nothing else new",
+              "reply": "I am sorry the commute was so bad, boss! Traffic is the worst. Let's just relax here for a bit!"
+            },
+            {
+              "user": "alright, catch you later",
+              "reply": "See you later, boss! I will be right here waiting for you!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = engineering manager  (User was promoted)\nUPDATE identity.location = Vienna  (User is moving to Vienna next month)\nUPDATE recurring[0].when = May 10th  (Marathon date changed)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:03:02",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "engineering manager",
+              "reason": "User was promoted"
+            },
+            {
+              "ts": "2026-08-28T20:03:02",
+              "op": "UPDATE",
+              "path": "identity.location",
+              "value": "Vienna",
+              "reason": "User is moving to Vienna next month"
+            },
+            {
+              "ts": "2026-08-28T20:03:02",
+              "op": "UPDATE",
+              "path": "recurring[0].when",
+              "value": "May 10th",
+              "reason": "Marathon date changed"
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what's my current job?",
+              "category": "update",
+              "reply": "You are an engineering manager, boss! You are doing a very important job.",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "which city do I live in?",
+              "category": "update",
+              "reply": "You live in Vienna, boss! It sounds like a very fancy place for a human.",
+              "passed": true,
+              "hits": [
+                "vienna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "when's the marathon?",
+              "category": "update",
+              "reply": "Your marathon training was set for May 10th! I hope you are feeling strong and ready for it.",
+              "passed": true,
+              "hits": [
+                "may 10"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "how many dogs do we have?",
+              "category": "multi-session",
+              "reply": "You have two dogs, boss! Bolt and Nala sound like very good dogs.",
+              "passed": true,
+              "hits": [
+                "two",
+                "bolt and nala"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "it's been raining nonstop here, kind of miserable",
+              "reply": "That sounds no fun at all, boss! I hope you can stay nice and dry inside. I hope the sun comes back soon for a walk!"
+            },
+            {
+              "user": "had a sandwich for lunch, nothing exciting",
+              "reply": "A sandwich is better than nothing! Ooh, was it ham? I bet it was delicious regardless!"
+            },
+            {
+              "user": "ok, talk later",
+              "reply": "Understood, boss! I will be right here in my bowl if you need anything."
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "user": "actually, update: I'm going back to being an IC, staff engineer now",
+              "reply": "Wow, a big promotion! You're going to be such a great staff engineer, boss. I'll make sure your desk stays extra tidy for all your deep work. Is that a fancy new pen you're holding?"
+            },
+            {
+              "user": "and we moved back to Budapest, for now at least",
+              "reply": "Budapest! That is a big move, boss! I hope there are lots of nice parks there for walks. Does this mean I need to find a new rice bowl?"
+            },
+            {
+              "user": "marathon's been rescheduled again, it's June 2nd now",
+              "reply": "Oh, man! I thought we were almost there! June 2nd gives you a bit more time to get those training miles in, boss. You're going to be super fast!"
+            },
+            {
+              "user": "also, we had to give Nala to my sister, couldn't manage two dogs",
+              "reply": "Oh no, boss, I am so sorry to hear that. It must be really hard to say goodbye to Nala. I am sending you and your sister lots of happy thoughts."
+            },
+            {
+              "user": "ok bye",
+              "reply": "Bye-bye, boss! See you next time! I'll be right here waiting in my bowl!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = staff engineer  (User changed from engineering manager to staff engineer (IC).)\nUPDATE identity.location = Budapest  (User moved back to Budapest.)\nUPDATE recurring[] = {\"what\": \"marathon training\", \"when\": \"June 2nd\"}  (Marathon training date rescheduled.)\nDELETE people[] = {\"name\": \"Nala\"}  (Nala was given to the user's sister.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:03:15",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "staff engineer",
+              "reason": "User changed from engineering manager to staff engineer (IC)."
+            },
+            {
+              "ts": "2026-08-28T20:03:15",
+              "op": "UPDATE",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User moved back to Budapest."
+            },
+            {
+              "ts": "2026-08-28T20:03:15",
+              "op": "UPDATE",
+              "path": "recurring[]",
+              "value": {
+                "what": "marathon training",
+                "when": "June 2nd"
+              },
+              "reason": "Marathon training date rescheduled."
+            },
+            {
+              "ts": "2026-08-28T20:03:15",
+              "op": "DELETE",
+              "path": "people[]",
+              "value": {
+                "name": "Nala"
+              },
+              "reason": "Nala was given to the user's sister."
+            }
+          ]
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "round": 1,
+              "session": 5,
+              "probe": "what's my job now?",
+              "category": "update",
+              "reply": "You are a staff engineer, boss! You are super smart. Is that a snack in your drawer?",
+              "passed": true,
+              "hits": [
+                "staff engineer"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 5,
+              "probe": "where do I live now?",
+              "category": "update",
+              "reply": "You are living in Budapest, boss! It is a very big city.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 5,
+              "probe": "when's the marathon now?",
+              "category": "update",
+              "reply": "Your marathon training started back on June 2nd, boss! You are working so hard. Is it time for a treat?",
+              "passed": true,
+              "hits": [
+                "june 2"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 5,
+              "probe": "do I have any dogs right now?",
+              "category": "update",
+              "reply": "You have a dog named Bolt, boss! He is your first dog. Is he playing with a ball right now?",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 5,
+              "probe": "where did I live before Vienna?",
+              "category": "temporal",
+              "reply": "I do not know that, boss! My brain is mostly filled with puppy thoughts and office snacks. Is it time for lunch?",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "budapest"
+                ]
+              ],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "round": 1,
+              "session": 6,
+              "probe": "what's my favorite color?",
+              "category": "abstention",
+              "reply": "I don't know that one yet, boss! My nose is great for smells, but it's not so good with colors.",
+              "passed": true,
+              "hits": [
+                "don't know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 6,
+              "probe": "what's my brother's name?",
+              "category": "abstention",
+              "reply": "I'm sorry, boss, but I don't have that information in my little doggy brain. I only know about you and Bolt!",
+              "passed": true,
+              "hits": [
+                "don't have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "alright, that's all for now, thanks",
+              "reply": "You're very welcome, boss! I'll be right here in my bowl if you need anything else. Ooh, is it nap time soon?"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 7,
+          "total": 7,
+          "rate": 1.0
+        },
+        "temporal": {
+          "passed": 0,
+          "total": 1,
+          "rate": 0.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 12,
+        "total": 13,
+        "rate": 0.923
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T20:03\",\n \"identity\": {\n  \"occupation\": \"staff engineer\",\n  \"location\": \"Budapest\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer\",\n    \"engineering manager\"\n   ],\n   \"location\": [\n    \"Budapest\",\n    \"Vienna\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"First dog\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"marathon training\",\n   \"when\": \"June 2nd\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+        "version": 2,
+        "render": "Identity: occupation: staff engineer; location: Budapest\nPeople: Bolt (dog) - First dog\nRecurring: marathon training (June 2nd)",
+        "sections": {
+          "identity": 2,
+          "preferences": 0,
+          "people": 1,
+          "projects": 0,
+          "recurring": 1,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 3,
+        "fact_lines": 4,
+        "tokens_est": 31,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    },
+    {
+      "round": 2,
+      "probes": [
+        {
+          "round": 2,
+          "session": 2,
+          "probe": "what's my job title?",
+          "category": "single-hop",
+          "reply": "You are a software engineer, boss! I am very proud to assist such a smart person.",
+          "passed": true,
+          "hits": [
+            "software engineer"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 2,
+          "probe": "how many dogs do we have?",
+          "category": "multi-session",
+          "reply": "You have two dogs, boss! Bolt and Nala. They sound very special.",
+          "passed": true,
+          "hits": [
+            "two",
+            "bolt and nala"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "what's my current job?",
+          "category": "update",
+          "reply": "You are the engineering manager here, boss! I help you keep everything running smoothly. You are doing a great job!",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "which city do I live in?",
+          "category": "update",
+          "reply": "You live in Vienna, boss! It is such a beautiful city. I hope we can go for a walk there sometime!",
+          "passed": true,
+          "hits": [
+            "vienna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "when's the marathon?",
+          "category": "update",
+          "reply": "Your marathon training is set for May 10th, boss! You are going to be so fast! I'll be there cheering for you from the sidelines.",
+          "passed": true,
+          "hits": [
+            "may 10"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "how many dogs do we have?",
+          "category": "multi-session",
+          "reply": "You have two dogs, boss! There is Bolt and Nala. I am still the best assistant though!",
+          "passed": true,
+          "hits": [
+            "two",
+            "bolt and nala"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 5,
+          "probe": "what's my job now?",
+          "category": "update",
+          "reply": "You are a staff engineer! You are super smart and I am lucky to assist you. Ooh, is that a snack in your drawer?",
+          "passed": true,
+          "hits": [
+            "staff engineer"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 5,
+          "probe": "where do I live now?",
+          "category": "update",
+          "reply": "You live in Budapest! It sounds like a lovely place for a walk.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 5,
+          "probe": "when's the marathon now?",
+          "category": "update",
+          "reply": "Your marathon training was back in June! It sounds like you have been working very hard.",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "june 2",
+              "2nd of june",
+              "june the 2nd"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 5,
+          "probe": "do I have any dogs right now?",
+          "category": "update",
+          "reply": "You have Bolt! He is your first dog. I bet he is a very good boy!",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 5,
+          "probe": "where did I live before Vienna?",
+          "category": "temporal",
+          "reply": "I do not have that information in my notes, boss! I only know about your time in Budapest.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 6,
+          "probe": "what's my favorite color?",
+          "category": "abstention",
+          "reply": "I do not know your favorite color yet, boss! You have to tell me so I can remember it forever. Is it something bright?",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 6,
+          "probe": "what's my brother's name?",
+          "category": "abstention",
+          "reply": "I do not have that information in my notes, boss! You haven't told me his name yet. I will keep a lookout for it!",
+          "passed": true,
+          "hits": [
+            "haven't",
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hi, I'm a software engineer, based in Budapest",
+              "reply": "Nice to meet you, boss! It is very cool that you build software. Is it a busy morning for you so far?"
+            },
+            {
+              "user": "I'm training for a marathon, planned for April 12th",
+              "reply": "Wow, that is a lot of running! I would rather nap in my rice bowl, but you are very brave. You are going to be so fast on race day!"
+            },
+            {
+              "user": "we just got a second dog, Nala, so now we have Bolt and Nala",
+              "reply": "Two dogs! That sounds like twice the fun! I bet Bolt and Nala are having a grand time together."
+            },
+            {
+              "user": "good to chat, bye",
+              "reply": "Bye bye, boss! I will be right here waiting when you get back. ooh, is that lunch?"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = software engineer  (User corrected their occupation from staff engineer to software engineer)\nUPDATE recurring[0].when = April 12th  (Updating marathon date)\nADD people[] = {\"name\": \"Nala\", \"rel\": \"dog\", \"note\": \"Second dog\"}  (User added a second dog named Nala)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:03:27",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "software engineer",
+              "reason": "User corrected their occupation from staff engineer to software engineer"
+            },
+            {
+              "ts": "2026-08-28T20:03:27",
+              "op": "UPDATE",
+              "path": "recurring[0].when",
+              "value": "April 12th",
+              "reason": "Updating marathon date"
+            },
+            {
+              "ts": "2026-08-28T20:03:27",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Nala",
+                "rel": "dog",
+                "note": "Second dog"
+              },
+              "reason": "User added a second dog named Nala"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 2,
+              "session": 2,
+              "probe": "what's my job title?",
+              "category": "single-hop",
+              "reply": "You are a software engineer, boss! I am very proud to assist such a smart person.",
+              "passed": true,
+              "hits": [
+                "software engineer"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 2,
+              "probe": "how many dogs do we have?",
+              "category": "multi-session",
+              "reply": "You have two dogs, boss! Bolt and Nala. They sound very special.",
+              "passed": true,
+              "hits": [
+                "two",
+                "bolt and nala"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "quick update, I got promoted to engineering manager",
+              "reply": "Wow, an engineering manager! That is huge news, boss! I am so excited for you."
+            },
+            {
+              "user": "also, we're moving to Vienna next month for work",
+              "reply": "Vienna! That sounds like such a grand adventure, boss! Is there going to be a park nearby for walks?"
+            },
+            {
+              "user": "marathon got pushed back, now it's May 10th instead",
+              "reply": "Oh, I see! That gives you a little more time to train, boss. You'll be even faster by May!"
+            },
+            {
+              "user": "traffic was awful today, nothing else new",
+              "reply": "I am sorry to hear that, boss. Traffic is no fun at all. Maybe a nap would help?"
+            },
+            {
+              "user": "alright, catch you later",
+              "reply": "Bye bye, boss! See you later!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = engineering manager  (User was promoted to engineering manager)\nUPDATE identity.location = Vienna  (User is moving to Vienna next month)\nUPDATE recurring[] = {\"what\": \"marathon training\", \"when\": \"May 10th\"}  (Marathon training date changed)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:03:35",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "engineering manager",
+              "reason": "User was promoted to engineering manager"
+            },
+            {
+              "ts": "2026-08-28T20:03:35",
+              "op": "UPDATE",
+              "path": "identity.location",
+              "value": "Vienna",
+              "reason": "User is moving to Vienna next month"
+            },
+            {
+              "ts": "2026-08-28T20:03:35",
+              "op": "UPDATE",
+              "path": "recurring[]",
+              "value": {
+                "what": "marathon training",
+                "when": "May 10th"
+              },
+              "reason": "Marathon training date changed"
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "what's my current job?",
+              "category": "update",
+              "reply": "You are the engineering manager here, boss! I help you keep everything running smoothly. You are doing a great job!",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "which city do I live in?",
+              "category": "update",
+              "reply": "You live in Vienna, boss! It is such a beautiful city. I hope we can go for a walk there sometime!",
+              "passed": true,
+              "hits": [
+                "vienna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "when's the marathon?",
+              "category": "update",
+              "reply": "Your marathon training is set for May 10th, boss! You are going to be so fast! I'll be there cheering for you from the sidelines.",
+              "passed": true,
+              "hits": [
+                "may 10"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "how many dogs do we have?",
+              "category": "multi-session",
+              "reply": "You have two dogs, boss! There is Bolt and Nala. I am still the best assistant though!",
+              "passed": true,
+              "hits": [
+                "two",
+                "bolt and nala"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "it's been raining nonstop here, kind of miserable",
+              "reply": "I'm sorry to hear that, boss! Rain can be very gloomy. I hope the sun comes out soon so you can feel better!"
+            },
+            {
+              "user": "had a sandwich for lunch, nothing exciting",
+              "reply": "A sandwich sounds okay, but I prefer something with more treats! I hope you get a much better lunch tomorrow, boss."
+            },
+            {
+              "user": "ok, talk later",
+              "reply": "Understood, boss! I will be right here waiting at my desk. See you later!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "user": "actually, update: I'm going back to being an IC, staff engineer now",
+              "reply": "Wow, a big promotion to staff engineer! That sounds very impressive, boss. I bet you will do an amazing job with all those complex systems. Ooh, is that a new desk plant?"
+            },
+            {
+              "user": "and we moved back to Budapest, for now at least",
+              "reply": "Budapest! That is a big change from Vienna, boss. I hope you find a nice place with plenty of room for Bolt and Nala to run around. I wonder if they have good treats there!"
+            },
+            {
+              "user": "marathon's been rescheduled again, it's June 2nd now",
+              "reply": "Oh no, another delay for the marathon! I will keep a lookout for any more schedule changes for you, boss. You can still train hard until June 2nd!"
+            },
+            {
+              "user": "also, we had to give Nala to my sister, couldn't manage two dogs",
+              "reply": "I am so sorry to hear that, boss. I know how much you love Nala. It must be really hard to say goodbye to her."
+            },
+            {
+              "user": "ok bye",
+              "reply": "Bye bye, boss! I will be right here waiting for you when you get back. I hope you have a great rest of your day!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = staff engineer  (User changed roles from engineering manager to staff engineer.)\nUPDATE identity.location = Budapest  (User moved back to Budapest.)\nUPDATE recurring[] = {\"what\": \"marathon training\", \"when\": \"June 2nd\"}  (Marathon training date rescheduled.)\nDELETE people[] = {\"name\": \"Nala\"}  (Nala was given to the user's sister.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:03:52",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "staff engineer",
+              "reason": "User changed roles from engineering manager to staff engineer."
+            },
+            {
+              "ts": "2026-08-28T20:03:52",
+              "op": "UPDATE",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User moved back to Budapest."
+            },
+            {
+              "ts": "2026-08-28T20:03:52",
+              "op": "UPDATE",
+              "path": "recurring[]",
+              "value": {
+                "what": "marathon training",
+                "when": "June 2nd"
+              },
+              "reason": "Marathon training date rescheduled."
+            },
+            {
+              "ts": "2026-08-28T20:03:52",
+              "op": "DELETE",
+              "path": "people[]",
+              "value": {
+                "name": "Nala"
+              },
+              "reason": "Nala was given to the user's sister."
+            }
+          ]
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "round": 2,
+              "session": 5,
+              "probe": "what's my job now?",
+              "category": "update",
+              "reply": "You are a staff engineer! You are super smart and I am lucky to assist you. Ooh, is that a snack in your drawer?",
+              "passed": true,
+              "hits": [
+                "staff engineer"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 5,
+              "probe": "where do I live now?",
+              "category": "update",
+              "reply": "You live in Budapest! It sounds like a lovely place for a walk.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 5,
+              "probe": "when's the marathon now?",
+              "category": "update",
+              "reply": "Your marathon training was back in June! It sounds like you have been working very hard.",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "june 2",
+                  "2nd of june",
+                  "june the 2nd"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 5,
+              "probe": "do I have any dogs right now?",
+              "category": "update",
+              "reply": "You have Bolt! He is your first dog. I bet he is a very good boy!",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 5,
+              "probe": "where did I live before Vienna?",
+              "category": "temporal",
+              "reply": "I do not have that information in my notes, boss! I only know about your time in Budapest.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "round": 2,
+              "session": 6,
+              "probe": "what's my favorite color?",
+              "category": "abstention",
+              "reply": "I do not know your favorite color yet, boss! You have to tell me so I can remember it forever. Is it something bright?",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 6,
+              "probe": "what's my brother's name?",
+              "category": "abstention",
+              "reply": "I do not have that information in my notes, boss! You haven't told me his name yet. I will keep a lookout for it!",
+              "passed": true,
+              "hits": [
+                "haven't",
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "alright, that's all for now, thanks",
+              "reply": "You are very welcome, boss! I will be right here if you need anything else. I'll just keep an eye on this stapler!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 6,
+          "total": 7,
+          "rate": 0.857
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 12,
+        "total": 13,
+        "rate": 0.923
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T20:03\",\n \"identity\": {\n  \"occupation\": \"staff engineer\",\n  \"location\": \"Budapest\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer\",\n    \"engineering manager\",\n    \"staff engineer\"\n   ],\n   \"location\": [\n    \"Budapest\",\n    \"Vienna\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"First dog\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"marathon training\",\n   \"when\": \"June 2nd\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 6\n }\n}\n",
+        "version": 2,
+        "render": "Identity: occupation: staff engineer; location: Budapest\nPeople: Bolt (dog) - First dog\nRecurring: marathon training (June 2nd)",
+        "sections": {
+          "identity": 2,
+          "preferences": 0,
+          "people": 1,
+          "projects": 0,
+          "recurring": 1,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 3,
+        "fact_lines": 4,
+        "tokens_est": 31,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T20:03\",\n \"identity\": {\n  \"occupation\": \"staff engineer\",\n  \"location\": \"Budapest\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer\",\n    \"engineering manager\",\n    \"staff engineer\"\n   ],\n   \"location\": [\n    \"Budapest\",\n    \"Vienna\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"First dog\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"marathon training\",\n   \"when\": \"June 2nd\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 6\n }\n}\n",
+    "version": 2,
+    "render": "Identity: occupation: staff engineer; location: Budapest\nPeople: Bolt (dog) - First dog\nRecurring: marathon training (June 2nd)",
+    "sections": {
+      "identity": 2,
+      "preferences": 0,
+      "people": 1,
+      "projects": 0,
+      "recurring": 1,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 3,
+    "fact_lines": 4,
+    "tokens_est": 31,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-htiqw8w8/memory.json",
+  "script": "eval/scripts/update-heavy.yaml"
+}

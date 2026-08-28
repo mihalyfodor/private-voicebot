@@ -156,18 +156,22 @@ def test_model_context_len_caps_budget(monkeypatch):
         assert llm.context_budget() == 4000
 
 
-# --- memory: last MEMORY_LINES lines only ---
+# --- memory: the profile block stays inside its token budget ---
 
-def test_memory_load_caps_lines(monkeypatch, tmp_path):
+def test_memory_load_caps_the_profile_block(monkeypatch, tmp_path):
+    import json
     import memory
-    path = tmp_path / "shortmem.txt"
-    lines = [f"fact {i}" for i in range(200)]
-    path.write_text("\n".join(lines))
-    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(path))
-    monkeypatch.setattr(memory, "MEMORY_LINES", 60)
+    path = tmp_path / "memory.json"
+    profile = memory._empty_profile()
+    profile["identity"] = {"name": "Mihaly"}
+    profile["people"] = [{"name": f"person {i}", "note": "x" * 20} for i in range(50)]
+    path.write_text(json.dumps(profile))
+    monkeypatch.setattr(memory, "MEMORY_PATH", str(path))
+    monkeypatch.setattr(memory, "BUDGET_TOKENS", 100)
 
     result = memory.load("SYSTEM")
-    for i in range(140):
-        assert f"fact {i}\n" not in result and not result.endswith(f"fact {i}")
-    for i in range(140, 200):
-        assert f"fact {i}" in result
+    assert result.startswith("SYSTEM")
+    assert "name: Mihaly" in result
+    assert "person 0" in result and "person 49" not in result
+    block = result.split("<user_profile>\n")[1].split("\n</user_profile>")[0]
+    assert memory.tokens_est(block) <= 100

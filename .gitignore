@@ -1,4 +1,6 @@
 shortmem.txt
+memory.json
+memory_ops.jsonl
 .venv/
 .env
 credentials.json
@@ -21,3 +23,6 @@ settings.json
 static/backdrops/
 eval/results/*
 !eval/results/baseline.json
+!eval/results/v1-*.json
+!eval/results/v*.json
+.claude/worktrees/

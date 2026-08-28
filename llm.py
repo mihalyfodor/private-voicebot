@@ -134,6 +134,8 @@ def build_system_prompt(avatar: dict) -> str:
     f"{avatar['persona']} "
     f"You have memory of past conversations. "
     f"Keep responses conversational: {VERBOSITY_RULES[verbosity]}. "
+    f"If the user profile records a preferred name or nickname, address the user by it; that "
+    f"overrides any habit from your character. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
     f"Begin every reply with exactly one emotion tag from this list, then a space: "
@@ -326,7 +328,7 @@ def get_last_tool_calls() -> list:
 
 
 def save_memory():
-    """Summarise this session into shortmem.txt. Idempotent: turns are cleared once saved."""
+    """Fold this session into the memory.json profile. Idempotent: turns are cleared once saved."""
     global _session_turns
     if _session_turns:
         turns, _session_turns = _session_turns, []

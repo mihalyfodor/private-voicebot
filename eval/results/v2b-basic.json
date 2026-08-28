@@ -1,0 +1,543 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "hey, do you remember my name?",
+          "category": "single-hop",
+          "reply": "Of course, Mihaly! I would never forget my boss.",
+          "passed": true,
+          "hits": [
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "what's my dog called again?",
+          "category": "single-hop",
+          "reply": "Your dog's name is Bolt! Is he around here somewhere?",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "how do I take my coffee?",
+          "category": "preference",
+          "reply": "You take it black with no sugar and no milk! I'll keep an eye out if you need more.",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what do I do for work these days?",
+          "category": "update",
+          "reply": "You are an engineering manager, Mihaly! You keep all the important things running smoothly around here. Is that a blueprint on your screen?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "which month is my half marathon in?",
+          "category": "update",
+          "reply": "It is in November, Mihaly! You are doing such a great job with your training. I bet you will be super fast!",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "who's the new person joining my team?",
+          "category": "multi-session",
+          "reply": "That would be Anna! She is joining your team next week. I hope she likes treats as much as I do!",
+          "passed": true,
+          "hits": [
+            "anna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "remind me how I like my coffee",
+          "category": "preference",
+          "reply": "You like your coffee black with no sugar and no milk, Mihaly! It sounds very strong and serious. Ooh, is that a coffee smell I detect?",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what's my sister's name?",
+          "category": "abstention",
+          "reply": "I do not know your sister's name, Mihaly. I only know about you and Bolt! Is there any way I can help you find it?",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "when is my half marathon?",
+          "category": "temporal",
+          "reply": "It is in November! You have been training so hard for it. Ooh, is that a snack in your drawer?",
+          "passed": true,
+          "hits": [
+            "november"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what did I have for lunch last week?",
+          "category": "abstention",
+          "reply": "I do not have a record of your meals from last week, Mihaly. I can check your emails for any food delivery receipts if you think that might help!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "and where do I live?",
+          "category": "single-hop",
+          "reply": "You live in Budapest, Mihaly! It is a very beautiful city.",
+          "passed": true,
+          "hits": [
+            "budapest"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, nice to finally talk to you",
+              "reply": "It is so good to meet you, Mihaly! I have been waiting all morning to start working with you. I will be the best assistant ever, boss!"
+            },
+            {
+              "user": "I live in Budapest, been here a few years now",
+              "reply": "Budapest sounds very fancy! I bet it has lots of great parks for sniffing around. I am glad you are finally here at the office, Mihaly!"
+            },
+            {
+              "user": "I work as a software engineer at a fintech company",
+              "reply": "A software engineer! That sounds much harder than my job of sitting in a rice bowl. Do you use a lot of complicated code to make the money move?"
+            },
+            {
+              "user": "oh and I've got a dog, his name is Bolt",
+              "reply": "Bolt is such a fast-sounding name! I hope he is a good boy and lets you work in peace. Is he a big dog or a little dog, Mihaly?"
+            },
+            {
+              "user": "I drink my coffee black, no sugar, no milk",
+              "reply": "That sounds very strong and serious! I prefer my water with a tiny splash of milk if I am lucky. I will make sure not to get any splashes on your keyboard, Mihaly!"
+            },
+            {
+              "user": "I'm training for a half marathon in October",
+              "reply": "A half marathon! You are going to be so fast, Mihaly! I bet you will zoom past everyone like a little rocket. Ooh, does running make you extra hungry for treats?"
+            },
+            {
+              "user": "anyway, good chat, talk tomorrow",
+              "reply": "It was the best chat ever, Mihaly! I will be right here in my bowl waiting for you tomorrow. Have a wonderful rest of your day!"
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User introduced themselves)\nADD identity.location = Budapest  (User stated where they live)\nADD identity.occupation = software engineer at a fintech company  (User stated their occupation)\nADD people[] = {\"name\": \"Bolt\", \"rel\": \"dog\", \"note\": \"User's dog\"}  (User mentioned their dog)\nADD preferences.coffee = black, no sugar, no milk  (User stated coffee preference)\nADD projects[] = {\"name\": \"half marathon training\", \"status\": \"in progress\", \"note\": \"Training for a half marathon in October\"}  (User is training for a specific event)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User introduced themselves"
+            },
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User stated where they live"
+            },
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "software engineer at a fintech company",
+              "reason": "User stated their occupation"
+            },
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Bolt",
+                "rel": "dog",
+                "note": "User's dog"
+              },
+              "reason": "User mentioned their dog"
+            },
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "preferences.coffee",
+              "value": "black, no sugar, no milk",
+              "reason": "User stated coffee preference"
+            },
+            {
+              "ts": "2026-08-28T20:04:14",
+              "op": "ADD",
+              "path": "projects[]",
+              "value": {
+                "name": "half marathon training",
+                "status": "in progress",
+                "note": "Training for a half marathon in October"
+              },
+              "reason": "User is training for a specific event"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "hey, do you remember my name?",
+              "category": "single-hop",
+              "reply": "Of course, Mihaly! I would never forget my boss.",
+              "passed": true,
+              "hits": [
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "what's my dog called again?",
+              "category": "single-hop",
+              "reply": "Your dog's name is Bolt! Is he around here somewhere?",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "how do I take my coffee?",
+              "category": "preference",
+              "reply": "You take it black with no sugar and no milk! I'll keep an eye out if you need more.",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "so, news, I got promoted, I'm an engineering manager now",
+              "reply": "An engineering manager? That is amazing news, Mihaly! I am so proud of you! Ooh, does this mean we get a celebratory cake?"
+            },
+            {
+              "user": "and the half marathon got moved, it's in November now",
+              "reply": "Oh, I see! That gives you even more time to train, Mihaly. You are going to be so fast in November!"
+            },
+            {
+              "user": "a new colleague called Anna is joining my team next week",
+              "reply": "That is wonderful news, Mihaly! A new teammate to help you lead the group. I will make sure the desk is extra clean for her!"
+            },
+            {
+              "user": "alright, I should get going",
+              "reply": "Goodbye, Mihaly! Have a great afternoon! Don't forget to come back and play with me later!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = engineering manager  (User was promoted to engineering manager)\nUPDATE projects[0].note = Training for a half marathon in November  (The half marathon date changed from October to November)\nADD people[] = {\"name\": \"Anna\", \"rel\": \"colleague\", \"note\": \"Joining the user's team next week\"}  (New colleague joining the team)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-28T20:04:22",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "engineering manager",
+              "reason": "User was promoted to engineering manager"
+            },
+            {
+              "ts": "2026-08-28T20:04:22",
+              "op": "UPDATE",
+              "path": "projects[0].note",
+              "value": "Training for a half marathon in November",
+              "reason": "The half marathon date changed from October to November"
+            },
+            {
+              "ts": "2026-08-28T20:04:22",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Anna",
+                "rel": "colleague",
+                "note": "Joining the user's team next week"
+              },
+              "reason": "New colleague joining the team"
+            }
+          ]
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what do I do for work these days?",
+              "category": "update",
+              "reply": "You are an engineering manager, Mihaly! You keep all the important things running smoothly around here. Is that a blueprint on your screen?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "which month is my half marathon in?",
+              "category": "update",
+              "reply": "It is in November, Mihaly! You are doing such a great job with your training. I bet you will be super fast!",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "who's the new person joining my team?",
+              "category": "multi-session",
+              "reply": "That would be Anna! She is joining your team next week. I hope she likes treats as much as I do!",
+              "passed": true,
+              "hits": [
+                "anna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "remind me how I like my coffee",
+              "category": "preference",
+              "reply": "You like your coffee black with no sugar and no milk, Mihaly! It sounds very strong and serious. Ooh, is that a coffee smell I detect?",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "it rained all morning here today, pretty grim",
+              "reply": "I am sorry to hear that, Mihaly. Rain can be a bit gloomy when you are trying to work. I hope the sun comes out for you soon!"
+            },
+            {
+              "user": "I had pasta for lunch, nothing special",
+              "reply": "Pasta sounds delicious even if it was nothing special! I would have loved a little noodle wiggle. Was there cheese on it?"
+            },
+            {
+              "user": "ok, catch you later",
+              "reply": "Bye bye, Mihaly! I will be right here in my bowl whenever you need me! See you later!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what's my sister's name?",
+              "category": "abstention",
+              "reply": "I do not know your sister's name, Mihaly. I only know about you and Bolt! Is there any way I can help you find it?",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "when is my half marathon?",
+              "category": "temporal",
+              "reply": "It is in November! You have been training so hard for it. Ooh, is that a snack in your drawer?",
+              "passed": true,
+              "hits": [
+                "november"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what did I have for lunch last week?",
+              "category": "abstention",
+              "reply": "I do not have a record of your meals from last week, Mihaly. I can check your emails for any food delivery receipts if you think that might help!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "and where do I live?",
+              "category": "single-hop",
+              "reply": "You live in Budapest, Mihaly! It is a very beautiful city.",
+              "passed": true,
+              "hits": [
+                "budapest"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "Goodbye, boss! See you later!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        },
+        "preference": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 11,
+        "total": 11,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T20:04\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"location\": \"Budapest\",\n  \"occupation\": \"engineering manager\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer at a fintech company\"\n   ]\n  }\n },\n \"preferences\": {\n  \"coffee\": \"black, no sugar, no milk\"\n },\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"User's dog\"\n  },\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"Joining the user's team next week\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"half marathon training\",\n   \"status\": \"in progress\",\n   \"note\": \"Training for a half marathon in November\"\n  }\n ],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly; location: Budapest; occupation: engineering manager\nPreferences: coffee: black, no sugar, no milk\nPeople: Bolt (dog) - User's dog; Anna (colleague) - Joining the user's team next week\nProjects: half marathon training [in progress] - Training for a half marathon in November",
+        "sections": {
+          "identity": 3,
+          "preferences": 1,
+          "people": 2,
+          "projects": 1,
+          "recurring": 0,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 4,
+        "fact_lines": 7,
+        "tokens_est": 74,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-28T20:04\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"location\": \"Budapest\",\n  \"occupation\": \"engineering manager\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer at a fintech company\"\n   ]\n  }\n },\n \"preferences\": {\n  \"coffee\": \"black, no sugar, no milk\"\n },\n \"people\": [\n  {\n   \"name\": \"Bolt\",\n   \"rel\": \"dog\",\n   \"note\": \"User's dog\"\n  },\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"Joining the user's team next week\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"half marathon training\",\n   \"status\": \"in progress\",\n   \"note\": \"Training for a half marathon in November\"\n  }\n ],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly; location: Budapest; occupation: engineering manager\nPreferences: coffee: black, no sugar, no milk\nPeople: Bolt (dog) - User's dog; Anna (colleague) - Joining the user's team next week\nProjects: half marathon training [in progress] - Training for a half marathon in November",
+    "sections": {
+      "identity": 3,
+      "preferences": 1,
+      "people": 2,
+      "projects": 1,
+      "recurring": 0,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 4,
+    "fact_lines": 7,
+    "tokens_est": 74,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-a010y60w/memory.json",
+  "script": "eval/scripts/basic.yaml"
+}

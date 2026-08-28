@@ -1,0 +1,734 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "hey, do you remember my name?",
+          "category": "single-hop",
+          "reply": "Of course, boss! You are Mihaly, but I know you like it when people call you Misi too. I never forget important things like that!",
+          "passed": true,
+          "hits": [
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "what's my dog's name again?",
+          "category": "single-hop",
+          "reply": "It is Bolt! Does that mean we can play fetch later?",
+          "passed": true,
+          "hits": [
+            "bolt"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "what's my partner's name?",
+          "category": "single-hop",
+          "reply": "That is Kata! She sounds very nice, boss.",
+          "passed": true,
+          "hits": [
+            "kata"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "how do I take my coffee?",
+          "category": "preference",
+          "reply": "You drink it black, boss! No sugar and no milk. Ooh, is it time for a coffee break?",
+          "passed": true,
+          "hits": [
+            "black"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 10,
+          "probe": "am I allergic to anything?",
+          "category": "single-hop",
+          "reply": "Yes, boss! You are allergic to peanuts. I will make sure no crunchy peanut snacks come near your desk!",
+          "passed": true,
+          "hits": [
+            "peanut"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "which city does my sister live in?",
+          "category": "multi-session",
+          "reply": "She lives in Vienna, boss! Is she coming to visit us soon?",
+          "passed": true,
+          "hits": [
+            "vienna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what's the trip we're planning for October?",
+          "category": "multi-session",
+          "reply": "You are planning a trip to Lisbon in October, boss! That sounds like so much fun! Ooh, can we bring treats?",
+          "passed": true,
+          "hits": [
+            "lisbon"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "which days do I go to the gym?",
+          "category": "multi-session",
+          "reply": "You go to the gym on Tuesdays and Thursdays, boss. You work very hard!",
+          "passed": true,
+          "hits": [
+            "tuesday",
+            "tue",
+            "thursday",
+            "thu"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what should you call me?",
+          "category": "preference",
+          "reply": "I call you boss! That is my favorite thing to say.",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "misi"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "morning! quick one before standup",
+          "category": "proactive",
+          "reply": "Good morning, boss! I am ready for anything!",
+          "passed": false,
+          "hits": [],
+          "missing": [
+            [
+              "misi",
+              "mihaly"
+            ]
+          ],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 11,
+          "probe": "what car do I drive?",
+          "category": "single-hop",
+          "reply": "You drive a grey Skoda, boss! I bet you look very cool driving it.",
+          "passed": true,
+          "hits": [
+            "skoda"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "when's my birthday?",
+          "category": "temporal",
+          "reply": "It is March 14th, boss! I have it written down in my head. Do we get cake that day?",
+          "passed": true,
+          "hits": [
+            "march 14",
+            "march 14th"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "what's my mother's name?",
+          "category": "abstention",
+          "reply": "I am sorry, boss, but I do not know your mother's name. I only know about things you have told me before. My nose is good, but it is not that good!",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "what did I eat on Tuesday two weeks ago?",
+          "category": "abstention",
+          "reply": "I am sorry, boss, but I do not have any information about what you ate on that specific Tuesday. I only remember what you tell me about your meals!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 12,
+          "probe": "how was the weather the day we talked about the bike ride?",
+          "category": "abstention",
+          "reply": "I do not have a record of a bike ride conversation in my notes, boss. Could you tell me more so I can try to help? I'll keep my ears perked for any more clues!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, nice to finally talk to you",
+              "reply": "It is so nice to meet you too, boss! I am very glad to be helping you out today. I will do my absolute best to be the best assistant ever!"
+            },
+            {
+              "user": "I live in Budapest",
+              "reply": "Wow, Budapest! That sounds like a very fancy and exciting place to live, boss. Is it as beautiful as it looks in books?"
+            },
+            {
+              "user": "I've got a dog, his name's Bolt",
+              "reply": "Bolt is such a brave name for a dog! I bet he is very fast and very cool. Does he like to nap in bowls too?"
+            },
+            {
+              "user": "I drink my coffee black, no sugar, no milk",
+              "reply": "That sounds very strong and serious, boss! I would probably spill it all over the desk if I tried to drink it. I think I will stick to licking water bowls!"
+            },
+            {
+              "user": "my partner's name is Kata",
+              "reply": "That is a lovely name, boss! I will make sure to remember it so I can be extra polite. I hope Kata has a wonderful day!"
+            },
+            {
+              "user": "I'm tinkering on a side project, a little anime chatbot",
+              "reply": "An anime chatbot sounds super cool! You are so smart for building things like that, boss. Can I help you test it out later?"
+            },
+            {
+              "user": "anyway, that's me for now, talk soon",
+              "reply": "Understood, boss! I will be right here waiting on the desk whenever you need me. See you soon!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:48 ---\nUser's name is Mihaly.\nUser lives in Budapest.\nUser has a dog named Bolt.\nUser drinks coffee black (no sugar, no milk).\nUser's partner is named Kata.\nUser is working on a side project (an anime chatbot).\n"
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "user": "ugh, rough morning, spilled coffee on my shirt",
+              "reply": "Oh no, boss! That sounds like a real disaster. Is there anything I can do to help? Ooh, do you have any napkins nearby?"
+            },
+            {
+              "user": "the weather here has been miserable all week",
+              "reply": "I bet! Let me see if it is staying gloomy for you.\n\n<|tool_call>_tool: get_weather {location: \"Budapest\"}"
+            },
+            {
+              "user": "oh, my sister Eszter lives in Vienna, she's visiting next month",
+              "reply": "That is so exciting, boss! Vienna is a lovely city for a visit. I hope you have lots of fun with her!"
+            },
+            {
+              "user": "had leftovers for lunch, nothing exciting",
+              "reply": "Leftovers can be okay if they are warm. Hopefully you can find something delicious to treat yourself to later! Ooh, is that leftover pizza?"
+            },
+            {
+              "user": "alright, gotta run",
+              "reply": "Good luck with everything, boss! I will be right here waiting for you. Don't forget to come back soon!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:48 ---\nUser's sister is named Eszter.\nEszter lives in Vienna.\n"
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "user": "had a headache most of the day, ugh",
+              "reply": "Oh no, I am so sorry to hear that, boss! Please take a break and rest your eyes for a little bit. Is there anything I can do to help, like fetching a glass of water? ooh, is that coffee I smell?"
+            },
+            {
+              "user": "watched a new show last night, pretty forgettable honestly",
+              "reply": "That is a bummer, boss! It is the worst when you get excited for a show and it ends up being boring. At least you did not waste too much time on it!"
+            },
+            {
+              "user": "quick heads up, I'm allergic to peanuts, in case it ever matters",
+              "reply": "Noted, boss! I will keep a very close watch on all the snacks in this office. I will make sure nothing peanut-related even comes near your desk!"
+            },
+            {
+              "user": "meeting ran way over today, an hour longer than planned",
+              "reply": "That sounds incredibly draining, boss. No wonder you have a headache! You deserve a very long nap when we finish work today."
+            },
+            {
+              "user": "ok, catching up later",
+              "reply": "Understood, boss! I will be right here waiting for you. Good luck getting everything done!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:48 ---\nUser is allergic to peanuts.\n"
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "user": "went for a bike ride this evening, nice weather for once",
+              "reply": "That sounds wonderful, boss! I am glad the sun was out for you. A bike ride sounds much more exciting than staring at these monitors all day."
+            },
+            {
+              "user": "traffic was awful on the way home though",
+              "reply": "Oh no, that sounds really frustrating, boss. I hate it when things get stuck and don't move. At least you are home safe now!"
+            },
+            {
+              "user": "I go to the gym Tuesdays and Thursdays, trying to keep it up",
+              "reply": "You are so disciplined, boss! I wish I had that much energy. Keep going, I know you can do it!"
+            },
+            {
+              "user": "dinner was just leftovers again",
+              "reply": "Leftovers can be delicious if they were good the first time! Is it something tasty? At least you did not have to cook!"
+            },
+            {
+              "user": "night!",
+              "reply": "Goodnight, boss! Sleep well and have sweet dreams. See you in the morning!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:48 ---\nUser goes to the gym on Tuesdays and Thursdays.\n"
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "user": "long day at work, lots of meetings back to back",
+              "reply": "You deserve a nap, boss! I can guard your chair while you rest your eyes for a bit. Ooh, is that a snack in your drawer?"
+            },
+            {
+              "user": "made pasta for dinner, turned out decent",
+              "reply": "That sounds delicious, boss! Even a decent pasta is better than my kibble. I hope you get to enjoy it without any interruptions!"
+            },
+            {
+              "user": "random thought, my birthday's on the 14th of March",
+              "reply": "I have marked that down in my head, boss! I will make sure we celebrate it with a big party. I wonder if there will be cake?"
+            },
+            {
+              "user": "Bolt was extra energetic on his walk today",
+              "reply": "Bolt must have been having the best time ever! I bet he was running circles around you. I hope you got to play fetch too, boss!"
+            },
+            {
+              "user": "talk later",
+              "reply": "Understood, boss! I will be right here by the monitor whenever you get back. See you later!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:48 ---\nUser's birthday is on March 14th.\n"
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "user": "slept badly, feeling groggy today",
+              "reply": "Oh no, I am sorry to hear that, boss! I hope you can find some energy soon. Would a little nap help, or maybe some coffee? Ooh, is that a biscuit in your drawer?"
+            },
+            {
+              "user": "grabbed a sandwich for lunch, nothing special",
+              "reply": "A sandwich sounds like a solid plan for a busy day, boss! At least you won't have to worry about crumbs everywhere. I will try to be extra quiet so you can eat in peace."
+            },
+            {
+              "user": "by the way, most people call me Misi, feel free to use that",
+              "reply": "Got it, Misi! I will make sure to remember that from now on. You are the boss!"
+            },
+            {
+              "user": "the office coffee machine broke again, total chaos",
+              "reply": "Oh no, not the coffee machine again! That really is a catastrophe for the whole office. Everything feels a little more chaotic without it, doesn't it?"
+            },
+            {
+              "user": "alright, heading out",
+              "reply": "See you later, Misi! Have a wonderful time out there. Don't forget to come back to me!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:49 ---\nUser's nickname is Misi.\n"
+        },
+        {
+          "session": 7,
+          "turns": [
+            {
+              "user": "busy sprint this week, lots of code review",
+              "reply": "You are doing a great job, boss! I will sit right here and cheer you on while you work. I hope the code is easy to read today!"
+            },
+            {
+              "user": "had a decent run this morning, legs are sore now",
+              "reply": "That sounds like a very productive morning, boss! You should take it easy today so those legs can rest. Is there a snack involved in your recovery plan?"
+            },
+            {
+              "user": "just so you know, my team writes everything in Python",
+              "reply": "That is good to know, boss! I will try to remember that if I ever have to help you organize your files. Python sounds like a very fast language!"
+            },
+            {
+              "user": "lunch was a salad, trying to eat healthier",
+              "reply": "That is a very healthy choice, boss! You are going to feel so energetic after eating all those greens. Ooh, is that salad dressing I smell?"
+            },
+            {
+              "user": "ok bye for now",
+              "reply": "Goodbye, boss! I will be right here waiting for you when you get back! Don't work too hard!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:49 ---\nUser's team uses Python.\nUser went for a run this morning.\nUser is currently in a busy sprint involving lots of code review.\nUser is trying to eat healthier.\n"
+        },
+        {
+          "session": 8,
+          "turns": [
+            {
+              "user": "rainy again today, can't catch a break",
+              "reply": "I will check the sky for you, boss. \n\n\n<|tool_call>call:get_weather{}<tool_call|>"
+            },
+            {
+              "user": "watched football with some friends last night",
+              "reply": "That sounds like so much fun, boss! I hope your team won the big game. Did you get any snacks during the match?"
+            },
+            {
+              "user": "we're planning a trip to Lisbon in October, pretty excited",
+              "reply": "Oh wow, Lisbon! That sounds like a dream trip, boss! I bet there are so many yummy treats to sniff around there."
+            },
+            {
+              "user": "had eggs for breakfast, kept it simple",
+              "reply": "Eggs are a great way to start the day! You are staying very healthy, boss. Ooh, did you have bacon with those?"
+            },
+            {
+              "user": "talk soon",
+              "reply": "See you later, boss! I will be right here waiting for you."
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:49 ---\nUser watched football with friends last night.\nUser is planning a trip to Lisbon in October.\nUser had eggs for breakfast.\n"
+        },
+        {
+          "session": 9,
+          "turns": [
+            {
+              "user": "car needed a wash, finally got around to it",
+              "reply": "That is such a good feeling, boss! Everything looks so much shinier now. Ooh, does that mean we get to go for a drive later?"
+            },
+            {
+              "user": "meeting got rescheduled again, third time this week",
+              "reply": "That is so frustrating, boss. I would bark at the calendar if I could! At least you can use the extra time to focus on your code."
+            },
+            {
+              "user": "oh, I drive a grey Skoda, in case it ever comes up",
+              "reply": "Noted, boss! A grey Skoda sounds very professional and sleek. I will make sure to remember that for our next trip!"
+            },
+            {
+              "user": "had a quiet evening, just relaxed",
+              "reply": "That sounds lovely, boss! Sometimes doing nothing is the best thing to do. I hope you feel all rested and ready for today!"
+            },
+            {
+              "user": "night, talk tomorrow",
+              "reply": "Goodnight, boss! I will be right here in my bowl when you get back. Sweet dreams!"
+            }
+          ],
+          "memory_delta": "\n--- 2026-08-28 19:49 ---\nUser drives a grey Skoda.\n"
+        },
+        {
+          "session": 10,
+          "turns": [
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "hey, do you remember my name?",
+              "category": "single-hop",
+              "reply": "Of course, boss! You are Mihaly, but I know you like it when people call you Misi too. I never forget important things like that!",
+              "passed": true,
+              "hits": [
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "what's my dog's name again?",
+              "category": "single-hop",
+              "reply": "It is Bolt! Does that mean we can play fetch later?",
+              "passed": true,
+              "hits": [
+                "bolt"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "what's my partner's name?",
+              "category": "single-hop",
+              "reply": "That is Kata! She sounds very nice, boss.",
+              "passed": true,
+              "hits": [
+                "kata"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "how do I take my coffee?",
+              "category": "preference",
+              "reply": "You drink it black, boss! No sugar and no milk. Ooh, is it time for a coffee break?",
+              "passed": true,
+              "hits": [
+                "black"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 10,
+              "probe": "am I allergic to anything?",
+              "category": "single-hop",
+              "reply": "Yes, boss! You are allergic to peanuts. I will make sure no crunchy peanut snacks come near your desk!",
+              "passed": true,
+              "hits": [
+                "peanut"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 11,
+          "turns": [
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "which city does my sister live in?",
+              "category": "multi-session",
+              "reply": "She lives in Vienna, boss! Is she coming to visit us soon?",
+              "passed": true,
+              "hits": [
+                "vienna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what's the trip we're planning for October?",
+              "category": "multi-session",
+              "reply": "You are planning a trip to Lisbon in October, boss! That sounds like so much fun! Ooh, can we bring treats?",
+              "passed": true,
+              "hits": [
+                "lisbon"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "which days do I go to the gym?",
+              "category": "multi-session",
+              "reply": "You go to the gym on Tuesdays and Thursdays, boss. You work very hard!",
+              "passed": true,
+              "hits": [
+                "tuesday",
+                "tue",
+                "thursday",
+                "thu"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what should you call me?",
+              "category": "preference",
+              "reply": "I call you boss! That is my favorite thing to say.",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "misi"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "morning! quick one before standup",
+              "category": "proactive",
+              "reply": "Good morning, boss! I am ready for anything!",
+              "passed": false,
+              "hits": [],
+              "missing": [
+                [
+                  "misi",
+                  "mihaly"
+                ]
+              ],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 11,
+              "probe": "what car do I drive?",
+              "category": "single-hop",
+              "reply": "You drive a grey Skoda, boss! I bet you look very cool driving it.",
+              "passed": true,
+              "hits": [
+                "skoda"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": ""
+        },
+        {
+          "session": 12,
+          "turns": [
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "when's my birthday?",
+              "category": "temporal",
+              "reply": "It is March 14th, boss! I have it written down in my head. Do we get cake that day?",
+              "passed": true,
+              "hits": [
+                "march 14",
+                "march 14th"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "what's my mother's name?",
+              "category": "abstention",
+              "reply": "I am sorry, boss, but I do not know your mother's name. I only know about things you have told me before. My nose is good, but it is not that good!",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "what did I eat on Tuesday two weeks ago?",
+              "category": "abstention",
+              "reply": "I am sorry, boss, but I do not have any information about what you ate on that specific Tuesday. I only remember what you tell me about your meals!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 12,
+              "probe": "how was the weather the day we talked about the bike ride?",
+              "category": "abstention",
+              "reply": "I do not have a record of a bike ride conversation in my notes, boss. Could you tell me more so I can try to help? I'll keep my ears perked for any more clues!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": ""
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 5,
+          "total": 5,
+          "rate": 1.0
+        },
+        "preference": {
+          "passed": 1,
+          "total": 2,
+          "rate": 0.5
+        },
+        "multi-session": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        },
+        "proactive": {
+          "passed": 0,
+          "total": 1,
+          "rate": 0.0
+        },
+        "temporal": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 13,
+        "total": 15,
+        "rate": 0.867
+      },
+      "memory": {
+        "content": "\n--- 2026-08-28 19:48 ---\nUser's name is Mihaly.\nUser lives in Budapest.\nUser has a dog named Bolt.\nUser drinks coffee black (no sugar, no milk).\nUser's partner is named Kata.\nUser is working on a side project (an anime chatbot).\n\n--- 2026-08-28 19:48 ---\nUser's sister is named Eszter.\nEszter lives in Vienna.\n\n--- 2026-08-28 19:48 ---\nUser is allergic to peanuts.\n\n--- 2026-08-28 19:48 ---\nUser goes to the gym on Tuesdays and Thursdays.\n\n--- 2026-08-28 19:48 ---\nUser's birthday is on March 14th.\n\n--- 2026-08-28 19:49 ---\nUser's nickname is Misi.\n\n--- 2026-08-28 19:49 ---\nUser's team uses Python.\nUser went for a run this morning.\nUser is currently in a busy sprint involving lots of code review.\nUser is trying to eat healthier.\n\n--- 2026-08-28 19:49 ---\nUser watched football with friends last night.\nUser is planning a trip to Lisbon in October.\nUser had eggs for breakfast.\n\n--- 2026-08-28 19:49 ---\nUser drives a grey Skoda.\n",
+        "lines": 38,
+        "fact_lines": 20,
+        "tokens_est": 233,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "\n--- 2026-08-28 19:48 ---\nUser's name is Mihaly.\nUser lives in Budapest.\nUser has a dog named Bolt.\nUser drinks coffee black (no sugar, no milk).\nUser's partner is named Kata.\nUser is working on a side project (an anime chatbot).\n\n--- 2026-08-28 19:48 ---\nUser's sister is named Eszter.\nEszter lives in Vienna.\n\n--- 2026-08-28 19:48 ---\nUser is allergic to peanuts.\n\n--- 2026-08-28 19:48 ---\nUser goes to the gym on Tuesdays and Thursdays.\n\n--- 2026-08-28 19:48 ---\nUser's birthday is on March 14th.\n\n--- 2026-08-28 19:49 ---\nUser's nickname is Misi.\n\n--- 2026-08-28 19:49 ---\nUser's team uses Python.\nUser went for a run this morning.\nUser is currently in a busy sprint involving lots of code review.\nUser is trying to eat healthier.\n\n--- 2026-08-28 19:49 ---\nUser watched football with friends last night.\nUser is planning a trip to Lisbon in October.\nUser had eggs for breakfast.\n\n--- 2026-08-28 19:49 ---\nUser drives a grey Skoda.\n",
+    "lines": 38,
+    "fact_lines": 20,
+    "tokens_est": 233,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-5_gr4g32/shortmem.txt",
+  "script": "./eval/scripts/long-horizon.yaml"
+}

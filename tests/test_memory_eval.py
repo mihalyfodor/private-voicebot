@@ -36,8 +36,17 @@ def _chunks(*texts):
     ])
 
 
-def _summary(text):
-    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=text))])
+def _ops(*ops):
+    """One memory.propose_ops completion carrying `ops` as a JSON array."""
+    import json
+    return SimpleNamespace(choices=[SimpleNamespace(
+        message=SimpleNamespace(content=json.dumps(list(ops))))])
+
+
+def _write_profile(**sections):
+    profile = memory._empty_profile()
+    profile.update(sections)
+    memory._write_profile(profile)
 
 
 # --------------------------------------------------------------------------- scoring
@@ -119,23 +128,25 @@ def test_appended_diff():
 
 
 def test_sandbox_isolates_real_files(tmp_path):
-    real_mem = memory.SHORTMEM_PATH
+    real_mem = memory.MEMORY_PATH
     real_settings = avatars.SETTINGS_PATH
     real_tools = llm.TOOLS
     real_mem_before = open(real_mem).read() if os.path.exists(real_mem) else None
 
     with harness.Sandbox() as box:
-        assert memory.SHORTMEM_PATH != real_mem
+        assert memory.MEMORY_PATH != real_mem
+        assert "memeval-" in memory.OPS_LOG_PATH
+        assert "memeval-" in memory.SHORTMEM_PATH
         assert avatars.SETTINGS_PATH != real_settings
         assert llm.TOOLS == []
-        memory._append_atomic("sandboxed fact\n")
+        _write_profile(identity={"name": "sandboxed fact"})
         avatars.save_setting("verbosity", "short")
         llm._log("hi", [], "there")
         assert "sandboxed fact" in box.read_memory()
         assert os.path.exists(box.log_path)
         sandbox_mem = box.memory_path
 
-    assert memory.SHORTMEM_PATH == real_mem
+    assert memory.MEMORY_PATH == real_mem
     assert avatars.SETTINGS_PATH == real_settings
     assert llm.TOOLS == real_tools
     assert not os.path.exists(sandbox_mem)
@@ -146,11 +157,34 @@ def test_sandbox_isolates_real_files(tmp_path):
 
 
 def test_sandbox_keeps_given_memory_path(tmp_path):
-    keep = tmp_path / "mem.txt"
+    keep = tmp_path / "mem.json"
     with harness.Sandbox(memory_path=str(keep)) as box:
-        memory._append_atomic("kept fact\n")
+        _write_profile(identity={"name": "kept fact"})
         assert box.memory_path == str(keep)
-    assert keep.read_text() == "kept fact\n"
+        assert box.ops_path == str(tmp_path / "memory_ops.jsonl")
+    assert "kept fact" in keep.read_text()
+
+
+def test_sandbox_reads_v1_shortmem_when_there_is_no_profile():
+    with harness.Sandbox() as box:
+        with open(memory.SHORTMEM_PATH, "w") as f:
+            f.write("The user is named Mihaly.\n")
+        assert box.read_memory() == "The user is named Mihaly.\n"
+        assert harness.memory_stats(box.read_memory())["version"] == 1
+        _write_profile(identity={"name": "Mihaly"})
+        assert harness.memory_stats(box.read_memory())["version"] == 2
+
+
+def test_session_end_falls_back_to_the_v1_shortmem_delta():
+    """A v1 save (no ops logged) still reports what landed in shortmem.txt."""
+    def fake_save():
+        with open(memory.SHORTMEM_PATH, "a") as f:
+            f.write("The user is named Mihaly.\n")
+
+    with harness.Sandbox(), patch.object(llm, "save_memory", side_effect=fake_save):
+        sess = harness.Session().start()
+        assert sess.end() == "The user is named Mihaly.\n"
+        assert sess.last_ops == []
 
 
 def test_sandbox_can_keep_tools_enabled():
@@ -162,22 +196,29 @@ def test_sandbox_can_keep_tools_enabled():
 # --------------------------------------------------------------------------- session
 
 
-def test_session_say_strips_tag_and_end_returns_delta():
-    fake = FakeClient([_chunks("[happy] Hi ", "Mihaly."), _summary("The user is named Mihaly.")])
+def test_session_say_strips_tag_and_end_returns_applied_ops():
+    fake = FakeClient([_chunks("[happy] Hi ", "Mihaly."),
+                       _ops({"op": "ADD", "path": "identity.name", "value": "Mihaly",
+                             "reason": "said so"})])
     with harness.Sandbox() as box, patch.object(llm, "_client", fake):
         sess = harness.Session(box).start()
         assert sess.say("hi") == "Hi Mihaly."
         delta = sess.end()
-    assert "The user is named Mihaly." in delta
+        stats = harness.memory_stats(box.read_memory())
+        ops = sess.last_ops
+    assert delta == "ADD identity.name = Mihaly  (said so)"
+    assert [op["path"] for op in ops] == ["identity.name"]
+    assert stats["version"] == 2 and stats["sections"]["identity"] == 1
     assert fake.calls[0]["tools"] == []
 
 
 def test_session_end_with_nothing_new():
-    fake = FakeClient([_chunks("[neutral] Sure."), _summary("NOTHING")])
+    fake = FakeClient([_chunks("[neutral] Sure."), _ops()])
     with harness.Sandbox(), patch.object(llm, "_client", fake):
         sess = harness.Session().start()
         sess.say("hello")
         assert sess.end() == ""
+        assert sess.last_ops == []
 
 
 # --------------------------------------------------------------------------- run_script
@@ -229,8 +270,16 @@ def test_run_script_rounds_persist_memory(tmp_path):
         calls.append(text)
         return "[neutral] You're Mihaly."
 
+    saves = []
+
     def fake_save():
-        memory._append_atomic("The user is named Mihaly.\n")
+        """Upsert the same name every time, plus one new person per save."""
+        saves.append(1)
+        client = FakeClient([_ops(
+            {"op": "ADD", "path": "identity.name", "value": "Mihaly"},
+            {"op": "ADD", "path": "people[]", "value": {"name": "Anna %d" % len(saves)}},
+        )])
+        memory.save([{"role": "user", "content": "hi"}], client, "m")
 
     with patch.object(llm, "ask", side_effect=fake_ask), \
          patch.object(llm, "save_memory", side_effect=fake_save):
@@ -239,10 +288,13 @@ def test_run_script_rounds_persist_memory(tmp_path):
     assert len(results["rounds"]) == 2
     assert calls == ["I'm Mihaly", "my dog is Bolt", "my name?", "my dog?",
                      "marathon month?"] * 2
-    # 4 save_memory calls, each appending the same line -> 3 near-duplicates
-    assert results["memory"]["fact_lines"] == 4
-    assert results["memory"]["duplicates"] == 3
-    assert results["rounds"][0]["memory"]["fact_lines"] == 2
+    # 4 saves: the repeated name is upserted once, each person is added once
+    assert len(saves) == 4
+    assert results["memory"]["sections"] == {"identity": 1, "preferences": 0, "people": 4,
+                                             "projects": 0, "recurring": 0, "episodic": 0}
+    assert results["memory"]["duplicates"] == 0
+    assert results["rounds"][0]["memory"]["sections"]["people"] == 2
+    assert results["rounds"][0]["sessions"][0]["memory_ops"][0]["path"] == "identity.name"
 
 
 def test_run_script_reads_yaml_file():
