@@ -11,6 +11,7 @@ import webbrowser
 
 import llm
 import splitter
+import fillers
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
@@ -50,10 +51,15 @@ def synthesize(text: str) -> bytes:
     return buf.getvalue()
 
 
-def speak_stream(deltas, send_sync, tts=None):
-    """Consume LLM deltas, TTS each sentence and push it over the socket.
+_filler_wavs: dict[str, bytes] = {}
 
-    Returns the full reply text with the emotion tag stripped.
+
+def speak_stream(events, send_sync, tts=None):
+    """Consume LLM events, TTS each sentence and push it over the socket.
+
+    `events` yields ("tool_calls", [names]) and ("delta", text) — see llm.ask_events.
+    A cached filler is spoken as soon as a tool call is detected.
+    Returns the full reply text (tag stripped, fillers excluded).
     `send_sync(dict)` must be thread-safe; `tts(text) -> wav bytes` defaults to Kokoro.
     """
     tts = tts or synthesize
@@ -61,25 +67,36 @@ def speak_stream(deltas, send_sync, tts=None):
     sentences = []
     started = False
 
-    def emit(emotion, sentence):
+    def emit(emotion, text, wav):
         nonlocal started
         if not started:
             started = True
             send_sync({"type": "state", "value": "speaking"})
-        sentences.append(sentence)
-        wav = tts(sentence)
         send_sync({
             "type": "speech",
             "emotion": emotion,
-            "text": sentence,
+            "text": text,
             "wav": base64.b64encode(wav).decode("ascii"),
         })
 
-    for d in deltas:
-        for emotion, sentence in sp.feed(d):
-            emit(emotion, sentence)
+    def say(emotion, sentence):
+        sentences.append(sentence)
+        emit(emotion, sentence, tts(sentence))
+
+    def filler(tool_names):
+        phrase = fillers.pick(tool_names[0] if tool_names else "default")
+        if phrase not in _filler_wavs:
+            _filler_wavs[phrase] = tts(phrase)
+        emit("thinking", phrase, _filler_wavs[phrase])
+
+    for kind, payload in events:
+        if kind == "tool_calls":
+            filler(payload)
+        elif kind == "delta":
+            for emotion, sentence in sp.feed(payload):
+                say(emotion, sentence)
     for emotion, sentence in sp.close():
-        emit(emotion, sentence)
+        say(emotion, sentence)
 
     send_sync({"type": "speech_end"})
     return " ".join(sentences)
@@ -114,7 +131,7 @@ def respond(user_text: str, loop):
     send_sync = make_sender(loop)
     send_sync({"type": "state", "value": "thinking"})
     playback_done.clear()
-    reply = speak_stream(llm.ask_stream(user_text), send_sync)
+    reply = speak_stream(llm.ask_events(user_text), send_sync)
     print(f"Bot: {reply}")
     send_sync({"type": "transcript", "role": "assistant", "text": reply})
     # Fallback timeout: generous, since the browser normally reports playback_done.

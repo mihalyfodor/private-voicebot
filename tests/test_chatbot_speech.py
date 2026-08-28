@@ -14,7 +14,7 @@ def fake_tts(text):
 
 def test_speak_stream_emits_speech_per_sentence_then_end():
     sent = []
-    reply = chatbot.speak_stream(["[happy] Sure thing.", " Anything else?"], sent.append, tts=fake_tts)
+    reply = chatbot.speak_stream([("delta", "[happy] Sure thing."), ("delta", " Anything else?")], sent.append, tts=fake_tts)
 
     assert reply == "Sure thing. Anything else?"
     types = [m["type"] for m in sent]
@@ -25,3 +25,27 @@ def test_speak_stream_emits_speech_per_sentence_then_end():
     for m in sent[1:3]:
         data, sr = sf.read(io.BytesIO(base64.b64decode(m["wav"])))
         assert sr == 24000 and len(data) == 2400
+
+
+def test_tool_call_emits_cached_filler_before_answer(monkeypatch):
+    import fillers
+    calls = []
+
+    def counting_tts(text):
+        calls.append(text)
+        return fake_tts(text)
+
+    events = [("tool_calls", ["get_weather"]), ("delta", "[neutral] It is sunny.")]
+    chatbot._filler_wavs.clear()
+    fillers._last.clear()
+    monkeypatch.setitem(fillers.FILLERS, "get_weather", ["Let me check outside."])  # deterministic
+
+    for _ in range(2):
+        sent = []
+        reply = chatbot.speak_stream(events, sent.append, tts=counting_tts)
+        assert reply == "It is sunny."
+        assert [m["type"] for m in sent] == ["state", "speech", "speech", "speech_end"]
+        assert (sent[1]["emotion"], sent[1]["text"]) == ("thinking", "Let me check outside.")
+        assert (sent[2]["emotion"], sent[2]["text"]) == ("neutral", "It is sunny.")
+
+    assert calls.count("Let me check outside.") == 1  # cached across runs

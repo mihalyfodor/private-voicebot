@@ -2,7 +2,7 @@
 const CONFIG = {
   modelUrl: '/static/models/haru/haru_greeter_t03.model3.json',
   // emotion → Haru expression name (see expressions in the model3.json). null = neutral/reset.
-  expressions: { neutral: null, happy: 'f00', surprised: 'f02', thinking: 'f04', apologetic: 'f05' },
+  expressions: { neutral: null, happy: 'f04', surprised: 'f05', thinking: 'f07', apologetic: 'f06' },
   expressionWeight: 0.7,
   expressionHoldMs: 500,
   mouthGain: 6.0,      // RMS → mouth openness multiplier

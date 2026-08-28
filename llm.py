@@ -31,7 +31,8 @@ SYSTEM_PROMPT = (
     f"Use the get_emails tool when asked to check email, read emails, or see the inbox. "
     f"IMPORTANT: You have no clock, no weather data, no news and no inbox of your own. "
     f"Whenever the user asks about the time, weather, news, or email you MUST call the matching tool "
-    f"before answering — never guess or make up an answer."
+    f"before answering — never guess or make up an answer. "
+    f"Never announce that you are checking or looking something up; state the result directly."
 )
 
 _client: OpenAI | None = None
@@ -81,8 +82,8 @@ def _tool_round(msg) -> None:
         _conversation.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
 
 
-def ask_stream(user_text: str) -> Iterator[str]:
-    """Yield text deltas of the assistant reply. Tool rounds run non-streamed first."""
+def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
+    """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks."""
     global _last_tool_calls
 
     _conversation.append({"role": "user", "content": user_text})
@@ -96,6 +97,7 @@ def ask_stream(user_text: str) -> Iterator[str]:
     msg = first.choices[0].message
 
     if msg.tool_calls:
+        yield ("tool_calls", [tc.function.name for tc in msg.tool_calls])
         _tool_round(msg)
         stream = client().chat.completions.create(
             model=OMLX_MODEL, messages=_conversation, stream=True,
@@ -105,15 +107,22 @@ def ask_stream(user_text: str) -> Iterator[str]:
             delta = chunk.choices[0].delta.content if chunk.choices else None
             if delta:
                 parts.append(delta)
-                yield delta
+                yield ("delta", delta)
         reply = "".join(parts)
     else:
         reply = msg.content or ""
-        yield reply
+        yield ("delta", reply)
 
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
     _log(user_text, _last_tool_calls, reply)
+
+
+def ask_stream(user_text: str) -> Iterator[str]:
+    """Yield only the text deltas of the assistant reply."""
+    for kind, payload in ask_events(user_text):
+        if kind == "delta":
+            yield payload
 
 
 def ask(user_text: str) -> str:

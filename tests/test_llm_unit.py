@@ -50,11 +50,18 @@ def test_tool_round_then_streamed_answer():
         iter(_chunks("[neutral] It is ", "noon.")),
     ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00") as rt:
-        deltas = list(llm.ask_stream("what time is it?"))
+        events = list(llm.ask_events("what time is it?"))
     rt.assert_called_once_with("get_time", {})
-    assert deltas == ["[neutral] It is ", "noon."]
+    assert events == [("tool_calls", ["get_time"]), ("delta", "[neutral] It is "), ("delta", "noon.")]
     assert llm.get_last_tool_calls() == [{"name": "get_time", "args": {}}]
     roles = [m["role"] for m in llm._conversation]
     assert roles == ["system", "user", "assistant", "tool", "assistant"]
     assert llm._conversation[3]["tool_call_id"] == "call_1"
     assert fake.calls[1]["stream"] is True
+
+
+def test_ask_stream_yields_only_deltas():
+    tc = SimpleNamespace(id="call_1", function=SimpleNamespace(name="get_time", arguments="{}"))
+    fake = FakeClient([_completion(_msg(content=None, tool_calls=[tc])), iter(_chunks("[neutral] Noon."))])
+    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+        assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
