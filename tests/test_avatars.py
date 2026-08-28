@@ -7,7 +7,7 @@ import avatars
 def test_default_is_wanko(monkeypatch):
     monkeypatch.delenv("AVATAR", raising=False)
     a = avatars.current()
-    assert (a["key"], a["name"], a["voice"]) == ("wanko", "Wanko", "am_puck")
+    assert (a["key"], a["name"], a["voice"]) == ("wanko", "Wanko", "bm_lewis")
 
 
 def test_haru_selectable(monkeypatch):

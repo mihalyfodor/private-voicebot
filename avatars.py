@@ -4,7 +4,7 @@ import os
 AVATARS = {
     "wanko": {
         "name": "Wanko",
-        "voice": "am_puck",
+        "voice": "bm_lewis",
         "speed": 1.05,
         "persona": "You are Wanko, a small, cheerful dog mascot who works as an office assistant. Warm and upbeat, but professional.",
     },
