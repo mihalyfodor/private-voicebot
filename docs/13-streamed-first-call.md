@@ -20,7 +20,7 @@ Status: exploration
 1. Mocked stream with text-only deltas → deltas yielded incrementally in order; one create() call.
 2. Mocked stream with tool_call fragments split across chunks → reassembled name/arguments; `run_tool` called once; second call streamed.
 3. Rollback on exception mid-stream keeps `_conversation` clean (existing test extended).
-4. Live probe script output recorded in this PRD: first-token latency before/after.
+4. Live probe (2026-08-28, gemma-4-26B on oMLX): tool call arrives as ONE `tool_calls` delta with `finish_reason="tool_calls"` after 1.14 s, no preceding text; no-tool reply: first text delta at 0.54 s, whole reply 0.71 s (oMLX emits coarse chunks). So the design is viable; expected gain ≈ 0.2 s on short replies, proportionally more on `long`.
 
 ## Out of scope
 Parallel tool calls; changing the tool set.
