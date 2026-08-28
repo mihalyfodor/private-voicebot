@@ -19,3 +19,5 @@ static/vendor/
 static/models/
 settings.json
 static/backdrops/
+eval/results/*
+!eval/results/baseline.json

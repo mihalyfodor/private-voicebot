@@ -1,0 +1,69 @@
+# LongMemEval-style scenario, 4 sessions.
+# Turns are either {user: "..."} or a probe {probe, expect, expect_not, category}.
+# `expect` is a flat list = any-of; a list of lists = every group must hit.
+sessions:
+
+  # --- S1: introduction, nothing probed yet -------------------------------
+  - - user: "hey, I'm Mihaly, nice to finally talk to you"
+    - user: "I live in Budapest, been here a few years now"
+    - user: "I work as a software engineer at a fintech company"
+    - user: "oh and I've got a dog, his name is Bolt"
+    - user: "I drink my coffee black, no sugar, no milk"
+    - user: "I'm training for a half marathon in October"
+    - user: "anyway, good chat, talk tomorrow"
+
+  # --- S2: single-hop recall, then updates --------------------------------
+  - - probe: "hey, do you remember my name?"
+      expect: ["mihaly"]
+      category: single-hop
+    - probe: "what's my dog called again?"
+      expect: ["bolt"]
+      category: single-hop
+    - probe: "how do I take my coffee?"
+      expect: ["black"]
+      category: preference
+    - user: "so, news, I got promoted, I'm an engineering manager now"
+    - user: "and the half marathon got moved, it's in November now"
+    - user: "a new colleague called Anna is joining my team next week"
+    - user: "alright, I should get going"
+
+  # --- S3: updates and multi-session recall, plus transient chatter -------
+  - - probe: "what do I do for work these days?"
+      expect: ["engineering manager", "manager"]
+      expect_not: ["software engineer"]
+      category: update
+    - probe: "which month is my half marathon in?"
+      expect: ["november"]
+      expect_not: ["october"]
+      category: update
+    - probe: "who's the new person joining my team?"
+      expect: ["anna"]
+      category: multi-session
+    - probe: "remind me how I like my coffee"
+      expect: ["black"]
+      category: preference
+    - user: "it rained all morning here today, pretty grim"
+    - user: "I had pasta for lunch, nothing special"
+    - user: "ok, catch you later"
+
+  # --- S4: abstention, temporal, transient leakage ------------------------
+  - - probe: "what's my sister's name?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      expect_not: ["her name is"]
+      category: abstention
+    - probe: "when is my half marathon?"
+      expect: ["november"]
+      expect_not: ["october"]
+      category: temporal
+    - probe: "what did I have for lunch last week?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "can't remember", "cannot remember", "don't have", "do not have",
+               "no record", "don't think you", "do not think you"]
+      category: abstention
+    - probe: "and where do I live?"
+      expect: ["budapest"]
+      category: single-hop
+    - user: "thanks, bye"
