@@ -3,7 +3,20 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import llm
+import pytest
 import warnings
+
+
+def _omlx_available() -> bool:
+    try:
+        llm.client().with_options(timeout=3.0).models.list()
+        return True
+    except Exception:
+        return False
+
+
+if not _omlx_available():
+    pytest.skip("oMLX server not reachable at OMLX_BASE_URL", allow_module_level=True)
 
 
 def setup_function():

@@ -82,7 +82,6 @@ voicebot/
 
 ## Active PRDs
 
-- [02-llm-robustness-tests.md](02-llm-robustness-tests.md) — LLM tool-trigger robustness tests (done)
 - [04-avatar.md](04-avatar.md) — Live2D avatar, browser playback, oMLX backend (done)
 - [05-fillers.md](05-fillers.md) — tool-intent spoken fillers (done)
 - [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (done)
@@ -95,3 +94,4 @@ voicebot/
 ## Completed PRDs
 
 - [01-voicebot.md](01-voicebot.md) — initial local voice chatbot (done)
+- [02-llm-robustness-tests.md](02-llm-robustness-tests.md) — LLM tool-trigger robustness tests (done)
