@@ -1,12 +1,12 @@
 import os
 import io
+import json
 import signal
 import base64
 import asyncio
+import contextlib
 from dotenv import load_dotenv
 load_dotenv()
-import tempfile
-import subprocess
 import threading
 import webbrowser
 
@@ -16,15 +16,15 @@ import fillers
 import avatars
 import backdrops
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
-WHISPER_CLI = os.getenv("WHISPER_CLI", "/opt/homebrew/bin/whisper-cli")
-WHISPER_MODEL = os.path.expanduser(os.getenv("WHISPER_MODEL", "~/models/whisper/ggml-small.bin"))
+import vad
+import asr
+
 KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/models/kokoro/kokoro-v1.0.onnx"))
 KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/voices-v1.0.bin"))
 AVATAR = avatars.current()
@@ -47,15 +47,6 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 SAMPLERATE = 16000
 
 kokoro = None  # loaded in main()
-
-
-def transcribe(wav_path):
-    result = subprocess.run(
-        [WHISPER_CLI, "-m", WHISPER_MODEL, "-f", wav_path, "--no-timestamps", "-nt"],
-        capture_output=True,
-        text=True,
-    )
-    return result.stdout.strip()
 
 
 def synthesize(text: str) -> bytes:
@@ -121,13 +112,18 @@ def speak_stream(events, send_sync, tts=None):
 
 
 # State
-recording = False
 processing = False
 greeted = False
-audio_chunks = []
-stream = None
 ws_client = None
 playback_done = threading.Event()
+
+# Hands-free / PTT capture state (single-client server, module-level is fine)
+hands_free = bool(avatars.load_settings().get("hands_free", False))
+endpointer = None  # vad.Endpointer, created lazily on first binary frame once hands-free is on
+recorder = None  # vad.Recorder, created on "ptt start"
+ptt_active = False
+_hearing = False  # last "listening" value sent, to only send on change
+PTT_MIN_SAMPLES = int(0.3 * SAMPLERATE)
 
 
 async def send(msg: dict):
@@ -173,99 +169,67 @@ def say_canned(text: str, send_sync, tts=None):
     return reply
 
 
-def handle_toggle(loop):
-    global recording, processing, audio_chunks, stream
+@contextlib.contextmanager
+def _busy():
+    """Hold the `processing` flag for one turn (blocks PTT/avatar switches, gates the VAD)."""
+    global processing
+    processing = True
+    try:
+        yield
+    finally:
+        processing = False
 
-    if processing:
-        return
 
-    if not recording:
-        audio_chunks = []
+def _spawn(fn, *args):
+    threading.Thread(target=fn, args=args, daemon=True).start()
 
-        def callback(indata, frames, time, status):
-            if recording:
-                audio_chunks.append(indata.copy())
 
+def handle_utterance(audio, loop):
+    """Transcribe one captured utterance (hands-free or PTT) and respond.
+
+    Idle is always sent when no reply was produced (empty transcript or an exception).
+    """
+    with _busy():
+        send_sync = make_sender(loop)
+        responded = False
         try:
-            stream = sd.InputStream(samplerate=SAMPLERATE, channels=1, callback=callback)
-            stream.start()
+            send_sync({"type": "state", "value": "processing"})
+            text = asr.transcribe(audio)
+            if not text:
+                return
+            print(f"You: {text}")
+            send_sync({"type": "transcript", "role": "user", "text": text})
+            respond(text, loop)
+            responded = True
         except Exception as e:
-            # Typical cause: default input device changed (headset plugged/unplugged). Stay idle.
-            print(f"[Mic error] {e}")
-            asyncio.run_coroutine_threadsafe(send({"type": "error", "text": "Microphone unavailable — check input device."}), loop)
-            asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
-            return
-        recording = True
-        asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "recording"}), loop)
-        print("[RECORDING...]")
+            print(f"[Error] {e}")
+        finally:
+            if not responded:
+                send_sync({"type": "state", "value": "idle"})
 
-    else:
-        recording = False
-        stream.stop()
-        stream.close()
-        processing = True
-        asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "processing"}), loop)
 
-        def process():
-            global processing
-            responded = False
-            try:
-                if not audio_chunks:
-                    return
-                audio = np.concatenate(audio_chunks, axis=0)
-                tmp = tempfile.mktemp(suffix=".wav")
-                sf.write(tmp, audio, SAMPLERATE)
-
-                text = transcribe(tmp)
-                os.remove(tmp)
-
-                if not text:
-                    return
-
-                print(f"You: {text}")
-                asyncio.run_coroutine_threadsafe(send({"type": "transcript", "role": "user", "text": text}), loop)
-                respond(text, loop)
-                responded = True
-            except Exception as e:
-                print(f"[Error] {e}")
-            finally:
-                if not responded:
-                    asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
-                processing = False
-
-        threading.Thread(target=process, daemon=True).start()
+def _canned_turn(text, loop, thinking):
+    """Speak a canned line as a full turn: optional thinking state, TTS, record, idle."""
+    with _busy():
+        send_sync = make_sender(loop)
+        try:
+            if thinking:
+                send_sync({"type": "state", "value": "thinking"})
+            llm.record_assistant(say_canned(text, send_sync))
+            _wait_for_playback_then_idle(send_sync)
+        except Exception as e:
+            print(f"[Error] {e}")
+            send_sync({"type": "state", "value": "idle"})
 
 
 def _switch_greet(loop):
     """Speak the newly-applied avatar's switch_greeting after a set_avatar action."""
-    global processing
-    processing = True
-    send_sync = make_sender(loop)
-    try:
-        reply = say_canned(AVATAR["switch_greeting"], send_sync)
-        llm.record_assistant(reply)
-        _wait_for_playback_then_idle(send_sync)
-    except Exception as e:
-        print(f"[Error] {e}")
-        send_sync({"type": "state", "value": "idle"})
-    finally:
-        processing = False
+    _canned_turn(AVATAR["switch_greeting"], loop, thinking=False)
 
 
 def greet(loop):
-    global processing
-    processing = True
-    send_sync = make_sender(loop)
-    try:
-        send_sync({"type": "state", "value": "thinking"})
-        reply = say_canned(AVATAR["greeting"], send_sync)
-        llm.record_assistant(reply)
-        _wait_for_playback_then_idle(send_sync)
-    except Exception as e:
-        print(f"[Error] {e}")
-        asyncio.run_coroutine_threadsafe(send({"type": "state", "value": "idle"}), loop)
-    finally:
-        processing = False
+    """Speak the avatar's greeting on the first page connect."""
+    _canned_turn(AVATAR["greeting"], loop, thinking=True)
 
 
 app = FastAPI()
@@ -293,6 +257,7 @@ async def api_config():
     return {
         "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
+        "hands_free": hands_free,
     }
 
 
@@ -301,58 +266,144 @@ async def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    global ws_client, greeted, processing
-    await websocket.accept()
-    ws_client = websocket
-    loop = asyncio.get_event_loop()
+async def _handle_audio(data, loop):
+    """One binary PCM frame from the browser: PTT recorder or hands-free endpointer."""
+    global endpointer, _hearing
+    if ptt_active:
+        if recorder is not None:
+            recorder.feed(data)
+        return
+    if not hands_free:
+        return
+    if endpointer is None:
+        endpointer = vad.Endpointer(**vad.DEFAULTS)
+    endpointer.gated = processing
+    utterances = endpointer.feed(data)
+    if endpointer.hearing != _hearing:
+        _hearing = endpointer.hearing
+        await send({"type": "listening", "value": "hearing" if _hearing else "idle"})
+    for utt in utterances:
+        _spawn(handle_utterance, utt, loop)
+
+
+async def _action_ptt(msg, loop):
+    global recorder, ptt_active
+    value = msg.get("value")
+    if value == "start":
+        if not processing:
+            recorder = vad.Recorder()
+            ptt_active = True
+            await send({"type": "state", "value": "recording"})
+    elif value == "stop":
+        ptt_active = False
+        audio = recorder.stop() if recorder is not None else np.zeros(0, dtype=np.float32)
+        if audio.size < PTT_MIN_SAMPLES:
+            await send({"type": "state", "value": "idle"})
+        else:
+            _spawn(handle_utterance, audio, loop)
+
+
+async def _action_set_hands_free(msg, loop):
+    global hands_free, _hearing
+    value = bool(msg.get("value"))
+    avatars.save_setting("hands_free", value)
+    hands_free = value
+    if endpointer is not None:
+        endpointer.gated = False
+        endpointer.reset()
+    _hearing = False
+    await send({"type": "hands_free", "value": value})
+    if not value:
+        await send({"type": "listening", "value": "idle"})
+
+
+async def _action_playback_done(msg, loop):
+    playback_done.set()
+
+
+async def _action_set_backdrop(msg, loop):
+    try:
+        key = backdrops.validate(msg.get("key", ""))
+        avatars.save_setting("backdrop", key)
+        await send({"type": "backdrop", "key": key})
+    except ValueError as e:
+        await send({"type": "error", "text": str(e)})
+
+
+async def _action_set_avatar(msg, loop):
+    global processing
+    if processing:
+        await send({"type": "error", "text": "Wait until the reply finishes."})
+        return
+    try:
+        a = apply_avatar(msg.get("key", ""))
+    except ValueError as e:
+        await send({"type": "error", "text": str(e)})
+        return
+    await send({"type": "avatar", "key": a["key"], "name": a["name"]})
+    processing = True  # claimed here so a second switch is refused deterministically
+    _spawn(_switch_greet, loop)
+
+
+async def _action_reload_characters(msg, loop):
+    apply_avatar(avatars.reload()["key"])
+    await send({
+        "type": "characters_reloaded",
+        "avatar": AVATAR["key"], "name": AVATAR["name"],
+        "avatars": avatars.listing(),
+    })
+
+
+async def _action_shutdown(msg, loop):
+    print("\nShutdown requested from UI...")
+    os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
+
+
+ACTIONS = {
+    "ptt": _action_ptt,
+    "set_hands_free": _action_set_hands_free,
+    "playback_done": _action_playback_done,
+    "set_backdrop": _action_set_backdrop,
+    "set_avatar": _action_set_avatar,
+    "reload_characters": _action_reload_characters,
+    "shutdown": _action_shutdown,
+}
+
+
+async def _on_connect(loop):
+    """Bring a freshly connected page up to date, and greet on the very first one."""
+    global greeted
     playback_done.set()  # a new page cannot finish the previous page's playback
     # Replay what has been said so a reloaded page shows the conversation so far.
     for turn in llm.get_session_turns():
         await send({"type": "transcript", "role": turn["role"], "text": splitter.strip_tag(turn["content"])})
+    await send({"type": "hands_free", "value": hands_free})
     if not greeted:
         greeted = True
-        threading.Thread(target=greet, args=(loop,), daemon=True).start()
+        _spawn(greet, loop)
     else:
         await send({"type": "state", "value": "idle"})
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global ws_client
+    await websocket.accept()
+    ws_client = websocket
+    loop = asyncio.get_event_loop()
+    await _on_connect(loop)
     try:
         while True:
-            msg = await websocket.receive_json()
-            action = msg.get("action")
-            if action == "toggle":
-                threading.Thread(target=handle_toggle, args=(loop,), daemon=True).start()
-            elif action == "playback_done":
-                playback_done.set()
-            elif action == "set_backdrop":
-                try:
-                    key = backdrops.validate(msg.get("key", ""))
-                    avatars.save_setting("backdrop", key)
-                    await send({"type": "backdrop", "key": key})
-                except ValueError as e:
-                    await send({"type": "error", "text": str(e)})
-            elif action == "set_avatar":
-                if processing:
-                    await send({"type": "error", "text": "Wait until the reply finishes."})
-                else:
-                    try:
-                        a = apply_avatar(msg.get("key", ""))
-                        await send({"type": "avatar", "key": a["key"], "name": a["name"]})
-                        processing = True  # claimed here so a second switch is refused deterministically
-                        threading.Thread(target=_switch_greet, args=(loop,), daemon=True).start()
-                    except ValueError as e:
-                        await send({"type": "error", "text": str(e)})
-            elif action == "reload_characters":
-                a = avatars.reload()
-                apply_avatar(a["key"])
-                await send({
-                    "type": "characters_reloaded",
-                    "avatar": AVATAR["key"], "name": AVATAR["name"],
-                    "avatars": avatars.listing(),
-                })
-            elif action == "shutdown":
-                print("\nShutdown requested from UI...")
-                os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
+            frame = await websocket.receive()
+            if frame.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(frame.get("code", 1000))
+            if frame.get("bytes") is not None:
+                await _handle_audio(np.frombuffer(frame["bytes"], dtype=np.int16), loop)
+            elif frame.get("text") is not None:
+                msg = json.loads(frame["text"])
+                handler = ACTIONS.get(msg.get("action"))
+                if handler:
+                    await handler(msg, loop)
     except WebSocketDisconnect:
         if ws_client is websocket:
             ws_client = None

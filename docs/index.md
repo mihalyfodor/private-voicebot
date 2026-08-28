@@ -22,10 +22,12 @@ python3 -m pytest tests/ --deselect tests/test_llm_robustness.py --deselect test
 
 ```
 voicebot/
-├── chatbot.py        # main entry point, FastAPI + WS server, record/transcribe loop, sentence-streamed TTS, avatar/backdrop switching
+├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (PTT + hands-free), sentence-streamed TTS, avatar/backdrop switching
 ├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, memory + session log
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
+├── vad.py            # Silero VAD endpointer (hands-free) + PTT Recorder
+├── asr.py            # mlx-whisper transcription + junk filter
 ├── avatars.py          # avatar profiles (Wanko/Haru/Natori: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
@@ -35,6 +37,7 @@ voicebot/
 │   └── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
 ├── static/
 │   ├── index.html      # browser UI: avatar canvas + menu + transcript + push-to-talk
+│   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
 │   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, menu drawer, websocket
 │   ├── style.css
 │   ├── vendor/          # gitignored, fetched
@@ -57,7 +60,10 @@ voicebot/
 │   ├── test_chatbot_speech.py     # speak_stream: mocked Kokoro + WS, wav framing
 │   ├── test_avatars.py            # avatars.current()/AVATAR env handling
 │   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys
-│   └── test_backdrops.py          # backdrops.validate()/listing()
+│   ├── test_backdrops.py          # backdrops.validate()/listing()
+│   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + PTT Recorder
+│   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked
+│   └── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
 ├── requirements.txt
 └── docs/
     ├── index.md               # this file
@@ -69,7 +75,7 @@ voicebot/
     ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (done)
     ├── 07-avatar-menu.md        # PRD: Natori + in-app menu with live switching (done)
     ├── 08-backdrops.md          # PRD: selectable backdrops (done)
-    ├── 09-continuous-mode.md    # PRD: hands-free conversation mode (exploration)
+    ├── 09-continuous-mode.md    # PRD: hands-free conversation mode (done)
     ├── 10-personalities.md      # PRD: character cards (done)
     └── 11-context-and-length.md # PRD: context budget, trimming, verbosity (exploration)
 ```
@@ -82,7 +88,7 @@ voicebot/
 - [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (done)
 - [07-avatar-menu.md](07-avatar-menu.md) — third avatar (Natori) and in-app menu with live switching (done)
 - [08-backdrops.md](08-backdrops.md) — selectable backdrops (done)
-- [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (exploration)
+- [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (done)
 - [10-personalities.md](10-personalities.md) — character cards, canned greetings (done)
 - [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (exploration)
 

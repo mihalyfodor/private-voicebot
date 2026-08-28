@@ -49,6 +49,7 @@ def test_ws_set_avatar_switches_and_is_blocked_while_processing(monkeypatch):
     monkeypatch.setattr(chatbot, "_switch_greet", lambda loop: setattr(chatbot, "processing", False))
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["type"] == "hands_free"
         assert ws.receive_json()["type"] == "state"
         ws.send_json({"action": "set_avatar", "key": "natori"})
         assert ws.receive_json() == {"type": "avatar", "key": "natori", "name": "Natori"}
@@ -69,7 +70,8 @@ def test_switch_claims_processing_immediately(monkeypatch):
     monkeypatch.setattr(chatbot, "processing", False)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # hands_free
+        ws.receive_json()  # state idle
         ws.send_json({"action": "set_avatar", "key": "haru"})
         assert ws.receive_json()["type"] == "avatar"
         ws.send_json({"action": "set_avatar", "key": "natori"})

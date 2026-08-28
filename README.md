@@ -2,7 +2,7 @@
 
 A local voice assistant with memory, real-time tools and an animated Live2D avatar that lip-syncs to speech. Runs entirely on your machine — no cloud LLM.
 
-**Stack:** Whisper (`whisper-cli`, STT) → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8010.
+**Stack:** Whisper (`mlx-whisper`, in-process STT) + Silero VAD → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8010.
 
 **Avatars:** three switchable characters — **Wanko** (dog mascot, default), **Haru** (calm office assistant), **Natori** (easygoing office assistant) — each with its own voice, persona and expressions. Switch any time from the ☰ menu, mid-conversation, without losing context; your pick is remembered across restarts. The menu also lets you pick a **backdrop** behind the avatar.
 
@@ -15,24 +15,9 @@ A local voice assistant with memory, real-time tools and an animated Live2D avat
 
 ## Setup
 
-**macOS**
-```bash
-brew install whisper-cpp portaudio
-```
+**Apple Silicon Mac required** for speech recognition (`mlx-whisper`; the model `mlx-community/whisper-small-mlx` downloads on first run). **Chrome** is the target browser: microphone capture happens in the page (echo cancellation / noise suppression), so allow the mic permission when prompted.
 
-**Linux**
 ```bash
-apt install portaudio19-dev
-# Build whisper-cpp from source: https://github.com/ggerganov/whisper.cpp
-```
-
-**Both**
-```bash
-# Download Whisper model
-mkdir -p ~/models/whisper
-curl -L -o ~/models/whisper/ggml-small.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
-
 # Download Kokoro models
 mkdir -p ~/models/kokoro
 curl -L -o ~/models/kokoro/kokoro-v1.0.onnx \
@@ -60,7 +45,7 @@ source .venv/bin/activate
 python3 chatbot.py    # opens http://localhost:8010 automatically
 ```
 
-Press **Space** or click the button to start/stop recording. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to switch avatar or backdrop, or to shut down cleanly. Switching avatar is disabled while the bot is speaking/thinking, to avoid a mid-utterance voice change.
+Press **Space** or click the button to start/stop recording (push-to-talk), or enable **Hands-free** in the ☰ menu to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to switch avatar or backdrop, or to shut down cleanly. Switching avatar is disabled while the bot is speaking/thinking, to avoid a mid-utterance voice change.
 
 The starting avatar is chosen by the `AVATAR` env var (`wanko` | `haru` | `natori`, default `wanko`); once you switch from the menu, that choice is saved to `settings.json` (gitignored) and takes precedence over `AVATAR` on every future start. `KOKORO_VOICE` / `KOKORO_SPEED` in `.env` override the current avatar's default voice/speed if set. Per-avatar client behaviour (model, framing, expression mapping) lives in `PROFILES` at the top of `static/app.js`; emotion→expression tuning is in the same file's `CONFIG`.
 

@@ -1,4 +1,4 @@
-Status: exploration
+Status: done
 
 # 09 — Hands-free conversation mode
 

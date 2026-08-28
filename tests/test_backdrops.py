@@ -26,7 +26,8 @@ def test_ws_set_backdrop_persists_and_survives_avatar_switch():
     client = TestClient(chatbot.app)
     key = list(backdrops.BACKDROPS)[-1]
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
+        ws.receive_json()  # hands_free
+        ws.receive_json()  # state idle
         ws.send_json({"action": "set_backdrop", "key": key})
         assert ws.receive_json() == {"type": "backdrop", "key": key}
         ws.send_json({"action": "set_backdrop", "key": "mars"})
