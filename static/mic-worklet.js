@@ -9,6 +9,31 @@ class MicProcessor extends AudioWorkletProcessor {
     this.pending = new Float32Array(0); // leftover source-rate samples not yet consumed
     this.out = new Int16Array(512);
     this.outPos = 0;
+
+    // Anti-alias filter for the decimation below: 2nd-order Butterworth low-pass at
+    // 7 kHz (just under the 8 kHz Nyquist of the 16 kHz output), designed for this
+    // context's sampleRate. Coefficients are the RBJ cookbook low-pass, normalized by
+    // a0 so lowpass() is a plain difference equation.
+    const fc = 7000;
+    const Q = Math.SQRT1_2;          // 1/sqrt(2): maximally-flat (Butterworth) response
+    const w0 = 2 * Math.PI * fc / sampleRate;
+    const cosW0 = Math.cos(w0);
+    const alpha = Math.sin(w0) / (2 * Q);
+    const a0 = 1 + alpha;
+    this.b0 = (1 - cosW0) / 2 / a0;
+    this.b1 = (1 - cosW0) / a0;
+    this.b2 = this.b0;
+    this.a1 = (-2 * cosW0) / a0;
+    this.a2 = (1 - alpha) / a0;
+    // Direct Form I state, persisted across process() calls: last two in/out samples.
+    this.x1 = 0; this.x2 = 0; this.y1 = 0; this.y2 = 0;
+  }
+
+  lowpass(x) {
+    const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
+    this.x2 = this.x1; this.x1 = x;
+    this.y2 = this.y1; this.y1 = y;
+    return y;
   }
 
   process(inputs) {
@@ -17,10 +42,10 @@ class MicProcessor extends AudioWorkletProcessor {
     const channel = input[0];
     if (!channel || !channel.length) return true;
 
-    // Concatenate leftover samples with the new render quantum.
+    // Leftover samples (already filtered) followed by this render quantum, filtered.
     const combined = new Float32Array(this.pending.length + channel.length);
     combined.set(this.pending, 0);
-    combined.set(channel, this.pending.length);
+    for (let i = 0; i < channel.length; i++) combined[this.pending.length + i] = this.lowpass(channel[i]);
 
     let pos = this.srcPos;
     while (pos + this.ratio <= combined.length) {

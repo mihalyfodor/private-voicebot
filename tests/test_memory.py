@@ -47,3 +47,22 @@ def test_save_memory_is_idempotent(monkeypatch):
     llm._session_turns.append({"role": "user", "content": "hi"})
     llm.save_memory(); llm.save_memory()
     assert saved == [[{"role": "user", "content": "hi"}]]
+
+
+def test_save_appends_atomically(monkeypatch, tmp_path):
+    """A crash mid-write must never truncate shortmem.txt: tmp file + os.replace."""
+    import os
+    path = tmp_path / "shortmem.txt"
+    path.write_text("old fact\n")
+    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(path))
+    replaces = []
+    real_replace = os.replace
+    monkeypatch.setattr(memory.os, "replace",
+                        lambda s, d: (replaces.append((s, d)), real_replace(s, d))[1])
+
+    memory.save([{"role": "user", "content": "hi"}], _client_with_content("Drinks green tea daily"), "m")
+
+    assert replaces == [(str(path) + ".tmp", str(path))]
+    assert not os.path.exists(str(path) + ".tmp")
+    text = path.read_text()
+    assert text.startswith("old fact\n") and text.rstrip().endswith("Drinks green tea daily")

@@ -146,6 +146,9 @@ let handsFree = false;   // mirrors the server-confirmed hands_free value
 let muted = false;       // hands-free only: user muted the mic
 let pttActive = false;   // push-to-talk only: between ptt start/stop
 let listening = 'idle';  // hands-free VAD activity: 'idle' | 'hearing'
+let currentTurn = 0;     // latest turn id seen on `state`/`speech`
+let audioBlocked = false;      // true while waiting on a user gesture to unlock audio
+let blockedSentForTurn = null; // turn we last sent playback_blocked for (send once per turn)
 
 // ---------- audio ----------
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -214,11 +217,23 @@ function rms() {
   return Math.sqrt(s / timeData.length);
 }
 
+// Turn ids only move forward. Returns true when `turn` is a newer turn than the
+// one we were tracking, i.e. the caller should discard anything from the old one.
+function adoptTurn(turn) {
+  if (typeof turn !== 'number' || turn <= currentTurn) return false;
+  currentTurn = turn;
+  return true;
+}
+
 function enqueueSpeech(msg) {
+  if (adoptTurn(msg.turn)) {
+    // A newer turn superseded whatever was queued (but not yet playing): drop it.
+    while (queue.length && typeof queue[0].turn === 'number' && queue[0].turn < currentTurn) queue.shift();
+  }
   const bytes = Uint8Array.from(atob(msg.wav), c => c.charCodeAt(0));
   // Push synchronously so message order is preserved even though decoding is async;
   // playNext() awaits `ready` before playing each item.
-  const item = { emotion: msg.emotion, buffer: null, ready: null };
+  const item = { emotion: msg.emotion, buffer: null, ready: null, turn: msg.turn };
   item.ready = audioCtx.decodeAudioData(bytes.buffer)
     .then(buffer => { item.buffer = buffer; })
     .catch(e => { console.warn('audio decode failed, skipping chunk', e); item.buffer = null; });
@@ -246,7 +261,12 @@ async function playNext() {
     // Autoplay policy: no user gesture on this page yet. Ask for one and wait.
     await audioCtx.resume().catch(() => {});
     if (audioCtx.state !== 'running') {
-      status.textContent = 'click anywhere to enable audio';
+      audioBlocked = true;
+      if (blockedSentForTurn !== currentTurn && ws && ws.readyState === WebSocket.OPEN) {
+        blockedSentForTurn = currentTurn;
+        ws.send(JSON.stringify({ action: 'playback_blocked', turn: currentTurn }));
+      }
+      render();
       await new Promise(resolve => {
         const unlock = () => audioCtx.resume().then(() => {
           document.removeEventListener('click', unlock);
@@ -256,7 +276,8 @@ async function playNext() {
         document.addEventListener('click', unlock);
         document.addEventListener('keydown', unlock);
       });
-      status.textContent = statusText[state] || '';
+      audioBlocked = false;
+      render();
     }
   }
   avatar.setEmotion(item.emotion);
@@ -270,7 +291,7 @@ async function playNext() {
 function finishReply() {
   replyEnded = false;
   setTimeout(() => avatar.setEmotion('neutral'), CONFIG.expressionHoldMs);
-  ws.send(JSON.stringify({ action: 'playback_done' }));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'playback_done', turn: currentTurn }));
 }
 
 // ---------- avatar ----------
@@ -394,7 +415,10 @@ function connect() {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    if (msg.type === 'state') setState(msg.value);
+    if (msg.type === 'state') {
+      adoptTurn(msg.turn);
+      setState(msg.value);
+    }
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
     else if (msg.type === 'speech') enqueueSpeech(msg);
     else if (msg.type === 'speech_end') { replyEnded = true; playNext(); }
@@ -427,7 +451,15 @@ function connect() {
   };
 
   ws.onopen = () => render();
-  ws.onclose = () => {
+  ws.onclose = (e) => {
+    if (e.code === 4000) {
+      status.textContent = 'opened in another tab — reload to use here';
+      return; // do not auto-reconnect: the other tab now owns the connection
+    }
+    if (e.code === 4003) {
+      status.textContent = 'connection refused (origin)';
+      return; // do not auto-reconnect: this origin will never be accepted
+    }
     status.textContent = 'disconnected — retrying...';
     setTimeout(connect, 2000);
   };
@@ -450,14 +482,20 @@ function render() {
     const hearing = listening === 'hearing';
     btn.className = !muted && hearing ? 'hearing' : '';
     btn.textContent = muted ? 'MUTED' : 'MUTE';
-    status.textContent = muted ? 'muted' : (hearing ? 'hearing you…' : 'listening…');
+    status.textContent = muted ? 'muted'
+      : hearing ? 'hearing you…'
+      : mic.started ? 'listening…'
+      : 'click to start the microphone';
     btn.disabled = false;
-    return;
+  } else {
+    btn.className = state === 'idle' ? '' : state;
+    btn.textContent = btnText[state] || '...';
+    status.textContent = statusText[state] || '';
+    btn.disabled = !(state === 'idle' || state === 'recording');
   }
-  btn.className = state === 'idle' ? '' : state;
-  btn.textContent = btnText[state] || '...';
-  status.textContent = statusText[state] || '';
-  btn.disabled = !(state === 'idle' || state === 'recording');
+  // Re-assert the audio-unlock hint last so other branches above don't clobber it
+  // while we're still waiting on a user gesture to resume the AudioContext.
+  if (audioBlocked) status.textContent = 'click anywhere to enable audio';
 }
 
 function addMessage(role, text) {

@@ -10,6 +10,7 @@ import soundfile as sf
 import numpy as np
 
 import chatbot
+from session import Session
 
 
 def fake_tts(text):
@@ -89,87 +90,59 @@ def test_apply_avatar_respects_env_override(monkeypatch, tmp_path):
     assert chatbot.KOKORO_SPEED == profile["speed"]  # no env override here
 
 
-def test_empty_transcript_still_sends_idle_state(monkeypatch):
+def _run_utterance(monkeypatch, sess):
+    """Run one utterance turn against a real background event loop; returns the sent messages."""
     sent = []
 
     async def fake_send(msg):
         sent.append(msg)
 
     monkeypatch.setattr(chatbot, "send", fake_send)
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: ""))
-    monkeypatch.setattr(chatbot, "processing", False)
-
     loop = asyncio.new_event_loop()
     loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
     loop_thread.start()
     try:
-        chatbot.handle_utterance(np.zeros(10, dtype=np.float32), loop)
-        for _ in range(100):
-            if not chatbot.processing:
-                break
-            time.sleep(0.02)
-        else:
-            pytest.fail("processing never finished")
-        # give the last run_coroutine_threadsafe call a beat to land
-        time.sleep(0.05)
+        chatbot.handle_utterance(sess, sess.next_turn(), np.zeros(10, dtype=np.float32), loop)
     finally:
         loop.call_soon_threadsafe(loop.stop)
         loop_thread.join(timeout=2)
+    return sent
 
-    assert {"type": "state", "value": "idle"} in sent
+
+def test_empty_transcript_still_sends_idle_state(monkeypatch):
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: ""))
+    sent = _run_utterance(monkeypatch, Session(websocket=None))
+
+    assert {"type": "state", "value": "idle", "turn": 1} in sent
     assert not any(m["type"] == "transcript" for m in sent)
 
 
 def test_nonempty_transcript_sends_transcript_and_calls_respond(monkeypatch):
-    sent = []
-
-    async def fake_send(msg):
-        sent.append(msg)
-
     respond_calls = []
-
-    monkeypatch.setattr(chatbot, "send", fake_send)
     monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "hello there"))
-    monkeypatch.setattr(chatbot, "respond", lambda text, loop: respond_calls.append(text))
-    monkeypatch.setattr(chatbot, "processing", False)
+    monkeypatch.setattr(chatbot, "respond",
+                        lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
 
-    loop = asyncio.new_event_loop()
-    loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-    loop_thread.start()
-    try:
-        chatbot.handle_utterance(np.zeros(10, dtype=np.float32), loop)
-        for _ in range(100):
-            if not chatbot.processing:
-                break
-            time.sleep(0.02)
-        else:
-            pytest.fail("processing never finished")
-        time.sleep(0.05)
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
-        loop_thread.join(timeout=2)
+    sent = _run_utterance(monkeypatch, Session(websocket=None))
 
-    assert respond_calls == ["hello there"]
+    assert respond_calls == [(1, "hello there")]
     assert {"type": "transcript", "role": "user", "text": "hello there"} in sent
-    assert not any(m == {"type": "state", "value": "idle"} for m in sent)
+    assert not any(m.get("value") == "idle" for m in sent)
 
 
-def test_disconnect_only_clears_the_current_ws_client():
+def test_disconnect_only_clears_the_current_session():
     from fastapi.testclient import TestClient
-    import chatbot
-    chatbot.greeted = True
     client = TestClient(chatbot.app)
 
     with client.websocket_connect("/ws") as ws1:
         ws1.receive_json()
-        first_client = chatbot.ws_client
-        assert first_client is not None
-    # ws1's disconnect handler has now run (checked `ws_client is websocket`
-    # before clearing); a fresh connection below must not be affected by it.
+        first = chatbot.session
+        assert first is not None
+    # ws1's disconnect handler has now run (it only clears the module global when the
+    # session is still its own); a fresh connection below must not be affected by it.
+    assert chatbot.session is None
     with client.websocket_connect("/ws") as ws2:
         ws2.receive_json()
-        second_client = chatbot.ws_client
-        assert second_client is not None and second_client is not first_client
-        assert chatbot.ws_client is second_client
-
-
+        second = chatbot.session
+        assert second is not None and second is not first
+        assert second.websocket is not None

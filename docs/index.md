@@ -12,10 +12,10 @@ python3 chatbot.py    # opens http://localhost:8010 automatically
 
 ```bash
 source .venv/bin/activate
-# full suite
+# unit suite (no oMLX needed) — pytest.ini excludes the `live` marker by default
 python3 -m pytest tests/
-# unit-only (no oMLX needed):
-python3 -m pytest tests/ --deselect tests/test_llm_robustness.py --deselect tests/test_llm.py --deselect tests/test_tools.py
+# live tests (needs oMLX on :8000)
+python3 -m pytest -m live tests/
 ```
 
 ## Folder tree
@@ -26,6 +26,7 @@ voicebot/
 ├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, memory + session log
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
+├── session.py        # Session (per-connection state) + TurnController (single worker)
 ├── vad.py            # Silero VAD endpointer (hands-free) + PTT Recorder
 ├── asr.py            # mlx-whisper transcription + junk filter
 ├── avatars.py          # avatar profiles (Wanko/Haru/Natori: name, voice, speed, persona), current/set_current, settings.json persistence
@@ -77,7 +78,9 @@ voicebot/
     ├── 08-backdrops.md          # PRD: selectable backdrops (done)
     ├── 09-continuous-mode.md    # PRD: hands-free conversation mode (done)
     ├── 10-personalities.md      # PRD: character cards (done)
-    └── 11-context-and-length.md # PRD: context budget, trimming, verbosity (done)
+    ├── 11-context-and-length.md # PRD: context budget, trimming, verbosity (done)
+    ├── 12-turn-controller.md    # PRD: session, turn controller, protocol hardening (done)
+    └── 13-streamed-first-call.md # PRD: stream the first LLM call (exploration)
 ```
 
 ## Active PRDs
@@ -90,6 +93,8 @@ voicebot/
 - [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (done)
 - [10-personalities.md](10-personalities.md) — character cards, canned greetings (done)
 - [11-context-and-length.md](11-context-and-length.md) — context budget, history trimming, verbosity (done)
+- [12-turn-controller.md](12-turn-controller.md) — session, turn controller, turn ids, origin check, atomic settings (done)
+- [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (exploration)
 
 ## Completed PRDs
 

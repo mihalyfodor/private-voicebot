@@ -20,6 +20,20 @@ def load(system_prompt: str) -> str:
     return system_prompt
 
 
+def _append_atomic(text: str) -> None:
+    """Append to shortmem.txt without risking a truncated file: rewrite via tmp + os.replace."""
+    previous = ""
+    if os.path.exists(SHORTMEM_PATH):
+        with open(SHORTMEM_PATH, "r") as f:
+            previous = f.read()
+    tmp = SHORTMEM_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(previous + text)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, SHORTMEM_PATH)
+
+
 def save(session_turns: list, client, model: str):
     existing = ""
     if os.path.exists(SHORTMEM_PATH):
@@ -55,6 +69,5 @@ def save(session_turns: list, client, model: str):
         return
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    with open(SHORTMEM_PATH, "a") as f:
-        f.write(f"\n--- {timestamp} ---\n{summary}\n")
+    _append_atomic(f"\n--- {timestamp} ---\n{summary}\n")
     print("\n[Memory saved to shortmem.txt]")

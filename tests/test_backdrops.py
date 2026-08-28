@@ -22,7 +22,6 @@ def test_validate_and_listing():
 def test_ws_set_backdrop_persists_and_survives_avatar_switch():
     from fastapi.testclient import TestClient
     import chatbot
-    chatbot.greeted = True
     client = TestClient(chatbot.app)
     key = list(backdrops.BACKDROPS)[-1]
     with client.websocket_connect("/ws") as ws:
@@ -34,5 +33,5 @@ def test_ws_set_backdrop_persists_and_survives_avatar_switch():
         assert ws.receive_json()["type"] == "error"
         ws.send_json({"action": "set_avatar", "key": "haru"})
         ws.receive_json()
-    assert avatars.load_settings() == {"backdrop": key, "avatar": "haru"}
+    assert avatars.load_settings() == {"backdrop": key, "avatar": "haru", "version": 1}
     assert client.get("/api/config").json()["backdrop"] == key
