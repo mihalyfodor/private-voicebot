@@ -15,10 +15,9 @@ LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
 
 EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic")
 
-_AVATAR = avatars.current()
-
-SYSTEM_PROMPT = (
-    f"{_AVATAR['persona']} You have memory of past conversations. "
+def build_system_prompt(avatar: dict) -> str:
+    return (
+    f"{avatar['persona']} You have memory of past conversations. "
     f"Keep responses short and conversational: at most two sentences. "
     f"Talk like a colleague, not a chatbot. Never use markdown, bullet points, asterisks, or any "
     f"special formatting — plain spoken sentences only. "
@@ -36,7 +35,10 @@ SYSTEM_PROMPT = (
     f"Whenever the user asks about the time, weather, news, or email you MUST call the matching tool "
     f"before answering — never guess or make up an answer. "
     f"Never announce that you are checking or looking something up; state the result directly."
-)
+    )
+
+
+SYSTEM_PROMPT = build_system_prompt(avatars.current())
 
 _client: OpenAI | None = None
 _conversation: list = []
@@ -83,6 +85,16 @@ def _tool_round(msg) -> None:
         result = run_tool(name, args)
         print(f"[Tool] {name}() → {result}")
         _conversation.append({"role": "tool", "tool_call_id": tc.id, "content": str(result)})
+
+
+def set_avatar():
+    """Swap the persona in place, keeping the conversation history."""
+    global SYSTEM_PROMPT
+    a = avatars.current()
+    SYSTEM_PROMPT = build_system_prompt(a)
+    note = (f"\n\n(Note: from now on you are {a['name']}. Earlier assistant turns in this conversation "
+            f"were spoken by a previous character; continue naturally as {a['name']}.)")
+    _conversation[0] = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + (note if len(_conversation) > 1 else "")}
 
 
 def ask_events(user_text: str) -> Iterator[tuple[str, object]]:

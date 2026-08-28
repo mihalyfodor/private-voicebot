@@ -22,6 +22,13 @@ const PROFILES = {
     },
     credit: 'Wanko © Live2D Inc.',
   },
+  natori: {
+    modelUrl: '/static/models/natori/Natori.model3.json',
+    avatarScale: 1.15, avatarTopCrop: 0.0, idle: 'Idle',
+    mouthParam: 'ParamMouthOpenY',
+    expressions: { happy: { expr: 'Smile' }, surprised: { expr: 'Surprised' }, thinking: { expr: 'Normal' }, apologetic: { expr: 'Sad' } },
+    credit: 'Natori © Live2D Inc.',
+  },
 };
 
 const CONFIG = {
@@ -43,6 +50,36 @@ document.getElementById('shutdown').onclick = () => {
   ws.send(JSON.stringify({ action: 'shutdown' }));
   window.close();
 };
+
+// ---------- menu drawer ----------
+const drawer = document.getElementById('drawer');
+const backdrop = document.getElementById('drawer-backdrop');
+const avatarList = document.getElementById('avatar-list');
+let avatarOptions = [];
+let currentAvatarKey = null;
+
+function openDrawer(open) {
+  drawer.classList.toggle('open', open);
+  drawer.setAttribute('aria-hidden', String(!open));
+  backdrop.hidden = !open;
+  if (open) renderAvatarList();
+}
+document.getElementById('menu-btn').onclick = () => openDrawer(!drawer.classList.contains('open'));
+backdrop.onclick = () => openDrawer(false);
+document.addEventListener('keydown', (e) => { if (e.code === 'Escape') openDrawer(false); });
+
+function renderAvatarList() {
+  avatarList.replaceChildren(...avatarOptions.map(a => {
+    const b = document.createElement('button');
+    b.className = 'drawer-item' + (a.key === currentAvatarKey ? ' active' : '');
+    b.disabled = state !== 'idle';
+    const n = document.createElement('span'); n.className = 'name'; n.textContent = a.name;
+    const d = document.createElement('span'); d.className = 'desc'; d.textContent = a.description || '';
+    b.append(n, d);
+    b.onclick = () => { ws.send(JSON.stringify({ action: 'set_avatar', key: a.key })); openDrawer(false); };
+    return b;
+  }));
+}
 
 const statusText = {
   idle: 'press space or click to speak',
@@ -112,20 +149,32 @@ const avatar = {
   paramTarget: {},   // param id → target value for the active params-expression
   paramWeight: 0,    // current lerped weight of paramTarget
 
+  app: null,
+
   async init() {
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
     try {
       const cfg = await (await fetch('/api/config')).json();
-      profile = PROFILES[cfg.avatar] || profile;
+      avatarOptions = cfg.avatars || [];
+      currentAvatarKey = cfg.avatar;
       avatarName = cfg.name || avatarName;
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
-    document.getElementById('credit').textContent = profile.credit || '';
 
     const canvas = document.getElementById('stage');
-    const app = new PIXI.Application({
+    this.app = new PIXI.Application({
       view: canvas, backgroundAlpha: 0, resizeTo: canvas.parentElement, antialias: true,
       resolution: window.devicePixelRatio || 1, autoDensity: true,
     });
+    this.app.renderer.on('resize', () => this.fit());
+    await this.load(currentAvatarKey);
+  },
+
+  async load(key) {
+    profile = PROFILES[key] || profile;
+    document.getElementById('credit').textContent = profile.credit || '';
+    if (this.model) { this.app.stage.removeChild(this.model); this.model.destroy(); this.model = null; }
+    this.paramTarget = {}; this.paramWeight = 0; this.currentEmotion = 'neutral';
+
     let model;
     try {
       model = await PIXI.live2d.Live2DModel.from(profile.modelUrl);
@@ -134,10 +183,10 @@ const avatar = {
       avatarNote.hidden = false;
       return;
     }
+    avatarNote.hidden = true;
     this.model = model;
-    app.stage.addChild(model);
-    this.fit(app);
-    app.renderer.on('resize', () => this.fit(app));
+    this.app.stage.addChild(model);
+    this.fit();
 
     const core = model.internalModel.coreModel;
     model.internalModel.on('afterMotionUpdate', () => {
@@ -158,9 +207,10 @@ const avatar = {
     model.motion(profile.idle);
   },
 
-  fit(app) {
+  fit() {
     // Model canvases have generous transparent margins; scale relative to viewport height.
-    const m = this.model;
+    const app = this.app, m = this.model;
+    if (!m) return;
     const natural = { w: m.width / m.scale.x, h: m.height / m.scale.y };
     const scale = (app.screen.height / natural.h) * profile.avatarScale;
     m.scale.set(scale);
@@ -196,6 +246,11 @@ function connect() {
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
     else if (msg.type === 'speech') enqueueSpeech(msg);
     else if (msg.type === 'speech_end') { replyEnded = true; playNext(); }
+    else if (msg.type === 'avatar') {
+      currentAvatarKey = msg.key; avatarName = msg.name;
+      avatar.load(msg.key);
+    }
+    else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); }
   };
 
   ws.onopen = () => status.textContent = statusText.idle;

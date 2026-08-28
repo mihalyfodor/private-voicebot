@@ -7,7 +7,20 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <button id="shutdown">shut down</button>
+  <button id="menu-btn" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div id="drawer-backdrop" hidden></div>
+  <nav id="drawer" aria-hidden="true">
+    <div class="drawer-section">
+      <div class="drawer-title">Avatar</div>
+      <div id="avatar-list"></div>
+    </div>
+    <div class="drawer-spacer"></div>
+    <div class="drawer-section">
+      <button id="shutdown" class="drawer-item danger">Shut down</button>
+    </div>
+  </nav>
   <div id="credit"></div>
 
   <main>

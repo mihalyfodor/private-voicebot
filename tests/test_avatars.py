@@ -4,6 +4,14 @@ import pytest
 import avatars
 
 
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(avatars, "_current", None)
+    monkeypatch.delenv("AVATAR", raising=False)
+    yield
+
+
 def test_default_is_wanko(monkeypatch):
     monkeypatch.delenv("AVATAR", raising=False)
     a = avatars.current()
@@ -26,5 +34,8 @@ def test_api_config_and_prompt(monkeypatch):
     monkeypatch.delenv("AVATAR", raising=False)
     from fastapi.testclient import TestClient
     import chatbot, llm
-    assert TestClient(chatbot.app).get("/api/config").json() == {"avatar": "wanko", "name": "Wanko"}
+    chatbot.apply_avatar("wanko")
+    cfg = TestClient(chatbot.app).get("/api/config").json()
+    assert (cfg["avatar"], cfg["name"]) == ("wanko", "Wanko")
+    assert [a["key"] for a in cfg["avatars"]] == ["wanko", "haru", "natori"]
     assert "Wanko" in llm.SYSTEM_PROMPT

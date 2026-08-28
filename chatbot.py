@@ -28,6 +28,16 @@ KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/v
 AVATAR = avatars.current()
 KOKORO_VOICE = os.getenv("KOKORO_VOICE", AVATAR["voice"])
 KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", AVATAR["speed"]))
+
+
+def apply_avatar(key: str) -> dict:
+    """Switch avatar at runtime: persona, voice, filler cache. Returns the new profile."""
+    global AVATAR, KOKORO_VOICE, KOKORO_SPEED
+    AVATAR = avatars.set_current(key)
+    KOKORO_VOICE, KOKORO_SPEED = AVATAR["voice"], AVATAR["speed"]
+    llm.set_avatar()
+    _filler_wavs.clear()
+    return AVATAR
 PORT = int(os.getenv("PORT", "8010"))
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
@@ -212,7 +222,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/api/config")
 async def api_config():
-    return {"avatar": AVATAR["key"], "name": AVATAR["name"]}
+    return {"avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing()}
 
 
 @app.get("/")
@@ -239,6 +249,15 @@ async def websocket_endpoint(websocket: WebSocket):
                 threading.Thread(target=handle_toggle, args=(loop,), daemon=True).start()
             elif action == "playback_done":
                 playback_done.set()
+            elif action == "set_avatar":
+                if processing:
+                    await send({"type": "error", "text": "Wait until the reply finishes."})
+                else:
+                    try:
+                        a = apply_avatar(msg.get("key", ""))
+                        await send({"type": "avatar", "key": a["key"], "name": a["name"]})
+                    except ValueError as e:
+                        await send({"type": "error", "text": str(e)})
             elif action == "shutdown":
                 print("\nShutdown requested from UI...")
                 llm.save_memory()

@@ -50,4 +50,7 @@ fetch_model static/models/haru \
 fetch_model static/models/wanko \
   https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Wanko \
   Wanko.model3.json
+fetch_model static/models/natori \
+  https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Natori \
+  Natori.model3.json
 echo "done."
