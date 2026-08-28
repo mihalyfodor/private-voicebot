@@ -1,0 +1,41 @@
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import pytest
+import avatars
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(avatars, "_current", None)
+    monkeypatch.delenv("AVATAR", raising=False)
+    yield
+
+
+def test_default_is_wanko(monkeypatch):
+    monkeypatch.delenv("AVATAR", raising=False)
+    a = avatars.current()
+    assert (a["key"], a["name"], a["voice"]) == ("wanko", "Wanko", "am_puck")
+
+
+def test_haru_selectable(monkeypatch):
+    monkeypatch.setenv("AVATAR", "haru")
+    a = avatars.current()
+    assert (a["name"], a["voice"]) == ("Haru", "af_sarah")
+
+
+def test_unknown_avatar_raises(monkeypatch):
+    monkeypatch.setenv("AVATAR", "orb")
+    with pytest.raises(ValueError, match="wanko"):
+        avatars.current()
+
+
+def test_api_config_and_prompt(monkeypatch):
+    monkeypatch.delenv("AVATAR", raising=False)
+    from fastapi.testclient import TestClient
+    import chatbot, llm
+    chatbot.apply_avatar("wanko")
+    cfg = TestClient(chatbot.app).get("/api/config").json()
+    assert (cfg["avatar"], cfg["name"]) == ("wanko", "Wanko")
+    assert [a["key"] for a in cfg["avatars"]] == ["wanko", "haru", "natori"]
+    assert "Wanko" in llm.SYSTEM_PROMPT

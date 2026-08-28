@@ -42,7 +42,15 @@ def _get_service():
     return build("gmail", "v1", credentials=creds)
 
 
+def is_configured() -> bool:
+    import os
+    return os.path.exists(GMAIL_CREDENTIALS_PATH) or os.path.exists(GMAIL_TOKEN_PATH)
+
+
 def run(args):
+    if not is_configured():
+        return ("Email is not set up on this machine: credentials.json is missing. "
+                "Tell the user email access is not configured.")
     max_results = args.get("max_results", 5)
     service = _get_service()
     result = service.users().messages().list(

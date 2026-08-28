@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voicebot</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <button id="menu-btn" aria-label="Menu">
+    <span></span><span></span><span></span>
+  </button>
+  <div id="drawer-backdrop" hidden></div>
+  <nav id="drawer" aria-hidden="true">
+    <div class="drawer-section">
+      <div class="drawer-title">Avatar</div>
+      <div id="avatar-list"></div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-title">Backdrop</div>
+      <div id="backdrop-list" class="chip-grid"></div>
+    </div>
+    <div class="drawer-section">
+      <div class="drawer-title">Characters</div>
+      <button id="reload-characters" class="drawer-item">Reload characters</button>
+    </div>
+    <div class="drawer-spacer"></div>
+    <div class="drawer-section">
+      <button id="shutdown" class="drawer-item danger">Shut down</button>
+    </div>
+  </nav>
+  <div id="credit"></div>
+
+  <div id="backdrop"></div>
+  <main>
+    <section id="avatar">
+      <canvas id="stage"></canvas>
+      <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
+    </section>
+
+    <section id="panel">
+      <div id="transcript"></div>
+      <button id="btn">Speak</button>
+      <div id="status">connecting...</div>
+    </section>
+  </main>
+
+  <script src="/static/vendor/pixi.min.js"></script>
+  <script src="/static/vendor/live2dcubismcore.min.js"></script>
+  <script src="/static/vendor/cubism4.min.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

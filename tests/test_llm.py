@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import llm
+import warnings
 
 
 def setup_function():
@@ -28,6 +29,9 @@ def test_news_triggers_tool():
 
 
 def test_email_triggers_tool():
+    from tools import gmail
+    if not gmail.is_configured():
+        warnings.warn("Gmail not configured (credentials.json missing) — email tool returns a stub")
     llm.ask("check my emails")
     assert any(tc["name"] == "get_emails" for tc in llm.get_last_tool_calls()), \
         f"Expected get_emails tool call, got: {llm.get_last_tool_calls()}"

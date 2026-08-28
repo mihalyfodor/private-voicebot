@@ -1,11 +1,15 @@
 kokoro-onnx
 sounddevice
 soundfile
+openai
+python-dotenv
 requests
 numpy
 fastapi
 uvicorn
 websockets
+pytest
 google-auth
 google-auth-oauthlib
 google-api-python-client
+pyyaml
