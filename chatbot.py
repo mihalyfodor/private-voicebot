@@ -138,7 +138,7 @@ _TURN_TAGGED = {"state", "speech", "speech_end"}
 
 
 def is_busy() -> bool:
-    """True while a turn is queued or running (replaces the old `processing` flag)."""
+    """True while a turn is queued or running."""
     return controller.busy
 
 
@@ -149,6 +149,14 @@ async def send(msg: dict):
             await sess.websocket.send_json(msg)
         except Exception:
             pass
+
+
+async def send_state(sess: Session, value: str) -> None:
+    """Send a state message tagged with the session's latest turn id (event-loop side).
+
+    The worker thread uses `make_sender` instead, which tags with the turn it is running.
+    """
+    await send({"type": "state", "value": value, "turn": sess.turn_id})
 
 
 def _tag(msg: dict, turn: int | None) -> dict:
@@ -181,11 +189,21 @@ def submit_turn(fn, *args) -> int | None:
 
 
 def _turn_matches(sess: Session, turn) -> bool:
-    """A client echo is for the current turn if it matches, or omits the id (older clients)."""
+    """Is a client echo about the turn we are waiting on?
+
+    True when the ids match, when we are not waiting on any turn, or when the client
+    omitted the id altogether (older clients that do not echo it).
+    """
     return turn is None or sess.expected_turn is None or turn == sess.expected_turn
 
 
 # ---------------------------------------------------------------- turns
+
+
+def _arm_playback(sess: Session, turn: int) -> None:
+    """Start waiting for `turn`'s playback echo; call before the first speech is sent."""
+    sess.playback_done.clear()
+    sess.expected_turn = turn
 
 
 def _wait_for_playback_then_idle(sess: Session, send_sync):
@@ -199,8 +217,7 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
 def respond(sess: Session, turn: int, user_text: str, send_sync):
     """LLM → sentence-streamed TTS → wait for browser playback → idle."""
     send_sync({"type": "state", "value": "thinking"})
-    sess.playback_done.clear()
-    sess.expected_turn = turn
+    _arm_playback(sess, turn)
     reply = speak_stream(llm.ask_events(user_text), send_sync)
     print(f"Bot: {reply}")
     send_sync({"type": "transcript", "role": "assistant", "text": reply})
@@ -245,8 +262,7 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
     try:
         if thinking:
             send_sync({"type": "state", "value": "thinking"})
-        sess.playback_done.clear()
-        sess.expected_turn = turn
+        _arm_playback(sess, turn)
         llm.record_assistant(say_canned(text, send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
@@ -329,7 +345,7 @@ async def _action_ptt(sess, msg, loop):
         if not controller.busy:
             sess.recorder = vad.Recorder()
             sess.ptt_active = True
-            await send({"type": "state", "value": "recording", "turn": sess.turn_id})
+            await send_state(sess, "recording")
     elif value == "stop":
         if not sess.ptt_active:
             return  # stray stop (e.g. key-up after a refused start): no state change
@@ -337,7 +353,7 @@ async def _action_ptt(sess, msg, loop):
         recorder, sess.recorder = sess.recorder, None
         audio = recorder.stop() if recorder is not None else np.zeros(0, dtype=np.float32)
         if audio.size < PTT_MIN_SAMPLES:
-            await send({"type": "state", "value": "idle", "turn": sess.turn_id})
+            await send_state(sess, "idle")
         else:
             submit_turn(handle_utterance, audio, loop)
 
@@ -357,15 +373,16 @@ async def _action_set_hands_free(sess, msg, loop):
 
 
 async def _action_playback_done(sess, msg, loop):
-    """Browser finished playing a turn's audio. Stale (mismatched) turns are ignored."""
+    """The browser is done with a turn's audio: it finished playing it, or (as
+    `playback_blocked`) could not autoplay it and will play it after the next gesture.
+    Either way we stop waiting and go idle. Stale (mismatched) turns are ignored.
+    """
     if _turn_matches(sess, msg.get("turn")):
         sess.playback_done.set()
 
 
-async def _action_playback_blocked(sess, msg, loop):
-    """Browser could not autoplay: stop waiting and go idle; it plays after the next gesture."""
-    if _turn_matches(sess, msg.get("turn")):
-        sess.playback_done.set()
+#: same handling: both mean "stop waiting for this turn's playback"
+_action_playback_blocked = _action_playback_done
 
 
 async def _action_set_backdrop(sess, msg, loop):
@@ -427,7 +444,7 @@ async def _on_connect(sess: Session, loop):
         greeted = True
         submit_turn(greet, loop)
     else:
-        await send({"type": "state", "value": "idle", "turn": sess.turn_id})
+        await send_state(sess, "idle")
 
 
 def _origin_allowed(origin: str | None) -> bool:

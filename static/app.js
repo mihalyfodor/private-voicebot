@@ -217,13 +217,18 @@ function rms() {
   return Math.sqrt(s / timeData.length);
 }
 
+// Turn ids only move forward. Returns true when `turn` is a newer turn than the
+// one we were tracking, i.e. the caller should discard anything from the old one.
+function adoptTurn(turn) {
+  if (typeof turn !== 'number' || turn <= currentTurn) return false;
+  currentTurn = turn;
+  return true;
+}
+
 function enqueueSpeech(msg) {
-  if (typeof msg.turn === 'number') {
-    if (msg.turn > currentTurn) {
-      // A newer turn superseded whatever was queued (but not yet playing): drop it.
-      while (queue.length && typeof queue[0].turn === 'number' && queue[0].turn < msg.turn) queue.shift();
-      currentTurn = msg.turn;
-    }
+  if (adoptTurn(msg.turn)) {
+    // A newer turn superseded whatever was queued (but not yet playing): drop it.
+    while (queue.length && typeof queue[0].turn === 'number' && queue[0].turn < currentTurn) queue.shift();
   }
   const bytes = Uint8Array.from(atob(msg.wav), c => c.charCodeAt(0));
   // Push synchronously so message order is preserved even though decoding is async;
@@ -286,7 +291,7 @@ async function playNext() {
 function finishReply() {
   replyEnded = false;
   setTimeout(() => avatar.setEmotion('neutral'), CONFIG.expressionHoldMs);
-  ws.send(JSON.stringify({ action: 'playback_done', turn: currentTurn }));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'playback_done', turn: currentTurn }));
 }
 
 // ---------- avatar ----------
@@ -411,7 +416,7 @@ function connect() {
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'state') {
-      if (typeof msg.turn === 'number' && msg.turn > currentTurn) currentTurn = msg.turn;
+      adoptTurn(msg.turn);
       setState(msg.value);
     }
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
