@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 15 — Memory v2: structured profile with upsert + reflection
 

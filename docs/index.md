@@ -83,7 +83,7 @@ voicebot/
     ├── 12-turn-controller.md    # PRD: session, turn controller, protocol hardening (done)
     ├── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
     ├── 14-memory-eval.md        # PRD: text-only memory evaluation harness (done)
-    └── 15-memory-v2.md          # PRD: structured profile memory (exploration)
+    └── 15-memory-v2.md          # PRD: structured profile memory (done)
 ```
 
 ## Active PRDs
@@ -99,7 +99,7 @@ voicebot/
 - [12-turn-controller.md](12-turn-controller.md) — session, turn controller, turn ids, origin check, atomic settings (done)
 - [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (done)
 - [14-memory-eval.md](14-memory-eval.md) — memory evaluation harness, `python -m eval.harness` (done)
-- [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (exploration)
+- [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (done)
 
 ## Completed PRDs
 

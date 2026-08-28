@@ -13,27 +13,32 @@ duplicates, expires episodics and promotes repeats — also validated, never bli
 
 See docs/15-memory-v2.md.
 """
+import difflib
 import json
 import os
 import re
 from datetime import date, datetime
 
+# --- files -------------------------------------------------------------------------
 _DIR = os.path.dirname(__file__)
-MEMORY_PATH = os.path.join(_DIR, "memory.json")
-OPS_LOG_PATH = os.path.join(_DIR, "memory_ops.jsonl")
-SHORTMEM_PATH = os.path.join(_DIR, "shortmem.txt")  # v1, read once for migration
+MEMORY_PATH = os.path.join(_DIR, "memory.json")            # the profile
+OPS_LOG_PATH = os.path.join(_DIR, "memory_ops.jsonl")      # append-only audit log
+SHORTMEM_PATH = os.path.join(_DIR, "shortmem.txt")         # v1, read once for migration
 
+# --- schema ------------------------------------------------------------------------
 VERSION = 2
-REFLECT_EVERY = int(os.getenv("MEMORY_REFLECT_EVERY", "5"))
-BUDGET_TOKENS = int(os.getenv("MEMORY_BUDGET_TOKENS", "700"))
-EPISODIC_SHOWN = 5
-EPISODIC_MIN_IMPORTANCE = 2  # importance-1 entries stay on disk until TTL, but are not rendered
-DEFAULT_TTL_DAYS = 30
-
-SCALAR_SECTIONS = ("identity", "preferences")
+SCALAR_SECTIONS = ("identity", "preferences")              # key -> string, plus "superseded"
 LIST_SECTIONS = ("people", "projects", "recurring", "episodic")
 LIST_KEY = {"people": "name", "projects": "name", "recurring": "what", "episodic": "text"}
-CAPS = {"people": 30, "projects": 20, "recurring": 15, "episodic": 40}
+CAPS = {"people": 30, "projects": 20, "recurring": 15, "episodic": 40}  # max entries per list
+
+# --- behaviour ---------------------------------------------------------------------
+REFLECT_EVERY = int(os.getenv("MEMORY_REFLECT_EVERY", "5"))       # saves between reflect passes
+BUDGET_TOKENS = int(os.getenv("MEMORY_BUDGET_TOKENS", "700"))     # render() ceiling for the prompt
+EPISODIC_SHOWN = 5                                                # episodic lines in the prompt
+EPISODIC_MIN_IMPORTANCE = 2  # importance-1 entries stay on disk until TTL, but are not rendered
+DEFAULT_TTL_DAYS = 30                                             # episodic lifetime when unstated
+DUP_RATIO = 0.85                                                  # _similar() threshold
 
 PROFILE_NOTE = (
     "The block above holds facts about the USER you already know. Use them naturally, "
@@ -83,7 +88,11 @@ def _normalise(data: dict) -> dict:
 
 
 def load_profile() -> dict:
-    """The profile from memory.json (schema defaults when missing or unreadable)."""
+    """The profile from memory.json, normalised to the v2 schema.
+
+    Never raises and never returns None: a missing, unreadable or half-written file yields an
+    empty profile, so a broken memory file can degrade the assistant but not break it.
+    """
     if not os.path.exists(MEMORY_PATH):
         return _empty_profile()
     try:
@@ -108,6 +117,7 @@ def _write_profile(profile: dict) -> None:
 
 
 def has_content(profile: dict) -> bool:
+    """True when the profile holds at least one real fact (superseded history doesn't count)."""
     for section in SCALAR_SECTIONS:
         if any(k != "superseded" for k in profile.get(section, {})):
             return True
@@ -237,7 +247,12 @@ def _text(blocks: list) -> str:
 
 
 def render(profile: dict, budget_tokens: int | None = None) -> str:
-    """The profile block that goes into the prompt, trimmed to `budget_tokens`."""
+    """The profile block that goes into the prompt, trimmed to `budget_tokens`.
+
+    Read-only — rendering never changes what is stored. Sections come in a fixed order and are
+    trimmed from the tail, so the most identifying facts survive the tightest budget. Superseded
+    values and low-importance/expired episodics stay on disk but never reach the prompt.
+    """
     budget = BUDGET_TOKENS if budget_tokens is None else budget_tokens
     blocks = _blocks(profile)
     while blocks and tokens_est(_text(blocks)) > budget:
@@ -248,7 +263,10 @@ def render(profile: dict, budget_tokens: int | None = None) -> str:
 
 
 def load(system_prompt: str) -> str:
-    """`system_prompt` with the `<user_profile>` block appended (unchanged if empty)."""
+    """`system_prompt` with the `<user_profile>` block appended (unchanged if empty).
+
+    The one entry point the chat path uses to read memory.
+    """
     profile = load_profile()
     if not has_content(profile):
         return system_prompt
@@ -265,10 +283,6 @@ def load(system_prompt: str) -> str:
 # --------------------------------------------------------------------------- ops
 
 
-# Migration note: profiles written before the nickname rule may have a nickname sitting in
-# `identity.name` with the real name pushed into `identity.superseded["name"]`. That is left alone
-# on purpose — restoring it automatically would only guess at which of the two is the real name.
-# Fix it by hand, or let the user restate their name (which UPDATEs identity.name).
 PROPOSE_SYSTEM = """You maintain a long-term profile of the USER for a conversational assistant.
 Given the current profile (JSON) and a new conversation transcript, output the smallest set of
 operations that brings the profile up to date.
@@ -354,7 +368,12 @@ def _complete(client, model: str, system: str, user: str, max_tokens: int) -> st
 
 
 def propose_ops(profile: dict, turns: list, client, model: str) -> list:
-    """Ask the LLM for upsert ops against `profile`; [] on anything unparseable."""
+    """Ask the LLM for upsert ops against `profile`; [] on anything unparseable.
+
+    Proposal only — the returned ops are untrusted until :func:`apply_ops` validates them, and
+    the model never sees or writes the file itself. A failed or garbled call is a no-op, never
+    an exception: memory must not be able to break a session.
+    """
     transcript = _transcript(turns)
     if not transcript.strip():
         return []
@@ -381,7 +400,18 @@ def _public(profile: dict) -> dict:
 
 
 def _norm(text) -> str:
+    """Lowercased, punctuation-free form used for all fact comparisons."""
     return re.sub(r"[^a-z0-9 ]+", " ", str(text or "").lower()).strip()
+
+
+def _similar(a, b, ratio: float = DUP_RATIO) -> bool:
+    """True when `a` and `b` are the same fact modulo casing/punctuation/small edits.
+
+    The single fuzzy-match rule for the project — the eval harness imports it too, so the
+    duplicate detection in reports uses exactly the same threshold as reflection.
+    """
+    a, b = _norm(a), _norm(b)
+    return bool(a) and bool(b) and (a == b or difflib.SequenceMatcher(None, a, b).ratio() > ratio)
 
 
 def _find(entries: list, key_field: str, key_value) -> int:
@@ -431,16 +461,35 @@ def _enforce_caps(profile: dict) -> list:
     return dropped
 
 
-def _list_section(path: str) -> str | None:
-    """`people[]`, `people`, `people[2]` -> "people"; anything else -> None.
-
-    Models are inconsistent about the `[]` suffix, so a bare list-section name counts too.
-    """
-    base = re.sub(r"\[\d*\]$", "", path).strip()
-    return base if base in LIST_SECTIONS else None
-
-
 _ENTRY_FIELD = re.compile(r"^(\w+)\[(\d+)\]\.(\w+)$")
+
+
+def _parse_path(path: str) -> tuple:
+    """Classify an op path once, for all three op kinds.
+
+    Returns ``(kind, *parts)``, one of::
+
+        ("entry_field", section, index, field)   projects[0].note
+        ("list", section)                        people[] / people / people[2]
+        ("scalar", section, key)                 identity.name
+        ("bad", reason)                          anything else
+
+    Models are inconsistent about the ``[]`` suffix, so a bare list-section name counts too.
+    """
+    match = _ENTRY_FIELD.match(path)
+    if match and match.group(1) in LIST_SECTIONS:
+        return "entry_field", match.group(1), int(match.group(2)), match.group(3)
+    base = re.sub(r"\[\d*\]$", "", path).strip()
+    if base in LIST_SECTIONS:
+        return "list", base
+    if "." in path:
+        section, _, key = path.partition(".")
+        if section not in SCALAR_SECTIONS:
+            return "bad", f"unknown section {section!r}"
+        if not key:
+            return "bad", "missing key"
+        return "scalar", section, key
+    return "bad", f"unknown path {path!r}"
 
 
 def _apply_entry_field_op(profile, section, index, field, kind, value, op) -> bool:
@@ -466,7 +515,12 @@ def _apply_entry_field_op(profile, section, index, field, kind, value, op) -> bo
 
 
 def apply_ops(profile: dict, ops: list) -> tuple:
-    """Validate and apply `ops`; returns (profile, applied_ops). Rejects are printed."""
+    """Validate and apply LLM-proposed `ops` to `profile`; returns (profile, applied_ops).
+
+    This is the only place the profile changes shape: the model proposes, Python decides.
+    Anything malformed, unknown or already true is rejected (printed) and left out of
+    `applied_ops`, so the ops log records exactly what really landed on disk.
+    """
     applied = []
     for op in ops or []:
         if not isinstance(op, dict):
@@ -480,28 +534,20 @@ def apply_ops(profile: dict, ops: list) -> tuple:
             _reject(op, f"unknown op {kind!r}")
             continue
 
-        field_match = _ENTRY_FIELD.match(path)
-        section = _list_section(path)
-        if field_match and field_match.group(1) in LIST_SECTIONS:
-            section, index, field = field_match.group(1), int(field_match.group(2)), field_match.group(3)
-            if not _apply_entry_field_op(profile, section, index, field, kind, value, op):
-                continue
-        elif section:
-            path = f"{section}[]"
-            if not _apply_list_op(profile, section, kind, value, op):
-                continue
-        elif "." in path:
-            section, _, key = path.partition(".")
-            if section not in SCALAR_SECTIONS:
-                _reject(op, f"unknown section {section!r}")
-                continue
-            if not key:
-                _reject(op, "missing key")
-                continue
-            if not _apply_scalar_op(profile, section, key, kind, value, op):
-                continue
+        target = _parse_path(path)
+        if target[0] == "entry_field":
+            _, section, index, field = target
+            ok = _apply_entry_field_op(profile, section, index, field, kind, value, op)
+        elif target[0] == "list":
+            section = target[1]
+            path = f"{section}[]"        # log one canonical path whatever form the model used
+            ok = _apply_list_op(profile, section, kind, value, op)
+        elif target[0] == "scalar":
+            ok = _apply_scalar_op(profile, target[1], target[2], kind, value, op)
         else:
-            _reject(op, f"unknown path {path!r}")
+            _reject(op, target[1])
+            continue
+        if not ok:
             continue
         applied.append({"op": kind, "path": path, "value": value, "reason": op.get("reason", "")})
 
@@ -560,10 +606,7 @@ def _apply_list_op(profile, section, kind, value, op) -> bool:
         entries.pop(index)
         return True
     if index == -1:
-        if kind == "UPDATE":
-            entries.append(clean)  # update of something we never stored = add
-            return True
-        entries.append(clean)
+        entries.append(clean)  # ADD, or an UPDATE of something we never stored
         return True
     if kind == "ADD" and entries[index] == clean:
         return False
@@ -588,7 +631,13 @@ def _log_ops(applied: list) -> None:
 
 
 def reflect(profile: dict, client, model: str) -> dict:
-    """Merge duplicates / expire episodics / promote repeats — validated, never blind."""
+    """Merge duplicates / expire episodics / promote repeats — validated, never blind.
+
+    The model returns a whole profile, but its answer is only ever used as a proposal to shrink:
+    :func:`_validate_reflection` copies identity/preferences across untouched and drops anything
+    that cannot be traced back to an entry already in `profile`. Returns `profile` unchanged if
+    the call fails.
+    """
     system = REFLECT_SYSTEM % _today().isoformat()
     user = json.dumps(_public(profile), ensure_ascii=False, indent=1)
     try:
@@ -603,45 +652,50 @@ def reflect(profile: dict, client, model: str) -> dict:
     return _validate_reflection(profile, cleaned)
 
 
-def _similar(a: str, b: str, ratio: float = 0.85) -> bool:
-    import difflib
-    a, b = _norm(a), _norm(b)
-    return bool(a) and bool(b) and (a == b or difflib.SequenceMatcher(None, a, b).ratio() > ratio)
+def _traceable(cleaned: dict, original: dict, section: str) -> list:
+    """Entries the model returned for `section` that trace back to one we already had.
+
+    Merges and rewordings survive (fuzzy key match); anything invented does not.
+    """
+    key_field = LIST_KEY[section]
+    originals = original.get(section, [])
+    return [
+        entry for entry in cleaned.get(section) or []
+        if isinstance(entry, dict) and entry.get(key_field)
+        and any(_similar(entry[key_field], o.get(key_field)) for o in originals)
+    ]
 
 
 def _validate_reflection(original: dict, cleaned: dict) -> dict:
-    """Accept removals/merges and new `recurring`; identity and preferences are copied verbatim."""
+    """Accept removals/merges and new `recurring`; identity and preferences are copied verbatim.
+
+    The reflection prompt asks for restraint, but nothing enforces it on the model's side, so
+    every section is re-derived from `original` here: identity/preferences are immutable,
+    people/projects/episodic may only shrink or be reworded, and only `recurring` may gain
+    entries (the promotion of a repeated episodic).
+    """
     result = _empty_profile()
     result["identity"] = dict(original.get("identity", {}))
     result["preferences"] = dict(original.get("preferences", {}))
     result["meta"] = dict(original.get("meta", {}))
 
-    for section in ("people", "projects"):
-        key_field = LIST_KEY[section]
-        originals = original.get(section, [])
-        kept = []
-        for entry in cleaned.get(section, []) or []:
-            if not isinstance(entry, dict) or not entry.get(key_field):
-                continue
-            if any(_similar(entry[key_field], o.get(key_field)) for o in originals):
-                kept.append(entry)
-        result[section] = kept
+    result["people"] = _traceable(cleaned, original, "people")
+    result["projects"] = _traceable(cleaned, original, "projects")
+    result["episodic"] = [e for e in _traceable(cleaned, original, "episodic") if not is_expired(e)]
 
-    # recurring: existing entries plus promotions from episodics
-    recurring = [e for e in cleaned.get("recurring", []) or []
-                 if isinstance(e, dict) and e.get("what")]
+    # recurring is the one section that may grow — but only with entries that trace back to
+    # something the user actually said: an existing recurring entry or an episodic's text.
+    def _grounded(entry: dict) -> bool:
+        what = entry.get("what", "")
+        if any(_similar(what, o.get("what")) for o in original.get("recurring", [])):
+            return True
+        return any(what and (what.lower() in (e.get("text") or "").lower() or _similar(what, e.get("text")))
+                   for e in original.get("episodic", []))
+
+    recurring = [e for e in cleaned.get("recurring") or []
+                 if isinstance(e, dict) and e.get("what") and _grounded(e)]
     result["recurring"] = recurring[:CAPS["recurring"]]
 
-    originals = original.get("episodic", [])
-    kept = []
-    for entry in cleaned.get("episodic", []) or []:
-        if not isinstance(entry, dict) or not entry.get("text"):
-            continue
-        if is_expired(entry):
-            continue
-        if any(_similar(entry["text"], o.get("text")) for o in originals):
-            kept.append(entry)
-    result["episodic"] = kept
     _enforce_caps(result)
     return result
 
@@ -650,7 +704,17 @@ def _validate_reflection(original: dict, cleaned: dict) -> dict:
 
 
 def migrate_if_needed(client, model: str) -> dict:
-    """Seed memory.json from shortmem.txt once. The text file is left untouched."""
+    """Seed memory.json from shortmem.txt once, then return the profile.
+
+    Runs only when there is no memory.json yet; the v1 text file is left untouched so the
+    migration can be redone by deleting the JSON. The seeding goes through the normal
+    propose/apply path, so the same validation and ops log apply.
+
+    Known wrinkle: profiles written before the nickname rule may have a nickname sitting in
+    `identity.name` with the real name pushed into `identity.superseded["name"]`. That is left
+    alone on purpose — restoring it automatically would only guess at which of the two is the
+    real name. Fix it by hand, or let the user restate their name (which UPDATEs identity.name).
+    """
     if os.path.exists(MEMORY_PATH) or not os.path.exists(SHORTMEM_PATH):
         return load_profile()
     try:
@@ -678,7 +742,12 @@ def migrate_if_needed(client, model: str) -> dict:
 
 
 def save(session_turns: list, client, model: str) -> list:
-    """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves."""
+    """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves.
+
+    The one entry point the chat path uses to write memory; returns the applied ops. The file is
+    only rewritten when something actually changed, and each write is atomic, so an interrupted
+    save leaves the previous profile intact.
+    """
     profile = migrate_if_needed(client, model)
     ops = propose_ops(profile, session_turns, client, model)
     profile, applied = apply_ops(profile, ops)

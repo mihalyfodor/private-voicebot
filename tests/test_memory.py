@@ -441,3 +441,12 @@ def test_save_memory_is_idempotent(monkeypatch):
     llm._session_turns.append({"role": "user", "content": "hi"})
     llm.save_memory(); llm.save_memory()
     assert saved == [[{"role": "user", "content": "hi"}]]
+
+
+def test_reflect_cannot_invent_recurring_entries():
+    original = memory._empty_profile()
+    original["episodic"] = [{"date": "2026-08-20", "text": "Went to the gym after work", "ttl_days": 30, "importance": 2}]
+    cleaned = memory._empty_profile()
+    cleaned["recurring"] = [{"what": "gym", "when": "evenings"}, {"what": "skydiving", "when": "Sundays"}]
+    out = memory._validate_reflection(original, cleaned)
+    assert [r["what"] for r in out["recurring"]] == ["gym"]

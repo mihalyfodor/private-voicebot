@@ -120,7 +120,7 @@ session: Session | None = None
 
 
 def _periodic_memory(count: int) -> None:
-    """Called by the worker thread every N completed turns: fold the session into shortmem."""
+    """Called by the worker thread every N completed turns: fold the session into the memory profile (memory.json)."""
     try:
         llm.save_memory()
     except Exception as e:

@@ -35,7 +35,7 @@ CATEGORIES = (
     "preference",
 )
 
-DUP_RATIO = 0.85
+DUP_RATIO = memory.DUP_RATIO  # one fuzzy-match threshold, shared with memory.py
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -275,18 +275,12 @@ def _fact_lines(text: str) -> list:
 
 
 def duplicate_lines(text: str, ratio: float = DUP_RATIO) -> list:
-    """Lines that are exact or near duplicates (difflib ratio > `ratio`) of an earlier line."""
+    """Lines that are exact or near duplicates (memory._similar) of an earlier line."""
     lines = _fact_lines(text)
     dups = []
     for i, line in enumerate(lines):
-        a = _norm(line).strip()
-        if not a:
-            continue
         for j in range(i):
-            b = _norm(lines[j]).strip()
-            if not b:
-                continue
-            if a == b or difflib.SequenceMatcher(None, a, b).ratio() > ratio:
+            if memory._similar(line, lines[j], ratio):
                 dups.append({"line": line, "duplicate_of": lines[j]})
                 break
     return dups
@@ -310,12 +304,8 @@ def duplicate_entries(profile: dict, ratio: float = DUP_RATIO) -> list:
     for section, key_field in memory.LIST_KEY.items():
         keys = [str(e.get(key_field, "")) for e in profile.get(section, []) if isinstance(e, dict)]
         for i, key in enumerate(keys):
-            a = _norm(key).strip()
-            if not a:
-                continue
             for j in range(i):
-                b = _norm(keys[j]).strip()
-                if b and (a == b or difflib.SequenceMatcher(None, a, b).ratio() > ratio):
+                if memory._similar(key, keys[j], ratio):
                     dups.append({"section": section, "line": key, "duplicate_of": keys[j]})
                     break
     return dups
