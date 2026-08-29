@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 16 — Memory editor: view, correct and delete what the assistant remembers
 
@@ -19,16 +19,20 @@ Grounded in the 2026-08-29 research pass: ChatGPT and Open WebUI expose memory a
 
 ## UI/UX
 
-- Drawer gets a **Memory** section with one item: "Memory (N facts)" → opens a full-height panel over the chat (same open/close pattern as the drawer; Esc / ✕ closes).
-- Panel header: title, fact count, "What the model sees" toggle, "Reload" (re-reads disk).
-- Six sections in `render()` order. Empty sections show a single muted "nothing yet" row plus "+ add".
-  - **identity / preferences** rows: `key` (readonly for existing rows) · editable value · ⌄ caret if `superseded[key]` exists → expands to "was: …" with a **Restore** button.
-  - **people** rows: `name` · `rel` · `note`; **projects**: `name` · `status` · `note`; **recurring**: `what` · `when`; **episodic**: `text` · `date` · `importance` (1–3) · `ttl_days`; expired episodics greyed with "expired" tag.
-- Each row: click a field to edit inline (input), Enter/blur = save, Esc = cancel; 🗑 deletes immediately (no confirm — undo is `superseded` for scalars; for list rows the last deletion is shown as an "Undo delete" toast for ~8 s, implemented as a re-ADD of the removed entry).
-- "+ add" at the bottom of each section opens a one-line form with that section's fields.
-- Rejected ops (validation error, cap reached) show inline under the row in red with the server's reason; the row reverts.
-- "What the model sees" replaces the list with a `<pre>` of `memory.render(profile)` — read-only.
-- Danger zone at the bottom: "Forget everything" (confirm dialog) → resets to `_empty_profile()`; audited as one `DELETE *` line.
+**Layout change (applies app-wide):** `main` becomes two columns — the avatar in a ~25 % column on the left (Live2D canvas fitted to that column, backdrop still full-screen behind everything) and a **workspace** on the right (~75 %). The workspace has a small view switcher at the top: **Chat** (the existing transcript / Speak button / status, unchanged behaviour) and **Memory** (this editor). Later PRDs add views (Wiki). Below ~700 px width the columns stack (avatar on top, 35 vh).
+
+**Memory view — deliberately simple:**
+- Header: "Memory · N facts", a "model view" toggle, footer note "changes apply from the next reply".
+- Six sections in `render()` order, each a heading plus rows; empty section = muted "nothing yet".
+  - identity / preferences rows: `key` · editable value · small "was: …" line with **restore** when `superseded[key]` exists.
+  - people: `name · rel · note`; projects: `name · status · note`; recurring: `what · when`; episodic: `text · date · importance · ttl_days`, expired ones greyed with "expired".
+- Click a field → inline input; Enter/blur saves, Esc cancels. 🗑 deletes immediately (scalars keep `superseded`; list rows are just gone — the audit log has the value).
+- "+ add" per section: one-line form with that section's fields.
+- Rejected op: red reason under the row, row reverts.
+- "model view" replaces the lists with `<pre>` of `memory.render(profile)`.
+- Bottom: "Forget everything" with a confirm dialog.
+
+No undo toast, no reload button (the server pushes a fresh `memory` message after every change and every background save), no search.
 
 ## Technical approach
 
@@ -51,7 +55,7 @@ Grounded in the 2026-08-29 research pass: ChatGPT and Open WebUI expose memory a
 - Sectioned lists over a tree because the profile is depth-2 with six fixed sections; a tree adds chrome without information.
 - Every UI write is an `apply_ops` op, never a direct file write: one validated path, audit and caps for free (same reason PRD 15 rejected LLM-rewritten files).
 - A process-wide lock around load→apply→write rather than making `save()` async: the worker-thread save and the UI action are the only two writers; a lock is 4 lines.
-- Undo = `superseded` for scalars and a short-lived re-ADD toast for list rows; no ops-log replay — the log stays append-only and human-readable.
+- Undo = `superseded` for scalars only; list deletions are recoverable from the audit log by hand. Kept simple on purpose.
 - Assume the panel is used with < 200 facts; render the whole thing, no virtualisation/search. If false, add a filter box.
 - Risk: the user edits while the model is mid-reply (profile already injected). Mitigation: none needed — the next turn re-runs `memory.load`; document it in the panel footer ("applies from the next reply").
 
@@ -64,7 +68,7 @@ No schema change. Paths used by the UI are the existing ones (`_parse_path`):
 | identity, preferences | `UPDATE <section>.<key>` (creates) | `<section>.<key>` | `<section>.<key>` |
 | people, projects, recurring, episodic | `ADD <section>[]` + dict | `<section>[i].<field>` | `<section>[i]` |
 
-Invariants: caps still apply (ADD beyond cap is rejected with reason); `superseded` only ever grows through UPDATE on scalars; `memory_ops.jsonl` gets one line per applied op with `reason: "ui"` (or `"ui:restore"`, `"ui:undo"`, `"ui:reset"`) so UI edits are distinguishable from LLM ops in the log.
+Invariants: caps still apply (ADD beyond cap is rejected with reason); `superseded` only ever grows through UPDATE on scalars; `memory_ops.jsonl` gets one line per applied op with `reason: "ui"` (or `"ui:restore"`, `"ui:reset"`) so UI edits are distinguishable from LLM ops in the log.
 
 ## Test scenarios
 
@@ -82,7 +86,7 @@ Frontend (manual, listed for the manual-testing pass):
 9. Open panel with an empty profile → six sections with "nothing yet", count 0; add a preference → appears without reload; log has the line.
 10. Edit a person's note, press Esc → reverts; press Enter → persists; refresh the page → still there.
 11. Toggle "What the model sees" → text matches `python -c "import memory; print(memory.render(memory.load_profile()))"`.
-12. Delete a project → toast "Undo delete" → click → project back at the end of the list.
+12. Resize the window: avatar stays in its 25 % column and re-fits; below 700 px the layout stacks and the Chat view still works.
 
 ## Stress / interaction testing with the memory system
 
