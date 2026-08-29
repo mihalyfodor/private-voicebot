@@ -41,7 +41,7 @@ This note evaluates the known approaches and proposes a roadmap that unifies bot
   reflection can only set `stale`, never delete non-episodic entries.
 
 ### PRD 17b — wiki layer (medium; the real long-term investment)
-- `wiki/` folder = Obsidian vault: `index.md` (one line per page, ≤ 200 lines, loaded into the prompt like
+- Vault at `~/llm-wiki` (`WIKI_PATH` env, decided 2026-08-29 so a normal Obsidian install opens it) = Obsidian vault: `index.md` (one line per page, ≤ 200 lines, loaded into the prompt like
   the profile — the only always-on cost), `log.md` (append-only, dated), `people/`, `projects/`,
   `meetings/YYYY-MM-DD.md`, `decisions.md`, `schema.md` (page templates + rules). Frontmatter + `[[wikilinks]]`.
 - `raw/` = immutable inputs: session transcripts (already `session.log`), emails fetched via the gmail tool
@@ -53,7 +53,7 @@ This note evaluates the known approaches and proposes a roadmap that unifies bot
   `reflect()`: broken links, orphans, index coverage, contradictions between a page and the profile.
 - Division of labour, stated in `schema.md`: **profile = who the user is** (small, always in context,
   decays); **wiki = what we are working on** (unbounded, on demand, durable, human co-edited).
-- Versioning: `git init` inside `wiki/`; every ingest commits, which gives diff/undo and a history the PRD 16
+- Versioning: `git init` inside the vault (`.obsidian/` ignored); every ingest commits, which gives diff/undo and a history the PRD 16
   editor doesn't have to build. The user edits pages in Obsidian; the assistant reads them fresh each ingest.
 - Tests: ingest→query harness (LongMemEval-style multi-session: facts stated in S1 filed to a page, recalled in S4
   via `search_wiki` — `expect` on the reply and on the tool call), lint unit tests (index/page parity, no
@@ -91,3 +91,9 @@ Three routes: **(A)** server writes markdown, user opens `wiki/` as a vault — 
 **Decision:** (A) now. Design for (B)/(C) later by: all wiki mutation through the ops layer (swap `pathlib` for REST calls without touching callers); fixed frontmatter keys (`type`, `tags`, `source`, `updated`, `seen`) and page naming now, since Bases/any plugin key off them; `wiki/` as its own git repo with `.obsidian/` ignored; `[[wikilinks]]`, `meetings/YYYY-MM-DD.md` daily-note naming, no Templater syntax in generated pages. A (C) plugin is a candidate PRD 18: sidebar "what the assistant just filed" + "re-ingest this note" command + active-note context for the voicebot.
 
 Sources: obsidian-api README; DeepWiki MetadataCache; coddingtonbear/obsidian-local-rest-api; basicmemory.com Obsidian integration; cyanheads/obsidian-mcp-server; got.md Bases guide.
+
+## Decisions taken 2026-08-29 (user)
+- Vault lives at `~/llm-wiki`, not inside the repo; `WIKI_PATH` overrides.
+- Drag-and-drop: 17a builds the DnD infra inside the memory view (episodic → recurring promote, row → stale/archive group); 17b adds cross-view targets (profile row → wiki page, wiki page → profile, files → `raw/inbox/`). Every drop has a "→" menu fallback.
+- In-app wiki view stays simple: browse pages + backlinks, append-a-note box, "Open in Obsidian" link. No in-app page editing.
+- **PRD 18 candidate — Obsidian as host:** a desktop-only plugin that spawns `chatbot.py` on load (child process, killed on unload), hosts the existing web UI in a side-panel leaf (iframe/webview to 127.0.0.1:8010), adds commands (start/stop, "file this note", "re-ingest current note") and posts the active note as context. First step is a spike: does `getUserMedia` + audio playback work inside an Obsidian leaf? If not, the panel shows avatar + editors and the mic stays in a browser tab.
