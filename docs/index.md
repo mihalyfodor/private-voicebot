@@ -35,13 +35,14 @@ voicebot/
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest, lint, archive/pull bridge
+├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
-│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`)
+│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 ├── static/
-│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory views) + menu drawer
+│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory / Wiki views), intake popup, menu drawer
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, menu drawer, websocket
+│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, memory/wiki views, drop-paste intake, menu drawer, websocket
 │   ├── style.css
 │   ├── vendor/          # gitignored, fetched
 │   ├── models/           # gitignored, fetched (wanko/, haru/, natori/)
@@ -51,11 +52,12 @@ voicebot/
 │   ├── weather.py       # open-meteo weather tool
 │   ├── news.py          # BBC news headlines + article detail
 │   ├── gmail.py         # Gmail read/search via OAuth
-│   └── wiki.py          # search_wiki / read_page — the model's way into the vault
+│   ├── wiki.py          # search_wiki / read_page — the model's way into the vault
+│   └── sources.py       # file_source(email|news|note) — voice ingestion of the last email/headline/a note
 ├── workflows/
 │   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
 │   └── classification_rules.example.py
-├── eval/             # memory eval harness: harness.py, scripts/*.yaml, results/
+├── eval/             # memory eval harness: harness.py, scripts/*.yaml, fixtures/, results/
 ├── tests/
 │   ├── test_splitter.py         # SentenceSplitter / split_stream / strip_tag
 │   ├── test_llm_unit.py          # llm.py with a mocked OpenAI client, no oMLX needed
@@ -71,6 +73,7 @@ voicebot/
 │   ├── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
 │   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
+│   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 │   └── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
 ├── requirements.txt
@@ -91,7 +94,13 @@ voicebot/
     ├── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
     ├── 14-memory-eval.md        # PRD: text-only memory evaluation harness (done)
     ├── 15-memory-v2.md          # PRD: structured profile memory (done)
-    └── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
+    ├── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
+    ├── 17-long-term-memory.md   # PRD: research — decay, archive, wiki layer (exploration)
+    ├── 18-memory-decay.md        # PRD: seen/stale decay, CONFIRM op (done)
+    ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (refactoring)
+    ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
+    ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
+    └── 22-sidebar-navigation.md  # PRD: sidebar/navigation review (exploration)
 ```
 
 ## Active PRDs
@@ -112,6 +121,7 @@ voicebot/
 - [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration)
 - [18-memory-decay.md](18-memory-decay.md) — seen/stale decay, CONFIRM op, memory-view drag-and-drop (done)
 - [19-wiki-layer.md](19-wiki-layer.md) — ~/llm-wiki Obsidian vault: page ops, search_wiki/read_page, ingest, lint (refactoring)
+- [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (refactoring)
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel (exploration)
 

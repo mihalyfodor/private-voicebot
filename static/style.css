@@ -7,6 +7,13 @@ body {
   color: #e0e0e0;
 }
 
+/* the small-caps section label, shared by the drawer, the memory view, the wiki list
+   and the intake popup — only the margins differ per place */
+.drawer-title, .mem-section-title, .wiki-group-title, #intake-head {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a;
+}
+
 /* ---- menu button + drawer ---- */
 #menu-btn {
   position: fixed; top: 14px; left: 14px; z-index: 6;
@@ -31,10 +38,7 @@ body {
 }
 #drawer.open { transform: translateX(0); }
 .drawer-spacer { flex: 1; }
-.drawer-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 0 6px 8px;
-}
+.drawer-title { margin: 0 6px 8px; }
 .drawer-item {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 8px; border: 1px solid transparent;
@@ -243,10 +247,7 @@ main {
 }
 
 .mem-section { margin-bottom: 16px; }
-.mem-section-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 0 0 6px 2px;
-}
+.mem-section-title { margin: 0 0 6px 2px; }
 .mem-empty { font-size: 12px; color: #6a6a6a; padding: 4px 2px 2px; }
 
 .mem-row {
@@ -363,10 +364,7 @@ main {
 }
 #wiki-page { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 
-.wiki-group-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 10px 0 4px 2px;
-}
+.wiki-group-title { margin: 10px 0 4px 2px; }
 .wiki-group-title:first-child { margin-top: 0; }
 .wiki-row {
   display: flex; align-items: baseline; gap: 8px;
@@ -430,6 +428,93 @@ main {
 /* the two workspace tabs double as cross-view drop targets (archive / pull) */
 .view-tab.drop-ok { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.30); }
 
+/* ---- intake: drop overlay + popup (PRD 20) ---- */
+#drop-overlay {
+  position: absolute; inset: 0; z-index: 8;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(10,10,12,0.55); backdrop-filter: blur(2px);
+  border: 2px dashed #4a90d9; border-radius: 12px;
+  pointer-events: none;
+}
+#drop-overlay[hidden] { display: none; }
+#drop-overlay span {
+  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: #cfe2f7;
+}
+
+#intake {
+  position: absolute; inset: 0; z-index: 9;
+  display: flex; align-items: center; justify-content: center; padding: 18px;
+  background: rgba(0,0,0,0.45);
+}
+#intake[hidden] { display: none; }
+#intake-card {
+  width: min(460px, 100%); max-height: 100%; overflow-y: auto; scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px; border-radius: 12px;
+  background: rgba(18,18,20,0.97); border: 1px solid #333;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+}
+#intake-items { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; scrollbar-width: thin; }
+.intake-item {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 6px 8px; border-radius: 8px;
+  background: rgba(255,255,255,0.03); border: 1px solid #232323;
+}
+.intake-item.bad { opacity: 0.55; }
+.intake-item.bad .intake-item-name { text-decoration: line-through; }
+.intake-item.bad .intake-item-meta { color: #e06060; }
+.intake-thumb {
+  flex: none; width: 56px; height: 56px; object-fit: cover;
+  border-radius: 6px; border: 1px solid #2c2c2c; background: #000;
+}
+.intake-item-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.intake-item-name { font-size: 13px; color: #ececec; word-break: break-all; }
+.intake-item-meta { font-size: 11px; color: #6a6a6a; }
+.intake-preview {
+  margin: 2px 0 0; max-height: 54px; overflow: hidden;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; line-height: 1.4; color: #9a9a9a;
+}
+.intake-textarea {
+  width: 100%; min-height: 96px; resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5;
+  color: #cfcfcf; background: rgba(0,0,0,0.35); border: 1px solid #333; border-radius: 8px;
+  padding: 10px; outline: none;
+}
+.intake-textarea:focus { border-color: #4a90d9; }
+
+#intake-form { display: flex; flex-direction: column; gap: 8px; }
+.intake-field { display: flex; align-items: center; gap: 10px; }
+.intake-field[hidden] { display: none; }
+.intake-label {
+  flex: none; width: 66px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #9a9a9a;
+}
+.intake-field input, .intake-field select {
+  flex: 1 1 auto; min-width: 0;
+  font: inherit; font-size: 12px; color: #e6e6e6; padding: 5px 8px;
+  background: rgba(255,255,255,0.04); border: 1px solid #333; border-radius: 6px; outline: none;
+}
+.intake-field input:focus, .intake-field select:focus { border-color: #4a90d9; }
+.intake-field select option { background: #17171a; color: #e6e6e6; }
+
+#intake-status { font-size: 11px; color: #6a6a6a; letter-spacing: 0.03em; min-height: 14px; }
+#intake-status.err { color: #e06060; }
+#intake-status.warn { color: #c08a3e; }
+#intake-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.chip.primary { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.18); }
+.chip.primary:disabled { opacity: 0.5; cursor: default; }
+
+/* parked in the empty left half of the tab row, where no view draws anything */
+#intake-toast {
+  position: absolute; left: 22px; top: 14px; z-index: 9;
+  max-width: 55%; padding: 6px 12px; border-radius: 999px;
+  background: rgba(20,20,22,0.95); border: 1px solid #3a3a3a;
+  font-size: 11px; letter-spacing: 0.05em; color: #cfe2f7; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+#intake-toast[hidden] { display: none; }
+
 /* ---- narrow screens: stack the columns ---- */
 @media (max-width: 700px) {
   main { flex-direction: column; }
@@ -441,4 +526,5 @@ main {
   #wiki-body { flex-direction: column; gap: 8px; }
   #wiki-list { flex: 0 0 auto; max-height: 30vh; border-right: none; border-bottom: 1px solid #1f1f1f; padding-right: 0; }
   .mem-key { min-width: 0; }
+  .intake-label { width: 54px; }
 }

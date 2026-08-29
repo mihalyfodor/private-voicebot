@@ -31,13 +31,23 @@ LOG_FILE = "log.md"
 SCHEMA_FILE = "schema.md"
 DECISIONS_FILE = "decisions.md"
 RECURRING_FILE = "recurring.md"          # where archived `recurring` profile entries land
-FOLDERS = ("people", "projects", "meetings")
+FOLDERS = ("people", "projects", "meetings", "sources")
+
+#: raw sources (PRD 20) live here: immutable originals, never pages, never indexed
+RAW_DIR = "raw"
+RAW_SUBDIRS = ("inbox", "screens", "email", "news")
 
 #: pages that are machinery, not knowledge — never listed, never searched, never ingested about
 RESERVED = (INDEX_FILE, LOG_FILE, SCHEMA_FILE)
 
-#: fixed frontmatter keys (Bases/Dataview-friendly; docs/17-long-term-memory.md)
+#: fixed frontmatter keys, written on every page (Bases/Dataview-friendly; docs/17-long-term-memory.md)
 FIELDS = ("type", "name", "tags", "source", "updated", "seen")
+#: keys a page may carry but does not have to — written only once something sets them.
+#: `status` is the project pages' (docs/19-wiki-layer.md); `entry_from_page` reads it back
+#: into the profile and the index one-liner shows it.
+OPTIONAL_FIELDS = ("status",)
+#: what a `set_field` op may write
+SETTABLE_FIELDS = FIELDS + OPTIONAL_FIELDS
 
 MAX_PAGE_BYTES = 20 * 1024      # a page the assistant may still append to
 MAX_NOTE_CHARS = 600            # one `## Notes` bullet
@@ -93,8 +103,11 @@ Colleague on the platform team, joined 2026-08.
 ## History
 ```
 
-projects/<slug>.md — same, `type: project`, plus a `status` line in the Summary.
+projects/<slug>.md — same, `type: project`, plus a `status: green|amber|red|paused|done`
+frontmatter key and a status line in the Summary.
 meetings/YYYY-MM-DD.md — `type: meeting`, one page per day.
+sources/<slug>.md — `type: source`, one per filed document (PRD 20); the immutable original
+lives under `raw/` and is linked from the page's frontmatter.
 decisions.md — one `## YYYY-MM-DD <title>` section per decision.
 
 ## Rules
@@ -105,7 +118,7 @@ decisions.md — one `## YYYY-MM-DD <title>` section per decision.
 - Not worth anything: meals, weather, small talk, moods, chores. Filing nothing is normal.
 - Every note and decision carries a `source`.
 - Never rewrite or delete a page: append.
-- Frontmatter keys are exactly: type, name, tags, source, updated, seen.
+- Frontmatter keys are exactly: type, name, tags, source, updated, seen — plus `status` on project pages.
 """
 
 
@@ -153,11 +166,12 @@ def ensure_vault() -> str:
     """Create the vault layout (and its git repo) if it isn't there yet; returns WIKI_PATH.
 
     Called lazily on the first write — never at import, so importing the app can't litter the
-    user's home directory.
+    user's home directory. An existing `schema.md` is never rewritten: it is the user's to edit.
     """
     fresh = not os.path.isdir(WIKI_PATH)
     os.makedirs(WIKI_PATH, exist_ok=True)
-    for folder in FOLDERS:
+    folders = list(FOLDERS) + [os.path.join(RAW_DIR, sub) for sub in RAW_SUBDIRS]
+    for folder in folders:
         os.makedirs(_path(folder), exist_ok=True)
         keep = os.path.join(folder, ".gitkeep")
         if not os.path.exists(_path(keep)):
@@ -304,7 +318,8 @@ def page_paths() -> list:
         return []
     found = []
     for root, dirs, files in os.walk(WIKI_PATH):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and
+                   os.path.join(root, d) != _path(RAW_DIR)]
         for name in files:
             if not name.endswith(".md"):
                 continue
@@ -476,7 +491,7 @@ def set_field(op: dict, source: str) -> tuple:
     if reason:
         return None, reason
     key = str(op.get("key") or "").strip()
-    if key not in FIELDS:
+    if key not in SETTABLE_FIELDS:
         return None, f"unknown frontmatter key {key!r}"
     value = op.get("value")
     if key == "tags":
@@ -539,11 +554,14 @@ def applied_count() -> int:
     return _applied_batches
 
 
-def apply_page_ops(ops, source_default: str = "") -> tuple:
+def apply_page_ops(ops, source_default: str = "", commit: bool = True) -> tuple:
     """Validate and apply `ops`; returns ``(applied, rejected)``.
 
     A batch that applied at least one op regenerates `index.md`, appends one `log.md` line per
     applied op and makes exactly one commit. A fully rejected batch touches nothing.
+
+    `commit=False` skips only the commit: the caller (sources.ingest) is writing more files
+    around this batch and wants one commit for the whole ingest.
     """
     global _applied_batches
     applied, rejected = [], []
@@ -575,7 +593,8 @@ def apply_page_ops(ops, source_default: str = "") -> tuple:
     if applied:
         rebuild_index()
         _log(entries)
-        _commit(f"wiki: {len(applied)} op{'s' if len(applied) != 1 else ''} ({source_default})")
+        if commit:
+            _commit(f"wiki: {len(applied)} op{'s' if len(applied) != 1 else ''} ({source_default})")
         _applied_batches += 1
     return applied, rejected
 

@@ -3,6 +3,7 @@ from tools import weather as _weather
 from tools import gmail as _gmail
 from tools import news as _news
 from tools import wiki as _wiki
+from tools import sources as _sources
 
 TOOLS = [
     _time.DEFINITION,
@@ -12,6 +13,7 @@ TOOLS = [
     _weather.DEFINITION,
     _wiki.DEFINITION_SEARCH,
     _wiki.DEFINITION_READ,
+    _sources.DEFINITION,
 ]
 
 _DISPATCH = {
@@ -22,6 +24,7 @@ _DISPATCH = {
     "get_emails":      _gmail.run,
     "search_wiki":     _wiki.run_search,
     "read_page":       _wiki.run_read,
+    "file_source":     _sources.run,
 }
 
 

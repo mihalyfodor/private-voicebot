@@ -52,6 +52,33 @@ DEFINITION_NEWS_DETAIL = {
 }
 
 
+#: the last `get_news` result, [(title, url)] in headline order — what
+#: `file_source("news", ref)` resolves "the second one" or a url against.
+LAST_RESULTS: list = []
+
+
+def resolve_ref(ref) -> tuple:
+    """A 1-based index, a url or a substring of a headline -> ``(title, url)`` or ``(None, None)``."""
+    text = str(ref or "").strip()
+    if not text or not LAST_RESULTS:
+        return None, None
+    if text.isdigit():
+        index = int(text) - 1
+        return LAST_RESULTS[index] if 0 <= index < len(LAST_RESULTS) else (None, None)
+    for title, url in LAST_RESULTS:
+        if text == url or text.lower() in title.lower():
+            return title, url
+    return None, None
+
+
+def article_text(url: str) -> str:
+    """The readable text of a BBC article — the body `file_source("news", ...)` stores."""
+    resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+    parser = _TextExtractor()
+    parser.feed(resp.text)
+    return parser.get_text()
+
+
 def run_get_news(args):
     resp = requests.get(
         "http://feeds.bbci.co.uk/news/world/rss.xml",
@@ -61,6 +88,7 @@ def run_get_news(args):
     root = ET.fromstring(resp.content)
     items = root.findall(".//item")[:5]
     entries = [(item.findtext("title", "").strip(), item.findtext("link", "").strip()) for item in items]
+    LAST_RESULTS[:] = entries
     lines = " | ".join(f"{i+1}. {t} (URL: {u})" for i, (t, u) in enumerate(entries))
     return "Read out these top 5 BBC world news headlines naturally, without mentioning the URLs: " + lines
 
