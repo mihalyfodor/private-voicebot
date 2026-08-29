@@ -31,7 +31,11 @@ LOG_FILE = "log.md"
 SCHEMA_FILE = "schema.md"
 DECISIONS_FILE = "decisions.md"
 RECURRING_FILE = "recurring.md"          # where archived `recurring` profile entries land
-FOLDERS = ("people", "projects", "meetings")
+FOLDERS = ("people", "projects", "meetings", "sources")
+
+#: raw sources (PRD 20) live here: immutable originals, never pages, never indexed
+RAW_DIR = "raw"
+RAW_SUBDIRS = ("inbox", "screens", "email", "news")
 
 #: pages that are machinery, not knowledge — never listed, never searched, never ingested about
 RESERVED = (INDEX_FILE, LOG_FILE, SCHEMA_FILE)
@@ -95,6 +99,8 @@ Colleague on the platform team, joined 2026-08.
 
 projects/<slug>.md — same, `type: project`, plus a `status` line in the Summary.
 meetings/YYYY-MM-DD.md — `type: meeting`, one page per day.
+sources/<slug>.md — `type: source`, one per filed document (PRD 20); the immutable original
+lives under `raw/` and is linked from the page's frontmatter.
 decisions.md — one `## YYYY-MM-DD <title>` section per decision.
 
 ## Rules
@@ -157,7 +163,8 @@ def ensure_vault() -> str:
     """
     fresh = not os.path.isdir(WIKI_PATH)
     os.makedirs(WIKI_PATH, exist_ok=True)
-    for folder in FOLDERS:
+    folders = list(FOLDERS) + [os.path.join(RAW_DIR, sub) for sub in RAW_SUBDIRS]
+    for folder in folders:
         os.makedirs(_path(folder), exist_ok=True)
         keep = os.path.join(folder, ".gitkeep")
         if not os.path.exists(_path(keep)):
@@ -304,7 +311,8 @@ def page_paths() -> list:
         return []
     found = []
     for root, dirs, files in os.walk(WIKI_PATH):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and
+                   os.path.join(root, d) != _path(RAW_DIR)]
         for name in files:
             if not name.endswith(".md"):
                 continue
@@ -539,11 +547,14 @@ def applied_count() -> int:
     return _applied_batches
 
 
-def apply_page_ops(ops, source_default: str = "") -> tuple:
+def apply_page_ops(ops, source_default: str = "", commit: bool = True) -> tuple:
     """Validate and apply `ops`; returns ``(applied, rejected)``.
 
     A batch that applied at least one op regenerates `index.md`, appends one `log.md` line per
     applied op and makes exactly one commit. A fully rejected batch touches nothing.
+
+    `commit=False` skips only the commit: the caller (sources.ingest) is writing more files
+    around this batch and wants one commit for the whole ingest.
     """
     global _applied_batches
     applied, rejected = [], []
@@ -575,7 +586,8 @@ def apply_page_ops(ops, source_default: str = "") -> tuple:
     if applied:
         rebuild_index()
         _log(entries)
-        _commit(f"wiki: {len(applied)} op{'s' if len(applied) != 1 else ''} ({source_default})")
+        if commit:
+            _commit(f"wiki: {len(applied)} op{'s' if len(applied) != 1 else ''} ({source_default})")
         _applied_batches += 1
     return applied, rejected
 

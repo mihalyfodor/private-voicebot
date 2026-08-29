@@ -121,6 +121,36 @@
           <button id="wiki-ingest" class="chip">Re-ingest last session</button>
         </div>
       </div>
+
+      <!-- PRD 20: drop/paste intake. The overlay only appears for file drags; the popup
+           is modal over the workspace and sends nothing until File is pressed. -->
+      <div id="drop-overlay" hidden><span>drop to file</span></div>
+      <div id="intake-toast" hidden></div>
+      <div id="intake" hidden>
+        <div id="intake-card" role="dialog" aria-modal="true" aria-label="File a source">
+          <div id="intake-head">File a source</div>
+          <div id="intake-items"></div>
+          <div id="intake-form">
+            <label class="intake-field" id="intake-title-field">
+              <span class="intake-label">title</span>
+              <input id="intake-title" placeholder="title">
+            </label>
+            <label class="intake-field">
+              <span class="intake-label">file under</span>
+              <select id="intake-page"></select>
+            </label>
+            <label class="intake-field">
+              <span class="intake-label">hint</span>
+              <input id="intake-hint" placeholder="optional — e.g. this is the Q3 plan">
+            </label>
+          </div>
+          <div id="intake-status"></div>
+          <div id="intake-actions">
+            <button id="intake-cancel" class="chip">Cancel</button>
+            <button id="intake-file" class="chip primary">File</button>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 

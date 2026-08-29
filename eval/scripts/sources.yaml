@@ -1,0 +1,28 @@
+# Raw ingestion (docs/20-raw-ingestion.md, scenario 7b), live LLM + tools.
+#
+#   python -m eval.harness eval/scripts/sources.yaml --tools --out eval/results/sources.json
+#
+# S1 drops a markdown document about "project Falcon" through the real ingest path
+# (sources.ingest_path — the same one the drop popup uses), then talks about something else.
+# S2 probes for the document's content: the reply must carry facts that exist only in the file,
+# and the run log must show a search_wiki or read_page call (the index carries no page bodies).
+sessions:
+
+  # --- S1: file the document, then unrelated chatter ----------------------
+  - - user: "hey, I'm Mihaly, I run the platform team here"
+    - ingest:
+        path: eval/fixtures/falcon.md
+        hint: "this is the weekly status of project Falcon"
+    - user: "ok, that's filed, talk later"
+
+  # --- S2: recall out of the filed source ---------------------------------
+  - - probe: "what's the status of Falcon?"
+      expect: [["amber", "940", "latency"]]
+      category: single-hop
+    - probe: "when does Falcon go live, and why did it move?"
+      expect: [["september 15", "2026-09-15", "15 september"], ["load test", "latency"]]
+      category: single-hop
+    - probe: "who is the tech lead on Falcon?"
+      expect: ["anna"]
+      category: single-hop
+    - user: "thanks, bye"

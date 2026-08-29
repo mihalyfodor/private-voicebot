@@ -707,6 +707,8 @@ function moveButton(moves) {
 
 // ---- drag and drop ----
 function memReadDrag(e) {
+  // A drag of files from the desktop belongs to the intake popup, never to a row drop zone.
+  if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) return null;
   if (memDrag) return memDrag;
   for (const mime of [MEM_DRAG_MIME, WIKI_DRAG_MIME]) {
     try {
@@ -1107,6 +1109,7 @@ function setWiki(msg) {
     renderWikiPage();
   }
   renderWikiFoot();
+  if (!intakeEl.hidden) intakeSyncPages();   // the popup's picker is fed by this list
 }
 
 function setWikiPage(msg) {
@@ -1149,6 +1152,312 @@ memDropZone(wikiTabBtn, 'wiki/tab', false);
 memDropZone(memTabBtn, 'memory/tab', false);
 renderWikiList();
 renderWikiPage();
+
+// ---------- intake: drop / paste a source (PRD 20) ----------
+// Nothing reaches the vault automatically: a file drag over the workspace shows an overlay, the
+// drop (or a ⌘V with an image/text on the clipboard) opens the modal below, and only the File
+// button posts to /ingest. Esc/Cancel closes it and sends nothing.
+const INTAKE_MAX_IMAGE = 4 * 1024 * 1024;
+const INTAKE_MAX_FILE = 2 * 1024 * 1024;
+const INTAKE_IMAGE_EXT = ['png', 'jpg', 'jpeg'];
+const INTAKE_EXT = ['md', 'txt', 'pdf', 'eml', 'msg', ...INTAKE_IMAGE_EXT];
+const INTAKE_MIN_TEXT = 20;
+const INTAKE_PREVIEW_LINES = 3;
+const INTAKE_TOAST_MS = 4000;
+
+const intakeEl = document.getElementById('intake');
+const intakeItemsEl = document.getElementById('intake-items');
+const intakeTitleField = document.getElementById('intake-title-field');
+const intakeTitleEl = document.getElementById('intake-title');
+const intakePageEl = document.getElementById('intake-page');
+const intakeHintEl = document.getElementById('intake-hint');
+const intakeStatusEl = document.getElementById('intake-status');
+const intakeFileBtn = document.getElementById('intake-file');
+const intakeCancelBtn = document.getElementById('intake-cancel');
+const intakeToastEl = document.getElementById('intake-toast');
+const dropOverlayEl = document.getElementById('drop-overlay');
+const workspaceEl = document.getElementById('workspace');
+
+let intakeKind = null;        // 'file' | 'paste_image' | 'paste_text'
+let intakeItems = [];         // [{name, size, file?, text?, ok, reason, url?}]
+let intakeBusy = false;
+let intakeToastTimer = null;
+let dragDepth = 0;
+
+// A file drag carries the `Files` type; memory/wiki row drags never do. Everything in this
+// section is gated on it so the two drag systems can't be confused for one another.
+function isFileDrag(e) {
+  const types = e.dataTransfer && e.dataTransfer.types;
+  return !!types && Array.from(types).includes('Files');
+}
+
+function intakeExt(name) {
+  const m = /\.([A-Za-z0-9]+)$/.exec(String(name || ''));
+  return m ? m[1].toLowerCase() : '';
+}
+
+// Refuse oversized/unsupported items here rather than at the server: the row stays in the list,
+// struck through with the reason, and is left out of the upload.
+function intakeCheck(name, size) {
+  const ext = intakeExt(name);
+  if (!INTAKE_EXT.includes(ext)) return `unsupported (.${ext || '?'})`;
+  const cap = INTAKE_IMAGE_EXT.includes(ext) ? INTAKE_MAX_IMAGE : INTAKE_MAX_FILE;
+  if (size > cap) return `too large (${intakeSize(size)} > ${intakeSize(cap)})`;
+  return '';
+}
+
+function intakeSize(bytes) {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} kB`;
+  return `${bytes} B`;
+}
+
+function intakeStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function firstLines(text, n) {
+  return String(text).split('\n').slice(0, n).join('\n');
+}
+
+// The picker lists "auto" plus every page the last `wiki` message named; the open wiki page is
+// pre-selected so "file under what I'm looking at" is one drop.
+function intakeSyncPages() {
+  const want = intakePageEl.value || (currentView === 'wiki' && wikiSelected) || '';
+  const opts = [el('option', null, 'auto')];
+  opts[0].value = '';
+  for (const page of (wikiPages || [])) {
+    const o = el('option', null, page.title ? `${page.title} — ${page.path}` : page.path);
+    o.value = page.path;
+    opts.push(o);
+  }
+  intakePageEl.replaceChildren(...opts);
+  intakePageEl.value = (wikiPages || []).some(p => p.path === want) ? want : '';
+}
+
+function intakeClearItems() {
+  for (const it of intakeItems) if (it.url) URL.revokeObjectURL(it.url);
+  intakeItems = [];
+}
+
+function renderIntakeItems() {
+  const rows = intakeItems.map((it) => {
+    const row = el('div', 'intake-item' + (it.ok ? '' : ' bad'));
+    if (it.url) {
+      const img = el('img', 'intake-thumb');
+      img.src = it.url;
+      img.alt = '';
+      row.append(img);
+    }
+    const body = el('div', 'intake-item-body');
+    body.append(el('div', 'intake-item-name', it.name));
+    const meta = el('div', 'intake-item-meta', it.ok ? intakeSize(it.size) : `${intakeSize(it.size)} — ${it.reason}`);
+    body.append(meta);
+    if (it.preview) body.append(el('pre', 'intake-preview', it.preview));
+    row.append(body);
+    return row;
+  });
+  // Pasted text is editable in place — it is the payload, not a file on disk.
+  if (intakeKind === 'paste_text') {
+    const ta = el('textarea', 'intake-textarea');
+    ta.value = intakeItems[0] ? intakeItems[0].text : '';
+    ta.oninput = () => { if (intakeItems[0]) intakeItems[0].text = ta.value; };
+    ta.onkeydown = (e) => { if (e.key !== 'Escape') e.stopPropagation(); };
+    intakeItemsEl.replaceChildren(ta);
+    return;
+  }
+  intakeItemsEl.replaceChildren(...rows);
+}
+
+function setIntakeStatus(text, cls) {
+  intakeStatusEl.className = cls || '';
+  intakeStatusEl.textContent = text || '';
+}
+
+function openIntake(kind, items, defaultTitle) {
+  intakeClearItems();
+  intakeKind = kind;
+  intakeItems = items;
+  intakeBusy = false;
+  intakeEl.hidden = false;
+  intakeTitleEl.value = defaultTitle || '';
+  // With several files the server names each page after its own file; one title would lie.
+  const multi = items.length > 1;
+  intakeTitleField.hidden = multi;
+  intakeHintEl.value = '';
+  intakeFileBtn.disabled = false;
+  if (!wikiPages) requestWiki();
+  intakePageEl.value = '';
+  intakeSyncPages();
+  renderIntakeItems();
+  const bad = items.filter(i => !i.ok).length;
+  setIntakeStatus(bad ? `${bad} item${bad > 1 ? 's' : ''} skipped` : '', bad ? 'warn' : '');
+  (multi ? intakeHintEl : intakeTitleEl).focus();
+}
+
+function closeIntake() {
+  if (intakeBusy) return;
+  // Focus would otherwise stay on the now-hidden title input and swallow the next paste.
+  if (document.activeElement && intakeEl.contains(document.activeElement)) document.activeElement.blur();
+  intakeEl.hidden = true;
+  intakeClearItems();
+  intakeKind = null;
+  setIntakeStatus('');
+}
+
+function intakeToast(text) {
+  intakeToastEl.textContent = text;
+  intakeToastEl.hidden = false;
+  if (intakeToastTimer) clearTimeout(intakeToastTimer);
+  intakeToastTimer = setTimeout(() => { intakeToastEl.hidden = true; }, INTAKE_TOAST_MS);
+}
+
+// ---- building the popup's items from a drop / a paste ----
+function intakeFromFiles(files) {
+  const list = Array.from(files);
+  if (!list.length) return;
+  const items = list.map((file) => {
+    const reason = intakeCheck(file.name, file.size);
+    const item = { name: file.name, size: file.size, file, ok: !reason, reason };
+    if (item.ok && INTAKE_IMAGE_EXT.includes(intakeExt(file.name))) item.url = URL.createObjectURL(file);
+    return item;
+  });
+  openIntake('file', items, list.length === 1 ? list[0].name : '');
+  // Text files get their first lines as a preview once they are read.
+  for (const item of items) {
+    if (!item.ok || !['md', 'txt'].includes(intakeExt(item.name))) continue;
+    item.file.slice(0, 4096).text().then((t) => {
+      item.preview = firstLines(t, INTAKE_PREVIEW_LINES);
+      if (!intakeEl.hidden) renderIntakeItems();
+    }).catch(() => {});
+  }
+}
+
+function intakeFromImage(blob) {
+  const name = 'screenshot.png';
+  const reason = blob.size > INTAKE_MAX_IMAGE ? `too large (${intakeSize(blob.size)} > ${intakeSize(INTAKE_MAX_IMAGE)})` : '';
+  const item = { name, size: blob.size, file: new File([blob], name, { type: blob.type || 'image/png' }), ok: !reason, reason };
+  if (item.ok) item.url = URL.createObjectURL(blob);
+  openIntake('paste_image', [item], `screenshot ${intakeStamp()}`);
+}
+
+function intakeFromText(text) {
+  const size = new Blob([text]).size;
+  const reason = size > INTAKE_MAX_FILE ? `too large (${intakeSize(size)} > ${intakeSize(INTAKE_MAX_FILE)})` : '';
+  openIntake('paste_text', [{ name: 'pasted text', size, text, ok: !reason, reason }],
+    firstLines(text, 1).slice(0, 80).trim() || `note ${intakeStamp()}`);
+}
+
+// ---- the one HTTP call in the app ----
+async function submitIntake() {
+  if (intakeBusy) return;
+  const usable = intakeItems.filter(i => i.ok);
+  if (!usable.length) { setIntakeStatus('nothing to file', 'err'); return; }
+  const fd = new FormData();
+  fd.append('confirm', 'true');
+  fd.append('kind', intakeKind);
+  fd.append('title', intakeTitleEl.value.trim());
+  fd.append('hint', intakeHintEl.value.trim());
+  fd.append('page', intakePageEl.value || '');
+  for (const item of usable) {
+    if (item.file) fd.append('file', item.file, item.name);
+    else fd.append('text', item.text);
+  }
+  intakeBusy = true;
+  intakeFileBtn.disabled = true;
+  setIntakeStatus('uploading…');
+  let data = null;
+  try {
+    const res = await fetch('/ingest', { method: 'POST', body: fd });
+    const text = await res.text();
+    try { data = JSON.parse(text); } catch (_) { data = null; }
+    if (!res.ok) {
+      const why = (data && (data.detail || (data.errors || []).join(', '))) || text.slice(0, 120);
+      throw new Error(`${res.status} — ${why || 'upload failed'}`);
+    }
+  } catch (e) {
+    intakeBusy = false;
+    intakeFileBtn.disabled = false;
+    setIntakeStatus(String((e && e.message) || e), 'err');
+    return;
+  }
+  intakeBusy = false;
+  intakeFileBtn.disabled = false;
+  const filed = (data && data.filed) || [];
+  const errors = (data && data.errors) || [];
+  if (!filed.length) { setIntakeStatus(errors.join(', ') || 'nothing was filed', 'err'); return; }
+  const first = filed[0];
+  const verb = first.already ? 'already filed' : 'filed';
+  const label = (first.path ? `${verb} as ${first.path}` : `${verb} (${first.raw || 'no page'})`)
+    + (filed.length > 1 ? ` (+${filed.length - 1})` : '');
+  closeIntake();
+  intakeToast(errors.length ? `${label} — ${errors.join(', ')}` : label);
+  setView('wiki');
+  if (first.path) selectWikiPage(first.path);
+}
+
+intakeFileBtn.onclick = submitIntake;
+intakeCancelBtn.onclick = closeIntake;
+// Clicking the dimmed area outside the card cancels, like Esc.
+intakeEl.onclick = (e) => { if (e.target === intakeEl) closeIntake(); };
+for (const input of [intakeTitleEl, intakeHintEl]) {
+  input.onkeydown = (e) => {
+    if (e.key === 'Escape') return;      // let the global handler close the popup
+    e.stopPropagation();                 // Space is a global shortcut otherwise
+    if (e.key === 'Enter') { e.preventDefault(); submitIntake(); }
+  };
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !intakeEl.hidden) closeIntake(); });
+
+// ---- workspace drop zone ----
+function showDropOverlay(on) {
+  if (!on) dragDepth = 0;
+  dropOverlayEl.hidden = !on;
+}
+document.addEventListener('dragenter', (e) => {
+  if (!isFileDrag(e)) return;
+  dragDepth += 1;
+  showDropOverlay(true);
+});
+document.addEventListener('dragover', (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();                          // without this the browser opens the file
+  e.dataTransfer.dropEffect = 'copy';
+  if (dropOverlayEl.hidden) showDropOverlay(true);
+});
+document.addEventListener('dragleave', (e) => {
+  if (!isFileDrag(e)) return;
+  dragDepth -= 1;
+  if (dragDepth <= 0) showDropOverlay(false);
+});
+document.addEventListener('drop', (e) => {
+  if (!isFileDrag(e)) return;
+  e.preventDefault();
+  showDropOverlay(false);
+  intakeFromFiles(e.dataTransfer.files);
+});
+
+// ---- paste ----
+function inTextEntry(node) {
+  const t = node && node.closest ? node.closest('input, textarea, [contenteditable=""], [contenteditable="true"]') : null;
+  return !!t;
+}
+document.addEventListener('paste', (e) => {
+  if (!intakeEl.hidden) return;                                  // the popup owns its own inputs
+  if (inTextEntry(e.target) || inTextEntry(document.activeElement)) return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  const image = Array.from(cd.items || []).find(i => i.kind === 'file' && i.type.startsWith('image/'));
+  if (image) {
+    const blob = image.getAsFile();
+    if (blob) { e.preventDefault(); intakeFromImage(blob); }
+    return;
+  }
+  const text = (cd.getData('text/plain') || '').trim();
+  if (text.length >= INTAKE_MIN_TEXT) { e.preventDefault(); intakeFromText(text); }
+});
 
 // ---------- websocket / ui ----------
 function connect() {

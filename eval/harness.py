@@ -6,7 +6,9 @@ memory.json, memory_ops.jsonl and settings.json redirected to a sandbox, then sc
 
 A turn is one of: ``{user: "..."}``, ``{probe: "...", expect: [...], expect_not: [...]}``,
 ``{edit: {op, path, value}}`` (a hand edit through the memory editor's own write path; a list
-of ops is applied as one atomic batch) or ``{clock: "+200d"}`` (fast-forward memory's idea of
+of ops is applied as one atomic batch), ``{ingest: {path: "eval/fixtures/falcon.md", hint: "..."}}``
+(file a real document through sources.ingest_path, the same code path the drop popup uses)
+or ``{clock: "+200d"}`` (fast-forward memory's idea of
 today for the rest of the run — that is how decay is tested).
 
 Usage:
@@ -29,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import avatars  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
+import sources  # noqa: E402
 import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
 
@@ -436,6 +439,25 @@ def _run_edit(spec, verbose: bool = True) -> dict:
     return {"edit": ops, "error": error}
 
 
+def _run_ingest(spec, verbose: bool = True) -> dict:
+    """An `ingest:` turn — file a fixture into the sandbox vault via the real ingest path."""
+    if isinstance(spec, str):
+        spec = {"path": spec}
+    spec = spec or {}
+    try:
+        filed = sources.ingest_path(str(spec.get("path") or ""),
+                                    title=str(spec.get("title") or ""),
+                                    hint=str(spec.get("hint") or ""),
+                                    page=str(spec.get("page") or ""),
+                                    client=llm.client(), model=llm.OMLX_MODEL)
+        error = ""
+    except sources.IngestError as exc:
+        filed, error = {}, exc.message
+    if verbose:
+        print(f"  ingest: {spec.get('path')} -> {error or filed}")
+    return {"ingest": spec, "filed": filed, "error": error}
+
+
 def run_script(script, memory_path: str | None = None, rounds: int = 1,
                tools: bool = False, sandbox: Sandbox | None = None,
                verbose: bool = True) -> dict:
@@ -475,6 +497,8 @@ def run_script(script, memory_path: str | None = None, rounds: int = 1,
                             print(f"         -> {reply[:160]}")
                     elif "edit" in turn:
                         record["turns"].append(_run_edit(turn["edit"], verbose))
+                    elif "ingest" in turn:
+                        record["turns"].append(_run_ingest(turn["ingest"], verbose))
                     elif "clock" in turn:
                         today = shift_clock(turn["clock"])
                         record["turns"].append({"clock": turn["clock"], "today": today})

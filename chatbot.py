@@ -14,12 +14,13 @@ import llm
 import memory
 import wiki
 import splitter
+import sources
 import fillers
 import avatars
 import backdrops
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -349,6 +350,86 @@ async def api_config():
         "hands_free": hands_free,
         "verbosity": llm.current_verbosity(),
     }
+
+
+INGEST_KINDS = ("file", "paste_text", "paste_image")
+
+
+def _file_one(item: dict) -> dict:
+    """One popup item -> `sources`. Runs on a worker thread: it does IO, git and two LLM calls."""
+    if item["kind"] == "paste_text":
+        return sources.ingest_note(item["text"], title=item["title"], hint=item["hint"],
+                                   page=item["page"])
+    return sources.ingest_upload(item["data"], item["filename"], kind_hint=item["kind"],
+                                 title=item["title"], hint=item["hint"], page=item["page"])
+
+
+def _ingest_all(items: list) -> dict:
+    """File every item of one popup; a failure on one is reported, the rest still land."""
+    filed, errors = [], []
+    for item in items:
+        try:
+            filed.append(_file_one(item))
+        except sources.IngestError as exc:
+            errors.append(exc.message)
+        except Exception as exc:  # noqa: BLE001 — one bad drop must not 500 the popup
+            print(f"[Ingest] {item.get('filename') or 'text'}: {exc}")
+            errors.append(f"{item.get('filename') or 'the text'}: {exc}")
+    return {"filed": filed, "errors": errors}
+
+
+@app.post("/ingest")
+async def ingest(request: Request,
+                 confirm: str = Form(""),
+                 kind: str = Form("file"),
+                 title: str = Form(""),
+                 hint: str = Form(""),
+                 page: str = Form(""),
+                 text: str = Form(""),
+                 file: list[UploadFile] = File(default=[])):
+    """The intake popup's File button — the only HTTP write path (docs/20-raw-ingestion.md).
+
+    Nothing is filed without `confirm=true`: the popup is the only sender, and the guard is what
+    keeps a future "helpful" auto-path from writing to the vault behind the user's back.
+    """
+    if not _origin_allowed(request.headers.get("origin")):
+        raise HTTPException(status_code=403, detail="bad origin")
+    if str(confirm).lower() != "true":
+        raise HTTPException(status_code=400, detail="ingest needs an explicit confirm=true")
+    if kind not in INGEST_KINDS:
+        raise HTTPException(status_code=400, detail=f"unknown kind {kind!r}")
+
+    items = []
+    for upload in file or []:
+        data = await upload.read()
+        limit = (sources.MAX_IMAGE_BYTES
+                 if os.path.splitext(upload.filename or "")[1].lower() in sources.IMAGE_EXTS
+                 or kind == "paste_image" else sources.MAX_FILE_BYTES)
+        if len(data) > limit:
+            raise HTTPException(status_code=413,
+                                detail=f"{upload.filename} is larger than {limit // (1024 * 1024)} MB")
+        if sources.KINDS.get(os.path.splitext(upload.filename or "")[1].lower()) is None \
+                and kind != "paste_image":
+            raise HTTPException(status_code=415, detail=f"unsupported file type: {upload.filename}")
+        items.append({"kind": kind, "data": data, "filename": upload.filename or "drop",
+                      "text": "", "title": title, "hint": hint, "page": page})
+    if not items and kind == "paste_text":
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="nothing to file")
+        if len(text.encode()) > sources.MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail="the text is too large")
+        items.append({"kind": kind, "data": b"", "filename": "", "text": text,
+                      "title": title, "hint": hint, "page": page})
+    if not items:
+        raise HTTPException(status_code=400, detail="nothing to file")
+
+    before = memory.snapshot(memory.load_profile())
+    result = await asyncio.to_thread(_ingest_all, items)
+    if any(not f.get("already") for f in result["filed"]):
+        await _send_wiki()
+    if memory.snapshot(memory.load_profile()) != before:
+        await send(_memory_msg(memory.load_profile()))
+    return result
 
 
 @app.get("/")

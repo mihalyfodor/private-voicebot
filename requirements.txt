@@ -15,3 +15,6 @@ pyyaml
 silero-vad
 onnxruntime
 mlx-whisper
+pypdf
+extract-msg
+python-multipart

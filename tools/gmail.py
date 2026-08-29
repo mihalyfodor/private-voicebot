@@ -26,6 +26,67 @@ DEFINITION = {
 }
 
 
+#: the last `get_emails` result, id -> {from, subject, snippet}, in inbox order.
+#: `file_source("email", ref)` resolves a spoken ref ("the one from Anna") against this.
+LAST_RESULTS: dict = {}
+
+
+def resolve_ref(ref) -> str | None:
+    """A message id, a 1-based index or a substring of sender/subject -> the message id."""
+    text = str(ref or "").strip()
+    if not text:
+        return None
+    if text in LAST_RESULTS:
+        return text
+    if text.isdigit():
+        ids = list(LAST_RESULTS)
+        index = int(text) - 1
+        return ids[index] if 0 <= index < len(ids) else None
+    needle = text.lower()
+    for msg_id, meta in LAST_RESULTS.items():
+        if needle in f"{meta.get('from', '')} {meta.get('subject', '')}".lower():
+            return msg_id
+    return None
+
+
+def _body_text(payload: dict) -> str:
+    """The first text/plain part of a `format=full` payload (html stripped as a fallback)."""
+    import base64
+    import re
+
+    plain, html = "", ""
+    stack = [payload or {}]
+    while stack:
+        part = stack.pop(0)
+        stack.extend(part.get("parts") or [])
+        data = (part.get("body") or {}).get("data")
+        if not data:
+            continue
+        try:
+            text = base64.urlsafe_b64decode(data + "==").decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            continue
+        if part.get("mimeType") == "text/plain" and not plain:
+            plain = text
+        elif part.get("mimeType") == "text/html" and not html:
+            html = text
+    return plain.strip() or " ".join(re.sub(r"<[^>]+>", " ", html).split())
+
+
+def fetch_message(msg_id: str) -> str:
+    """One message as markdown: a From/To/Date/Subject block plus the plain-text body.
+
+    This is what `file_source("email", ...)` stores under `raw/email/<id>.md`.
+    """
+    service = _get_service()
+    msg = service.users().messages().get(userId="me", id=msg_id, format="full").execute()
+    payload = msg.get("payload") or {}
+    headers = {h["name"]: h["value"] for h in payload.get("headers", [])}
+    block = "\n".join(f"{key}: {headers.get(key, '')}" for key in ("From", "To", "Date", "Subject")
+                       if headers.get(key))
+    return f"{block}\n\n{_body_text(payload) or msg.get('snippet', '')}\n"
+
+
 def _get_service():
     creds = None
     import os
@@ -60,6 +121,7 @@ def run(args):
     if not messages:
         return "The inbox is empty."
     lines = []
+    LAST_RESULTS.clear()
     for m in messages:
         msg = service.users().messages().get(
             userId="me", id=m["id"], format="metadata",
@@ -69,5 +131,6 @@ def run(args):
         sender = headers.get("From", "Unknown")
         subject = headers.get("Subject", "(no subject)")
         snippet = msg.get("snippet", "")[:100]
+        LAST_RESULTS[m["id"]] = {"from": sender, "subject": subject, "snippet": snippet}
         lines.append(f"From {sender}: {subject}. {snippet}")
     return "Read out these emails naturally: " + " | ".join(lines)

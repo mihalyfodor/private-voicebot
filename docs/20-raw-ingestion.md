@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 20 — Raw ingestion: the office document stack feeds the wiki
 
