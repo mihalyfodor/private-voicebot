@@ -12,7 +12,9 @@ python3 chatbot.py    # opens http://localhost:8010 automatically
 
 ```bash
 source .venv/bin/activate
-# unit suite (no oMLX needed) — pytest.ini excludes the `live` marker by default
+# everything: node --check static/app.js, node DOM fixture, unit suite (no oMLX needed)
+scripts/check.sh
+# or just the unit suite — pytest.ini excludes the `live` and `e2e` markers by default
 python3 -m pytest tests/
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/

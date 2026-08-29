@@ -381,6 +381,15 @@ async def _on_shutdown():
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def _no_static_cache(request: Request, call_next):
+    """Static files are served fresh: fetch-loaded model json / backdrops must not go stale."""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def current_backdrop() -> str:
     try:
         return backdrops.validate(avatars.load_settings().get("backdrop") or backdrops.DEFAULT)

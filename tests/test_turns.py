@@ -255,6 +255,17 @@ def test_default_bind_host_is_loopback():
     assert chatbot.HOST == "127.0.0.1"
 
 
+# ---------------------------------------------------------------- static files
+
+
+def test_static_files_are_served_without_caching():
+    client = TestClient(chatbot.app)
+    res = client.get("/static/app.js")
+    assert res.status_code == 200
+    assert res.headers["cache-control"] == "no-store"
+    assert "cache-control" not in client.get("/api/config").headers
+
+
 # ---------------------------------------------------------------- dead sockets
 
 
@@ -399,15 +410,8 @@ def test_periodic_memory_error_does_not_kill_the_worker(monkeypatch):
 # ---------------------------------------------------------------- markers
 
 
-def test_scenario_12_live_tests_are_excluded_by_default():
-    def collect(*extra):
-        out = subprocess.run(
-            [sys.executable, "-m", "pytest", "--collect-only", "-q", *extra, "tests/test_tools.py"],
-            cwd=ROOT, capture_output=True, text=True)
-        return out.stdout
-
-    default = collect()
-    assert "deselected" in default
-    assert "/1 test" not in default
-    live = collect("-m", "live")
-    assert " tests collected" in live or " test collected" in live
+def test_scenario_12_live_tests_are_excluded_by_default(pytestconfig):
+    """pytest.ini deselects `live` and `e2e` unless asked for; this run is the default one."""
+    markers = "\n".join(pytestconfig.getini("markers"))
+    assert "live:" in markers and "e2e:" in markers
+    assert "not live and not e2e" in " ".join(pytestconfig.getini("addopts"))

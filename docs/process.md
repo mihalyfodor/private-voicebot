@@ -91,7 +91,7 @@ Escalate based on symptoms:
   - Requirements still unclear after revision
 
 **Gate checklist:**
-- [ ] All automated tests passing locally
+- [ ] All automated tests passing locally (`scripts/check.sh`)
 - [ ] User has executed every PRD test scenario once end-to-end
 - [ ] PRD status updated to `refactoring`
 - [ ] `docs/index.md` updated
@@ -110,7 +110,7 @@ Escalate based on symptoms:
 - Must not change externally observable behavior; if it does, it's a PRD change. Observable = user-visible UI/behavior, URL/route behavior, persisted data shape, public component props.
 
 **Gate checklist:**
-- [ ] All tests passing
+- [ ] All tests passing (`scripts/check.sh`)
 - [ ] No change in externally observable behavior (UI, routes, persisted data, public props)
 - [ ] PRD status updated to `done`
 - [ ] `docs/index.md` updated
