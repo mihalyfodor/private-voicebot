@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 27 — Wanko interactivity: motions, cues and reactions
 

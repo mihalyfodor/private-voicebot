@@ -112,7 +112,7 @@ voicebot/
     ├── 24-chat-layout-text.md    # PRD: companion column, typed turns, mute instead of PTT (done)
     ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
     ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
-    ├── 27-wanko-interactivity.md # PRD: motions, cues and reactions (exploration)
+    ├── 27-wanko-interactivity: motion groups, click-to-pet, state cues, new emotions (implementation)
     └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (exploration)
 ```
 
@@ -142,7 +142,7 @@ voicebot/
 - [24-chat-layout-text.md](24-chat-layout-text.md) — companion column (avatar/history/composer), text input, mute replaces push-to-talk, backdrop thumbnails (done)
 - [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox with provenance (exploration)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
-- [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motions, cues and reactions (exploration)
+- [27-wanko-interactivity: motion groups, click-to-pet, state cues, new emotions (implementation)
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor (exploration)
 
 ## Completed PRDs
