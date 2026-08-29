@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 27 — Wanko interactivity: motions, cues and reactions
 
