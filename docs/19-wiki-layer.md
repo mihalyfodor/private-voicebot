@@ -124,3 +124,9 @@ Obsidian plugin (research in 21).
 
 Takeaway: `wiki.yaml` must run with `--tools`; and `memory.load()` should only add the tool hint when the wiki tools
 are actually registered (Phase 3 item). Profile stayed clean: 6 entries, 0 duplicates, 69 tokens.
+
+## Vaults (2026-08-29)
+- `~/llm-wiki` — the user's real vault (its own git repo; commits per ingest; `.obsidian/` ignored).
+- `~/llm-wiki-dev` — development vault; `.env` sets `WIKI_PATH=~/llm-wiki-dev` so the app started during development,
+  sub-agents and screenshots never touch the real vault. Tests and the harness always use a tmp vault regardless.
+  For real use set `WIKI_PATH=~/llm-wiki` in `.env` (or unset it — the code default is `~/llm-wiki`).
