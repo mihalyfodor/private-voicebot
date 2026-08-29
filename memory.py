@@ -11,8 +11,13 @@ The LLM never rewrites the file. It proposes ops (``ADD`` / ``UPDATE`` / ``DELET
 ``memory_ops.jsonl``, and every ``REFLECT_EVERY`` saves a :func:`reflect` pass merges
 duplicates, expires episodics and promotes repeats — also validated, never blind.
 
-See docs/15-memory-v2.md.
+The memory editor (docs/16-memory-editor.md) is the second writer: :func:`snapshot` is what
+the panel renders, :func:`edit` applies one hand-made op and :func:`reset` clears the profile.
+Both go through the very same :func:`apply_ops` path — the UI never writes the file itself.
+
+See docs/15-memory-v2.md and docs/16-memory-editor.md.
 """
+import contextlib
 import difflib
 import json
 import os
@@ -507,41 +512,55 @@ def _parse_path(path: str) -> tuple:
     return "bad", f"unknown path {path!r}"
 
 
-def _apply_entry_op(profile, section, index, kind, value, op, rejected=None) -> bool:
-    """`people[1]` — one whole list entry addressed by position (what the editor sends)."""
+def _is_scalar(value) -> bool:
+    """A usable leaf value: a string or number that isn't blank."""
+    return isinstance(value, (str, int, float)) and bool(str(value).strip())
+
+
+def _entries_at(profile, section, index, op):
+    """``(entries, entry)`` for `section[index]`, or `(entries, None)` when the index is stale.
+
+    The index comes from the UI's last snapshot or from the model, so it can point past the end
+    after a concurrent delete; rejecting is how both callers handle that.
+    """
     entries = profile.setdefault(section, [])
     if index >= len(entries):
-        _reject(op, f"{section}[{index}] does not exist", rejected)
+        _reject(op, f"{section}[{index}] does not exist")
+        return entries, None
+    return entries, entries[index]
+
+
+def _apply_entry_op(profile, section, index, kind, value, op) -> bool:
+    """`people[1]` — one whole list entry addressed by position (what the editor sends)."""
+    entries, entry = _entries_at(profile, section, index, op)
+    if entry is None:
         return False
     if kind == "DELETE":
         entries.pop(index)
         return True
     if not isinstance(value, dict):
-        _reject(op, f"{section}[{index}] needs an object value", rejected)
+        _reject(op, f"{section}[{index}] needs an object value")
         return False
-    clean = {k: str(v).strip() for k, v in value.items()
-             if isinstance(v, (str, int, float)) and str(v).strip()}
-    if not clean or all(_norm(entries[index].get(k)) == _norm(v) for k, v in clean.items()):
+    clean = {k: str(v).strip() for k, v in value.items() if _is_scalar(v)}
+    if not clean or all(_norm(entry.get(k)) == _norm(v) for k, v in clean.items()):
         return False
-    entries[index] = {**entries[index], **clean}
+    entries[index] = {**entry, **clean}
     return True
 
 
-def _apply_entry_field_op(profile, section, index, field, kind, value, op, rejected=None) -> bool:
+def _apply_entry_field_op(profile, section, index, field, kind, value, op) -> bool:
     """`projects[0].note` — a single field of one list entry (models reach for this form)."""
-    entries = profile.setdefault(section, [])
-    if index >= len(entries):
-        _reject(op, f"{section}[{index}] does not exist", rejected)
+    _, entry = _entries_at(profile, section, index, op)
+    if entry is None:
         return False
-    entry = entries[index]
     if kind == "DELETE":
         if field not in entry:
-            _reject(op, f"{section}[{index}] has no {field!r}", rejected)
+            _reject(op, f"{section}[{index}] has no {field!r}")
             return False
         del entry[field]
         return True
-    if not isinstance(value, (str, int, float)) or not str(value).strip():
-        _reject(op, f"{section}[{index}].{field} needs a scalar value", rejected)
+    if not _is_scalar(value):
+        _reject(op, f"{section}[{index}].{field} needs a scalar value")
         return False
     if _norm(entry.get(field)) == _norm(value):
         return False
@@ -560,61 +579,64 @@ def apply_ops(profile: dict, ops: list, rejected: list | None = None) -> tuple:
     ``{"op": <the op>, "reason": "..."}`` — the memory editor shows the reason to the user.
     """
     applied = []
-    for op in ops or []:
-        if not isinstance(op, dict):
-            continue
-        kind = str(op.get("op", "")).strip().upper()
-        path = str(op.get("path", "")).strip()
-        value = op.get("value")
-        if kind == "NOOP":
-            continue
-        if kind not in ("ADD", "UPDATE", "DELETE"):
-            _reject(op, f"unknown op {kind!r}", rejected)
-            continue
+    with _collecting(rejected):
+        for op in ops or []:
+            if not isinstance(op, dict):
+                continue
+            kind = str(op.get("op", "")).strip().upper()
+            path = str(op.get("path", "")).strip()
+            value = op.get("value")
+            if kind == "NOOP":
+                continue
+            if kind not in ("ADD", "UPDATE", "DELETE"):
+                _reject(op, f"unknown op {kind!r}")
+                continue
 
-        target = _parse_path(path)
-        if target[0] == "entry_field":
-            _, section, index, field = target
-            ok = _apply_entry_field_op(profile, section, index, field, kind, value, op, rejected)
-        elif target[0] == "entry":
-            _, section, index = target
-            key_field = LIST_KEY[section]
-            if kind == "ADD" or (isinstance(value, dict) and value.get(key_field)):
-                # ADD always appends, and a value carrying the identifying key wins over the
-                # index — that is how the LLM addresses entries (docs/15-memory-v2.md).
-                path = f"{section}[]"
-                ok = _apply_list_op(profile, section, kind, value, op, rejected)
+            target = _parse_path(path)
+            if target[0] == "entry_field":
+                _, section, index, field = target
+                ok = _apply_entry_field_op(profile, section, index, field, kind, value, op)
+            elif target[0] == "entry":
+                _, section, index = target
+                key_field = LIST_KEY[section]
+                if kind == "ADD" or (isinstance(value, dict) and value.get(key_field)):
+                    # ADD always appends, and a value carrying the identifying key wins over the
+                    # index — that is how the LLM addresses entries (docs/15-memory-v2.md).
+                    path = f"{section}[]"
+                    ok = _apply_list_op(profile, section, kind, value, op)
+                else:
+                    ok = _apply_entry_op(profile, section, index, kind, value, op)
+            elif target[0] == "list":
+                section = target[1]
+                path = f"{section}[]"    # log one canonical path whatever form the model used
+                ok = _apply_list_op(profile, section, kind, value, op)
+            elif target[0] == "scalar":
+                ok = _apply_scalar_op(profile, target[1], target[2], kind, value, op)
             else:
-                ok = _apply_entry_op(profile, section, index, kind, value, op, rejected)
-        elif target[0] == "list":
-            section = target[1]
-            path = f"{section}[]"        # log one canonical path whatever form the model used
-            ok = _apply_list_op(profile, section, kind, value, op, rejected)
-        elif target[0] == "scalar":
-            ok = _apply_scalar_op(profile, target[1], target[2], kind, value, op, rejected)
-        else:
-            _reject(op, target[1], rejected)
-            continue
-        if not ok:
-            continue
-        applied.append({"op": kind, "path": path, "value": value, "reason": op.get("reason", "")})
+                _reject(op, target[1])
+                continue
+            if not ok:
+                continue
+            applied.append({"op": kind, "path": path, "value": value,
+                            "reason": op.get("reason", "")})
 
     for note in _enforce_caps(profile):
         print(f"[Memory] cap enforced — {note}")
     return profile, applied
 
 
-def _apply_scalar_op(profile, section, key, kind, value, op, rejected=None) -> bool:
+def _apply_scalar_op(profile, section, key, kind, value, op) -> bool:
+    """`identity.name` — one string under a scalar section; UPDATE keeps the old value in
+    `superseded` so the editor can offer "restore"."""
     target = profile.setdefault(section, {})
     if kind == "DELETE":
         if key not in target:
-            _reject(op, "key not present", rejected)
+            _reject(op, "key not present")
             return False
         del target[key]
         return True
     if not isinstance(value, str) or not value.strip():
-        _reject(op, f"{section}.{key} needs a non-empty string value, got {type(value).__name__}",
-                rejected)
+        _reject(op, f"{section}.{key} needs a non-empty string value, got {type(value).__name__}")
         return False
     value = value.strip()
     old = target.get(key)
@@ -626,19 +648,21 @@ def _apply_scalar_op(profile, section, key, kind, value, op, rejected=None) -> b
     return True
 
 
-def _apply_list_op(profile, section, kind, value, op, rejected=None) -> bool:
+def _apply_list_op(profile, section, kind, value, op) -> bool:
+    """`people[]` — a whole entry addressed by its identifying key (`name` / `what` / `text`),
+    which is how the model refers to list entries; the entry is matched, appended or removed."""
     entries = profile.setdefault(section, [])
     key_field = LIST_KEY[section]
     if not isinstance(value, dict):
-        _reject(op, f"{section}[] needs an object value", rejected)
+        _reject(op, f"{section}[] needs an object value")
         return False
     if not value.get(key_field):
-        _reject(op, f"{section}[] needs a {key_field!r} key", rejected)
+        _reject(op, f"{section}[] needs a {key_field!r} key")
         return False
 
     if section == "episodic":
         if kind != "ADD":
-            _reject(op, "episodic supports ADD only", rejected)
+            _reject(op, "episodic supports ADD only")
             return False
         entry = _episodic_entry(value)
         if _find(entries, "text", entry["text"]) != -1:
@@ -647,10 +671,10 @@ def _apply_list_op(profile, section, kind, value, op, rejected=None) -> bool:
         return True
 
     index = _find(entries, key_field, value[key_field])
-    clean = {k: v for k, v in value.items() if isinstance(v, (str, int, float)) and str(v).strip()}
+    clean = {k: v for k, v in value.items() if _is_scalar(v)}
     if kind == "DELETE":
         if index == -1:
-            _reject(op, f"no {section} entry named {value[key_field]!r}", rejected)
+            _reject(op, f"no {section} entry named {value[key_field]!r}")
             return False
         entries.pop(index)
         return True
@@ -663,9 +687,26 @@ def _apply_list_op(profile, section, kind, value, op, rejected=None) -> bool:
     return True
 
 
-def _reject(op: dict, reason: str, rejected: list | None = None) -> None:
-    """Print the rejection and, when a collector is given, record it for the caller (the UI)."""
+#: Where `_reject` also files its reasons, when a caller asked to collect them. Thread-local so
+#: a UI edit and a background save can never read each other's rejections.
+_collector = threading.local()
+
+
+@contextlib.contextmanager
+def _collecting(rejected: list | None):
+    """Route rejections of the ops applied in this block into `rejected` as well as stdout."""
+    previous = getattr(_collector, "rejected", None)
+    _collector.rejected = rejected
+    try:
+        yield
+    finally:
+        _collector.rejected = previous
+
+
+def _reject(op: dict, reason: str) -> None:
+    """Print the rejection and, inside `_collecting`, record it for the caller (the UI)."""
     print(f"[Memory] rejected op {op.get('op')} {op.get('path')!r}: {reason}")
+    rejected = getattr(_collector, "rejected", None)
     if rejected is not None:
         rejected.append({"op": op, "reason": reason})
 
@@ -732,8 +773,8 @@ def edit(op: dict) -> tuple:
     with _LOCK:
         profile = load_profile()
         capped = _cap_reason(profile, single)
-        if capped:
-            print(f"[Memory] rejected op {single['op']} {single['path']!r}: {capped}")
+        if capped:                       # checked before apply_ops: caps there evict silently
+            _reject(single, capped)
             return profile, capped
         rejected = []
         profile, applied = apply_ops(profile, [single], rejected)

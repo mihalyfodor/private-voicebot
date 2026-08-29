@@ -40,6 +40,8 @@ const CONFIG = {
   expressionHoldMs: 500,
   mouthGain: 6.0,        // RMS → mouth openness multiplier
   mouthSmooth: 0.35,     // 0..1, higher = snappier
+  fitWidth: 0.8,         // share of the avatar column the drawn model may use…
+  fitHeight: 0.7,        // …and of its height; the smaller of the two wins
 };
 let profile = PROFILES.haru;
 let avatarName = 'Haru';
@@ -361,7 +363,9 @@ const avatar = {
     this.fit();
 
     const core = model.internalModel.coreModel;
+    this.fitted = false;
     model.internalModel.on('afterMotionUpdate', () => {
+      if (!this.fitted && this.artBox()) { this.fitted = true; this.fit(); }
       // lip-sync (skip the analyser read entirely when nothing is playing)
       const target = playing ? Math.min(1, rms() * CONFIG.mouthGain) : 0;
       mouth += (target - mouth) * CONFIG.mouthSmooth;
@@ -390,19 +394,42 @@ const avatar = {
     model.motion(profile.idle);
   },
 
+  // Box the drawn art occupies inside the model's canvas, in canvas units. Live2D canvases
+  // have generous transparent margins, so the model's own size is a poor thing to fit against.
+  // Returns null until the first frame has run and the vertices are filled in.
+  artBox() {
+    const im = this.model.internalModel, core = im.coreModel;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < core.getDrawableCount(); i++) {
+      if (!core.getDrawableDynamicFlagIsVisible(i) || core.getDrawableOpacity(i) < 0.01) continue;
+      const v = im.getDrawableVertices(i);
+      for (let j = 0; j < v.length; j += 2) {
+        if (v[j] < minX) minX = v[j];
+        if (v[j] > maxX) maxX = v[j];
+        if (v[j + 1] < minY) minY = v[j + 1];
+        if (v[j + 1] > maxY) maxY = v[j + 1];
+      }
+    }
+    const w = maxX - minX, h = maxY - minY;
+    if (!(w > 0 && h > 0)) return null;
+    return { x: minX, y: minY, w, h };
+  },
+
   fit() {
-    // The canvas resizes with its column (PIXI resizeTo: canvas.parentElement), so scale
-    // against whichever axis limits and centre what is left over. Model canvases have
-    // generous transparent margins, hence the per-profile scale/top-crop tweaks.
+    // The canvas resizes with its column (PIXI resizeTo: canvas.parentElement): scale the drawn
+    // art to CONFIG.fitWidth/fitHeight of the column, whichever limits, and centre it there.
     const app = this.app, m = this.model;
     if (!m) return;
-    const natural = { w: m.width / m.scale.x, h: m.height / m.scale.y };
-    const limit = Math.min(app.screen.height / natural.h, app.screen.width / natural.w);
-    const scale = limit * profile.avatarScale;
+    const canvas = { w: m.width / m.scale.x, h: m.height / m.scale.y };
+    const art = this.artBox() || { x: 0, y: 0, w: canvas.w, h: canvas.h };
+    const scale = profile.avatarScale * Math.min(
+      CONFIG.fitWidth * app.screen.width / art.w,
+      CONFIG.fitHeight * app.screen.height / art.h,
+    );
     m.scale.set(scale);
-    m.x = (app.screen.width - natural.w * scale) / 2;
-    m.y = Math.max(0, (app.screen.height - natural.h * scale) / 2)
-        - natural.h * scale * profile.avatarTopCrop;
+    m.x = app.screen.width / 2 - (art.x + art.w / 2) * scale;
+    m.y = app.screen.height / 2 - (art.y + art.h / 2) * scale
+        - art.h * scale * profile.avatarTopCrop;
   },
 
   setEmotion(emotion) {
@@ -465,14 +492,18 @@ let memoryCount = 0;
 let memoryModelView = false;
 const memoryErrorEls = new Map();  // op path prefix → the row's error line
 
+// Every memory action is fire-and-forget: the server answers with a fresh `memory` message.
+function sendMemory(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
+
 function requestMemory() {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'get_memory' }));
+  sendMemory({ action: 'get_memory' });
 }
 
 function sendMemoryOp(op, path, value, reason) {
-  if (!(ws && ws.readyState === WebSocket.OPEN)) return;
   memErrorEl.textContent = '';
-  ws.send(JSON.stringify({ action: 'memory_op', op, path, value, reason: reason || 'ui' }));
+  sendMemory({ action: 'memory_op', op, path, value, reason: reason || 'ui' });
 }
 
 function setMemory(msg) {
@@ -503,20 +534,21 @@ function el(tag, cls, text) {
 
 // Click → input; Enter or blur saves (when changed), Esc cancels.
 function editable(value, placeholder, onSave) {
-  const span = el('span', 'mem-field', value === '' || value === undefined || value === null ? placeholder : value);
-  if (value === '' || value === undefined || value === null) span.classList.add('empty');
+  const current = value === undefined || value === null ? '' : String(value);
+  const span = el('span', 'mem-field', current === '' ? placeholder : current);
+  if (current === '') span.classList.add('empty');
   span.title = 'click to edit';
   span.onclick = () => {
     const input = el('input', 'mem-input');
-    input.value = value === undefined || value === null ? '' : String(value);
-    input.size = Math.max(8, input.value.length + 2);
+    input.value = current;
+    input.size = Math.max(8, current.length + 2);
     let done = false;
     const finish = (save) => {
       if (done) return;
       done = true;
       const next = input.value.trim();
       input.replaceWith(span);
-      if (save && next !== String(value === undefined || value === null ? '' : value) && next !== '') onSave(next);
+      if (save && next !== '' && next !== current) onSave(next);
     };
     input.onkeydown = (e) => {
       e.stopPropagation();  // Esc/Space are global shortcuts otherwise
@@ -658,7 +690,7 @@ function renderMemory() {
 memModelToggle.onclick = () => { memoryModelView = !memoryModelView; renderMemory(); };
 document.getElementById('memory-reset').onclick = () => {
   if (!confirm('Forget everything the assistant remembers about you? This cannot be undone.')) return;
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ action: 'memory_reset' }));
+  sendMemory({ action: 'memory_reset' });
 };
 
 // ---------- websocket / ui ----------

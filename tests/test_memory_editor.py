@@ -9,55 +9,27 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import json
 import random
 import threading
-import time
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 import chatbot
 import memory
+from tests.conftest import FakeClient, empty_profile
 
 
 # --------------------------------------------------------------------------- helpers
 
 
-class FakeClient:
-    """Queued completion contents; `delay` sleeps inside the call (concurrency tests)."""
-
-    def __init__(self, *contents, delay: float = 0.0, entered: threading.Event | None = None):
-        self._contents = list(contents)
-        self.delay = delay
-        self.entered = entered
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(kw)
-        if self.entered is not None:
-            self.entered.set()
-        if self.delay:
-            time.sleep(self.delay)
-        content = self._contents.pop(0) if self._contents else "[]"
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-
-
 @pytest.fixture(autouse=True)
-def sandbox(monkeypatch, tmp_path):
-    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
-    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
-    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
-    return tmp_path
+def sandbox(memory_sandbox):
+    """Every test in this module writes to a tmp memory.json (fixture lives in conftest)."""
+    return memory_sandbox
 
 
-def _profile(**kw):
-    p = memory._empty_profile()
-    p.update(kw)
-    return p
-
-
-def _seed(**kw) -> dict:
-    profile = _profile(**kw)
+def _seed(**sections) -> dict:
+    """Write a profile with `sections` filled in — the starting point of an editor scenario."""
+    profile = empty_profile(**sections)
     memory._write_profile(profile)
     return profile
 

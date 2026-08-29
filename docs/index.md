@@ -33,11 +33,12 @@ voicebot/
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
-├── memory.py           # session summarization, shortmem.txt persistence
+├── memory.py           # structured profile memory: load/render, LLM-proposed ops, reflection, and the editor entry points (snapshot/edit/reset)
 ├── scripts/
-│   └── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
+│   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
+│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`)
 ├── static/
-│   ├── index.html      # browser UI: avatar canvas + menu + transcript + push-to-talk
+│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory views) + menu drawer
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
 │   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, menu drawer, websocket
 │   ├── style.css
@@ -65,7 +66,9 @@ voicebot/
 │   ├── test_backdrops.py          # backdrops.validate()/listing()
 │   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + PTT Recorder
 │   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked
-│   └── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
+│   ├── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
+│   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection
+│   └── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 ├── requirements.txt
 └── docs/
     ├── index.md               # this file
@@ -83,7 +86,8 @@ voicebot/
     ├── 12-turn-controller.md    # PRD: session, turn controller, protocol hardening (done)
     ├── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
     ├── 14-memory-eval.md        # PRD: text-only memory evaluation harness (done)
-    └── 15-memory-v2.md          # PRD: structured profile memory (done)
+    ├── 15-memory-v2.md          # PRD: structured profile memory (done)
+    └── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
 ```
 
 ## Active PRDs
@@ -100,7 +104,7 @@ voicebot/
 - [13-streamed-first-call.md](13-streamed-first-call.md) — stream the first LLM call (done)
 - [14-memory-eval.md](14-memory-eval.md) — memory evaluation harness, `python -m eval.harness` (done)
 - [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (done)
-- [16-memory-editor.md](16-memory-editor.md) — memory viewer/editor panel (exploration)
+- [16-memory-editor.md](16-memory-editor.md) — memory viewer/editor panel (done)
 - [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration)
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 

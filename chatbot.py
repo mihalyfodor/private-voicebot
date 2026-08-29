@@ -122,12 +122,17 @@ session: Session | None = None
 _loop: asyncio.AbstractEventLoop | None = None
 
 
+def _memory_msg(profile: dict) -> dict:
+    """The `memory` message the panel re-renders itself from: profile + rendered block + count."""
+    return {"type": "memory", **memory.snapshot(profile)}
+
+
 def push_memory() -> None:
     """Push a fresh memory snapshot to an open panel. No socket (or no loop) → silent no-op."""
     sess, loop = session, _loop
     if sess is None or sess.websocket is None or loop is None or not loop.is_running():
         return
-    make_sender(loop)({"type": "memory", **memory.snapshot(memory.load_profile())})
+    make_sender(loop)(_memory_msg(memory.load_profile()))
 
 
 def _periodic_memory(count: int) -> None:
@@ -428,8 +433,9 @@ async def _action_set_verbosity(sess, msg, loop):
 
 
 async def _action_get_memory(sess, msg, loop):
+    """The memory panel asking for the current profile (on open, and after every reconnect)."""
     profile = await asyncio.to_thread(memory.load_profile)
-    await send({"type": "memory", **memory.snapshot(profile)})
+    await send(_memory_msg(profile))
 
 
 async def _action_memory_op(sess, msg, loop):
@@ -444,12 +450,13 @@ async def _action_memory_op(sess, msg, loop):
     if reason:
         await send({"type": "memory_error", "path": op["path"], "reason": reason})
         return
-    await send({"type": "memory", **memory.snapshot(profile)})
+    await send(_memory_msg(profile))
 
 
 async def _action_memory_reset(sess, msg, loop):
+    """The panel's "Forget everything": the profile is emptied and the reset is audited."""
     profile = await asyncio.to_thread(memory.reset)
-    await send({"type": "memory", **memory.snapshot(profile)})
+    await send(_memory_msg(profile))
 
 
 async def _action_shutdown(sess, msg, loop):

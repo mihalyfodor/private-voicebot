@@ -153,8 +153,10 @@ main {
   text-transform: uppercase; height: 14px;
 }
 
+/* lives inside the avatar column so it never collides with the workspace views */
 #credit {
-  position: fixed; right: 16px; bottom: 10px; z-index: 3;
+  position: absolute; left: 12px; bottom: 8px; z-index: 3;
+  max-width: calc(100% - 24px);
   font-size: 10px; color: #3a3a3a; letter-spacing: 0.05em;
 }
 
@@ -283,8 +285,9 @@ main {
   cursor: pointer; padding: 0 2px;
 }
 .mem-restore:hover { text-decoration: underline; }
-.mem-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
-.mem-error:empty { display: none; }
+/* row-level errors and the panel-level one look the same (see #memory-error below) */
+.mem-error, #memory-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
+.mem-error:empty, #memory-error:empty { display: none; }
 
 .mem-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 4px 8px; }
 .mem-add input {
@@ -303,8 +306,6 @@ main {
   padding: 10px 22px 18px; border-top: 1px solid #1f1f1f;
 }
 .memory-note { font-size: 11px; color: #6a6a6a; }
-#memory-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
-#memory-error:empty { display: none; }
 .danger-link {
   margin-left: auto; background: none; border: none; color: #e06060;
   font: inherit; font-size: 12px; letter-spacing: 0.05em; cursor: pointer;
