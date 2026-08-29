@@ -2494,19 +2494,24 @@ function paletteRow(entry, i) {
   row.append(el('span', 'palette-label', entry.label));
   row.append(el('span', 'palette-detail', entry.detail || ''));
   row.append(el('span', 'palette-group', entry.group));
-  row.onmouseenter = () => { palette.index = i; renderPalette(false); };
+  row.onmouseenter = () => { palette.index = i; highlightPalette(); };
   row.onclick = () => runPalette(i);
   return row;
 }
 
-function renderPalette(recompute = true) {
-  if (recompute) palette.items = paletteItems(palette.query);
-  if (palette.items.length) palette.index = Math.max(0, Math.min(palette.index, palette.items.length - 1));
-  else palette.index = 0;
+// Rebuild the rows from the sources; the highlight alone moves without a rebuild.
+function renderPalette() {
+  palette.items = paletteItems(palette.query);
+  palette.index = Math.min(palette.index, Math.max(0, palette.items.length - 1));
   const rows = palette.items.map(paletteRow);
   paletteListEl.replaceChildren(...(rows.length ? rows : [el('div', 'palette-empty', 'nothing here yet')]));
-  const active = rows[palette.index];
-  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+  highlightPalette();
+}
+
+function highlightPalette() {
+  Array.from(paletteListEl.children).forEach((row, i) => row.classList.toggle('active', i === palette.index));
+  const active = paletteListEl.children[palette.index];
+  if (palette.items.length && active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 
 function openPalette() {
@@ -2535,7 +2540,7 @@ function movePalette(delta) {
   const n = palette.items.length;
   if (!n) return;
   palette.index = (palette.index + delta + n) % n;
-  renderPalette(false);
+  highlightPalette();
 }
 
 function runPalette(i) {
@@ -2547,8 +2552,8 @@ function runPalette(i) {
 
 paletteInput.oninput = () => { palette.query = paletteInput.value; palette.index = 0; renderPalette(); };
 paletteInput.onkeydown = (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); closePalette(); return; }
-  e.stopPropagation();   // the global shortcuts stay out of the palette
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') return;   // bubbles to the document handler: toggles closed
+  e.stopPropagation();   // the other global shortcuts stay out of the palette
   if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
   else if (e.key === 'Enter') { e.preventDefault(); runPalette(palette.index); }

@@ -32,4 +32,9 @@ def test_cmd_k_type_a_page_enter_opens_it_in_the_wiki(page, shot):
     assert page.locator("#palette-input").input_value() == ""
     page.keyboard.press("Escape")
     page.wait_for_selector("#palette[hidden]", state="attached")
+    # ⌘K with the palette input focused closes it too (the keydown bubbles once, not twice)
+    page.keyboard.press("Meta+k")
+    page.wait_for_selector("#palette:not([hidden])")
+    page.keyboard.press("Meta+k")
+    page.wait_for_selector("#palette[hidden]", state="attached")
     assert page.locator("#wiki-text h1").inner_text() == "Atlas"

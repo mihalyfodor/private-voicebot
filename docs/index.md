@@ -126,7 +126,7 @@ voicebot/
     ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (done)
     ├── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
     ├── 29-e2e.md                 # PRD: Playwright end-to-end tests (done)
-    └── 30-command-palette.md     # PRD: ⌘K command palette (refactoring)
+    └── 30-command-palette.md     # PRD: ⌘K command palette (done)
 ```
 
 ## Active PRDs
@@ -158,7 +158,7 @@ voicebot/
 - [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motion groups, click-to-pet, listening/thinking/tool/greeting/shutdown cues, three new emotion tags (done)
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)
 - [29-e2e.md](29-e2e.md) — Playwright e2e layer: spawned server, temp vault, wiki editor flows, one live turn; `SETTINGS_PATH`/`MEMORY_DIR` env overrides (done)
-- [30-command-palette.md](30-command-palette.md) — ⌘K command palette: views, wiki pages/Today/New, backdrop/reply length/voice/mute, file a source, re-ingest, shutdown; wiki-search fallback (refactoring)
+- [30-command-palette.md](30-command-palette.md) — ⌘K command palette: views, wiki pages/Today/New, backdrop/reply length/voice/mute, file a source, re-ingest, shutdown; wiki-search fallback (done)
 
 ## Completed PRDs
 

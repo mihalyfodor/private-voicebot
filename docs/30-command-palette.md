@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 30 — Command palette (⌘K)
 
@@ -81,7 +81,7 @@ Node fixture (`tests/app_fixture.mjs`, asserted from `tests/test_palette.py`):
 
 Browser e2e (`tests/e2e/test_palette.py`):
 7. ⌘K on the loaded app → `#palette` visible; type `atlas`; Enter → Wiki view with `#wiki-text h1` = `Atlas`;
-   palette hidden; screenshot of the open palette and of the result.
+   palette hidden; ⌘K while the palette input is focused closes it; screenshot of the open palette and of the result.
 
 ## Out of scope
 Server-side commands or a command API; recent/frequency ordering; memory-entry commands; command arguments beyond
