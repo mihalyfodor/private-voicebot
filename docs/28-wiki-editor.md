@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 28 — Wiki as a light editor (Obsidian-compatible)
 
@@ -46,8 +46,16 @@ CodeMirror; optimistic save with content-hash etag; rename/graph explicitly not 
   rebuild index → `log.md` line → one commit `wiki: rename old → new (N links)`; reply `wiki` + `wiki_page` of the
   new path. `wiki_delete {path}`: lock → `git rm` → rebuild index → log → commit; lint reports the broken links.
 - `wiki.backlinks(path)` from `links_in` over `page_paths()` (cached with the search index); `wiki.tags(page)`.
-- Vendor `static/vendor/marked.min.js` (MIT, 40 kB) with its licence file; render pipeline: strip frontmatter → replace
-  wikilinks/embeds with placeholders → `marked.parse` → DOM → swap placeholders for link spans.
+- Vendor `static/vendor/marked.umd.js` (MIT, 44 kB — marked ≥ 16 ships no minified build; this is the official
+  browser file from the npm tarball) with its licence file; render pipeline: strip frontmatter → replace
+  wikilinks/embeds with placeholders → `marked.parse` → parse into an inert document → import only whitelisted
+  tags/attributes → swap placeholders for link spans. Without `marked` (the node fixture) the body falls back to
+  plain text with the same link spans.
+- The pane reads the page through `wiki.page_text` (full text, ≤ 20 kB) — `read_page`'s 4 kB tool cap would
+  truncate what the editor saves back. Search box → `wiki_search {query}` → `{"type":"wiki_search", hits}`
+  (`wiki.search`, the same BM25 as the tool).
+- Rename/delete refuse the machinery pages (`index`, `log`, `schema`) and `decisions`. Saving unchanged text is
+  a no-op (no commit). Dialogs (new page, rename, delete, missing link, discard) are plain `prompt`/`confirm`.
 - Save preserves the body byte-for-byte except the `updated:` line.
 
 ### Decisions
@@ -72,7 +80,6 @@ CodeMirror; optimistic save with content-hash etag; rename/graph explicitly not 
     the basename is unique — a second page with the same basename leaves short links untouched); one commit; lint
     clean afterwards; renaming onto an existing path is refused.
 11. `wiki_delete` removes the page, index entry; lint lists the now-broken links; one commit; `git log` shows the file.
-12. Manual: edit a page in the app, see it in Obsidian; edit in Obsidian, app shows conflict on stale save.
 
 ## Out of scope
 Graph view, transclusion, CodeMirror, autosave, section-level edits, fuzzy link rewriting, mobile polish.
