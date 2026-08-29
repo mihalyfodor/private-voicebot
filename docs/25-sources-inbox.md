@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 25 — Sources view as inbox and provenance
 
@@ -26,9 +26,23 @@ re-run ingest, forget. Data already exists in `raw/manifest.jsonl` and the `sour
   `identity.name`/`nickname` and a rule "the user is the profile owner, not a person page; attribute their side
   as 'the user'"; ops targeting `people/<user-slug>` are rejected in `restrict_ops`. Fuzzy match on the profile
   name (OCR misspellings like "Mihay") counts as the user.
+- **Already done by PRD 26** (identity aliases): `memory.is_user` + `user_names`, the "the user" rule in both ingest
+  prompts, `restrict_ops` → `wiki.reject_user_pages` refusing `people/<user>` pages and link targets, "the user (…)"
+  entity lines, and the fuzzy match. Covered by `tests/test_sources.py::test_a_document_naming_the_user_files_no_page_about_them`
+  and `test_restrict_ops_rejects_pages_about_the_user`. Nothing left to build for scenario 0.
+
+### Decisions
+- Rows are ordered by manifest order reversed (append-only file = filing order); no manifest schema change.
+- The Sources view keeps sharing `#view-wiki`: the left list swaps to source rows + kind chips, the right pane
+  is the wiki page renderer with three extra head buttons. No second page renderer.
+- `reingest` reuses the ingest core (`_file`): same summary + ops prompts, same source page path, the manifest
+  line is replaced in place (sha unchanged, `pages_touched` = the union of old and new).
+- `forget` scans only the manifest's `pages_touched` for `(source: <raw>)` bullets under `## Notes`/`## History`;
+  decisions blocks and `## Related` links stay (reversible via git anyway).
+- `_send_wiki` also pushes `sources` so the badge sees every filing (popup, voice tool, session ingest).
 
 ## Test scenarios
-0. A screenshot whose text names the user (incl. a misspelling) creates no `people/` page for them; other people still get pages.
+0. A screenshot whose text names the user (incl. a misspelling) creates no `people/` page for them; other people still get pages. *(covered by PRD 26, see above)*
 1. `list_sources` orders newest first and reports pages fed from the manifest.
 2. `reingest` on a stored raw file produces a new summary (mock), rewrites the source page, adds notes, one commit.
 3. `forget` removes page, raw, manifest line and only the matching notes from fed pages; other notes untouched; one commit; lint clean.
