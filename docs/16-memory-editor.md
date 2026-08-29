@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 16 — Memory editor: view, correct and delete what the assistant remembers
 

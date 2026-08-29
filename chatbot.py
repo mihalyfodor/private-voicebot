@@ -11,6 +11,7 @@ import threading
 import webbrowser
 
 import llm
+import memory
 import splitter
 import fillers
 import avatars
@@ -117,6 +118,16 @@ def speak_stream(events, send_sync, tts=None):
 # One connection at a time (single-user app): `session` is the live Session,
 # `controller` serialises turns on its own worker thread. See docs/12-turn-controller.md.
 session: Session | None = None
+#: the asyncio loop serving the websocket, so worker-thread code can push to the browser
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+def push_memory() -> None:
+    """Push a fresh memory snapshot to an open panel. No socket (or no loop) → silent no-op."""
+    sess, loop = session, _loop
+    if sess is None or sess.websocket is None or loop is None or not loop.is_running():
+        return
+    make_sender(loop)({"type": "memory", **memory.snapshot(memory.load_profile())})
 
 
 def _periodic_memory(count: int) -> None:
@@ -125,6 +136,7 @@ def _periodic_memory(count: int) -> None:
         llm.save_memory()
     except Exception as e:
         print(f"[Memory error] {e}")
+    push_memory()   # an open memory panel refreshes itself after a background save
 
 
 controller = TurnController(on_turn_complete=_periodic_memory)
@@ -415,6 +427,31 @@ async def _action_set_verbosity(sess, msg, loop):
     await send({"type": "verbosity", "value": llm.current_verbosity()})
 
 
+async def _action_get_memory(sess, msg, loop):
+    profile = await asyncio.to_thread(memory.load_profile)
+    await send({"type": "memory", **memory.snapshot(profile)})
+
+
+async def _action_memory_op(sess, msg, loop):
+    """One hand edit from the memory panel: {op, path, value, reason?} → memory | memory_error.
+
+    `memory.edit` does file IO under the memory lock (and may wait for a background save), so it
+    runs off the event loop.
+    """
+    op = {"op": msg.get("op"), "path": msg.get("path"),
+          "value": msg.get("value"), "reason": msg.get("reason")}
+    profile, reason = await asyncio.to_thread(memory.edit, op)
+    if reason:
+        await send({"type": "memory_error", "path": op["path"], "reason": reason})
+        return
+    await send({"type": "memory", **memory.snapshot(profile)})
+
+
+async def _action_memory_reset(sess, msg, loop):
+    profile = await asyncio.to_thread(memory.reset)
+    await send({"type": "memory", **memory.snapshot(profile)})
+
+
 async def _action_shutdown(sess, msg, loop):
     print("\nShutdown requested from UI...")
     os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
@@ -429,6 +466,9 @@ ACTIONS = {
     "set_avatar": _action_set_avatar,
     "reload_characters": _action_reload_characters,
     "set_verbosity": _action_set_verbosity,
+    "get_memory": _action_get_memory,
+    "memory_op": _action_memory_op,
+    "memory_reset": _action_memory_reset,
     "shutdown": _action_shutdown,
 }
 
@@ -456,7 +496,7 @@ def _origin_allowed(origin: str | None) -> bool:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global session
+    global session, _loop
     if not _origin_allowed(websocket.headers.get("origin")):
         print(f"[WS] refused origin {websocket.headers.get('origin')!r}")
         await websocket.close(code=4003)
@@ -471,7 +511,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if old_ws is not None:
             with contextlib.suppress(Exception):
                 await old_ws.close(code=4000)
-    loop = asyncio.get_event_loop()
+    loop = _loop = asyncio.get_event_loop()
     await _on_connect(sess, loop)
     try:
         while True:
