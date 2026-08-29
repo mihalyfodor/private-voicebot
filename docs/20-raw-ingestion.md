@@ -92,3 +92,12 @@ and (b) an AppleScript "file selected message" command for legacy Outlook for Ma
 
 ## Out of scope
 Chunked/long documents, OCR, mailbox polling, folder watching, non-text attachments, web clipping.
+
+## Results (harness, live, 2026-08-29, gemma-4-26B, `--tools`)
+
+| run | probes | notes |
+|---|---|---|
+| `sources.yaml` | **3/3** | `eval/fixtures/falcon.md` filed → `sources/falcon` + `projects/falcon` fed with the go-live delay, latency numbers and the go/no-go date; probes answered from the page. 5 wiki pages, 0 duplicate profile entries |
+
+Finding: a `set_field projects/falcon status: amber` op was rejected — `status` is missing from the fixed frontmatter
+key set although project pages are specified with one (PRD 19). Fixed in Phase 3 by adding `status` to the allowed keys.

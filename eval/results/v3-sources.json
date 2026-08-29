@@ -1,0 +1,243 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "what's the status of Falcon?",
+          "category": "single-hop",
+          "reply": "Project Falcon is currently at amber status, Mihaly. The billing service migration is code complete, but high latency has pushed the go-live date to September 15th. A go/no-go decision is scheduled for September 3rd.",
+          "passed": true,
+          "hits": [
+            "amber",
+            "latency"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "when does Falcon go live, and why did it move?",
+          "category": "single-hop",
+          "reply": "It is now scheduled for September 15th. The date moved because the p99 latency is sitting at 940 ms, which is much higher than the 400 ms target. ooh, is that a snack I see?",
+          "passed": true,
+          "hits": [
+            "september 15",
+            "latency"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "who is the tech lead on Falcon?",
+          "category": "single-hop",
+          "reply": "I cannot find a specific tech lead mentioned in the files. I see Anna Kovacs, Mihaly Fodor, and Tomas Bell are all team members, though. Should I dig a little deeper for you?",
+          "passed": true,
+          "hits": [
+            "anna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, I run the platform team here",
+              "reply": "It is great to meet you, Mihaly! I am so glad you are here to lead the platform team. Ooh, does the platform team get extra treats?"
+            },
+            {
+              "ingest": {
+                "path": "eval/fixtures/falcon.md",
+                "hint": "this is the weekly status of project Falcon"
+              },
+              "filed": {
+                "path": "sources/project-falcon-weekly-status-week-34",
+                "raw": "raw/inbox/2026-08-29-falcon.md",
+                "already": false
+              },
+              "error": ""
+            },
+            {
+              "user": "ok, that's filed, talk later",
+              "reply": "You got it, Mihaly! I will be right here by your monitor whenever you need me."
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User stated their name)\nADD identity.occupation = Lead of the platform team  (User stated their role)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T09:35:18",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User stated their name"
+            },
+            {
+              "ts": "2026-08-29T09:35:18",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "Lead of the platform team",
+              "reason": "User stated their role"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "what's the status of Falcon?",
+              "category": "single-hop",
+              "reply": "Project Falcon is currently at amber status, Mihaly. The billing service migration is code complete, but high latency has pushed the go-live date to September 15th. A go/no-go decision is scheduled for September 3rd.",
+              "passed": true,
+              "hits": [
+                "amber",
+                "latency"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "when does Falcon go live, and why did it move?",
+              "category": "single-hop",
+              "reply": "It is now scheduled for September 15th. The date moved because the p99 latency is sitting at 940 ms, which is much higher than the 400 ms target. ooh, is that a snack I see?",
+              "passed": true,
+              "hits": [
+                "september 15",
+                "latency"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "who is the tech lead on Falcon?",
+              "category": "single-hop",
+              "reply": "I cannot find a specific tech lead mentioned in the files. I see Anna Kovacs, Mihaly Fodor, and Tomas Bell are all team members, though. Should I dig a little deeper for you?",
+              "passed": true,
+              "hits": [
+                "anna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "You're welcome, Mihaly! See you later, boss!"
+            }
+          ],
+          "memory_delta": "ADD projects[] = {\"name\": \"Falcon\", \"status\": \"amber\", \"note\": \"Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd.\"}  (User asked about Falcon status and the reason for its delay.)\nADD people[] = {\"name\": \"Anna Kovacs\", \"rel\": \"team member\", \"note\": \"Member of the Falcon project\"}  (User mentioned Anna Kovacs is a team member on Falcon.)\nADD people[] = {\"name\": \"Tomas Bell\", \"rel\": \"team member\", \"note\": \"Member of the Falcon project\"}  (User mentioned Tomas Bell is a team member on Falcon.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T09:35:28",
+              "op": "ADD",
+              "path": "projects[]",
+              "value": {
+                "name": "Falcon",
+                "status": "amber",
+                "note": "Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd."
+              },
+              "reason": "User asked about Falcon status and the reason for its delay."
+            },
+            {
+              "ts": "2026-08-29T09:35:28",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Anna Kovacs",
+                "rel": "team member",
+                "note": "Member of the Falcon project"
+              },
+              "reason": "User mentioned Anna Kovacs is a team member on Falcon."
+            },
+            {
+              "ts": "2026-08-29T09:35:28",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Tomas Bell",
+                "rel": "team member",
+                "note": "Member of the Falcon project"
+              },
+              "reason": "User mentioned Tomas Bell is a team member on Falcon."
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 3,
+          "total": 3,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 3,
+        "total": 3,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T09:35\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"occupation\": \"Lead of the platform team\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna Kovacs\",\n   \"rel\": \"team member\",\n   \"note\": \"Member of the Falcon project\",\n   \"seen\": \"2026-08-29\"\n  },\n  {\n   \"name\": \"Tomas Bell\",\n   \"rel\": \"team member\",\n   \"note\": \"Member of the Falcon project\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"Falcon\",\n   \"status\": \"amber\",\n   \"note\": \"Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd.\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly; occupation: Lead of the platform team\nPeople: Anna Kovacs (team member) - Member of the Falcon project; Tomas Bell (team member) - Member of the Falcon project\nProjects: Falcon [amber] - Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd.",
+        "sections": {
+          "identity": 2,
+          "preferences": 0,
+          "people": 2,
+          "projects": 1,
+          "recurring": 0,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 3,
+        "fact_lines": 5,
+        "tokens_est": 90,
+        "duplicates": 0,
+        "duplicate_pairs": [],
+        "wiki_pages": 5
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T09:35\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"occupation\": \"Lead of the platform team\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna Kovacs\",\n   \"rel\": \"team member\",\n   \"note\": \"Member of the Falcon project\",\n   \"seen\": \"2026-08-29\"\n  },\n  {\n   \"name\": \"Tomas Bell\",\n   \"rel\": \"team member\",\n   \"note\": \"Member of the Falcon project\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"Falcon\",\n   \"status\": \"amber\",\n   \"note\": \"Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd.\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly; occupation: Lead of the platform team\nPeople: Anna Kovacs (team member) - Member of the Falcon project; Tomas Bell (team member) - Member of the Falcon project\nProjects: Falcon [amber] - Billing service migration is code complete; go-live delayed to Sept 15th due to high p99 latency (940ms vs 400ms target). Go/no-go decision on Sept 3rd.",
+    "sections": {
+      "identity": 2,
+      "preferences": 0,
+      "people": 2,
+      "projects": 1,
+      "recurring": 0,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 3,
+    "fact_lines": 5,
+    "tokens_est": 90,
+    "duplicates": 0,
+    "duplicate_pairs": [],
+    "wiki_pages": 5,
+    "wiki_page_list": [
+      "people/anna-kovacs",
+      "people/mihaly-fodor",
+      "people/tomas-bell",
+      "projects/falcon",
+      "sources/project-falcon-weekly-status-week-34"
+    ]
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-lkm4e1hj/memory.json",
+  "script": "eval/scripts/sources.yaml"
+}
