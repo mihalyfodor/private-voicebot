@@ -22,12 +22,12 @@ python3 -m pytest -m live tests/
 
 ```
 voicebot/
-├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (PTT + hands-free), sentence-streamed TTS, avatar/backdrop switching
+├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, avatar/backdrop switching
 ├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, memory + session log
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
-├── vad.py            # Silero VAD endpointer (hands-free) + PTT Recorder
+├── vad.py            # Silero VAD endpointer (hands-free); Recorder is an unused PTT leftover
 ├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing
 ├── avatars.py          # avatar profile (Wanko only since PRD 23: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
@@ -40,10 +40,10 @@ voicebot/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model and backdrop images (gitignored)
 │   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 ├── static/
-│   ├── index.html      # browser UI: icon rail, avatar column, workspace views (Chat / Memory / Wiki / Sources / Settings), intake popup
+│   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki / Sources / Settings), intake popup
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, rail (VIEWS table), memory/wiki/settings views, drop-paste intake, keyboard, websocket
-│   ├── style.css        # shell layout (--rail-w), rail, views, settings rows, narrow-screen bottom tab bar
+│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, rail (VIEWS table), setView (companion re-parenting), renderComposer (mic/mute/status), memory/wiki/settings views, drop-paste intake, keyboard, websocket
+│   ├── style.css        # shell layout (--rail-w), rail, #companion chat-grid vs side slice, history/composer, views, settings rows, narrow-screen bottom tab bar
 │   ├── vendor/          # gitignored, fetched
 │   ├── models/           # gitignored, fetched (wanko/)
 │   └── backdrops/        # gitignored, fetched
@@ -68,15 +68,19 @@ voicebot/
 │   ├── test_avatars.py            # avatars.current()/AVATAR env handling
 │   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys
 │   ├── test_backdrops.py          # backdrops.validate()/listing()
-│   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + PTT Recorder
+│   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + Recorder
 │   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing
-│   ├── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
+│   ├── test_hands_free.py         # WS hands-free actions, binary audio frames, text_turn while listening
 │   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection, identity aliases
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
 │   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 │   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
-│   └── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag
+│   ├── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag
+│   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
+│   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio shim and prints one JSON
+│                                   # of results (companion re-parent, typed turn, mute, thumbs); its header
+│                                   # documents the hooks and how to add a scenario
 ├── requirements.txt
 └── docs/
     ├── index.md               # this file
@@ -105,7 +109,11 @@ voicebot/
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (done, panel part superseded by 22b)
     ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
     ├── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
-    └── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
+    ├── 24-chat-layout-text.md    # PRD: companion column, typed turns, mute instead of PTT (done)
+    ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
+    ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
+    ├── 27-wanko-interactivity.md # PRD: motions, cues and reactions (exploration)
+    └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (exploration)
 ```
 
 ## Active PRDs
@@ -130,7 +138,12 @@ voicebot/
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
+- [23-wanko-only.md](23-wanko-only.md) — Wanko as the only assistant, avatar picker removed (done)
+- [24-chat-layout-text.md](24-chat-layout-text.md) — companion column (avatar/history/composer), text input, mute replaces push-to-talk, backdrop thumbnails (done)
+- [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox with provenance (exploration)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
+- [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motions, cues and reactions (exploration)
+- [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor (exploration)
 
 ## Completed PRDs
 

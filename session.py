@@ -17,14 +17,12 @@ class Session:
     """All state belonging to one websocket connection.
 
     Created in `websocket_endpoint`; dropped when that socket goes away, so a
-    reload can never leak PTT/recorder/hearing state into the next connection.
+    reload can never leak hearing/playback state into the next connection.
     """
 
     def __init__(self, websocket=None):
         self.websocket = websocket
         self.endpointer = None      # vad.Endpointer, lazily built on the first hands-free frame
-        self.recorder = None        # vad.Recorder, built on "ptt start"
-        self.ptt_active = False
         self.hearing = False        # last "listening" value sent (only send on change)
         self.playback_done = threading.Event()
         self.turn_id = 0            # last allocated turn id

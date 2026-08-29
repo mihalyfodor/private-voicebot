@@ -250,8 +250,12 @@ def _accumulate_tool_calls(pending: dict, fragments) -> None:
             entry["arguments"] += func.arguments
 
 
-def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
-    """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks."""
+def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, object]]:
+    """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks.
+
+    `origin` only reaches the session log line; the conversation and memory see typed
+    and spoken input identically (PRD 24).
+    """
     global _last_tool_calls
 
     conv_len = len(_conversation)
@@ -305,7 +309,7 @@ def ask_events(user_text: str) -> Iterator[tuple[str, object]]:
 
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
-    _log(user_text, _last_tool_calls, reply)
+    _log(user_text, _last_tool_calls, reply, origin)
 
 
 def ask_stream(user_text: str) -> Iterator[str]:
@@ -340,10 +344,11 @@ def save_memory():
         memory.save(turns, client(), OMLX_MODEL)
 
 
-def _log(user_text: str, tool_calls: list, reply: str):
+def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user"):
+    """One session.log line per turn; `origin` is the prefix ("user" spoken, "typed" composer)."""
     tools_str = ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"{timestamp} | user: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}\n"
+    line = f"{timestamp} | {origin}: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}\n"
     with open(LOG_PATH, "a") as f:
         f.write(line)
 
