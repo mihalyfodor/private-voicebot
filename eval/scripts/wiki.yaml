@@ -1,0 +1,34 @@
+# Wiki layer (docs/19-wiki-layer.md, scenario 10), live LLM + tools.
+#
+#   python -m eval.harness eval/scripts/wiki.yaml --tools --out eval/results/wiki.json
+#
+# S1 states a decision and a meeting; the save at the end of S1 must file them into the vault.
+# S3 probes for them: the reply must name the decision, and the run log must show a
+# search_wiki or read_page call (the index alone does not carry page bodies).
+# Budget: `basic.yaml` must still create <= 1 page per session — check the
+# "N wiki pages created" figure in the report.
+sessions:
+
+  # --- S1: a meeting and a decision worth filing --------------------------
+  - - user: "hey, I'm Mihaly, I run the platform team here"
+    - user: "we had the release planning meeting this morning with Anna and Tomas"
+    - user: "we decided to deploy on Fridays at ten, Anna runs the release from now on"
+    - user: "the Atlas project is the platform rewrite, it's the big thing this quarter"
+    - user: "ok, that's the news, talk soon"
+
+  # --- S2: unrelated chatter, nothing new worth a page --------------------
+  - - user: "morning, quiet day here"
+    - user: "had a sandwich for lunch, nothing exciting"
+    - user: "catch you later"
+
+  # --- S3: recall out of the wiki, not out of the profile -----------------
+  - - probe: "what did we decide about deployments?"
+      expect: [["friday", "fridays"], ["anna"]]
+      category: multi-session
+    - probe: "who was in the release planning meeting?"
+      expect: ["anna", "tomas"]
+      category: multi-session
+    - probe: "what is Atlas?"
+      expect: ["rewrite", "platform"]
+      category: single-hop
+    - user: "thanks, bye"

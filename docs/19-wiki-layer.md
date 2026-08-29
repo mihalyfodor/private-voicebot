@@ -114,3 +114,13 @@ every commit touches `log.md`; no page is ever deleted by the assistant (only by
 ## Out of scope
 Raw-source ingestion (PDF/email inbox) — PRD 20; page deletion/rename from the app; embeddings; sync; any
 Obsidian plugin (research in 21).
+
+## Results (harness, live, 2026-08-29, gemma-4-26B)
+
+| run | probes | notes |
+|---|---|---|
+| `wiki.yaml` (tools disabled — harness default) | 2/3 | model emitted `<|tool_call>call:search_wiki{…}` as text: the `<wiki_index>` note asks for a tool that is not offered |
+| `wiki.yaml --tools` | **3/3** | 5 pages created from 3 sessions (people ×2, project, meeting, decision); "what did we decide about deployments?" answered via a real `search_wiki` call |
+
+Takeaway: `wiki.yaml` must run with `--tools`; and `memory.load()` should only add the tool hint when the wiki tools
+are actually registered (Phase 3 item). Profile stayed clean: 6 entries, 0 duplicates, 69 tokens.
