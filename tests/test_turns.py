@@ -255,6 +255,39 @@ def test_default_bind_host_is_loopback():
     assert chatbot.HOST == "127.0.0.1"
 
 
+# ---------------------------------------------------------------- dead sockets
+
+
+class _DeadSocket:
+    def __init__(self):
+        self.calls = 0
+
+    async def send_json(self, msg):
+        self.calls += 1
+        raise RuntimeError("socket closed")
+
+
+def test_send_drops_the_socket_on_the_first_failure(monkeypatch, capsys):
+    ws = _DeadSocket()
+    sess = Session(websocket=ws)
+    monkeypatch.setattr(chatbot, "session", sess)
+    sess.playback_done.clear()
+    _run(chatbot.send({"type": "state", "value": "idle"}))
+    _run(chatbot.send({"type": "state", "value": "idle"}))
+    assert ws.calls == 1
+    assert sess.websocket is None and sess.playback_done.is_set()
+    assert capsys.readouterr().out.count("dropping socket") == 1
+
+
+def test_make_sender_skips_once_the_socket_is_dropped(monkeypatch):
+    monkeypatch.setattr(chatbot, "session", Session(websocket=None))
+    scheduled = []
+    monkeypatch.setattr(chatbot.asyncio, "run_coroutine_threadsafe",
+                        lambda coro, loop: scheduled.append(coro))
+    chatbot.make_sender(loop=None)({"type": "state", "value": "idle"})
+    assert scheduled == []
+
+
 # ---------------------------------------------------------------- periodic memory
 
 

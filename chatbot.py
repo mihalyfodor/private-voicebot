@@ -201,12 +201,20 @@ def is_busy() -> bool:
 
 
 async def send(msg: dict):
+    """Send to the current session's socket; the first failure drops the socket.
+
+    A dead socket is forgotten right away (logged once) and the turn waiting on its
+    playback is released, so the worker never sits through a timeout per message.
+    """
     sess = session
-    if sess is not None and sess.websocket is not None:
-        try:
-            await sess.websocket.send_json(msg)
-        except Exception:
-            pass
+    if sess is None or sess.websocket is None:
+        return
+    try:
+        await sess.websocket.send_json(msg)
+    except Exception as e:
+        print(f"[WS] send failed, dropping socket: {e}")
+        sess.websocket = None
+        sess.playback_done.set()
 
 
 async def send_state(sess: Session, value: str) -> None:
@@ -229,6 +237,9 @@ def _tag(msg: dict, turn: int | None) -> dict:
 def make_sender(loop, turn: int | None = None):
     """Thread-safe sender for the worker thread; tags turn-bearing messages with `turn`."""
     def send_sync(msg):
+        sess = session
+        if sess is not None and sess.websocket is None:
+            return  # socket already dropped (see `send`): nothing to wait for
         try:
             asyncio.run_coroutine_threadsafe(send(_tag(msg, turn)), loop).result(timeout=10)
         except Exception as e:
