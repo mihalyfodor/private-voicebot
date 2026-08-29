@@ -38,7 +38,7 @@ voicebot/
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
-│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
+│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--panel`, `--pin`, `--drag`, `--drop-file`)
 ├── static/
 │   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory / Wiki views), intake popup, menu drawer
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames

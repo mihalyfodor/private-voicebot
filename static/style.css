@@ -7,50 +7,100 @@ body {
   color: #e0e0e0;
 }
 
-/* the small-caps section label, shared by the drawer, the memory view, the wiki list
+/* the small-caps section label, shared by the panel, the memory view, the wiki list
    and the intake popup — only the margins differ per place */
-.drawer-title, .mem-section-title, .wiki-group-title, #intake-head {
+.panel-title, .mem-section-title, .wiki-group-title, #intake-head, .set-head {
   font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
   color: #9a9a9a;
 }
 
-/* ---- menu button + drawer ---- */
-#menu-btn {
-  position: fixed; top: 14px; left: 14px; z-index: 6;
-  width: 40px; height: 40px; border-radius: 10px;
-  background: rgba(30,30,30,0.7); border: 1px solid #333; cursor: pointer;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
-  backdrop-filter: blur(6px);
-}
-#menu-btn span { width: 16px; height: 2px; background: #aaa; border-radius: 1px; transition: background 0.15s; }
-#menu-btn:hover span { background: #eee; }
+/* ---- shell: rail | panel | avatar | workspace (PRD 22) ---- */
+/* no z-index here on purpose: it would make #shell a stacking context and trap the rail
+   and the panel below the scrim */
+#shell { position: fixed; inset: 0; display: flex; align-items: stretch; --rail-w: 72px; }
 
-#drawer-backdrop { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,0.35); }
-#drawer-backdrop[hidden] { display: none; }
-
-#drawer {
-  position: fixed; top: 0; left: 0; bottom: 0; z-index: 5;
-  width: 260px; padding: 68px 14px 18px;
+#rail {
+  flex: 0 0 var(--rail-w); z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 12px 0;
   background: rgba(18,18,20,0.92); border-right: 1px solid #262626;
   backdrop-filter: blur(12px);
-  display: flex; flex-direction: column;
-  transform: translateX(-100%); transition: transform 0.22s ease;
 }
-#drawer.open { transform: translateX(0); }
-.drawer-spacer { flex: 1; }
-.drawer-title { margin: 0 6px 8px; }
-.drawer-item {
+.rail-spacer { flex: 1; }
+.rail-sep { width: 32px; height: 1px; background: #262626; margin: 4px 0; flex: none; }
+.rail-item {
+  position: relative; width: 60px; flex: none;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 8px 2px; border-radius: 10px; border: 1px solid transparent; background: none;
+  color: #9a9a9a; font: inherit; cursor: pointer;
+}
+.rail-item:hover { background: rgba(255,255,255,0.05); color: #e6e6e6; }
+.rail-item.active { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.12); }
+.rail-item svg {
+  width: 20px; height: 20px; stroke: currentColor; fill: none;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+.rail-label { font-size: 10px; letter-spacing: 0.04em; }
+.rail-item .key { position: absolute; right: 4px; top: 3px; font-size: 8px; color: #5a5a5a; }
+.rail-item.active .key { color: #4a90d9; }
+.rail-dot {
+  position: absolute; left: 1px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 0; border-radius: 2px; background: #4a90d9; transition: height 0.15s;
+}
+.rail-item.active .rail-dot { height: 20px; }
+/* the rail items double as cross-view drop targets (archive / pull) */
+.rail-item.drop-ok { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.30); }
+
+#scrim { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,0.35); }
+#scrim[hidden] { display: none; }
+
+#panel-wrap { flex: 0 0 280px; min-width: 0; position: relative; z-index: 5; }
+#panel-wrap[hidden] { display: none; }
+/* floating: the panel overlays the avatar's left edge instead of pushing it */
+#panel-wrap.floating {
+  position: fixed; left: var(--rail-w); top: 0; bottom: 0; flex: none; width: 280px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.55);
+}
+#side-panel {
+  height: 100%; width: 100%; overflow-y: auto; scrollbar-width: thin;
+  padding: 14px 14px 18px;
+  background: rgba(18,18,20,0.94); border-right: 1px solid #262626;
+  backdrop-filter: blur(12px);
+  display: flex; flex-direction: column;
+}
+#sheet-handle { display: none; }   /* only the narrow bottom-sheet layout shows it */
+#panel-head { flex: none; display: flex; align-items: center; gap: 8px; margin: 0 2px 12px; }
+#panel-heading { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; color: #f2f2f2; }
+#pin-btn {
+  margin-left: auto; background: none; border: 1px solid #3a3a3a; border-radius: 999px;
+  color: #9a9a9a; font: inherit; font-size: 11px; padding: 3px 10px; cursor: pointer;
+}
+#pin-btn:hover { color: #f2f2f2; border-color: #666; }
+#pin-btn.on { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.15); }
+.panel-view[hidden] { display: none; }
+.panel-section + .panel-section { margin-top: 18px; }
+.panel-title { margin: 0 6px 8px; }
+.panel-note { font-size: 11px; color: #6a6a6a; padding: 6px 6px 0; line-height: 1.5; }
+.panel-note code { color: #8fb4dd; }
+.panel-item {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 8px; border: 1px solid transparent;
-  background: none; color: #f2f2f2; font: inherit; cursor: pointer;
+  background: none; color: #f2f2f2; font: inherit; cursor: pointer; text-decoration: none;
 }
-.drawer-item:hover { background: rgba(255,255,255,0.05); }
-.drawer-item.active { border-color: #4a90d9; background: rgba(74,144,217,0.10); }
-.drawer-item:disabled { opacity: 0.6; cursor: default; }
-.drawer-item .name { font-size: 14px; font-weight: 600; }
-.drawer-item .desc { font-size: 11px; color: #b0b0b0; }
-.drawer-item.danger { color: #e06060; font-size: 13px; letter-spacing: 0.05em; }
-.drawer-item.danger:hover { background: rgba(200,50,50,0.10); }
+.panel-item:hover { background: rgba(255,255,255,0.05); }
+.panel-item.active { border-color: #4a90d9; background: rgba(74,144,217,0.10); }
+.panel-item:disabled { opacity: 0.6; cursor: default; }
+.panel-item .name { font-size: 14px; font-weight: 600; }
+.panel-item .desc { font-size: 11px; color: #b0b0b0; word-break: break-word; }
+.panel-item.danger { color: #e06060; font-size: 13px; letter-spacing: 0.05em; }
+.panel-item.danger:hover { background: rgba(200,50,50,0.10); }
+.decay-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 8px; border-radius: 8px;
+  background: rgba(255,255,255,0.03); border: 1px solid #232323; margin-bottom: 4px;
+}
+.decay-row .what { font-size: 12px; color: #ececec; }
+.decay-row .days { margin-left: auto; flex: none; font-size: 11px; color: #8fb4dd; }
 
 /* ---- backdrop image (behind everything) ---- */
 #backdrop {
@@ -61,9 +111,10 @@ body {
 }
 #backdrop.on { opacity: 1; }
 
-/* ---- layout: avatar column + workspace ---- */
+/* ---- layout: avatar column + workspace (inside #shell, right of rail/panel) ---- */
 main {
-  position: fixed; inset: 0; z-index: 0;
+  position: relative; z-index: 0;
+  flex: 1 1 auto; min-width: 0;
   display: flex; align-items: stretch;
 }
 
@@ -78,25 +129,12 @@ main {
 #avatar-note[hidden] { display: none; }
 #avatar-note code { color: #999; }
 
-/* ---- workspace: view switcher + views ---- */
+/* ---- workspace: the views the rail switches between ---- */
 #workspace {
   position: relative; z-index: 2;
   flex: 1 1 auto; min-width: 0;
   display: flex; flex-direction: column;
 }
-
-#view-tabs {
-  flex: none; display: flex; gap: 6px;
-  padding: 14px 18px 0; justify-content: flex-end;
-}
-.view-tab {
-  padding: 6px 14px; border-radius: 999px; border: 1px solid #3a3a3a;
-  background: rgba(20,20,22,0.6); color: #9a9a9a;
-  font: inherit; font-size: 12px; letter-spacing: 0.04em; cursor: pointer;
-  backdrop-filter: blur(6px); transition: color 0.15s, border-color 0.15s, background 0.15s;
-}
-.view-tab:hover { color: #e6e6e6; border-color: #666; }
-.view-tab.active { color: #f2f2f2; border-color: #4a90d9; background: rgba(74,144,217,0.15); }
 
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .view[hidden] { display: none; }
@@ -185,8 +223,6 @@ main {
 }
 @keyframes pulse-soft { 50% { box-shadow: 0 0 8px rgba(60, 180, 60, 0.14); } }
 
-.drawer-section + .drawer-section { margin-top: 18px; }
-
 .verbosity-control { padding: 0 4px; height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
 .verbosity-control input[type="range"] {
   -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
@@ -231,7 +267,6 @@ main {
   padding: 14px 22px 10px;
 }
 #memory-count { font-size: 13px; font-weight: 600; letter-spacing: 0.04em; color: #f2f2f2; }
-#memory-head .chip { margin-left: auto; }
 
 #memory-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
@@ -345,12 +380,6 @@ main {
   padding: 10px 22px 18px; border-top: 1px solid #1f1f1f;
 }
 .memory-note { font-size: 11px; color: #6a6a6a; }
-.danger-link {
-  margin-left: auto; background: none; border: none; color: #e06060;
-  font: inherit; font-size: 12px; letter-spacing: 0.05em; cursor: pointer;
-  padding: 4px 8px; border-radius: 6px;
-}
-.danger-link:hover { background: rgba(200,50,50,0.10); }
 
 /* ---- wiki view ---- */
 .wiki-text[hidden], #wiki-note[hidden], #wiki-lint[hidden] { display: none; }
@@ -422,11 +451,7 @@ main {
 #wiki-error:empty { display: none; }
 #wiki-lint { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; }
 .wiki-lint-line { font-size: 11px; color: #8a8a8a; }
-#wiki-foot .chip { margin-left: auto; }
-#wiki-foot .chip:disabled { opacity: 0.5; cursor: default; }
-
-/* the two workspace tabs double as cross-view drop targets (archive / pull) */
-.view-tab.drop-ok { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.30); }
+#wiki-ingest:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- intake: drop overlay + popup (PRD 20) ---- */
 #drop-overlay {
@@ -505,9 +530,9 @@ main {
 .chip.primary { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.18); }
 .chip.primary:disabled { opacity: 0.5; cursor: default; }
 
-/* parked in the empty left half of the tab row, where no view draws anything */
+/* bottom-left of the workspace: out of the way of every view's own content */
 #intake-toast {
-  position: absolute; left: 22px; top: 14px; z-index: 9;
+  position: absolute; left: 22px; bottom: 14px; z-index: 9;
   max-width: 55%; padding: 6px 12px; border-radius: 999px;
   background: rgba(20,20,22,0.95); border: 1px solid #3a3a3a;
   font-size: 11px; letter-spacing: 0.05em; color: #cfe2f7; white-space: nowrap;
@@ -515,16 +540,76 @@ main {
 }
 #intake-toast[hidden] { display: none; }
 
-/* ---- narrow screens: stack the columns ---- */
+/* ---- settings view (PRD 22) ---- */
+#settings-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  padding: 18px 24px 24px;
+}
+.set-head { margin: 18px 0 4px 2px; }
+.set-head:first-child { margin-top: 0; }
+.set-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 2px; border-bottom: 1px solid #1f1f1f;
+}
+.set-row:last-child { border-bottom: none; }
+.set-label { flex: 0 0 200px; }
+.set-label .name { display: block; font-size: 13px; color: #f2f2f2; }
+.set-label .desc { display: block; font-size: 11px; color: #6a6a6a; margin-top: 2px; }
+.set-ctl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.set-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  color: #8fb4dd; word-break: break-all;
+}
+.chip.danger { color: #e06060; border-color: #4a3030; }
+.chip.danger:hover { border-color: #e06060; background: rgba(200,50,50,0.10); }
+a.chip { text-decoration: none; }
+
+/* ---- 1100 px and under: the rail loses its labels ---- */
+@media (max-width: 1100px) {
+  #shell { --rail-w: 56px; }
+  .rail-item { width: 44px; }
+  .rail-label, .rail-item .key { display: none; }
+}
+
+/* ---- narrow screens: stack the columns, rail becomes a bottom tab bar ---- */
 @media (max-width: 700px) {
-  main { flex-direction: column; }
-  #avatar { flex: 0 0 35vh; }
+  #shell { flex-direction: column; --rail-w: 58px; }
+  #rail {
+    order: 3; flex: 0 0 58px; flex-direction: row; justify-content: space-around; align-items: center;
+    gap: 0; padding: 0 6px; border-right: none; border-top: 1px solid #262626;
+  }
+  .rail-spacer, .rail-sep { display: none; }
+  .rail-item { width: 100%; max-width: 76px; height: 46px; }
+  .rail-label { display: block; font-size: 9px; letter-spacing: 0.06em; }
+  .rail-dot { left: 50%; top: 2px; transform: translateX(-50%); width: 0; height: 3px; }
+  .rail-item.active .rail-dot { width: 18px; height: 3px; }
+
+  main { order: 2; flex-direction: column; min-height: 0; }
+  #avatar { flex: 0 0 30vh; }
   #workspace { flex: 1 1 auto; min-height: 0; }
-  #view-tabs { padding: 8px 12px 0; justify-content: center; }
+
+  /* the panel becomes a bottom sheet above the tab bar, pinned or not */
+  #panel-wrap, #panel-wrap.floating {
+    position: fixed; left: 0; right: 0; bottom: 58px; top: auto; width: auto;
+    max-height: 56vh; z-index: 7; box-shadow: 0 -18px 40px rgba(0,0,0,0.6);
+  }
+  #side-panel {
+    border-right: none; border-top: 1px solid #262626;
+    border-radius: 16px 16px 0 0; max-height: 56vh; padding-top: 6px;
+  }
+  #sheet-handle {
+    display: block; flex: none; width: 40px; height: 4px; border-radius: 999px;
+    background: #3a3a3a; margin: 4px auto 10px;
+  }
+  #pin-btn { display: none; }
+  #scrim { bottom: 58px; }
+
   #memory-head, #memory-body, #memory-foot { padding-left: 12px; padding-right: 12px; }
   #wiki-body, #wiki-foot { padding-left: 12px; padding-right: 12px; }
   #wiki-body { flex-direction: column; gap: 8px; }
   #wiki-list { flex: 0 0 auto; max-height: 30vh; border-right: none; border-bottom: 1px solid #1f1f1f; padding-right: 0; }
+  #settings-body { padding: 12px 14px 18px; }
+  .set-label { flex: 0 0 100%; }
   .mem-key { min-width: 0; }
   .intake-label { width: 54px; }
 }

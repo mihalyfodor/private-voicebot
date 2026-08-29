@@ -53,15 +53,14 @@ const transcript = document.getElementById('transcript');
 const avatarNote = document.getElementById('avatar-note');
 let shutdownRequested = false;
 function showShutdownScreen() {
-  document.getElementById('avatar').classList.add('gone');
-  document.getElementById('workspace').classList.add('gone');
-  document.getElementById('menu-btn').classList.add('gone');
+  for (const id of ['avatar', 'workspace', 'rail', 'panel-wrap']) {
+    document.getElementById(id).classList.add('gone');
+  }
   document.getElementById('shutdown-screen').hidden = false;
 }
 document.getElementById('shutdown').onclick = () => {
   shutdownRequested = true;
   ws.send(JSON.stringify({ action: 'shutdown' }));
-  openDrawer(false);
   status.textContent = 'shutting down…';
   window.close(); // only works for script-opened tabs; otherwise the status line tells the story
 };
@@ -69,9 +68,7 @@ document.getElementById('reload-characters').onclick = () => {
   ws.send(JSON.stringify({ action: 'reload_characters' }));
 };
 
-// ---------- menu drawer ----------
-const drawer = document.getElementById('drawer');
-const backdrop = document.getElementById('drawer-backdrop');
+// ---------- avatar + backdrop pickers (chat panel) ----------
 const avatarList = document.getElementById('avatar-list');
 let avatarOptions = [];
 let currentAvatarKey = null;
@@ -120,25 +117,15 @@ verbositySlider.addEventListener('change', () => {
   ws.send(JSON.stringify({ action: 'set_verbosity', value: verbosityLevels[idx] }));
 });
 
-function openDrawer(open) {
-  drawer.classList.toggle('open', open);
-  drawer.setAttribute('aria-hidden', String(!open));
-  backdrop.hidden = !open;
-  if (open) { renderAvatarList(); renderBackdropList(); }
-}
-document.getElementById('menu-btn').onclick = () => openDrawer(!drawer.classList.contains('open'));
-backdrop.onclick = () => openDrawer(false);
-document.addEventListener('keydown', (e) => { if (e.code === 'Escape') openDrawer(false); });
-
 function renderAvatarList() {
   avatarList.replaceChildren(...avatarOptions.map(a => {
     const b = document.createElement('button');
-    b.className = 'drawer-item' + (a.key === currentAvatarKey ? ' active' : '');
+    b.className = 'panel-item' + (a.key === currentAvatarKey ? ' active' : '');
     b.disabled = state !== 'idle';
     const n = document.createElement('span'); n.className = 'name'; n.textContent = a.name;
     const d = document.createElement('span'); d.className = 'desc'; d.textContent = a.description || '';
     b.append(n, d);
-    b.onclick = () => { ws.send(JSON.stringify({ action: 'set_avatar', key: a.key })); openDrawer(false); };
+    b.onclick = () => ws.send(JSON.stringify({ action: 'set_avatar', key: a.key }));
     return b;
   }));
 }
@@ -325,10 +312,19 @@ const avatar = {
       currentBackdropKey = cfg.backdrop || 'none';
       handsFree = !!cfg.hands_free;
       currentVerbosity = verbosityLevels.includes(cfg.verbosity) ? cfg.verbosity : 'normal';
+      panelPinned = !!cfg.panel_pinned;
+      if (panelPinned) panelOpen = true;   // a pinned panel is meant to be there on arrival
+      wikiVault = cfg.vault || wikiVault;
+      renderDecayWindows(cfg.stale_days);
+      settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
     renderHandsFreeToggle();
     renderVerbosity();
+    renderAvatarList();
+    renderBackdropList();
+    renderWikiPanel();
+    renderPanel();
     render();
 
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
@@ -450,26 +446,162 @@ const avatar = {
   },
 };
 
-// ---------- workspace views ----------
-const viewEls = {
-  chat: document.getElementById('view-chat'),
-  memory: document.getElementById('view-memory'),
-  wiki: document.getElementById('view-wiki'),
+// ---------- rail + contextual panel (PRD 22) ----------
+// One table drives the rail buttons, the keyboard digits, the workspace view each one shows
+// and the panel fragment that goes with it. Sources is the wiki view filtered to `sources/`.
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const RAIL_ICONS = {
+  chat: [['path', { d: 'M4 5h16v10H8l-4 4z' }]],
+  memory: [['ellipse', { cx: 12, cy: 6, rx: 7, ry: 2.6 }],
+           ['path', { d: 'M5 6v6c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6' }],
+           ['path', { d: 'M5 12v6c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-6' }]],
+  wiki: [['path', { d: 'M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z' }],
+         ['path', { d: 'M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5A2.5 2.5 0 0 1 20 21z' }]],
+  sources: [['path', { d: 'M4 13h4l2 3h4l2-3h4' }], ['path', { d: 'M5 6h14l1 7v5H4v-5z' }]],
+  settings: [['path', { d: 'M4 7h9m3 0h4M4 17h4m3 0h9M4 12h14m3 0h1' }],
+             ['circle', { cx: 15, cy: 7, r: 2 }], ['circle', { cx: 9.5, cy: 17, r: 2 }],
+             ['circle', { cx: 19.5, cy: 12, r: 2 }]],
 };
-const viewTabs = Array.from(document.querySelectorAll('.view-tab'));
+const VIEWS = [
+  { id: 'chat', label: 'Chat', key: '1', el: 'view-chat' },
+  { id: 'memory', label: 'Memory', key: '2', el: 'view-memory' },
+  { id: 'wiki', label: 'Wiki', key: '3', el: 'view-wiki' },
+  { id: 'sources', label: 'Sources', key: '4', el: 'view-wiki' },
+  { id: 'settings', label: 'Settings', key: '', el: 'view-settings', bottom: true },
+];
+const VIEW_BY_ID = new Map(VIEWS.map(v => [v.id, v]));
+//: Settings owns the whole workspace; entering it folds the panel away, leaving it brings the
+//: panel back exactly as it was (panelOpen is never touched for it).
+const NO_PANEL = new Set(['settings']);
+
+const railEl = document.getElementById('rail');
+const panelWrapEl = document.getElementById('panel-wrap');
+const panelHeadingEl = document.getElementById('panel-heading');
+const panelViewEls = Array.from(document.querySelectorAll('.panel-view'));
+const pinBtn = document.getElementById('pin-btn');
+const scrimEl = document.getElementById('scrim');
+const decayListEl = document.getElementById('decay-list');
+
 let currentView = 'chat';
+let panelOpen = false;
+let panelPinned = false;     // mirrors settings.json panel_pinned
+let railItems = [];
+
+function railItem(v) {
+  const b = el('button', 'rail-item');
+  b.dataset.view = v.id;
+  b.title = v.label + (v.key ? ` (${v.key})` : '');
+  b.setAttribute('aria-label', v.label);
+  b.append(el('span', 'rail-dot'));
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const [tag, attrs] of RAIL_ICONS[v.id]) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, val] of Object.entries(attrs)) node.setAttribute(k, String(val));
+    svg.append(node);
+  }
+  b.append(svg, el('span', 'rail-label', v.label));
+  if (v.key) b.append(el('span', 'key', v.key));
+  // Clicking the item you are already on toggles the panel — the one way to close it by mouse.
+  b.onclick = () => { if (v.id === currentView) togglePanel(); else setView(v.id); };
+  return b;
+}
+
+function buildRail() {
+  const nodes = VIEWS.filter(v => !v.bottom).map(railItem);
+  nodes.push(el('div', 'rail-spacer'), el('div', 'rail-sep'));
+  nodes.push(...VIEWS.filter(v => v.bottom).map(railItem));
+  railEl.replaceChildren(...nodes);
+  railItems = Array.from(railEl.querySelectorAll('.rail-item'));
+}
+
+function railItemFor(id) {
+  return railItems.find(b => b.dataset.view === id);
+}
 
 function setView(name) {
-  if (!viewEls[name]) return;
+  const v = VIEW_BY_ID.get(name);
+  if (!v) return;
   currentView = name;
-  for (const [key, el] of Object.entries(viewEls)) el.hidden = key !== name;
-  viewTabs.forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  for (const other of VIEWS) document.getElementById(other.el).hidden = true;
+  document.getElementById(v.el).hidden = false;
+  railItems.forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  renderPanel();
   if (name === 'memory' && !memoryProfile) requestMemory();
-  if (name === 'wiki' && !wikiPages) requestWiki();
+  if (name === 'wiki' || name === 'sources') {
+    if (!wikiPages) requestWiki(); else renderWikiList();   // the list is filtered per view
+  }
 }
-viewTabs.forEach(t => { t.onclick = () => setView(t.dataset.view); });
-document.getElementById('open-memory').onclick = () => { setView('memory'); openDrawer(false); };
-document.getElementById('open-wiki').onclick = () => { setView('wiki'); openDrawer(false); };
+
+function togglePanel() { setPanelOpen(!panelOpen); }
+
+function setPanelOpen(open) {
+  panelOpen = open;
+  renderPanel();
+}
+
+function setPinned(on, persist) {
+  panelPinned = on;
+  if (persist) sendAction({ action: 'set_setting', key: 'panel_pinned', value: on });
+  renderPanel();
+}
+
+function renderPanel() {
+  const v = VIEW_BY_ID.get(currentView);
+  const open = panelOpen && !NO_PANEL.has(currentView);
+  panelWrapEl.hidden = !open;
+  panelWrapEl.classList.toggle('floating', !panelPinned);
+  scrimEl.hidden = !(open && !panelPinned && window.innerWidth > 700);
+  pinBtn.classList.toggle('on', panelPinned);
+  pinBtn.textContent = panelPinned ? 'pinned' : 'floating';
+  if (v) panelHeadingEl.textContent = v.label;
+  panelViewEls.forEach(p => { p.hidden = p.dataset.view !== currentView; });
+  if (open && currentView === 'chat') { renderAvatarList(); renderBackdropList(); }
+  relayoutAvatar();
+}
+
+// Pinning/unpinning resizes the avatar column, and PIXI's resizeTo only watches the window.
+function relayoutAvatar() {
+  requestAnimationFrame(() => {
+    if (avatar.app) avatar.app.resize();
+    if (avatar.model) avatar.fit();
+  });
+}
+
+function renderDecayWindows(staleDays) {
+  decayListEl.replaceChildren(...Object.entries(staleDays || {}).map(([section, days]) => {
+    const row = el('div', 'decay-row');
+    row.append(el('span', 'what', section), el('span', 'days', `${days} d`));
+    return row;
+  }));
+}
+
+pinBtn.onclick = () => setPinned(!panelPinned, true);
+scrimEl.onclick = () => setPanelOpen(false);
+window.addEventListener('resize', () => renderPanel());
+
+// 1–4 switch views, `b` toggles the panel, Esc closes it while floating — all only when the
+// keyboard isn't being used for typing, and never while the intake popup owns it.
+function isTyping(node) {
+  return !!(node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable));
+}
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (isTyping(e.target) || isTyping(document.activeElement)) return;
+  if (!intakeEl.hidden) return;
+  const v = VIEWS.find(x => x.key && x.key === e.key);
+  if (v) { e.preventDefault(); setView(v.id); return; }
+  if (e.key === 'b' || e.key === 'B') { e.preventDefault(); togglePanel(); return; }
+  if (e.key === 'Escape' && panelOpen && !panelPinned) setPanelOpen(false);
+});
+
+buildRail();
+
+// ---------- settings view ----------
+const settingsVaultEl = document.getElementById('settings-vault');
+const settingsOpenVaultEl = document.getElementById('settings-open-vault');
+const settingsScreenshotEl = document.getElementById('settings-screenshot');
 
 // ---------- memory view ----------
 // One spec table drives all six sections: 'scalar' sections are key/value maps
@@ -942,10 +1074,14 @@ const wikiLintEl = document.getElementById('wiki-lint');
 const wikiVaultEl = document.getElementById('wiki-vault');
 const wikiErrorEl = document.getElementById('wiki-error');
 const wikiIngestBtn = document.getElementById('wiki-ingest');
+const wikiIngestLabel = document.getElementById('wiki-ingest-label');
 const wikiNoteInput = document.getElementById('wiki-note-input');
 const wikiNoteBtn = document.getElementById('wiki-note-add');
-const wikiTabBtn = viewTabs.find(t => t.dataset.view === 'wiki');
-const memTabBtn = viewTabs.find(t => t.dataset.view === 'memory');
+const wikiLintTitleEl = document.getElementById('wiki-lint-title');
+const wikiLintEmptyEl = document.getElementById('wiki-lint-empty');
+const wikiOpenVaultEl = document.getElementById('wiki-open-vault');
+const sourcesFileBtn = document.getElementById('sources-file');
+const sourcesInputEl = document.getElementById('sources-input');
 
 let wikiPages = null;      // last `wiki` page list (null = never loaded)
 let wikiLint = [];
@@ -1028,9 +1164,12 @@ function wikiRow(page) {
 }
 
 function renderWikiList() {
-  const pages = wikiPages || [];
+  // The Sources view is this same list, narrowed to the one folder intake writes to.
+  const sourcesOnly = currentView === 'sources';
+  const pages = (wikiPages || []).filter(p => !sourcesOnly || wikiFolder(p.path) === 'sources');
   if (!pages.length) {
-    wikiListEl.replaceChildren(el('div', 'mem-empty', wikiPages ? 'no pages yet' : 'loading…'));
+    const empty = !wikiPages ? 'loading…' : sourcesOnly ? 'nothing filed yet' : 'no pages yet';
+    wikiListEl.replaceChildren(el('div', 'mem-empty', empty));
     return;
   }
   const nodes = [];
@@ -1073,9 +1212,8 @@ function renderWikiPage() {
   sub.append(el('span', 'wiki-path', wikiSelected));
   if (meta && meta.updated) sub.append(el('span', 'wiki-muted', `updated ${meta.updated}`));
   if (wikiVault) {
-    const vaultName = wikiVault.replace(/\/+$/, '').split('/').pop();
     const a = el('a', 'wiki-obsidian', 'Open in Obsidian');
-    a.href = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(wikiSelected)}`;
+    a.href = `${vaultHref()}&file=${encodeURIComponent(wikiSelected)}`;
     sub.append(a);
   }
   // Fallback for the drag bridge: the same move, as a button.
@@ -1090,10 +1228,22 @@ function renderWikiPage() {
   wikiTextEl.replaceChildren(...(wikiPage ? wikiTextNodes(wikiPage.text || '') : [document.createTextNode('loading…')]));
 }
 
-function renderWikiFoot() {
-  wikiVaultEl.textContent = wikiVault || '';
+// `obsidian://open?vault=<the vault folder's name>` — the same link the page head uses.
+function vaultHref() {
+  if (!wikiVault) return '#';
+  return `obsidian://open?vault=${encodeURIComponent(wikiVault.replace(/\/+$/, '').split('/').pop())}`;
+}
+
+// The wiki panel (ingest, lint, vault) and the vault line in the Settings view.
+function renderWikiPanel() {
+  wikiVaultEl.textContent = wikiVault || '(not created yet)';
+  wikiLintTitleEl.textContent = wikiLint.length ? `Lint · ${wikiLint.length} findings` : 'Lint';
   wikiLintEl.hidden = !wikiLint.length;
+  wikiLintEmptyEl.hidden = !!wikiLint.length;
   wikiLintEl.replaceChildren(...wikiLint.map(line => el('div', 'wiki-lint-line', line)));
+  wikiOpenVaultEl.href = vaultHref();
+  settingsVaultEl.textContent = wikiVault || '(not created yet)';
+  settingsOpenVaultEl.href = vaultHref();
 }
 
 function setWiki(msg) {
@@ -1108,7 +1258,7 @@ function setWiki(msg) {
     renderWikiList();
     renderWikiPage();
   }
-  renderWikiFoot();
+  renderWikiPanel();
   if (!intakeEl.hidden) intakeSyncPages();   // the popup's picker is fed by this list
 }
 
@@ -1121,14 +1271,14 @@ function setWikiPage(msg) {
 function wikiIngestDone() {
   if (wikiIngestTimer) { clearTimeout(wikiIngestTimer); wikiIngestTimer = null; }
   wikiIngestBtn.disabled = false;
-  wikiIngestBtn.textContent = 'Re-ingest last session';
+  wikiIngestLabel.textContent = 'Re-ingest last session';
 }
 
 wikiIngestBtn.onclick = () => {
   if (wikiIngestBtn.disabled) return;
   setWikiError('');
   wikiIngestBtn.disabled = true;
-  wikiIngestBtn.textContent = 'ingesting…';
+  wikiIngestLabel.textContent = 'ingesting…';
   // Re-enabled by the next `wiki` message, or by this timeout if the ingest never answers.
   wikiIngestTimer = setTimeout(wikiIngestDone, WIKI_INGEST_TIMEOUT_MS);
   sendAction({ action: 'wiki_ingest' });
@@ -1148,10 +1298,19 @@ wikiNoteInput.onkeydown = (e) => {
 };
 
 // The two cross-view drop zones, wired with the same table-driven helper as the memory rows.
-memDropZone(wikiTabBtn, 'wiki/tab', false);
-memDropZone(memTabBtn, 'memory/tab', false);
+// They used to be the top-right tabs; they are the rail items now.
+memDropZone(railItemFor('wiki'), 'wiki/tab', false);
+memDropZone(railItemFor('memory'), 'memory/tab', false);
 renderWikiList();
 renderWikiPage();
+
+// Sources panel: the file picker is the click-driven twin of the drop zone — same popup,
+// same review step, nothing is filed until File is pressed.
+sourcesFileBtn.onclick = () => sourcesInputEl.click();
+sourcesInputEl.onchange = () => {
+  if (sourcesInputEl.files && sourcesInputEl.files.length) intakeFromFiles(sourcesInputEl.files);
+  sourcesInputEl.value = '';   // so picking the same file twice fires change again
+};
 
 // ---------- intake: drop / paste a source (PRD 20) ----------
 // Nothing reaches the vault automatically: a file drag over the workspace shows an overlay, the
@@ -1228,7 +1387,8 @@ function firstLines(text, n) {
 // The picker lists "auto" plus every page the last `wiki` message named; the open wiki page is
 // pre-selected so "file under what I'm looking at" is one drop.
 function intakeSyncPages() {
-  const want = intakePageEl.value || (currentView === 'wiki' && wikiSelected) || '';
+  const want = intakePageEl.value
+    || ((currentView === 'wiki' || currentView === 'sources') && wikiSelected) || '';
   const opts = [el('option', null, 'auto')];
   opts[0].value = '';
   for (const page of (wikiPages || [])) {
@@ -1479,6 +1639,7 @@ function connect() {
     else if (msg.type === 'speech_end') { replyEnded = true; playNext(); }
     else if (msg.type === 'avatar') {
       currentAvatarKey = msg.key; avatarName = msg.name;
+      renderAvatarList();
       avatar.load(msg.key);
     }
     else if (msg.type === 'backdrop') { applyBackdrop(msg.key); renderBackdropList(); }
@@ -1502,13 +1663,16 @@ function connect() {
       currentVerbosity = verbosityLevels.includes(msg.value) ? msg.value : currentVerbosity;
       renderVerbosity();
     }
+    else if (msg.type === 'setting') {
+      if (msg.key === 'panel_pinned') { panelPinned = !!msg.value; renderPanel(); }
+    }
     else if (msg.type === 'memory') setMemory(msg);
     else if (msg.type === 'wiki') setWiki(msg);
     else if (msg.type === 'wiki_page') setWikiPage(msg);
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();
-      if (currentView === 'wiki') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
+      if (currentView === 'wiki' || currentView === 'sources') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
       renderVerbosity();
     }
   };
@@ -1517,7 +1681,7 @@ function connect() {
     render();
     // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
     if (currentView === 'memory') requestMemory();
-    else if (currentView === 'wiki') requestWiki();
+    else if (currentView === 'wiki' || currentView === 'sources') requestWiki();
   };
   ws.onclose = (e) => {
     if (shutdownRequested) { showShutdownScreen(); return; }
@@ -1536,6 +1700,7 @@ function connect() {
 
 function setState(value) {
   state = value;
+  renderAvatarList();   // the avatar buttons are disabled while a turn is running
   render();
 }
 
@@ -1634,5 +1799,6 @@ document.getElementById('hands-free-toggle').onclick = async () => {
   ws.send(JSON.stringify({ action: 'set_hands_free', value: desired }));
 };
 
+setView('chat');
 avatar.init();
 connect();

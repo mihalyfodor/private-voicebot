@@ -342,13 +342,26 @@ def current_backdrop() -> str:
         return backdrops.DEFAULT
 
 
+#: Settings the UI may write straight to settings.json via `set_setting`, and the type each
+#: one must have. Deliberately tiny: everything with side effects keeps its own action.
+SETTABLE = {"panel_pinned": bool}
+
+#: Shown read-only in the Settings view — the command that takes a screenshot of the app.
+SCREENSHOT_CMD = ".venv/bin/python scripts/screenshot.py /tmp/shot.png"
+
+
 @app.get("/api/config")
 async def api_config():
+    settings = avatars.load_settings()
     return {
         "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
         "hands_free": hands_free,
         "verbosity": llm.current_verbosity(),
+        "panel_pinned": bool(settings.get("panel_pinned", False)),
+        "stale_days": dict(memory.STALE_DAYS),
+        "vault": wiki.WIKI_PATH,
+        "screenshot_cmd": SCREENSHOT_CMD,
     }
 
 
@@ -527,6 +540,21 @@ async def _action_set_verbosity(sess, msg, loop):
     await send({"type": "verbosity", "value": llm.current_verbosity()})
 
 
+async def _action_set_setting(sess, msg, loop):
+    """Persist one whitelisted UI setting (see SETTABLE) — currently only the panel pin state."""
+    key = msg.get("key")
+    kind = SETTABLE.get(key)
+    value = msg.get("value")
+    if kind is None:
+        await send({"type": "error", "text": f"Unknown setting {key!r}"})
+        return
+    if not isinstance(value, kind):
+        await send({"type": "error", "text": f"{key} needs a {kind.__name__}"})
+        return
+    avatars.save_setting(key, value)
+    await send({"type": "setting", "key": key, "value": value})
+
+
 async def _action_get_memory(sess, msg, loop):
     """The memory panel asking for the current profile (on open, and after every reconnect)."""
     profile = await asyncio.to_thread(memory.load_profile)
@@ -651,6 +679,7 @@ ACTIONS = {
     "set_avatar": _action_set_avatar,
     "reload_characters": _action_reload_characters,
     "set_verbosity": _action_set_verbosity,
+    "set_setting": _action_set_setting,
     "get_memory": _action_get_memory,
     "memory_op": _action_memory_op,
     "memory_ops": _action_memory_ops,
