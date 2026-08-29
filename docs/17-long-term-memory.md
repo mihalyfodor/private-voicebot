@@ -83,3 +83,11 @@ Embeddings/vector DB; multi-user; syncing the vault to a cloud service; automati
 Sources: Park et al. 2023 (Generative Agents); MemoryBank (2023); Oblivion (arXiv 2604.00131); Zep/Graphiti
 temporal KG docs; Mem0 "memory eviction and forgetting" blog; Claude Code auto-memory docs; Karpathy LLM-wiki
 gist (Apr 2026) and write-ups; basic-memory / Obsidian MCP.
+
+## Obsidian plugin question (research, 2026-08-29)
+
+Three routes: **(A)** server writes markdown, user opens `wiki/` as a vault — Graph, Backlinks, Bases (core since 1.9) and Dataview work off files/frontmatter with no plugin; Obsidian's file watcher re-indexes external writes. This is what basic-memory does. **(B)** route writes/reads through the *Local REST API* plugin (coddingtonbear, MIT, v5.x adds a built-in MCP endpoint): gains heading-level patch and full-text search endpoints, costs a dependency on Obsidian being open. **(C)** a custom plugin (TypeScript, `Plugin`/Vault/MetadataCache APIs, `requestUrl` for loopback HTTP; `desktopOnly`) — only needed for in-app UI: side panel, commands ("ingest this note"), knowing the active note. Plugins cannot run headless, so (B)/(C) can never be the only write path for a standalone voice server.
+
+**Decision:** (A) now. Design for (B)/(C) later by: all wiki mutation through the ops layer (swap `pathlib` for REST calls without touching callers); fixed frontmatter keys (`type`, `tags`, `source`, `updated`, `seen`) and page naming now, since Bases/any plugin key off them; `wiki/` as its own git repo with `.obsidian/` ignored; `[[wikilinks]]`, `meetings/YYYY-MM-DD.md` daily-note naming, no Templater syntax in generated pages. A (C) plugin is a candidate PRD 18: sidebar "what the assistant just filed" + "re-ingest this note" command + active-note context for the voicebot.
+
+Sources: obsidian-api README; DeepWiki MetadataCache; coddingtonbear/obsidian-local-rest-api; basicmemory.com Obsidian integration; cyanheads/obsidian-mcp-server; got.md Bases guide.
