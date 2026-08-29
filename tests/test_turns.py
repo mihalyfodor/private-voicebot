@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import asyncio
 import subprocess
 import threading
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -296,6 +297,56 @@ def test_memory_save_cadence_is_read_from_the_environment():
     out = subprocess.run([sys.executable, "-c", "import session; print(session.MEMORY_SAVE_EVERY)"],
                          cwd=ROOT, env=env, capture_output=True, text=True)
     assert out.stdout.strip() == "7", out.stderr
+
+
+def test_next_turn_starts_while_the_memory_save_is_still_running(monkeypatch):
+    """The periodic save runs off the turn worker: a slow save must not hold the next turn."""
+    save_started, release, order = threading.Event(), threading.Event(), []
+
+    def slow_save():
+        save_started.set()
+        release.wait(timeout=5)
+        order.append("save-done")
+
+    monkeypatch.setattr(llm, "save_memory", slow_save)
+    c = TurnController(on_turn_complete=chatbot._periodic_memory)
+    for _ in range(session_mod.MEMORY_SAVE_EVERY):
+        c.submit(lambda: None)
+    assert save_started.wait(timeout=5)
+    c.submit(lambda: order.append("next-turn"))
+    assert c._idle.wait(timeout=5)          # the turn ran while the hook is still parked
+    assert order == ["next-turn"] and c.hook_running
+    release.set()
+    assert c.join_idle(timeout=5)
+    assert order == ["next-turn", "save-done"]
+
+
+def test_periodic_memory_tells_the_ui_while_it_saves(monkeypatch):
+    sent = []
+    monkeypatch.setattr(chatbot, "session", Session(websocket=object()))
+    monkeypatch.setattr(chatbot, "_loop", SimpleNamespace(is_running=lambda: True))
+    monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)
+    monkeypatch.setattr(llm, "save_memory", lambda: sent.append("saved"))
+    chatbot._periodic_memory(5)
+    seen = [m for m in sent if m == "saved" or m.get("type") == "memory_saving"]
+    assert seen == [{"type": "memory_saving", "value": True}, "saved",
+                    {"type": "memory_saving", "value": False}]
+
+
+def test_overlapping_hook_runs_are_skipped(monkeypatch):
+    monkeypatch.setattr(session_mod, "MEMORY_SAVE_EVERY", 1)
+    release, counts = threading.Event(), []
+
+    def hook(count):
+        counts.append(count)
+        release.wait(timeout=5)
+
+    c = TurnController(on_turn_complete=hook)
+    c.submit(lambda: None); c.submit(lambda: None)
+    assert c._idle.wait(timeout=5)
+    release.set()
+    assert c.join_idle(timeout=5)
+    assert counts == [1]
 
 
 def test_periodic_memory_error_does_not_kill_the_worker(monkeypatch):

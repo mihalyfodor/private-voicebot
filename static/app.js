@@ -184,6 +184,7 @@ const statusText = {
 let ws;
 let state = 'idle';
 let handsFree = false;   // mirrors the server-confirmed hands_free value (voice on/off)
+let memorySaving = false;  // a background memory save is running (server `memory_saving`)
 let muted = false;       // output mute: replies arrive and are shown, but not played
 let listening = 'idle';  // hands-free VAD activity: 'idle' | 'hearing'
 let currentTurn = 0;     // latest turn id seen on `state`/`speech`
@@ -2248,6 +2249,7 @@ function connect() {
       setTimeout(renderComposer, 1500);
     }
     else if (msg.type === 'listening') { setListening(msg.value); }
+    else if (msg.type === 'memory_saving') { memorySaving = !!msg.value; renderComposer(); }
     else if (msg.type === 'hands_free') {
       handsFree = msg.value;
       if (!handsFree) setListening('idle');
@@ -2333,6 +2335,7 @@ function renderComposer() {
     status.textContent = statusText[state] || '';
   }
   if (muted && !busy) status.textContent += status.textContent ? ' · muted' : 'muted';
+  if (memorySaving && !busy) status.textContent += status.textContent ? ' · saving memory…' : 'saving memory…';
   // Re-assert the audio-unlock hint last so other branches above don't clobber it
   // while we're still waiting on a user gesture to resume the AudioContext.
   if (audioBlocked) status.textContent = 'click anywhere to enable audio';

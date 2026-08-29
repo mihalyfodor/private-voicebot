@@ -15,6 +15,7 @@ import time
 import pytest
 
 import memory
+import vault_lock
 import wiki
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -370,10 +371,10 @@ class RecordingLock:
 
 @pytest.fixture
 def held(monkeypatch):
-    """Patches memory._LOCK and records, per `wiki._write` call, whether the lock was held."""
+    """Patches vault_lock.LOCK and records, per `wiki._write` call, whether the lock was held."""
     lock, seen = RecordingLock(), []
     real = wiki._write
-    monkeypatch.setattr(memory, "_LOCK", lock)
+    monkeypatch.setattr(vault_lock, "LOCK", lock)
     monkeypatch.setattr(wiki, "_write", lambda rel, text: (seen.append(lock.depth > 0), real(rel, text))[1])
     return seen
 

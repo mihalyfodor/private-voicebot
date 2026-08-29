@@ -162,13 +162,25 @@ def push_memory(with_wiki: bool = False) -> None:
         send_sync(_wiki_msg())
 
 
+def _push_saving(value: bool) -> None:
+    """Tell the UI a background memory save is running (it shows "saving memory…")."""
+    sess, loop = session, _loop
+    if sess is None or sess.websocket is None or loop is None or not loop.is_running():
+        return
+    make_sender(loop)({"type": "memory_saving", "value": value})
+
+
 def _periodic_memory(count: int) -> None:
-    """Called by the worker thread every N completed turns: fold the session into the memory profile (memory.json)."""
+    """Every N completed turns (on the controller's hook thread, not the turn worker): fold
+    the session into the memory profile (memory.json)."""
     filed = wiki.applied_count()
+    _push_saving(True)
     try:
         llm.save_memory()
     except Exception as e:
         print(f"[Memory error] {e}")
+    finally:
+        _push_saving(False)
     # an open panel refreshes itself after a background save; the Wiki tab only when the
     # save actually filed something, so a quiet session costs no extra traffic.
     push_memory(with_wiki=wiki.applied_count() != filed)

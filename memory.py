@@ -73,7 +73,9 @@ SEEN_FIELD = "seen"        # "YYYY-MM-DD", last time the user confirmed the entr
 #: One process-wide writer lock. `save()` (worker thread) and `edit()` / `reset()` (UI actions,
 #: run in an executor) all hold it across load -> apply -> write -> log, so a background
 #: extraction pass and a hand edit can never clobber each other. See docs/16-memory-editor.md.
-_LOCK = threading.RLock()
+import vault_lock
+
+_LOCK = vault_lock.LOCK   # the vault-wide lock; wiki.py and sources.py take the same one
 
 UI_REASONS = ("ui", "ui:restore", "ui:reset")   # audit tags that mark a hand edit
 

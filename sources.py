@@ -3,7 +3,7 @@
 wiki.py owns page mechanics (frontmatter, ops, index, commits). This module owns *sources*:
 the bytes the user drops (files, pastes, screenshots), emails and news items they ask to file.
 
-One ingest is always the same five steps, under `memory._LOCK`, ending in one commit:
+One ingest is always the same five steps, under `vault_lock.LOCK`, ending in one commit:
 
 1. hash the bytes; a sha256 already in ``raw/manifest.jsonl`` means "already filed", stop.
 2. copy the original, untouched, under ``raw/`` — the provenance the pages point back at.
@@ -27,6 +27,7 @@ import re
 import subprocess
 
 import memory
+import vault_lock
 import wiki
 
 # --- limits ------------------------------------------------------------------------
@@ -499,7 +500,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
     """
     if client is None:
         client, model = _client_model()
-    with memory._LOCK:
+    with vault_lock.LOCK:
         wiki.ensure_vault()
         names = memory.user_names()
         digest = sha256(data)
@@ -577,7 +578,7 @@ def reingest(digest: str, *, client=None, model: str = "") -> dict:
     """
     if client is None:
         client, model = _client_model()
-    with memory._LOCK:
+    with vault_lock.LOCK:
         entry = _entry_or_raise(digest)
         raw_rel, source_rel = entry["path"], f"{entry['page']}.md"
         try:
@@ -622,7 +623,7 @@ def _without_source_notes(body: str, raw_rel: str) -> str:
 
 def forget(digest: str) -> dict:
     """Delete the source page and raw file, drop the manifest line and the notes it fed; one commit."""
-    with memory._LOCK:
+    with vault_lock.LOCK:
         entry = _entry_or_raise(digest)
         raw_rel, page = entry["path"], entry["page"]
         cleaned = []

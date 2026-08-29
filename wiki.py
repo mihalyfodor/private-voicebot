@@ -22,6 +22,7 @@ import subprocess
 from collections import Counter
 
 import memory
+import vault_lock
 
 # --- vault -------------------------------------------------------------------------
 
@@ -581,7 +582,7 @@ def apply_page_ops(ops, source_default: str = "", commit: bool = True) -> tuple:
     """
     if not isinstance(ops, list) or not ops:
         return [], []
-    with memory._LOCK:      # re-entrant: memory.save and sources.file_bytes already hold it
+    with vault_lock.LOCK:      # re-entrant: memory.save and sources.file_bytes already hold it
         return _apply_page_ops(ops, source_default, commit)
 
 
@@ -621,7 +622,7 @@ def _apply_page_ops(ops: list, source_default: str, commit: bool) -> tuple:
 
 
 # --- editor (PRD 28) ---------------------------------------------------------------
-# The user is the only whole-page writer. Every call takes `memory._LOCK` so an ingest and a
+# The user is the only whole-page writer. Every call takes `vault_lock.LOCK` so an ingest and a
 # save never interleave, and ends in exactly one commit; git is the undo.
 
 USER_SOURCE = "user edit"
@@ -660,7 +661,7 @@ def save_page(path: str, text: str, tag: str) -> tuple:
     when `tag` no longer matches the bytes on disk. The body is written byte-for-byte except
     the `updated:` line; validation is the page contract (frontmatter keys, size).
     """
-    with memory._LOCK:
+    with vault_lock.LOCK:
         rel, reason = _user_target(path, exists=True, fixed=False)
         if reason:
             return None, reason
@@ -685,7 +686,7 @@ def save_page(path: str, text: str, tag: str) -> tuple:
 
 def create_page(path: str) -> tuple:
     """A fresh page at a user path (any single-level folder); ``(path, None)`` or ``(None, reason)``."""
-    with memory._LOCK:
+    with vault_lock.LOCK:
         ensure_vault()
         rel, reason = _user_target(path, exists=False)
         if reason:
@@ -708,7 +709,7 @@ def rename_page(path: str, new_path: str) -> tuple:
     Rewritten: every page's exact-path links, plus the short form `[[<basename>…]]` when that
     basename is unique in the vault. Touched pages get a fresh `updated:`.
     """
-    with memory._LOCK:
+    with vault_lock.LOCK:
         rel, reason = _user_target(path, exists=True)
         if reason:
             return None, reason
@@ -742,7 +743,7 @@ def rename_page(path: str, new_path: str) -> tuple:
 
 def delete_page(path: str) -> tuple:
     """Remove a page (one commit); ``(path, None)`` or ``(None, reason)``. Lint reports the broken links."""
-    with memory._LOCK:
+    with vault_lock.LOCK:
         rel, reason = _user_target(path, exists=True)
         if reason:
             return None, reason

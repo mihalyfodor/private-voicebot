@@ -2,7 +2,8 @@
 
 See docs/12-turn-controller.md. A *turn* is one complete user-visible exchange:
 transcribe → LLM → TTS → wait for browser playback → idle. Turns never overlap:
-they all run on the controller's one worker thread, in submit order.
+they all run on the controller's one worker thread, in submit order. The periodic
+memory save is not a turn: it runs on a side thread so the next utterance is not held up.
 """
 import os
 import queue
@@ -47,6 +48,8 @@ class TurnController:
         self._pending = 0
         self._idle = threading.Event()
         self._idle.set()
+        self._hook_idle = threading.Event()   # cleared while the periodic hook runs
+        self._hook_idle.set()
         self.completed = 0
         self.on_turn_complete = on_turn_complete
         self._thread = threading.Thread(target=self._run, daemon=True, name="turn-worker")
@@ -64,8 +67,36 @@ class TurnController:
         self._queue.put((fn, args))
 
     def join_idle(self, timeout: float = 5.0) -> bool:
-        """Block until no turn is pending (test helper). True if it went idle in time."""
-        return self._idle.wait(timeout)
+        """Block until no turn is pending and no hook is running (test helper).
+
+        True if both went idle in time.
+        """
+        return self._idle.wait(timeout) and self._hook_idle.wait(timeout)
+
+    @property
+    def hook_running(self) -> bool:
+        return not self._hook_idle.is_set()
+
+    def _start_hook(self, count: int) -> None:
+        """Run the periodic hook on its own daemon thread so the next turn is not held up.
+
+        Overlap guard: if the previous run is still going (a slow memory save), this one is
+        skipped — the next multiple of MEMORY_SAVE_EVERY picks the turns up.
+        """
+        if not self._hook_idle.is_set():
+            print("[Turn hook] previous run still going, skipping")
+            return
+        self._hook_idle.clear()
+
+        def run():
+            try:
+                self.on_turn_complete(count)
+            except Exception as e:
+                print(f"[Turn hook error] {e}")
+            finally:
+                self._hook_idle.set()
+
+        threading.Thread(target=run, daemon=True, name="turn-hook").start()
 
     def _run(self) -> None:
         while True:
@@ -82,7 +113,4 @@ class TurnController:
                     if self._pending == 0:
                         self._idle.set()
                 if self.on_turn_complete is not None and count % MEMORY_SAVE_EVERY == 0:
-                    try:
-                        self.on_turn_complete(count)
-                    except Exception as e:
-                        print(f"[Turn hook error] {e}")
+                    self._start_hook(count)
