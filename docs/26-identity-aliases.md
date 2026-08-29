@@ -48,3 +48,8 @@ everywhere the system decides "is this the user?": prompt render, memory extract
 
 ## Out of scope
 Aliases for other people; pronunciation hints for TTS (could be a later `identity.say_as`).
+
+## Results (harness, live, 2026-08-29, gemma-4-26B, `--tools`)
+`aliases.yaml`: **8/8** (abstention, multi-session ×2, preference ×2, single-hop, update ×2). Final profile:
+`name: Mihaly Fodor (call them: Michael; also: Misi, Mike)`; a later "Michael here again" produced no name change;
+one people page for Elena, none for the user; 34 tokens rendered, 0 duplicates.
