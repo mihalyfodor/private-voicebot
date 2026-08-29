@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 22b — Rail switches views only; settings live in the Settings view
 

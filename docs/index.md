@@ -103,7 +103,7 @@ voicebot/
     ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
     ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (done, panel part superseded by 22b)
-    ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (implementation)
+    ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
     └── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
 ```
 
@@ -128,7 +128,7 @@ voicebot/
 - [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (refactoring)
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
-- [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (implementation)
+- [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
 
 ## Completed PRDs
 
