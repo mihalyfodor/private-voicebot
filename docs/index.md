@@ -19,11 +19,20 @@ python3 -m pytest tests/
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/
 # browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
+# prerequisites: `playwright install chromium`, scripts/fetch_assets.sh (pixi + Wanko model), Kokoro model files;
+# tests/e2e/conftest.py fails early with "run scripts/fetch_assets.sh" when the assets are missing. E2E_KEEP=1 keeps the temp dir.
 python3 -m pytest -m e2e tests/e2e
 python3 -m pytest -m "e2e and live" tests/e2e   # one real LLM turn
 # the browser-side fixture the client tests assert on (also run by pytest; needs node)
 node tests/app_fixture.mjs
 ```
+
+## Logs
+
+The server prints to stdout (`[Memory]`, `[WS]`, `[Turn error]` lines); started as
+`nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look. `session.log` (repo root,
+gitignored) gets one line per turn: origin, tools used, reply length. The e2e run writes screenshots to
+`/tmp/e2e/<test>-<name>.png` and the spawned server's output to `server.log` in its temp dir (kept with `E2E_KEEP=1`).
 
 ## Folder tree
 
@@ -40,10 +49,12 @@ voicebot/
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
+├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
-├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under memory._LOCK), backlinks, tags
+├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
 ├── scripts/
+│   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
 │   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
@@ -74,6 +85,14 @@ voicebot/
 │   ├── test_tools.py              # tool schemas/behaviour, needs live oMLX for some cases
 │   ├── test_chatbot_speech.py     # speak_stream: mocked Kokoro + WS, wav framing
 │   ├── test_avatars.py            # avatars.current()/AVATAR env handling
+│   ├── test_characters.py         # character card loader, persona builder and caps
+│   ├── test_context.py            # PRD 11: context budget, history trimming
+│   ├── test_verbosity.py          # PRD 11: verbosity levels, max_tokens derivation, set_verbosity action
+│   ├── test_fillers.py            # tool-intent fillers: pick() no immediate repeats
+│   ├── test_greetings.py          # canned greetings: greet() turn shape, turn ids, no LLM call
+│   ├── test_streaming.py          # PRD 13: streamed first call, tool-call detection mid-stream
+│   ├── test_turns.py              # PRD 12: Session/TurnController, turn ids, origin check, periodic memory hook, dead sockets, static caching
+│   ├── test_memory_eval.py        # PRD 14: eval harness scripts, Sandbox isolation, scoring
 │   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys
 │   ├── test_backdrops.py          # backdrops.validate()/listing()
 │   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + Recorder
@@ -89,8 +108,9 @@ voicebot/
 │   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
 │   ├── test_avatar_cues.py        # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
 │   ├── test_wiki_editor.py        # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
+│   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
-│   └── e2e/                       # PRD 29: Playwright browser tests (conftest spawns the server; test_app.py, test_sources.py, test_palette.py), marker `e2e`
+│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py, test_palette.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
 │                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette); its header
 │                                   # documents the hooks and how to add a scenario
@@ -98,6 +118,8 @@ voicebot/
 └── docs/
     ├── index.md               # this file
     ├── process.md              # development process
+    ├── reviews/                # dated read-only review notes (architecture, developer experience)
+    ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, obsidian-host/, wanko-motions.md
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
     ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
     ├── 03-email-classification.md  # PRD: Gmail triage workflow (done)
@@ -116,9 +138,9 @@ voicebot/
     ├── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
     ├── 17-long-term-memory.md   # PRD: research — decay, archive, wiki layer (exploration)
     ├── 18-memory-decay.md        # PRD: seen/stale decay, CONFIRM op (done)
-    ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (refactoring)
-    ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
-    ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
+    ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (done)
+    ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (done)
+    ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (exploration, not building)
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (done, panel part superseded by 22b)
     ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
     ├── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
@@ -146,11 +168,9 @@ voicebot/
 - [14-memory-eval.md](14-memory-eval.md) — memory evaluation harness, `python -m eval.harness` (done)
 - [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (done)
 - [16-memory-editor.md](16-memory-editor.md) — memory viewer/editor panel (done)
-- [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration)
 - [18-memory-decay.md](18-memory-decay.md) — seen/stale decay, CONFIRM op, memory-view drag-and-drop (done)
-- [19-wiki-layer.md](19-wiki-layer.md) — ~/llm-wiki Obsidian vault: page ops, search_wiki/read_page, ingest, lint (refactoring)
-- [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (refactoring)
-- [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
+- [19-wiki-layer.md](19-wiki-layer.md) — ~/llm-wiki Obsidian vault: page ops, search_wiki/read_page, ingest, lint (done)
+- [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (done)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
 - [23-wanko-only.md](23-wanko-only.md) — Wanko as the only assistant, avatar picker removed (done)
@@ -161,6 +181,13 @@ voicebot/
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)
 - [29-e2e.md](29-e2e.md) — Playwright e2e layer: spawned server, temp vault, wiki editor flows, one live turn; `SETTINGS_PATH`/`MEMORY_DIR` env overrides (done)
 - [30-command-palette.md](30-command-palette.md) — ⌘K command palette: views, wiki pages/Today/New, backdrop/reply length/voice/mute, file a source, re-ingest, shutdown; wiki-search fallback (done)
+
+## Research
+
+Exploration-only documents; nothing is being built from them directly.
+
+- [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration, research draft)
+- [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (exploration, not building)
 
 ## Completed PRDs
 

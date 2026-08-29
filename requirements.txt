@@ -18,3 +18,4 @@ mlx-whisper
 pypdf
 extract-msg
 python-multipart
+playwright

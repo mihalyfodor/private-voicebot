@@ -1,6 +1,6 @@
 # 03 — Email Classification Dashboard
 
-**Status:** `implementation`
+Status: done
 
 ## Overview
 

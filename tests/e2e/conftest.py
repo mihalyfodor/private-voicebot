@@ -25,6 +25,17 @@ CHROMIUM_ARGS = ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blockli
                  "--autoplay-policy=no-user-gesture-required"]
 
 
+ASSETS = ["static/vendor/pixi.min.js", "static/models/wanko"]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fetched_assets():
+    """Fail early and clearly: without pixi + the Wanko model the page only shows console errors."""
+    missing = [rel for rel in ASSETS if not (ROOT / rel).exists()]
+    if missing:
+        pytest.fail(f"missing {', '.join(missing)} — run scripts/fetch_assets.sh", pytrace=False)
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
