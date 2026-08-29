@@ -7,152 +7,239 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <button id="menu-btn" aria-label="Menu">
-    <span></span><span></span><span></span>
-  </button>
-  <div id="drawer-backdrop" hidden></div>
-  <nav id="drawer" aria-hidden="true">
-    <div class="drawer-section">
-      <div class="drawer-title">Listening</div>
-      <button id="hands-free-toggle" class="drawer-item">
-        <span class="name">Hands-free</span>
-        <span class="switch"><span class="knob"></span></span>
-      </button>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-title">Reply length</div>
-      <div id="verbosity-control" class="verbosity-control">
-        <input type="range" id="verbosity-slider" min="0" max="2" step="1" value="1">
-        <div class="verbosity-labels">
-          <span class="verbosity-label" data-value="0">short</span>
-          <span class="verbosity-label" data-value="1">normal</span>
-          <span class="verbosity-label" data-value="2">long</span>
-        </div>
-      </div>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-title">Avatar</div>
-      <div id="avatar-list"></div>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-title">Backdrop</div>
-      <div id="backdrop-list" class="chip-grid"></div>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-title">Memory &amp; Wiki</div>
-      <button id="open-memory" class="drawer-item">
-        <span class="name">Memory</span>
-        <span class="desc">view and edit what is remembered</span>
-      </button>
-      <button id="open-wiki" class="drawer-item">
-        <span class="name">Wiki</span>
-        <span class="desc">browse the pages the assistant keeps</span>
-      </button>
-    </div>
-    <div class="drawer-section">
-      <div class="drawer-title">Characters</div>
-      <button id="reload-characters" class="drawer-item">Reload characters</button>
-    </div>
-    <div class="drawer-spacer"></div>
-    <div class="drawer-section">
-      <button id="shutdown" class="drawer-item danger">Shut down</button>
-    </div>
-  </nav>
   <div id="shutdown-screen" hidden>
     <div class="title">Shut down complete</div>
     <div class="sub">Session memory saved. You can close this tab.</div>
   </div>
 
   <div id="backdrop"></div>
-  <main>
-    <section id="avatar">
-      <canvas id="stage"></canvas>
-      <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
-      <div id="credit"></div>
-    </section>
 
-    <section id="workspace">
-      <div id="view-tabs">
-        <button class="view-tab active" data-view="chat">Chat</button>
-        <button class="view-tab" data-view="memory">Memory</button>
-        <button class="view-tab" data-view="wiki">Wiki</button>
-      </div>
+  <div id="shell">
+    <!-- The scrim lives inside #shell: a fixed-position element is its own stacking context,
+         so a scrim outside it would paint over the rail and the panel. -->
+    <div id="scrim" hidden></div>
 
-      <div id="view-chat" class="view">
-        <section id="panel">
-          <div id="transcript"></div>
-          <button id="btn">Speak</button>
-          <div id="status">connecting...</div>
-        </section>
-      </div>
+    <!-- PRD 22: the rail is the only always-visible navigation; buttons are built in app.js
+         from the VIEWS table so the icon set and the keyboard digits stay in one place. -->
+    <nav id="rail" aria-label="Views"></nav>
 
-      <div id="view-memory" class="view" hidden>
-        <div id="memory-head">
-          <div id="memory-count">Memory</div>
-          <button id="memory-model-toggle" class="chip">model view</button>
+    <!-- Contextual panel: one fragment per view, all of them in the DOM so the controls keep
+         their ids (and their handlers) whether the panel is open or not. -->
+    <div id="panel-wrap" hidden>
+      <aside id="side-panel" aria-label="View options">
+        <div id="sheet-handle"></div>
+        <div id="panel-head">
+          <span id="panel-heading">Chat</span>
+          <button id="pin-btn" title="pinned: pushes the workspace / floating: overlays it">floating</button>
         </div>
-        <div id="memory-body">
-          <div id="memory-sections"></div>
-          <pre id="memory-rendered" hidden></pre>
-        </div>
-        <div id="memory-foot">
-          <div id="memory-error"></div>
-          <div class="memory-note">changes apply from the next reply</div>
-          <button id="memory-reset" class="danger-link">Forget everything</button>
-        </div>
-      </div>
+        <div id="panel-body">
 
-      <div id="view-wiki" class="view" hidden>
-        <div id="wiki-body">
-          <div id="wiki-list"></div>
-          <div id="wiki-page">
-            <div id="wiki-page-head"></div>
-            <pre id="wiki-text" class="wiki-text"></pre>
-            <div id="wiki-note">
-              <input id="wiki-note-input" placeholder="add a dated note…">
-              <button id="wiki-note-add">add note</button>
+          <div class="panel-view" data-view="chat">
+            <div class="panel-section">
+              <div class="panel-title">Listening</div>
+              <button id="hands-free-toggle" class="panel-item">
+                <span class="name">Hands-free</span>
+                <span class="switch"><span class="knob"></span></span>
+              </button>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Reply length</div>
+              <div id="verbosity-control" class="verbosity-control">
+                <input type="range" id="verbosity-slider" min="0" max="2" step="1" value="1">
+                <div class="verbosity-labels">
+                  <span class="verbosity-label" data-value="0">short</span>
+                  <span class="verbosity-label" data-value="1">normal</span>
+                  <span class="verbosity-label" data-value="2">long</span>
+                </div>
+              </div>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Avatar</div>
+              <div id="avatar-list"></div>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Backdrop</div>
+              <div id="backdrop-list" class="chip-grid"></div>
+            </div>
+          </div>
+
+          <div class="panel-view" data-view="memory" hidden>
+            <div class="panel-section">
+              <div class="panel-title">View</div>
+              <button id="memory-model-toggle" class="chip">model view</button>
+              <div class="panel-note">model view shows the exact block the assistant is given.</div>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Decay windows</div>
+              <div id="decay-list"></div>
+              <div class="panel-note">an entry not mentioned within its window is marked stale
+                and leaves the prompt; nothing is deleted.</div>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Danger</div>
+              <button id="memory-reset" class="panel-item danger">Forget everything</button>
+            </div>
+          </div>
+
+          <div class="panel-view" data-view="wiki" hidden>
+            <div class="panel-section">
+              <div class="panel-title">Ingest</div>
+              <button id="wiki-ingest" class="panel-item">
+                <span class="name" id="wiki-ingest-label">Re-ingest last session</span>
+                <span class="desc">re-reads the transcript into pages</span>
+              </button>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title" id="wiki-lint-title">Lint</div>
+              <div id="wiki-lint" hidden></div>
+              <div id="wiki-lint-empty" class="panel-note">no findings.</div>
+            </div>
+            <div class="panel-section">
+              <div class="panel-title">Vault</div>
+              <a id="wiki-open-vault" class="panel-item" href="#">
+                <span class="name">Open vault</span>
+                <span class="desc" id="wiki-vault"></span>
+              </a>
+            </div>
+          </div>
+
+          <div class="panel-view" data-view="sources" hidden>
+            <div class="panel-section">
+              <div class="panel-title">Sources</div>
+              <div class="panel-note">Everything filed from a drop, a paste or the button below
+                lands in <code>sources/</code>. Nothing is filed without you pressing File.</div>
+              <button id="sources-file" class="panel-item">
+                <span class="name">file a source…</span>
+                <span class="desc">pick files and review them before they are filed</span>
+              </button>
+              <input id="sources-input" type="file" multiple hidden>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+    </div>
+
+    <main>
+      <section id="avatar">
+        <canvas id="stage"></canvas>
+        <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
+        <div id="credit"></div>
+      </section>
+
+      <section id="workspace">
+        <div id="view-chat" class="view">
+          <section id="panel">
+            <div id="transcript"></div>
+            <button id="btn">Speak</button>
+            <div id="status">connecting...</div>
+          </section>
+        </div>
+
+        <div id="view-memory" class="view" hidden>
+          <div id="memory-head">
+            <div id="memory-count">Memory</div>
+          </div>
+          <div id="memory-body">
+            <div id="memory-sections"></div>
+            <pre id="memory-rendered" hidden></pre>
+          </div>
+          <div id="memory-foot">
+            <div id="memory-error"></div>
+            <div class="memory-note">changes apply from the next reply</div>
+          </div>
+        </div>
+
+        <div id="view-wiki" class="view" hidden>
+          <div id="wiki-body">
+            <div id="wiki-list"></div>
+            <div id="wiki-page">
+              <div id="wiki-page-head"></div>
+              <pre id="wiki-text" class="wiki-text"></pre>
+              <div id="wiki-note">
+                <input id="wiki-note-input" placeholder="add a dated note…">
+                <button id="wiki-note-add">add note</button>
+              </div>
+            </div>
+          </div>
+          <div id="wiki-foot">
+            <div id="wiki-error"></div>
+          </div>
+        </div>
+
+        <!-- Settings: everything touched less than weekly (PRD 22). -->
+        <div id="view-settings" class="view" hidden>
+          <div id="settings-body">
+            <div class="set-head">Characters</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Reload characters</span>
+                <span class="desc">re-reads characters/*.yaml without restarting</span>
+              </span>
+              <span class="set-ctl"><button id="reload-characters" class="chip">Reload now</button></span>
+            </div>
+            <div class="set-head">Wiki vault</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Vault path</span>
+                <span class="desc">where wiki pages are written as markdown</span>
+              </span>
+              <span class="set-ctl">
+                <span id="settings-vault" class="set-value"></span>
+                <a id="settings-open-vault" class="chip" href="#">Open vault</a>
+              </span>
+            </div>
+            <div class="set-head">Tools</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Screenshot helper</span>
+                <span class="desc">headless screenshot of this window, from a terminal</span>
+              </span>
+              <span class="set-ctl"><code id="settings-screenshot" class="set-value"></code></span>
+            </div>
+            <div class="set-head">Session</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Shut down</span>
+                <span class="desc">saves session memory and stops the server</span>
+              </span>
+              <span class="set-ctl"><button id="shutdown" class="chip danger">Shut down</button></span>
             </div>
           </div>
         </div>
-        <div id="wiki-foot">
-          <div id="wiki-error"></div>
-          <div id="wiki-lint" hidden></div>
-          <div id="wiki-vault" class="wiki-muted"></div>
-          <button id="wiki-ingest" class="chip">Re-ingest last session</button>
-        </div>
-      </div>
 
-      <!-- PRD 20: drop/paste intake. The overlay only appears for file drags; the popup
-           is modal over the workspace and sends nothing until File is pressed. -->
-      <div id="drop-overlay" hidden><span>drop to file</span></div>
-      <div id="intake-toast" hidden></div>
-      <div id="intake" hidden>
-        <div id="intake-card" role="dialog" aria-modal="true" aria-label="File a source">
-          <div id="intake-head">File a source</div>
-          <div id="intake-items"></div>
-          <div id="intake-form">
-            <label class="intake-field" id="intake-title-field">
-              <span class="intake-label">title</span>
-              <input id="intake-title" placeholder="title">
-            </label>
-            <label class="intake-field">
-              <span class="intake-label">file under</span>
-              <select id="intake-page"></select>
-            </label>
-            <label class="intake-field">
-              <span class="intake-label">hint</span>
-              <input id="intake-hint" placeholder="optional — e.g. this is the Q3 plan">
-            </label>
-          </div>
-          <div id="intake-status"></div>
-          <div id="intake-actions">
-            <button id="intake-cancel" class="chip">Cancel</button>
-            <button id="intake-file" class="chip primary">File</button>
+        <!-- PRD 20: drop/paste intake. The overlay only appears for file drags; the popup
+             is modal over the workspace and sends nothing until File is pressed. -->
+        <div id="drop-overlay" hidden><span>drop to file</span></div>
+        <div id="intake-toast" hidden></div>
+        <div id="intake" hidden>
+          <div id="intake-card" role="dialog" aria-modal="true" aria-label="File a source">
+            <div id="intake-head">File a source</div>
+            <div id="intake-items"></div>
+            <div id="intake-form">
+              <label class="intake-field" id="intake-title-field">
+                <span class="intake-label">title</span>
+                <input id="intake-title" placeholder="title">
+              </label>
+              <label class="intake-field">
+                <span class="intake-label">file under</span>
+                <select id="intake-page"></select>
+              </label>
+              <label class="intake-field">
+                <span class="intake-label">hint</span>
+                <input id="intake-hint" placeholder="optional — e.g. this is the Q3 plan">
+              </label>
+            </div>
+            <div id="intake-status"></div>
+            <div id="intake-actions">
+              <button id="intake-cancel" class="chip">Cancel</button>
+              <button id="intake-file" class="chip primary">File</button>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
-  </main>
+      </section>
+    </main>
+  </div>
 
   <script src="/static/vendor/pixi.min.js"></script>
   <script src="/static/vendor/live2dcubismcore.min.js"></script>

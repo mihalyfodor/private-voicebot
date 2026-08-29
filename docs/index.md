@@ -38,12 +38,12 @@ voicebot/
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
-│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
+│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--panel`, `--pin`, `--drag`, `--drop-file`)
 ├── static/
-│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory / Wiki views), intake popup, menu drawer
+│   ├── index.html      # browser UI: icon rail + contextual panel, avatar column, workspace views (Chat / Memory / Wiki / Sources / Settings), intake popup
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, memory/wiki views, drop-paste intake, menu drawer, websocket
-│   ├── style.css
+│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, rail/panel (VIEWS table), memory/wiki/settings views, drop-paste intake, keyboard, websocket
+│   ├── style.css        # shell layout (--rail-w / --panel-w), rail, panel, views, narrow-screen bottom tab bar
 │   ├── vendor/          # gitignored, fetched
 │   ├── models/           # gitignored, fetched (wanko/, haru/, natori/)
 │   └── backdrops/        # gitignored, fetched
@@ -75,13 +75,15 @@ voicebot/
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
 │   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
-│   └── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
+│   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
+│   └── test_settings_action.py    # set_setting whitelist + what /api/config hands the UI at boot
 ├── requirements.txt
 └── docs/
     ├── index.md               # this file
     ├── process.md              # development process
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
     ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
+    ├── 03-email-classification.md  # PRD: Gmail triage workflow (done)
     ├── 04-avatar.md             # PRD: Live2D avatar + oMLX backend (done)
     ├── 05-fillers.md            # PRD: tool-intent spoken fillers (done)
     ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (done)
@@ -100,7 +102,7 @@ voicebot/
     ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (refactoring)
     ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
     ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
-    └── 22-sidebar-navigation.md  # PRD: sidebar/navigation review (exploration)
+    └── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (refactoring)
 ```
 
 ## Active PRDs
@@ -123,7 +125,7 @@ voicebot/
 - [19-wiki-layer.md](19-wiki-layer.md) — ~/llm-wiki Obsidian vault: page ops, search_wiki/read_page, ingest, lint (refactoring)
 - [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (refactoring)
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
-- [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel (exploration)
+- [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (refactoring)
 
 ## Completed PRDs
 
