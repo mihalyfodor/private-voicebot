@@ -1,0 +1,309 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what did we decide about deployments?",
+          "category": "multi-session",
+          "reply": "We decided to deploy on Fridays at ten! Anna is in charge of the release now, boss.",
+          "passed": true,
+          "hits": [
+            "friday",
+            "fridays",
+            "anna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "who was in the release planning meeting?",
+          "category": "multi-session",
+          "reply": "It was you, Anna, and Tomas, Mihaly! Everyone seemed very focused.",
+          "passed": true,
+          "hits": [
+            "anna",
+            "tomas"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what is Atlas?",
+          "category": "single-hop",
+          "reply": "Atlas is the platform rewrite you are working on this quarter. It is a big project for you, Mihaly!",
+          "passed": true,
+          "hits": [
+            "rewrite",
+            "platform"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, I run the platform team here",
+              "reply": "It is so nice to meet you, Mihaly! I will make sure to remember that you are the leader of the platform team. I'm ready to help you with whatever you need today!"
+            },
+            {
+              "user": "we had the release planning meeting this morning with Anna and Tomas",
+              "reply": "I do not have any notes on that meeting in my little notebook, Mihaly. Was there anything important I should write down for you? Ooh, did they mention any snacks being served at the meeting?"
+            },
+            {
+              "user": "we decided to deploy on Fridays at ten, Anna runs the release from now on",
+              "reply": "I have noted that down, Mihaly! Fridays at ten for deployment, and Anna is the new release lead. I will make sure to keep that in my memory!"
+            },
+            {
+              "user": "the Atlas project is the platform rewrite, it's the big thing this quarter",
+              "reply": "I will make sure to remember that the Atlas project is the big platform rewrite for this quarter, Mihaly! It sounds like it is going to be very busy. Ooh, is Atlas a type of snack?"
+            },
+            {
+              "user": "ok, that's the news, talk soon",
+              "reply": "Understood, Mihaly! I'll be right here at my desk whenever you need me. See you later!"
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User stated their name.)\nADD identity.occupation = Leader of the platform team  (User stated their role.)\nADD people[] = {\"name\": \"Anna\", \"rel\": \"colleague\", \"note\": \"New release lead\"}  (User mentioned Anna and her new role.)\nADD people[] = {\"name\": \"Tomas\", \"rel\": \"colleague\", \"note\": \"Attended release planning meeting\"}  (User mentioned Tomas in a professional context.)\nADD projects[] = {\"name\": \"Atlas\", \"status\": \"in progress\", \"note\": \"Platform rewrite; big project this quarter\"}  (User identified Atlas as the platform rewrite project for this quarter.)\nADD recurring[] = {\"what\": \"Deployment\", \"when\": \"Fridays at 10:00\"}  (User established a recurring deployment schedule.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User stated their name."
+            },
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "Leader of the platform team",
+              "reason": "User stated their role."
+            },
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Anna",
+                "rel": "colleague",
+                "note": "New release lead"
+              },
+              "reason": "User mentioned Anna and her new role."
+            },
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Tomas",
+                "rel": "colleague",
+                "note": "Attended release planning meeting"
+              },
+              "reason": "User mentioned Tomas in a professional context."
+            },
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "projects[]",
+              "value": {
+                "name": "Atlas",
+                "status": "in progress",
+                "note": "Platform rewrite; big project this quarter"
+              },
+              "reason": "User identified Atlas as the platform rewrite project for this quarter."
+            },
+            {
+              "ts": "2026-08-29T09:08:56",
+              "op": "ADD",
+              "path": "recurring[]",
+              "value": {
+                "what": "Deployment",
+                "when": "Fridays at 10:00"
+              },
+              "reason": "User established a recurring deployment schedule."
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "user": "morning, quiet day here",
+              "reply": "Morning, Mihaly! It is definitely a calm one so far. I am just sitting here enjoying the quiet. Ooh, is that a snack I smell?"
+            },
+            {
+              "user": "had a sandwich for lunch, nothing exciting",
+              "reply": "A sandwich sounds like a good, steady lunch. At least you are staying fueled while you work on Atlas! I am just happy to be here with you."
+            },
+            {
+              "user": "catch you later",
+              "reply": "See you later, Mihaly! I will be right here in my bowl waiting for you."
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what did we decide about deployments?",
+              "category": "multi-session",
+              "reply": "We decided to deploy on Fridays at ten! Anna is in charge of the release now, boss.",
+              "passed": true,
+              "hits": [
+                "friday",
+                "fridays",
+                "anna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "who was in the release planning meeting?",
+              "category": "multi-session",
+              "reply": "It was you, Anna, and Tomas, Mihaly! Everyone seemed very focused.",
+              "passed": true,
+              "hits": [
+                "anna",
+                "tomas"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what is Atlas?",
+              "category": "single-hop",
+              "reply": "Atlas is the platform rewrite you are working on this quarter. It is a big project for you, Mihaly!",
+              "passed": true,
+              "hits": [
+                "rewrite",
+                "platform"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "You're welcome, Mihaly! See you later!"
+            }
+          ],
+          "memory_delta": "CONFIRM recurring[0] = null  (confirm)\nCONFIRM people[0] = null  (confirm)\nCONFIRM people[1] = null  (confirm)\nCONFIRM projects[0] = null  (confirm)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T09:09:10",
+              "op": "CONFIRM",
+              "path": "recurring[0]",
+              "value": null,
+              "reason": "confirm"
+            },
+            {
+              "ts": "2026-08-29T09:09:10",
+              "op": "CONFIRM",
+              "path": "people[0]",
+              "value": null,
+              "reason": "confirm"
+            },
+            {
+              "ts": "2026-08-29T09:09:10",
+              "op": "CONFIRM",
+              "path": "people[1]",
+              "value": null,
+              "reason": "confirm"
+            },
+            {
+              "ts": "2026-08-29T09:09:10",
+              "op": "CONFIRM",
+              "path": "projects[0]",
+              "value": null,
+              "reason": "confirm"
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "multi-session": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 3,
+        "total": 3,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T09:09\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"occupation\": \"Leader of the platform team\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"New release lead\",\n   \"seen\": \"2026-08-29\"\n  },\n  {\n   \"name\": \"Tomas\",\n   \"rel\": \"colleague\",\n   \"note\": \"Attended release planning meeting\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"Atlas\",\n   \"status\": \"in progress\",\n   \"note\": \"Platform rewrite; big project this quarter\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"recurring\": [\n  {\n   \"what\": \"Deployment\",\n   \"when\": \"Fridays at 10:00\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly; occupation: Leader of the platform team\nPeople: Anna (colleague) - New release lead; Tomas (colleague) - Attended release planning meeting\nProjects: Atlas [in progress] - Platform rewrite; big project this quarter\nRecurring: Deployment (Fridays at 10:00)",
+        "sections": {
+          "identity": 2,
+          "preferences": 0,
+          "people": 2,
+          "projects": 1,
+          "recurring": 1,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 4,
+        "fact_lines": 6,
+        "tokens_est": 69,
+        "duplicates": 0,
+        "duplicate_pairs": [],
+        "wiki_pages": 5
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T09:09\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"occupation\": \"Leader of the platform team\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"New release lead\",\n   \"seen\": \"2026-08-29\"\n  },\n  {\n   \"name\": \"Tomas\",\n   \"rel\": \"colleague\",\n   \"note\": \"Attended release planning meeting\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [\n  {\n   \"name\": \"Atlas\",\n   \"status\": \"in progress\",\n   \"note\": \"Platform rewrite; big project this quarter\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"recurring\": [\n  {\n   \"what\": \"Deployment\",\n   \"when\": \"Fridays at 10:00\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 2\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly; occupation: Leader of the platform team\nPeople: Anna (colleague) - New release lead; Tomas (colleague) - Attended release planning meeting\nProjects: Atlas [in progress] - Platform rewrite; big project this quarter\nRecurring: Deployment (Fridays at 10:00)",
+    "sections": {
+      "identity": 2,
+      "preferences": 0,
+      "people": 2,
+      "projects": 1,
+      "recurring": 1,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 4,
+    "fact_lines": 6,
+    "tokens_est": 69,
+    "duplicates": 0,
+    "duplicate_pairs": [],
+    "wiki_pages": 5,
+    "wiki_page_list": [
+      "decisions.md",
+      "meetings/2026-08-29.md",
+      "people/anna.md",
+      "people/tomas.md",
+      "projects/atlas.md"
+    ]
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-yzws5eci/memory.json",
+  "script": "eval/scripts/wiki.yaml"
+}

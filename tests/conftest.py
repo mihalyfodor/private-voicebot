@@ -11,6 +11,20 @@ from fastapi.testclient import TestClient
 
 import chatbot
 import memory
+import wiki
+
+
+@pytest.fixture(autouse=True)
+def wiki_sandbox(monkeypatch, tmp_path):
+    """No test may touch the real ~/llm-wiki: every one gets its own empty vault path.
+
+    Nothing creates it — `wiki.ensure_vault()` is lazy — so a test that never writes to the
+    wiki pays nothing for this.
+    """
+    vault = tmp_path / "wiki"
+    monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
+    monkeypatch.setattr(wiki, "_index_cache", {"sig": None, "docs": []})
+    return vault
 
 
 @pytest.fixture(autouse=True)
@@ -124,17 +138,28 @@ def on_disk() -> dict:
 
 
 class Panel:
-    """A websocket client that only cares about `memory` / `memory_error` messages."""
+    """A websocket client that only cares about the memory / wiki replies.
+
+    Shared by tests/test_memory_editor.py, tests/test_memory_decay.py and tests/test_wiki.py:
+    `send` waits for one reply, `send_many` for the `n` an action answers with.
+    """
+
+    WANTED = ("memory", "memory_error", "wiki", "wiki_page", "error")
 
     def __init__(self, ws):
         self.ws = ws
 
     def send(self, msg: dict) -> dict:
+        return self.send_many(msg, 1)[0]
+
+    def send_many(self, msg: dict, count: int) -> list:
         self.ws.send_json(msg)
-        while True:
+        got = []
+        while len(got) < count:
             reply = self.ws.receive_json()
-            if reply.get("type") in ("memory", "memory_error", "error"):
-                return reply
+            if reply.get("type") in self.WANTED:
+                got.append(reply)
+        return got
 
 
 @pytest.fixture

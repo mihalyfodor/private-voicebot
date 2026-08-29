@@ -351,6 +351,85 @@ main {
 }
 .danger-link:hover { background: rgba(200,50,50,0.10); }
 
+/* ---- wiki view ---- */
+.wiki-text[hidden], #wiki-note[hidden], #wiki-lint[hidden] { display: none; }
+#wiki-body {
+  flex: 1 1 auto; min-height: 0; display: flex; gap: 14px;
+  padding: 14px 22px 12px;
+}
+#wiki-list {
+  flex: 0 0 30%; min-width: 0; overflow-y: auto; scrollbar-width: thin;
+  border-right: 1px solid #1f1f1f; padding-right: 10px;
+}
+#wiki-page { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.wiki-group-title {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a; margin: 10px 0 4px 2px;
+}
+.wiki-group-title:first-child { margin-top: 0; }
+.wiki-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 8px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+}
+.wiki-row:hover { background: rgba(255,255,255,0.04); border-color: #232323; }
+.wiki-row.selected { background: rgba(74,144,217,0.14); border-color: #4a90d9; }
+.wiki-row[draggable="true"] { cursor: grab; }
+.wiki-row.mem-dragging { opacity: 0.35; border-style: dashed; }
+.wiki-row-title { font-size: 13px; color: #ececec; word-break: break-word; }
+.wiki-row-type { margin-left: auto; flex: none; font-size: 10px; color: #6a6a6a; letter-spacing: 0.04em; }
+
+.wiki-title { font-size: 15px; font-weight: 600; color: #f2f2f2; }
+.wiki-sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.wiki-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #8fb4dd;
+}
+.wiki-muted { font-size: 11px; color: #6a6a6a; }
+.wiki-obsidian, .wiki-pull {
+  background: none; border: none; padding: 0; font: inherit; font-size: 11px;
+  color: #4a90d9; text-decoration: none; cursor: pointer;
+}
+.wiki-obsidian:hover, .wiki-pull:hover { text-decoration: underline; }
+
+.wiki-text {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.5;
+  color: #cfcfcf; background: rgba(20,20,22,0.55); border: 1px solid #262626; border-radius: 10px;
+  padding: 14px;
+}
+.wiki-link { color: #8fb4dd; cursor: pointer; border-radius: 3px; }
+.wiki-link:hover { background: rgba(74,144,217,0.18); color: #cfe2f7; }
+.wiki-link.missing { color: #c07a7a; }
+
+#wiki-note { flex: none; display: flex; gap: 6px; }
+#wiki-note input {
+  flex: 1 1 auto; min-width: 0;
+  font: inherit; font-size: 12px; color: #e6e6e6; padding: 5px 8px;
+  background: rgba(255,255,255,0.04); border: 1px solid #333; border-radius: 6px; outline: none;
+}
+#wiki-note input:focus { border-color: #4a90d9; }
+#wiki-note button {
+  flex: none; background: none; border: 1px solid #3a3a3a; border-radius: 999px;
+  color: #9a9a9a; font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
+}
+#wiki-note button:hover { color: #f2f2f2; border-color: #4a90d9; }
+
+#wiki-foot {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 10px 22px 18px; border-top: 1px solid #1f1f1f;
+}
+#wiki-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
+#wiki-error:empty { display: none; }
+#wiki-lint { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; }
+.wiki-lint-line { font-size: 11px; color: #8a8a8a; }
+#wiki-foot .chip { margin-left: auto; }
+#wiki-foot .chip:disabled { opacity: 0.5; cursor: default; }
+
+/* the two workspace tabs double as cross-view drop targets (archive / pull) */
+.view-tab.drop-ok { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.30); }
+
 /* ---- narrow screens: stack the columns ---- */
 @media (max-width: 700px) {
   main { flex-direction: column; }
@@ -358,5 +437,8 @@ main {
   #workspace { flex: 1 1 auto; min-height: 0; }
   #view-tabs { padding: 8px 12px 0; justify-content: center; }
   #memory-head, #memory-body, #memory-foot { padding-left: 12px; padding-right: 12px; }
+  #wiki-body, #wiki-foot { padding-left: 12px; padding-right: 12px; }
+  #wiki-body { flex-direction: column; gap: 8px; }
+  #wiki-list { flex: 0 0 auto; max-height: 30vh; border-right: none; border-bottom: 1px solid #1f1f1f; padding-right: 0; }
   .mem-key { min-width: 0; }
 }

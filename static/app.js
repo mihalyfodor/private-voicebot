@@ -451,7 +451,11 @@ const avatar = {
 };
 
 // ---------- workspace views ----------
-const viewEls = { chat: document.getElementById('view-chat'), memory: document.getElementById('view-memory') };
+const viewEls = {
+  chat: document.getElementById('view-chat'),
+  memory: document.getElementById('view-memory'),
+  wiki: document.getElementById('view-wiki'),
+};
 const viewTabs = Array.from(document.querySelectorAll('.view-tab'));
 let currentView = 'chat';
 
@@ -461,9 +465,11 @@ function setView(name) {
   for (const [key, el] of Object.entries(viewEls)) el.hidden = key !== name;
   viewTabs.forEach(t => t.classList.toggle('active', t.dataset.view === name));
   if (name === 'memory' && !memoryProfile) requestMemory();
+  if (name === 'wiki' && !wikiPages) requestWiki();
 }
 viewTabs.forEach(t => { t.onclick = () => setView(t.dataset.view); });
 document.getElementById('open-memory').onclick = () => { setView('memory'); openDrawer(false); };
+document.getElementById('open-wiki').onclick = () => { setView('wiki'); openDrawer(false); };
 
 // ---------- memory view ----------
 // One spec table drives all six sections: 'scalar' sections are key/value maps
@@ -473,9 +479,9 @@ document.getElementById('open-memory').onclick = () => { setView('memory'); open
 const MEMORY_SPEC = [
   { section: 'identity', kind: 'scalar' },
   { section: 'preferences', kind: 'scalar' },
-  { section: 'people', kind: 'list', key: 'name', fields: ['name', 'rel', 'note'], retirable: true },
-  { section: 'projects', kind: 'list', key: 'name', fields: ['name', 'status', 'note'], retirable: true },
-  { section: 'recurring', kind: 'list', key: 'what', fields: ['what', 'when'], retirable: true },
+  { section: 'people', kind: 'list', key: 'name', fields: ['name', 'rel', 'note'], retirable: true, archivable: true },
+  { section: 'projects', kind: 'list', key: 'name', fields: ['name', 'status', 'note'], retirable: true, archivable: true },
+  { section: 'recurring', kind: 'list', key: 'what', fields: ['what', 'when'], retirable: true, archivable: true },
   { section: 'episodic', kind: 'list', key: 'text', fields: ['text', 'date', 'importance', 'ttl_days'], retirable: false },
 ];
 const MEMORY_NUMERIC = new Set(['importance', 'ttl_days']);
@@ -496,28 +502,29 @@ const memoryErrorEls = new Map();  // op path prefix → the row's error line
 // Drag-and-drop state: the row currently being dragged ({section, index, kind})
 // and the drop strips that only appear while a compatible drag is in progress.
 const MEM_DRAG_MIME = 'application/x-memory-row';
+const WIKI_DRAG_MIME = 'application/x-wiki-page';
 let memDrag = null;
 let memArmable = [];   // [{node, accepts}] — stale drop strips
 let memOpenMenu = null;
 
 // Every memory action is fire-and-forget: the server answers with a fresh `memory` message.
-function sendMemory(payload) {
+function sendAction(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
 }
 
 function requestMemory() {
-  sendMemory({ action: 'get_memory' });
+  sendAction({ action: 'get_memory' });
 }
 
 function sendMemoryOp(op, path, value, reason) {
   memErrorEl.textContent = '';
-  sendMemory({ action: 'memory_op', op, path, value, reason: reason || 'ui' });
+  sendAction({ action: 'memory_op', op, path, value, reason: reason || 'ui' });
 }
 
 // Several ops the server applies atomically (used by the episodic → recurring promote).
 function sendMemoryOps(ops) {
   memErrorEl.textContent = '';
-  sendMemory({ action: 'memory_ops', ops: ops.map(o => ({ reason: 'ui', ...o })) });
+  sendAction({ action: 'memory_ops', ops: ops.map(o => ({ reason: 'ui', ...o })) });
 }
 
 function setMemory(msg) {
@@ -535,6 +542,8 @@ function showMemoryError(path, reason) {
     || memoryErrorEls.get(p.replace(/\.[^.]+$/, ''))
     || memoryErrorEls.get(p.split(/[.[]/)[0]);
   if (el) el.textContent = text;
+  // No memory row owns this path — it came from a wiki action (paths there are `people/anna`).
+  else if (currentView === 'wiki') { setWikiError(text); wikiIngestDone(); }
   else memErrorEl.textContent = text;
 }
 
@@ -624,6 +633,12 @@ function retireEntry(section, index, on) {
   sendMemoryOp('UPDATE', `${section}[${index}].stale`, !!on);
 }
 
+// PRD 19: hand the entry to the wiki; the server answers with fresh `memory` + `wiki` messages.
+function archiveEntry(section, index) {
+  memErrorEl.textContent = '';
+  sendAction({ action: 'archive_memory', section, index });
+}
+
 function promoteEpisodic(entry, index) {
   const value = { what: entry.text || '' };
   if (entry.when) value.when = entry.when;
@@ -636,10 +651,13 @@ function promoteEpisodic(entry, index) {
 // The moves offered for one row. `to` names the drop zone that performs the move, so the same
 // table drives the "→" menu and drag-and-drop (see memDropZone) — no second set of conditionals.
 function rowMoves(spec, entry, index, stale) {
-  if (stale) return [{ label: 'restore', to: `${spec.section}/section`, run: () => retireEntry(spec.section, index, false) }];
-  if (spec.section === 'episodic') return [{ label: 'make recurring', to: 'recurring/section', run: () => promoteEpisodic(entry, index) }];
-  if (spec.retirable) return [{ label: 'retire', to: `${spec.section}/stale`, run: () => retireEntry(spec.section, index, true) }];
-  return [];
+  const moves = [];
+  if (stale) moves.push({ label: 'restore', to: `${spec.section}/section`, run: () => retireEntry(spec.section, index, false) });
+  else if (spec.section === 'episodic') moves.push({ label: 'make recurring', to: 'recurring/section', run: () => promoteEpisodic(entry, index) });
+  else if (spec.retirable) moves.push({ label: 'retire', to: `${spec.section}/stale`, run: () => retireEntry(spec.section, index, true) });
+  // PRD 19: file the entry into its wiki page (and mark it stale); the drop zone is the Wiki tab.
+  if (spec.archivable) moves.push({ label: 'archive', to: 'wiki/tab', run: () => archiveEntry(spec.section, index) });
+  return moves;
 }
 
 // One entry of a section by index — how a drag payload resolves back to its row.
@@ -648,9 +666,12 @@ function memEntryAt(section, index) {
   return list[index] || {};
 }
 
-// The same moves for the row a drag payload ({section, index, kind}) refers to.
+// The moves for whatever is being dragged: a memory row ({section, index, kind}) or,
+// from the wiki view, a page ({path, type}). One table, so memDropZone stays payload-agnostic.
 function dragMoves(drag) {
-  const spec = drag && MEM_SPEC_BY_SECTION.get(drag.section);
+  if (!drag) return [];
+  if (drag.path) return wikiMoves(drag);
+  const spec = MEM_SPEC_BY_SECTION.get(drag.section);
   if (!spec) return [];
   return rowMoves(spec, memEntryAt(drag.section, drag.index), drag.index, drag.kind === 'stale');
 }
@@ -687,11 +708,13 @@ function moveButton(moves) {
 // ---- drag and drop ----
 function memReadDrag(e) {
   if (memDrag) return memDrag;
-  try {
-    return JSON.parse(e.dataTransfer.getData(MEM_DRAG_MIME) || 'null');
-  } catch (_) {
-    return null;
+  for (const mime of [MEM_DRAG_MIME, WIKI_DRAG_MIME]) {
+    try {
+      const raw = e.dataTransfer.getData(mime);
+      if (raw) return JSON.parse(raw);
+    } catch (_) { /* getData is not readable during dragover in some browsers */ }
   }
+  return null;
 }
 
 // Show the stale drop strips that accept the row being dragged.
@@ -702,11 +725,11 @@ function clearDropTargets() {
   for (const t of memArmable) t.node.classList.remove('armed');
 }
 
-function makeDraggable(row, drag) {
+function makeDraggable(row, drag, mime) {
   row.draggable = true;
   row.ondragstart = (e) => {
     memDrag = drag;
-    e.dataTransfer.setData(MEM_DRAG_MIME, JSON.stringify(drag));
+    e.dataTransfer.setData(mime || MEM_DRAG_MIME, JSON.stringify(drag));
     e.dataTransfer.effectAllowed = 'move';
     row.classList.add('mem-dragging');
     armDropTargets(drag);
@@ -898,8 +921,234 @@ function renderMemory() {
 memModelToggle.onclick = () => { memoryModelView = !memoryModelView; renderMemory(); };
 document.getElementById('memory-reset').onclick = () => {
   if (!confirm('Forget everything the assistant remembers about you? This cannot be undone.')) return;
-  sendMemory({ action: 'memory_reset' });
+  sendAction({ action: 'memory_reset' });
 };
+
+// ---------- wiki view ----------
+// Browse-only mirror of ~/llm-wiki: the server sends the page index (`wiki`) and one page at a
+// time (`wiki_page`); the only writes from here are an appended note, an on-demand ingest and
+// the two drag bridges to the memory view (archive / pull).
+const WIKI_FOLDERS = ['people', 'projects', 'meetings', 'sources'];
+const WIKI_LINK_RE = /\[\[([^[\]]+)\]\]/g;
+const WIKI_INGEST_TIMEOUT_MS = 60000;
+
+const wikiListEl = document.getElementById('wiki-list');
+const wikiHeadEl = document.getElementById('wiki-page-head');
+const wikiTextEl = document.getElementById('wiki-text');
+const wikiNoteEl = document.getElementById('wiki-note');
+const wikiLintEl = document.getElementById('wiki-lint');
+const wikiVaultEl = document.getElementById('wiki-vault');
+const wikiErrorEl = document.getElementById('wiki-error');
+const wikiIngestBtn = document.getElementById('wiki-ingest');
+const wikiNoteInput = document.getElementById('wiki-note-input');
+const wikiNoteBtn = document.getElementById('wiki-note-add');
+const wikiTabBtn = viewTabs.find(t => t.dataset.view === 'wiki');
+const memTabBtn = viewTabs.find(t => t.dataset.view === 'memory');
+
+let wikiPages = null;      // last `wiki` page list (null = never loaded)
+let wikiLint = [];
+let wikiVault = '';
+let wikiSelected = null;   // path of the open page, kept across refreshes
+let wikiPage = null;       // last `wiki_page` for wikiSelected
+let wikiIngestTimer = null;
+
+function requestWiki() {
+  sendAction({ action: 'get_wiki' });
+}
+
+function setWikiError(text) {
+  wikiErrorEl.textContent = text || '';
+}
+
+// A wiki page can be pulled back into the matching profile section; the Memory tab is a plain
+// "take me there" target so a mis-aimed drop is not a dead end.
+function wikiMoves(drag) {
+  const moves = [];
+  const section = drag.type === 'person' ? 'people' : drag.type === 'project' ? 'projects' : null;
+  if (section) {
+    moves.push({
+      label: 'pull into memory',
+      to: `${section}/section`,
+      run: () => { setWikiError(''); sendAction({ action: 'pull_wiki', path: drag.path, section }); },
+    });
+  }
+  moves.push({ label: 'open memory', to: 'memory/tab', run: () => setView('memory') });
+  return moves;
+}
+
+function wikiFolder(path) {
+  const i = String(path).indexOf('/');
+  return i === -1 ? 'root' : path.slice(0, i);
+}
+
+// Known folders first in a fixed order, then anything else alphabetically, root last.
+function wikiGroups(pages) {
+  const groups = new Map();
+  for (const page of pages) {
+    const folder = wikiFolder(page.path);
+    if (!groups.has(folder)) groups.set(folder, []);
+    groups.get(folder).push(page);
+  }
+  const rank = (f) => (f === 'root' ? 2 : WIKI_FOLDERS.includes(f) ? 0 : 1);
+  return Array.from(groups.entries()).sort((a, b) => {
+    const ra = rank(a[0]);
+    const rb = rank(b[0]);
+    if (ra !== rb) return ra - rb;
+    if (ra === 0) return WIKI_FOLDERS.indexOf(a[0]) - WIKI_FOLDERS.indexOf(b[0]);
+    return a[0].localeCompare(b[0]);
+  });
+}
+
+// Paths are suffix-less everywhere (`people/anna`) — in the page list, in wikilinks and in
+// every action sent back; the server is what normalises them onto files.
+function selectWikiPage(path) {
+  path = String(path || '').trim();
+  if (!path) return;
+  wikiSelected = path;
+  wikiPage = null;
+  setWikiError('');
+  sendAction({ action: 'read_wiki_page', path });
+  renderWikiList();
+  renderWikiPage();
+}
+
+function wikiRow(page) {
+  const row = el('div', 'wiki-row');
+  if (page.path === wikiSelected) row.classList.add('selected');
+  row.append(el('span', 'wiki-row-title', page.title || page.path));
+  if (page.type) row.append(el('span', 'wiki-row-type', page.type));
+  row.onclick = () => selectWikiPage(page.path);
+  // Only the two page kinds a profile section can hold are draggable.
+  if (page.type === 'person' || page.type === 'project') {
+    makeDraggable(row, { path: page.path, type: page.type }, WIKI_DRAG_MIME);
+  }
+  return row;
+}
+
+function renderWikiList() {
+  const pages = wikiPages || [];
+  if (!pages.length) {
+    wikiListEl.replaceChildren(el('div', 'mem-empty', wikiPages ? 'no pages yet' : 'loading…'));
+    return;
+  }
+  const nodes = [];
+  for (const [folder, group] of wikiGroups(pages)) {
+    nodes.push(el('div', 'wiki-group-title', folder));
+    group.sort((a, b) => String(a.title || a.path).localeCompare(String(b.title || b.path)));
+    nodes.push(...group.map(wikiRow));
+  }
+  wikiListEl.replaceChildren(...nodes);
+}
+
+// The page text, with every [[link]] turned into a span that opens that page. Built as DOM
+// nodes from a split on the wikilink pattern — never innerHTML.
+function wikiTextNodes(text) {
+  const known = new Set((wikiPages || []).map(p => p.path));
+  return String(text).split(WIKI_LINK_RE).map((part, i) => {
+    if (i % 2 === 0) return document.createTextNode(part);
+    const target = part.trim();
+    const link = el('span', 'wiki-link', `[[${part}]]`);
+    if (!known.has(target)) { link.classList.add('missing'); link.title = 'no such page (yet)'; }
+    link.onclick = () => selectWikiPage(target);
+    return link;
+  });
+}
+
+function renderWikiPage() {
+  const meta = (wikiPages || []).find(p => p.path === wikiSelected);
+  const head = [];
+  if (!wikiSelected) {
+    wikiHeadEl.replaceChildren(el('div', 'wiki-muted', 'pick a page'));
+    wikiTextEl.replaceChildren();
+    wikiTextEl.hidden = true;
+    wikiNoteEl.hidden = true;
+    return;
+  }
+  wikiTextEl.hidden = false;
+  wikiNoteEl.hidden = false;
+  head.push(el('div', 'wiki-title', (meta && meta.title) || wikiSelected));
+  const sub = el('div', 'wiki-sub');
+  sub.append(el('span', 'wiki-path', wikiSelected));
+  if (meta && meta.updated) sub.append(el('span', 'wiki-muted', `updated ${meta.updated}`));
+  if (wikiVault) {
+    const vaultName = wikiVault.replace(/\/+$/, '').split('/').pop();
+    const a = el('a', 'wiki-obsidian', 'Open in Obsidian');
+    a.href = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(wikiSelected)}`;
+    sub.append(a);
+  }
+  // Fallback for the drag bridge: the same move, as a button.
+  const pull = meta && wikiMoves({ path: wikiSelected, type: meta.type }).find(m => m.to.endsWith('/section'));
+  if (pull) {
+    const b = el('button', 'wiki-pull', `→ ${pull.label}`);
+    b.onclick = pull.run;
+    sub.append(b);
+  }
+  head.push(sub);
+  wikiHeadEl.replaceChildren(...head);
+  wikiTextEl.replaceChildren(...(wikiPage ? wikiTextNodes(wikiPage.text || '') : [document.createTextNode('loading…')]));
+}
+
+function renderWikiFoot() {
+  wikiVaultEl.textContent = wikiVault || '';
+  wikiLintEl.hidden = !wikiLint.length;
+  wikiLintEl.replaceChildren(...wikiLint.map(line => el('div', 'wiki-lint-line', line)));
+}
+
+function setWiki(msg) {
+  wikiPages = Array.isArray(msg.pages) ? msg.pages : [];
+  wikiLint = Array.isArray(msg.lint) ? msg.lint : [];
+  wikiVault = msg.vault || wikiVault;
+  wikiIngestDone();
+  // Keep the open page open across refreshes, and re-read it (an ingest may have changed it).
+  if (wikiSelected && wikiPages.some(p => p.path === wikiSelected)) selectWikiPage(wikiSelected);
+  else {
+    if (wikiSelected) { wikiSelected = null; wikiPage = null; }
+    renderWikiList();
+    renderWikiPage();
+  }
+  renderWikiFoot();
+}
+
+function setWikiPage(msg) {
+  if (msg.path !== wikiSelected) return;   // a stale answer for a page we navigated away from
+  wikiPage = msg;
+  renderWikiPage();
+}
+
+function wikiIngestDone() {
+  if (wikiIngestTimer) { clearTimeout(wikiIngestTimer); wikiIngestTimer = null; }
+  wikiIngestBtn.disabled = false;
+  wikiIngestBtn.textContent = 'Re-ingest last session';
+}
+
+wikiIngestBtn.onclick = () => {
+  if (wikiIngestBtn.disabled) return;
+  setWikiError('');
+  wikiIngestBtn.disabled = true;
+  wikiIngestBtn.textContent = 'ingesting…';
+  // Re-enabled by the next `wiki` message, or by this timeout if the ingest never answers.
+  wikiIngestTimer = setTimeout(wikiIngestDone, WIKI_INGEST_TIMEOUT_MS);
+  sendAction({ action: 'wiki_ingest' });
+};
+
+function addWikiNote() {
+  const text = wikiNoteInput.value.trim();
+  if (!wikiSelected || !text) return;
+  setWikiError('');
+  sendAction({ action: 'wiki_note', path: wikiSelected, text });
+  wikiNoteInput.value = '';
+}
+wikiNoteBtn.onclick = addWikiNote;
+wikiNoteInput.onkeydown = (e) => {
+  e.stopPropagation();   // Esc/Space are global shortcuts otherwise
+  if (e.key === 'Enter') { e.preventDefault(); addWikiNote(); }
+};
+
+// The two cross-view drop zones, wired with the same table-driven helper as the memory rows.
+memDropZone(wikiTabBtn, 'wiki/tab', false);
+memDropZone(memTabBtn, 'memory/tab', false);
+renderWikiList();
+renderWikiPage();
 
 // ---------- websocket / ui ----------
 function connect() {
@@ -940,14 +1189,21 @@ function connect() {
       renderVerbosity();
     }
     else if (msg.type === 'memory') setMemory(msg);
+    else if (msg.type === 'wiki') setWiki(msg);
+    else if (msg.type === 'wiki_page') setWikiPage(msg);
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
-    else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); renderVerbosity(); }
+    else if (msg.type === 'error') {
+      status.textContent = msg.text.toLowerCase();
+      if (currentView === 'wiki') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
+      renderVerbosity();
+    }
   };
 
   ws.onopen = () => {
     render();
     // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
     if (currentView === 'memory') requestMemory();
+    else if (currentView === 'wiki') requestWiki();
   };
   ws.onclose = (e) => {
     if (shutdownRequested) { showShutdownScreen(); return; }
