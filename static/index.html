@@ -225,6 +225,15 @@
           </div>
         </div>
 
+        <!-- PRD 30: command palette. Rows are built in app.js from PALETTE_SOURCES. -->
+        <div id="palette" hidden>
+          <div id="palette-card" role="dialog" aria-modal="true" aria-label="Command palette">
+            <input id="palette-input" placeholder="type a command or a page…" spellcheck="false"
+                   autocomplete="off" aria-label="Command">
+            <div id="palette-list" role="listbox"></div>
+          </div>
+        </div>
+
         <!-- PRD 20: drop/paste intake. The overlay only appears for file drags; the popup
              is modal over the workspace and sends nothing until File is pressed. -->
         <div id="drop-overlay" hidden><span>drop to file</span></div>

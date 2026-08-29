@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 30 — Command palette (⌘K)
 
@@ -18,7 +18,7 @@ Client-only: a registry of commands in `app.js`, no server change.
 
 ## UI/UX
 - `#palette`: a dimmed overlay over the workspace (same look as the intake popup), a card near the top with one text
-  input and a list of up to 12 rows. Rows show `label` and, right-aligned, the group name (`view`, `wiki`, `avatar`,
+  input and a list of rows (all commands and pages for an empty query, scrolling; at most 12 matches for a query). Rows show `label` and, right-aligned, the group name (`view`, `wiki`, `avatar`,
   `sources`, `app`). Wiki page rows show the page path as their detail.
 - Open: ⌘K / Ctrl+K anywhere (also while typing — it is the one shortcut that always works); toggles. The input is
   focused and empty on every open.
@@ -75,7 +75,7 @@ Node fixture (`tests/app_fixture.mjs`, asserted from `tests/test_palette.py`):
    `wiki`, the palette is closed.
 4. Fallback: `zzz` + Enter → view `wiki`, `#wiki-search` value `zzz`, `wiki_search {query:'zzz'}` was sent.
 5. Payloads equal the existing controls: backdrop row sends `set_backdrop {key:'office'}`; verbosity row sends
-   `set_verbosity {value:'short'}`; voice row sends `set_hands_free`; mute row flips `muted`; re-ingest sends
+   `set_verbosity {value:'short'}`; the voice row (with hands-free on) sends `set_hands_free {value:false}`; mute row flips `muted`; re-ingest sends
    `wiki_ingest`; shutdown asks `confirm` and sends `shutdown` only when it agrees.
 6. Click: clicking the second row runs it (view changes to that row's target).
 

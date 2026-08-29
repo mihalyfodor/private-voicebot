@@ -38,6 +38,8 @@
 //   cue()            { target, pulse, active } of the current cue blend
 //   emotion()        the emotion the expression blend is showing
 //   setState(v) / showShutdownScreen()   the two transitions the cues hang off
+//   palette / paletteInput / paletteList / view()   the ⌘K palette state, its input, its rows (PRD 30)
+//   cmdK()           a document-level ⌘K keydown
 //
 // ------------------------------------------------------------- adding a scenario (next PRD)
 // 1. add whatever the scenario needs to HOOKS (keep it a thin accessor, no logic);
@@ -120,6 +122,7 @@ class El {
     return e;
   }
   focus() { doc.activeElement = this; }
+  blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
   matches(sel) {
     return sel.split(',').map(s => s.trim()).some(s =>
       (s.startsWith('.') && this._cls.has(s.slice(1))) ||
@@ -265,6 +268,7 @@ const sandbox = {
   URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
   PIXI: PIXIStub,
   performance: { now: () => Date.now() },
+  close() {},   // window.close(), called by the shutdown path
   // PRD 28 dialogs: confirm always agrees, prompt answers with `dialogs.answer` and both log.
   confirm: (msg) => { dialogs.log.push(['confirm', msg]); return true; },
   prompt: (msg, def) => { dialogs.log.push(['prompt', msg]); return dialogs.answer ?? def; },
@@ -304,6 +308,10 @@ globalThis.__t = {
   wikiConflict: wikiConflictEl, wikiBacklinks: wikiBacklinksEl, wikiSearch: wikiSearchInput,
   wikiToday: wikiTodayBtn, wikiNew: wikiNewBtn,
   selectWikiPage,
+  // ---- command palette (PRD 30)
+  palette, paletteInput, paletteList: paletteListEl,
+  view: () => currentView,
+  cmdK: () => document.dispatch('keydown', { key: 'k', metaKey: true }),
 };
 `;
 
@@ -497,5 +505,74 @@ t.wikiSearch.dispatch('input');
 results.wiki_tools_sent = [...socket.sent];
 t.recv({ type: 'wiki_search', query: 'atlas', hits: [{ path: 'projects/atlas', snippet: 'The rewrite.', score: 1 }] });
 results.wiki_search_rows = listRows();
+
+// ---------------------------------------------------------------- scenarios (PRD 30)
+const rows = () => t.paletteList.children.map(c => c.children[0].textContent);
+const activeRow = () => t.paletteList.children.findIndex(c => c.className.includes('active'));
+const type = (q) => { t.paletteInput.value = q; t.paletteInput.dispatch('input'); };
+const key = (k) => t.paletteInput.dispatch('keydown', { key: k });
+const palEl = doc.getElementById('palette');
+
+// ---- scenario 1: ⌘K opens (focused, empty, fixed commands then pages), toggles, Esc closes,
+//      the view digits are off while it is open
+t.setView('chat');
+t.wikiSearch.value = ''; t.wikiSearch.dispatch('input');
+t.cmdK();
+results.pal_open = { hidden: palEl.hidden, focused: doc.activeElement === t.paletteInput,
+                     value: t.paletteInput.value, rows: rows() };
+t.keydown('3');
+results.pal_view_while_open = t.view();
+t.cmdK();
+results.pal_hidden_after_toggle = palEl.hidden;
+t.cmdK(); key('Escape');
+results.pal_hidden_after_escape = palEl.hidden;
+
+// ---- scenario 2: ranking
+const firstFor = (q) => { t.cmdK(); type(q); const r = rows(); t.cmdK(); return r; };
+results.pal_rank_atl = firstFor('atl');
+results.pal_rank_set = firstFor('set');
+results.pal_rank_wk = firstFor('wk');
+results.pal_rank_zzz = firstFor('zzz');
+
+// ---- scenario 3: ↓ ↑ wrap back to 0; Enter opens the page in the Wiki view
+t.cmdK(); type('atl');
+key('ArrowDown'); const afterDown = activeRow(); key('ArrowUp');
+results.pal_nav = { after_down: afterDown, after_up: activeRow() };
+socket.sent.length = 0;
+key('Enter');
+results.pal_enter = { view: t.view(), hidden: palEl.hidden, sent: [...socket.sent] };
+
+// ---- scenario 4: the search fallback
+t.setView('chat');
+t.cmdK(); type('zzz'); socket.sent.length = 0; key('Enter');
+results.pal_fallback = { view: t.view(), search: t.wikiSearch.value, sent: [...socket.sent] };
+
+// ---- scenario 5: payloads equal the existing controls
+const runLabel = (label) => {
+  t.cmdK(); type(label);
+  const i = rows().indexOf(label);
+  socket.sent.length = 0;
+  t.paletteList.children[i].dispatch('click');
+  return [...socket.sent];
+};
+results.pal_backdrop = runLabel('Backdrop: Home office');
+results.pal_verbosity = runLabel('Reply length: short');
+t.recv({ type: 'hands_free', value: true });   // 'turn on' would start the mic; assert the off direction
+results.pal_voice = runLabel('Voice: turn off');
+t.recv({ type: 'hands_free', value: false });
+const mutedBefore = t.muted; runLabel('Mute replies');
+results.pal_mute = { before: mutedBefore, after: t.muted };
+results.pal_ingest = runLabel('Re-ingest last session');
+sandbox.confirm = (msg) => { dialogs.log.push(['confirm', msg]); return false; };
+results.pal_shutdown_declined = runLabel('Shut down');
+results.pal_shutdown_asked = dialogs.log.at(-1);
+sandbox.confirm = (msg) => { dialogs.log.push(['confirm', msg]); return true; };
+results.pal_shutdown_agreed = runLabel('Shut down');
+
+// ---- scenario 6: clicking the second row runs it (Go to Memory)
+t.setView('chat');
+t.cmdK();
+t.paletteList.children[1].dispatch('click');
+results.pal_click = { view: t.view(), hidden: palEl.hidden };
 
 console.log(JSON.stringify(results, null, 1));

@@ -97,12 +97,13 @@ function showShutdownScreen() {
   // screen back for both, so Wanko's settle — idle_04 + the lid closing (PRD 27) — is seen.
   setTimeout(() => { document.getElementById('shutdown-screen').hidden = false; }, 1200);
 }
-document.getElementById('shutdown').onclick = () => {
+function requestShutdown() {
   shutdownRequested = true;
   ws.send(JSON.stringify({ action: 'shutdown' }));
   status.textContent = 'shutting down…';
   window.close(); // only works for script-opened tabs; otherwise the status line tells the story
-};
+}
+document.getElementById('shutdown').onclick = requestShutdown;
 document.getElementById('reload-characters').onclick = () => {
   ws.send(JSON.stringify({ action: 'reload_characters' }));
 };
@@ -2257,7 +2258,7 @@ function connect() {
       renderVerbosity();
     }
     else if (msg.type === 'memory') setMemory(msg);
-    else if (msg.type === 'wiki') setWiki(msg);
+    else if (msg.type === 'wiki') { setWiki(msg); if (palette.open) renderPalette(); }
     else if (msg.type === 'wiki_page') setWikiPage(msg);
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
@@ -2400,10 +2401,165 @@ async function setHandsFree(desired) {
 }
 micBtn.addEventListener('click', () => setHandsFree(!handsFree));
 
+// ---------- command palette (PRD 30) ----------
+// ⌘K opens an overlay over the workspace; every area contributes a source function returning
+// its entries `{id, label, keywords, group, detail?, run}`. Sources run on every render, so
+// dynamic sets (wiki pages, backdrops, the on/off labels) are read live, nothing is cached.
+const PALETTE_MAX = 12;
+const paletteEl = document.getElementById('palette');
+const paletteInput = document.getElementById('palette-input');
+const paletteListEl = document.getElementById('palette-list');
+const palette = { open: false, query: '', index: 0, items: [] };
+const PALETTE_SOURCES = [];
+
+PALETTE_SOURCES.push(() => VIEWS.map(v => ({
+  id: `view:${v.id}`, label: `Go to ${v.label}`, keywords: ['view', v.label, v.id],
+  group: 'view', detail: v.key, run: () => setView(v.id),
+})));
+PALETTE_SOURCES.push(() => [
+  { id: 'wiki:today', label: 'Today\'s note', keywords: ['wiki', 'meeting', 'daily'], group: 'wiki',
+    detail: wikiToday(), run: () => { setView('wiki'); wikiTodayBtn.onclick(); } },
+  { id: 'wiki:new', label: 'New page…', keywords: ['wiki', 'create'], group: 'wiki',
+    run: () => { setView('wiki'); wikiNewBtn.onclick(); } },
+]);
+PALETTE_SOURCES.push(() => [
+  { id: 'voice', label: handsFree ? 'Voice: turn off' : 'Voice: turn on', group: 'avatar',
+    keywords: ['hands-free', 'continuous', 'listen', 'mic', 'microphone'], run: () => setHandsFree(!handsFree) },
+  { id: 'mute', label: muted ? 'Unmute replies' : 'Mute replies', group: 'avatar',
+    keywords: ['mute', 'sound', 'audio', 'quiet'], run: toggleMute },
+  ...verbosityLevels.map(v => ({
+    id: `verbosity:${v}`, label: `Reply length: ${v}`, group: 'avatar', keywords: ['verbosity', 'reply', v],
+    run: () => ws.send(JSON.stringify({ action: 'set_verbosity', value: v })),
+  })),
+  ...backdropOptions.map(b => ({
+    id: `backdrop:${b.key}`, label: `Backdrop: ${b.name}`, group: 'avatar', keywords: ['backdrop', 'scene', b.key],
+    run: () => setBackdrop(b.key),
+  })),
+  { id: 'reload-characters', label: 'Reload characters', group: 'avatar', keywords: ['character', 'yaml', 'persona'],
+    run: () => ws.send(JSON.stringify({ action: 'reload_characters' })) },
+]);
+PALETTE_SOURCES.push(() => [
+  { id: 'sources:file', label: 'File a source…', group: 'sources', keywords: ['ingest', 'upload', 'drop', 'pdf', 'email'],
+    run: () => { setView('sources'); sourcesInputEl.click(); } },
+]);
+PALETTE_SOURCES.push(() => [
+  { id: 'app:ingest', label: 'Re-ingest last session', group: 'app', keywords: ['wiki', 'session', 'memory'],
+    run: () => { setView('wiki'); wikiIngestBtn.onclick(); } },
+  { id: 'app:shutdown', label: 'Shut down', group: 'app', keywords: ['quit', 'exit', 'stop', 'server'],
+    run: () => { if (confirm('Shut down the server? Session memory is saved first.')) requestShutdown(); } },
+]);
+// Pages last: with an empty query the fixed commands come first, a query ranks them all together.
+PALETTE_SOURCES.push(() => (wikiPages || []).map(p => ({
+  id: `page:${p.path}`, label: p.title || p.path, keywords: [p.path, ...(p.tags || [])], group: 'wiki',
+  detail: p.path, run: () => { setView('wiki'); selectWikiPage(p.path); },
+})));
+
+function paletteSearchEntry(q) {
+  return {
+    id: 'wiki:search', label: `Search wiki for "${q}"`, keywords: [], group: 'wiki',
+    run: () => { setView('wiki'); wikiSearchInput.value = q; wikiSearchInput.oninput(); },
+  };
+}
+
+function isSubsequence(needle, hay) {
+  let i = 0;
+  for (const ch of hay) if (ch === needle[i]) i++;
+  return i === needle.length;
+}
+
+// 0 = no match. Label prefix > label word prefix > label substring > keyword substring > subsequence.
+function paletteScore(entry, q) {
+  const label = entry.label.toLowerCase();
+  if (label.startsWith(q)) return 4;
+  if (label.split(/[^a-z0-9]+/).some(w => w.startsWith(q))) return 3;
+  if (label.includes(q)) return 2;
+  if (entry.keywords.some(k => String(k).toLowerCase().includes(q))) return 1;
+  if (isSubsequence(q, label)) return 0.5;
+  return 0;
+}
+
+function paletteItems(query) {
+  const q = query.trim().toLowerCase();
+  const all = PALETTE_SOURCES.flatMap(src => src());
+  if (!q) return all;   // the whole list, fixed commands first, then the pages (scrolls)
+  const items = all.map((e, i) => ({ e, i, s: paletteScore(e, q) })).filter(x => x.s > 0)
+    .sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.e).slice(0, PALETTE_MAX);
+  items.push(paletteSearchEntry(query.trim()));
+  return items;
+}
+
+function paletteRow(entry, i) {
+  const row = el('div', 'palette-row' + (i === palette.index ? ' active' : ''));
+  row.setAttribute('role', 'option');
+  row.append(el('span', 'palette-label', entry.label));
+  row.append(el('span', 'palette-detail', entry.detail || ''));
+  row.append(el('span', 'palette-group', entry.group));
+  row.onmouseenter = () => { palette.index = i; renderPalette(false); };
+  row.onclick = () => runPalette(i);
+  return row;
+}
+
+function renderPalette(recompute = true) {
+  if (recompute) palette.items = paletteItems(palette.query);
+  if (palette.items.length) palette.index = Math.max(0, Math.min(palette.index, palette.items.length - 1));
+  else palette.index = 0;
+  const rows = palette.items.map(paletteRow);
+  paletteListEl.replaceChildren(...(rows.length ? rows : [el('div', 'palette-empty', 'nothing here yet')]));
+  const active = rows[palette.index];
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
+}
+
+function openPalette() {
+  if (!intakeEl.hidden) return;
+  palette.open = true;
+  palette.query = '';
+  palette.index = 0;
+  paletteInput.value = '';
+  paletteEl.hidden = false;
+  if (!wikiPages) requestWiki();   // the page rows fill in when `wiki` answers
+  renderPalette();
+  paletteInput.focus();
+}
+
+function closePalette() {
+  palette.open = false;
+  paletteEl.hidden = true;
+  paletteInput.blur();
+}
+
+function togglePalette() {
+  if (palette.open) closePalette(); else openPalette();
+}
+
+function movePalette(delta) {
+  const n = palette.items.length;
+  if (!n) return;
+  palette.index = (palette.index + delta + n) % n;
+  renderPalette(false);
+}
+
+function runPalette(i) {
+  const entry = palette.items[i];
+  if (!entry) return;
+  closePalette();
+  entry.run();
+}
+
+paletteInput.oninput = () => { palette.query = paletteInput.value; palette.index = 0; renderPalette(); };
+paletteInput.onkeydown = (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); closePalette(); return; }
+  e.stopPropagation();   // the global shortcuts stay out of the palette
+  if (e.key === 'ArrowDown') { e.preventDefault(); movePalette(1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); movePalette(-1); }
+  else if (e.key === 'Enter') { e.preventDefault(); runPalette(palette.index); }
+  else if (e.key === 'Escape') { e.preventDefault(); closePalette(); }
+};
+paletteEl.onclick = (e) => { if (e.target === paletteEl) closePalette(); };
+
 // ---------- keyboard ----------
-// The one keydown handler: Esc closes the intake popup, Space toggles the output mute and
-// 1–5 switch views. Everything below the typing guard is off while the keyboard is being used
-// for typing or the intake popup is up.
+// The one keydown handler: ⌘K toggles the palette (even while typing), Esc closes the intake
+// popup or the palette, Space toggles the output mute and 1–5 switch views. Everything below
+// the typing guard is off while the keyboard is being used for typing or a popup is up.
 function isTyping(node) {
   return !!(node && node.closest && node.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
 }
@@ -2411,10 +2567,12 @@ function isInteractive(node) {
   return !!(node && node.closest && node.closest('button, a, select, [role="button"]'));
 }
 document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); togglePalette(); return; }
   if (e.key === 'Escape' && !intakeEl.hidden) { closeIntake(); return; }
+  if (e.key === 'Escape' && palette.open) { closePalette(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (isTyping(e.target) || isTyping(document.activeElement)) return;
-  if (!intakeEl.hidden) return;
+  if (!intakeEl.hidden || palette.open) return;
   if (e.code === 'Space') {
     if (isInteractive(e.target) || isInteractive(document.activeElement)) return;  // let the button take it
     e.preventDefault(); toggleMute(); return;

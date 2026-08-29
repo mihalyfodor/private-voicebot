@@ -621,6 +621,38 @@ main {
 }
 #intake-toast[hidden] { display: none; }
 
+/* ---- command palette (PRD 30) ---- */
+#palette {
+  position: absolute; inset: 0; z-index: 9;
+  display: flex; align-items: flex-start; justify-content: center; padding: 10vh 18px 18px;
+  background: rgba(0,0,0,0.45);
+}
+#palette[hidden] { display: none; }
+#palette-card {
+  width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  border-radius: 12px; overflow: hidden;
+  background: rgba(18,18,20,0.97); border: 1px solid #333;
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+}
+#palette-input {
+  flex: none; font: inherit; font-size: 15px; color: #ececec; padding: 12px 14px;
+  background: none; border: none; border-bottom: 1px solid #262626; outline: none;
+}
+#palette-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 6px; }
+.palette-row {
+  display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border-radius: 8px;
+  cursor: pointer; font-size: 13px; color: #d6d6d6;
+}
+.palette-row.active { background: rgba(74,144,217,0.16); color: #e8f0fa; }
+.palette-label { flex: none; }
+.palette-detail { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 11px; color: #6a6a6a; }
+.palette-group {
+  flex: none; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: #5a5a5a;
+}
+.palette-row.active .palette-group { color: #4a90d9; }
+.palette-empty { padding: 10px; font-size: 12px; color: #6a6a6a; }
+
 /* ---- settings view (PRD 22) ---- */
 #settings-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
