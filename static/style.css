@@ -285,6 +285,46 @@ main {
   cursor: pointer; padding: 0 2px;
 }
 .mem-restore:hover { text-decoration: underline; }
+
+/* ---- decay: seen labels, stale group, drag targets ---- */
+.mem-seen {
+  margin-left: auto; flex: none;
+  font-size: 10px; color: #6a6a6a; letter-spacing: 0.03em; white-space: nowrap;
+}
+.mem-row:has(.mem-seen) .mem-del { margin-left: 0; }
+.mem-row.aging { opacity: 0.72; }
+.mem-row.mem-stale { opacity: 0.45; }
+.mem-row.mem-dragging { opacity: 0.35; border-style: dashed; }
+.mem-row[draggable="true"] { cursor: grab; }
+
+.mem-move {
+  flex: none; background: none; border: none; color: #6a6a6a;
+  font: inherit; font-size: 12px; cursor: pointer; padding: 0 4px; border-radius: 6px;
+}
+.mem-move:hover { color: #4a90d9; background: rgba(74,144,217,0.10); }
+.mem-menu {
+  display: flex; gap: 4px; align-items: center; flex: none;
+  background: rgba(20,20,22,0.95); border: 1px solid #333; border-radius: 8px; padding: 2px 4px;
+}
+.mem-menu button {
+  background: none; border: none; color: #cfcfcf; font: inherit; font-size: 11px;
+  cursor: pointer; padding: 2px 6px; border-radius: 5px; white-space: nowrap;
+}
+.mem-menu button:hover { color: #f2f2f2; background: rgba(74,144,217,0.18); }
+
+.mem-stale-group { margin: 2px 0 0 0; }
+.mem-stale-head {
+  font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: #7a7a7a; padding: 4px 8px; margin-bottom: 4px; border-radius: 8px;
+  border: 1px dashed transparent;
+}
+.mem-stale-head.empty { display: none; }
+.mem-stale-head.empty.armed { display: block; border-color: #3a3a3a; color: #8a8a8a; }
+.mem-section-title.drop-ok, .mem-stale-head.drop-ok {
+  color: #9fc6f0; border: 1px dashed #4a90d9; background: rgba(74,144,217,0.12);
+}
+.mem-section-title.drop-ok { border-radius: 8px; padding: 2px 6px; margin-left: -4px; }
+
 /* row-level errors and the panel-level one look the same (see #memory-error below) */
 .mem-error, #memory-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
 .mem-error:empty, #memory-error:empty { display: none; }

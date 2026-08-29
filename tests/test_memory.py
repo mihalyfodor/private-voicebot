@@ -27,6 +27,11 @@ def _days_ago(n: int) -> str:
 TURNS = [{"role": "user", "content": "I'm Mihaly and I live in Budapest"}]
 
 
+def undated(entries: list) -> list:
+    """Entries without the decay fields (`seen` / `stale`) — see docs/18-memory-decay.md."""
+    return [{k: v for k, v in e.items() if k not in ("seen", "stale")} for e in entries]
+
+
 # --------------------------------------------------------------- 1. apply_ops
 
 
@@ -71,7 +76,7 @@ def test_update_list_entry_matches_by_key_and_delete_removes():
         {"op": "UPDATE", "path": "projects[]", "value": {"name": "half marathon", "note": "race in November"}},
         {"op": "DELETE", "path": "people[]", "value": {"name": "Anna"}},
     ])
-    assert profile["projects"] == [{"name": "half marathon", "note": "race in November"}]
+    assert undated(profile["projects"]) == [{"name": "half marathon", "note": "race in November"}]
     assert profile["people"] == []
 
 
@@ -105,7 +110,7 @@ def test_list_paths_tolerate_a_missing_bracket_suffix(path):
     """Models drop the `[]` suffix all the time; the section name alone is enough."""
     profile, applied = memory.apply_ops(
         memory._empty_profile(), [{"op": "ADD", "path": path, "value": {"name": "Bolt", "rel": "dog"}}])
-    assert profile["people"] == [{"name": "Bolt", "rel": "dog"}]
+    assert undated(profile["people"]) == [{"name": "Bolt", "rel": "dog"}]
     assert applied[0]["path"] == "people[]"
 
 
@@ -113,7 +118,7 @@ def test_indexed_entry_field_path_updates_one_field():
     profile = empty_profile(projects=[{"name": "half marathon", "note": "race in October"}])
     profile, applied = memory.apply_ops(
         profile, [{"op": "UPDATE", "path": "projects[0].note", "value": "race in November"}])
-    assert profile["projects"] == [{"name": "half marathon", "note": "race in November"}]
+    assert undated(profile["projects"]) == [{"name": "half marathon", "note": "race in November"}]
     assert applied[0]["path"] == "projects[0].note"
 
 
@@ -231,7 +236,7 @@ def test_reflect_merges_duplicates_drops_expired_and_promotes():
     profile = memory.reflect(_dup_profile(), FakeClient(REFLECTED), "m")
     assert [p["name"] for p in profile["people"]] == ["Anna"]
     assert profile["episodic"] == []
-    assert profile["recurring"] == [{"what": "gym", "when": "Tue/Thu"}]
+    assert undated(profile["recurring"]) == [{"what": "gym", "when": "Tue/Thu"}]
 
 
 def test_reflect_never_rewrites_identity_or_invents_entries():

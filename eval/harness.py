@@ -4,6 +4,11 @@ Runs scripted, multi-session conversations against llm.ask()/llm.save_memory() w
 memory.json, memory_ops.jsonl and settings.json redirected to a sandbox, then scores
 "probe" turns by keyword hit and reports what memory retained.
 
+A turn is one of: ``{user: "..."}``, ``{probe: "...", expect: [...], expect_not: [...]}``,
+``{edit: {op, path, value}}`` (a hand edit through the memory editor's own write path; a list
+of ops is applied as one atomic batch) or ``{clock: "+200d"}`` (fast-forward memory's idea of
+today for the rest of the run — that is how decay is tested).
+
 Usage:
     python -m eval.harness eval/scripts/basic.yaml --out eval/results/run.json
     python -m eval.harness eval/scripts/basic.yaml --rounds 2 --keep-memory /tmp/memory.json
@@ -17,7 +22,7 @@ import re
 import shutil
 import sys
 import tempfile
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -36,6 +41,33 @@ CATEGORIES = (
 )
 
 DUP_RATIO = memory.DUP_RATIO  # one fuzzy-match threshold, shared with memory.py
+
+
+# --------------------------------------------------------------------------- mocked clock
+
+#: How far memory's idea of "today" is shifted; a `clock:` turn moves it for the rest of the run.
+_CLOCK = {"offset": timedelta(0)}
+_UNITS = {"d": 1, "w": 7, "m": 30, "y": 365}
+
+
+def _parse_offset(spec) -> timedelta:
+    match = re.fullmatch(r"\s*([+-]?\d+)\s*([dwmy]?)\s*", str(spec).lower())
+    if not match:
+        raise ValueError(f"bad clock offset {spec!r} — use e.g. '+200d', '-3d', '+6w'")
+    return timedelta(days=int(match.group(1)) * _UNITS[match.group(2) or "d"])
+
+
+def shift_clock(spec) -> str:
+    """Move `memory._today` by `spec` and keep it there; returns the new "today".
+
+    Decay is dated, so the only way to test it end to end is to fast-forward the clock.
+    `memory._today` is the single source of dates in memory.py (entry `seen`, episodic dates
+    and TTLs, the ops log, the profile `updated` stamp), so one patch shifts them all.
+    """
+    _CLOCK["offset"] += _parse_offset(spec)
+    offset = _CLOCK["offset"]
+    memory._today = lambda: date.today() + offset
+    return memory._today().isoformat()
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -79,7 +111,9 @@ class Sandbox:
             "log_path": llm.LOG_PATH,
             "avatar": avatars._current,
             "system_prompt": llm.SYSTEM_PROMPT,
+            "today": memory._today,
         }
+        _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
         memory.MEMORY_PATH = self.memory_path
         memory.OPS_LOG_PATH = self.ops_path
@@ -120,6 +154,8 @@ class Sandbox:
         llm.LOG_PATH = self._saved["log_path"]
         avatars._current = self._saved["avatar"]
         llm.SYSTEM_PROMPT = self._saved["system_prompt"]
+        memory._today = self._saved["today"]
+        _CLOCK["offset"] = timedelta(0)
         if self._tmpdir:
             shutil.rmtree(self._tmpdir, ignore_errors=True)
             self._tmpdir = None
@@ -369,6 +405,25 @@ def load_script(path: str) -> list:
     return data
 
 
+def _run_edit(spec, verbose: bool = True) -> dict:
+    """An `edit:` turn — one hand edit, or a list of them applied as one atomic batch.
+
+    This is the editor's write path (memory.edit / memory.edit_many against the sandboxed
+    memory.json), so a script can retire, correct or promote a fact between sessions exactly
+    the way the memory panel does.
+    """
+    ops = list(spec) if isinstance(spec, list) else [spec]
+    profile, error = memory.edit_many(ops) if len(ops) > 1 else memory.edit(ops[0])
+    if len(ops) == 1:
+        error = {"path": ops[0].get("path"), "reason": error} if error else None
+    if verbose:
+        for op in ops:
+            print(f"  edit: {op.get('op')} {op.get('path')}")
+        if error:
+            print(f"         !! refused: {error['reason']}")
+    return {"edit": ops, "error": error}
+
+
 def run_script(script, memory_path: str | None = None, rounds: int = 1,
                tools: bool = False, sandbox: Sandbox | None = None,
                verbose: bool = True) -> dict:
@@ -406,6 +461,13 @@ def run_script(script, memory_path: str | None = None, rounds: int = 1,
                             mark = "PASS" if score["passed"] else "FAIL"
                             print(f"  [{mark}] ({probe['category']}) {text}")
                             print(f"         -> {reply[:160]}")
+                    elif "edit" in turn:
+                        record["turns"].append(_run_edit(turn["edit"], verbose))
+                    elif "clock" in turn:
+                        today = shift_clock(turn["clock"])
+                        record["turns"].append({"clock": turn["clock"], "today": today})
+                        if verbose:
+                            print(f"  clock: {turn['clock']} (today = {today})")
                     else:
                         text = turn.get("user", "")
                         reply = sess.say(text)

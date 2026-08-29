@@ -453,6 +453,20 @@ async def _action_memory_op(sess, msg, loop):
     await send(_memory_msg(profile))
 
 
+async def _action_memory_ops(sess, msg, loop):
+    """A batch of hand edits from the memory panel: {ops: [{op, path, value, reason?}, ...]}.
+
+    All-or-nothing (the drag-and-drop moves are one ADD + one DELETE): on the first bad op
+    nothing is written and the panel gets a `memory_error` naming that op's path.
+    """
+    ops = msg.get("ops")
+    profile, error = await asyncio.to_thread(memory.edit_many, ops)
+    if error:
+        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
+        return
+    await send(_memory_msg(profile))
+
+
 async def _action_memory_reset(sess, msg, loop):
     """The panel's "Forget everything": the profile is emptied and the reset is audited."""
     profile = await asyncio.to_thread(memory.reset)
@@ -475,6 +489,7 @@ ACTIONS = {
     "set_verbosity": _action_set_verbosity,
     "get_memory": _action_get_memory,
     "memory_op": _action_memory_op,
+    "memory_ops": _action_memory_ops,
     "memory_reset": _action_memory_reset,
     "shutdown": _action_shutdown,
 }
