@@ -16,6 +16,9 @@ source .venv/bin/activate
 python3 -m pytest tests/
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/
+# browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
+python3 -m pytest -m e2e tests/e2e
+python3 -m pytest -m "e2e and live" tests/e2e   # one real LLM turn
 # the browser-side fixture the client tests assert on (also run by pytest; needs node)
 node tests/app_fixture.mjs
 ```
@@ -83,6 +86,7 @@ voicebot/
 │   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
 │   ├── test_avatar_cues.py        # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
 │   ├── test_wiki_editor.py        # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
+│   └── e2e/                       # PRD 29: Playwright browser tests (conftest spawns the server; test_app.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
 │                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor); its header
 │                                   # documents the hooks and how to add a scenario
@@ -118,7 +122,8 @@ voicebot/
     ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
     ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
     ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (done)
-    └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
+    ├── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
+    └── 29-e2e.md                 # PRD: Playwright end-to-end tests (done)
 ```
 
 ## Active PRDs
@@ -149,6 +154,7 @@ voicebot/
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
 - [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motion groups, click-to-pet, listening/thinking/tool/greeting/shutdown cues, three new emotion tags (done)
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)
+- [29-e2e.md](29-e2e.md) — Playwright e2e layer: spawned server, temp vault, wiki editor flows, one live turn; `SETTINGS_PATH`/`MEMORY_DIR` env overrides (done)
 
 ## Completed PRDs
 

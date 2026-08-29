@@ -7,7 +7,8 @@ import os
 
 import characters
 
-SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "settings.json")
+# SETTINGS_PATH env overrides the location (the e2e tests point it at a temp dir)
+SETTINGS_PATH = os.getenv("SETTINGS_PATH") or os.path.join(os.path.dirname(__file__), "settings.json")
 
 DEFAULT = "wanko"
 _current: str | None = None

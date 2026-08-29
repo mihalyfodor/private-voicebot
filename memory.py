@@ -33,7 +33,7 @@ import unicodedata
 from datetime import date, datetime
 
 # --- files -------------------------------------------------------------------------
-_DIR = os.path.dirname(__file__)
+_DIR = os.getenv("MEMORY_DIR") or os.path.dirname(__file__)   # MEMORY_DIR env: e2e tests use a temp dir
 MEMORY_PATH = os.path.join(_DIR, "memory.json")            # the profile
 OPS_LOG_PATH = os.path.join(_DIR, "memory_ops.jsonl")      # append-only audit log
 SHORTMEM_PATH = os.path.join(_DIR, "shortmem.txt")         # v1, read once for migration
