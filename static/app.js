@@ -2,7 +2,10 @@
 // Wanko is the only avatar (PRD 23); the client half of its profile lives here.
 const PROFILES = {
   wanko: {
-    modelUrl: '/static/models/wanko/Wanko.model3.json',
+    // scripts/fetch_assets.sh generates the `.app.` file (upstream model + PRD 27 motion
+    // groups); modelUrl is the fallback for a model folder fetched before PRD 27.
+    modelUrl: '/static/models/wanko/Wanko.app.model3.json',
+    fallbackModelUrl: '/static/models/wanko/Wanko.model3.json',
     avatarScale: 1.0, avatarTopCrop: 0.12, idle: 'Idle',
     mouthParam: 'PARAM_MOUTH_OPEN_Y',
     // Wanko uses legacy param ids, so the library's built-in mouse-follow focus doesn't
@@ -10,10 +13,30 @@ const PROFILES = {
     focusParams: { angleX: 'PARAM_ANGLE_X', angleY: 'PARAM_ANGLE_Y', angleZ: 'PARAM_ANGLE_Z', bodyX: 'PARAM_BODY_ANGLE_X' },
     // No expression files: hand-built parameter sets, applied each frame with a lerped weight.
     expressions: {
-      happy:      { params: { PARAM_MOUTH_FORM: 1, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_TERE: 0.5 } },
+      happy:      { params: { PARAM_MOUTH_FORM: 1, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_TERE: 0.5, PARAM_EFFECT: 0.6 } },
       surprised:  { params: { PARAM_EYE_L_OPEN: 1.3, PARAM_EYE_R_OPEN: 1.3, PARAM_EAR_L: 1, PARAM_EAR_R: 1, PARAM_BODY_ANGLE_Y: -6 } },
       thinking:   { params: { PARAM_FACE_01: 1, PARAM_EYE_L_OPEN: 0.75, PARAM_EYE_R_OPEN: 0.75, PARAM_ANGLE_Z: 8 } },
       apologetic: { params: { PARAM_TERE: 1, PARAM_MOUTH_FORM: -1, PARAM_EAR_L: -1, PARAM_EAR_R: -1, PARAM_ANGLE_Y: -10 } },
+      proud:      { params: { PARAM_MOUTH_FORM: 1, PARAM_EFFECT: 1, PARAM_ANGLE_Y: 6 } },
+      sleepy:     { params: { PARAM_EYE_L_OPEN: 0.35, PARAM_EYE_R_OPEN: 0.35, PARAM_BOWL_LID: 40 } },
+      shy:        { params: { PARAM_TERE: 1, PARAM_FACE_01: 0.5 } },
+    },
+    // Cues (PRD 27): motion group + a parameter blend layered on top of it, driven by the
+    // state/listening transitions. `pulse` params oscillate (sin over time, amplitude 1).
+    // The prop parameters below are never keyed by any clip, so the layering is conflict-free.
+    cues: {
+      listening: { group: 'Listening', params: { PARAM_EAR_L: 1, PARAM_EAR_R: 1 } },
+      // PARAM_BOWL_LID runs -10 (lid resting on the bowl) … 50 (lid away, the default) and the
+      // lid only enters the framed area below ~35, where it covers Wanko's face — so thinking
+      // just eases it down to 40 and the steam carries the cue. The steam puffs are drawn only
+      // while PARAM_EFFECT is up, hence the 0.4 riding along with the YUGE pulse.
+      thinking:  { group: 'Thinking', params: { PARAM_BOWL_LID: 40, PARAM_EFFECT: 0.4 },
+                   pulse: ['PARAM_YUGE_01', 'PARAM_YUGE_02'] },
+      tool:      { params: { PARAM_EFFECT: 1 } },
+      greet:     { group: 'Greet' },
+      pet:       { group: 'Pet' },
+      petSmall:  { group: 'PetSmall' },
+      shutdown:  { group: 'Idle', index: 3, force: true, params: { PARAM_BOWL_LID: -10 } },
     },
     credit: 'Wanko © Live2D Inc.',
   },
@@ -27,6 +50,24 @@ const CONFIG = {
   mouthSmooth: 0.35,     // 0..1, higher = snappier
   fitWidth: 0.8,         // share of the avatar column the drawn model may use…
   fitHeight: 0.7,        // …and of its height; the smaller of the two wins
+  cueFade: 0.1,          // per-frame lerp of a cue blend toward its target
+  petGapMs: 4000,        // a tap this long after the last one is a big Pet, else PetSmall
+  petHappyMs: 800,       // how long the happy blend rides on a tap
+  steamHz: 0.8,          // thinking steam pulse rate
+};
+
+// PRD 27 motion groups: every group in scripts/wanko_groups.py, with the priority app.js
+// plays it at and (Idle) the pick weights per index. Priorities are the library's
+// MotionPriority: 1 IDLE (only when nothing else plays), 2 NORMAL, 3 FORCE (always).
+const PRIORITY = { IDLE: 1, NORMAL: 2, FORCE: 3 };
+const MOTIONS = {
+  Idle:      { priority: PRIORITY.IDLE,   weights: [1, 1, 1, 0.5] },  // idle_04 is long and calm
+  Pet:       { priority: PRIORITY.NORMAL },
+  PetSmall:  { priority: PRIORITY.NORMAL },
+  Greet:     { priority: PRIORITY.NORMAL },
+  No:        { priority: PRIORITY.NORMAL },
+  Thinking:  { priority: PRIORITY.NORMAL },
+  Listening: { priority: PRIORITY.NORMAL },
 };
 let profile = PROFILES.wanko;
 let avatarName = 'Wanko';
@@ -48,10 +89,13 @@ const listeningDot = document.getElementById('listening-dot');
 const handsFreeToggle = document.getElementById('hands-free-toggle');   // Settings' copy of the mic switch
 let shutdownRequested = false;
 function showShutdownScreen() {
+  avatar.onShutdown();   // PRD 27: settle into the slow breathing idle, lid closing
   for (const id of ['companion', 'workspace', 'rail']) {
     document.getElementById(id).classList.add('gone');
   }
-  document.getElementById('shutdown-screen').hidden = false;
+  // The columns hold for 0.6 s and then fade over 0.6 s (.gone); hold the opaque shutdown
+  // screen back for both, so Wanko's settle — idle_04 + the lid closing (PRD 27) — is seen.
+  setTimeout(() => { document.getElementById('shutdown-screen').hidden = false; }, 1200);
 }
 document.getElementById('shutdown').onclick = () => {
   shutdownRequested = true;
@@ -217,6 +261,7 @@ function adoptTurn(turn) {
 }
 
 function enqueueSpeech(msg) {
+  avatar.onSpeech(msg);   // PRD 27: end the thinking cue, greet on the session's first speech
   // Muted (PRD 24): the reply still arrives and its transcript is shown, we just never
   // decode or play it. `speech_end` still runs finishReply(), so the server's turn state
   // advances on playback_done exactly as it does when the audio was heard.
@@ -296,6 +341,16 @@ const avatar = {
   paramTarget: {},   // param id → target value for the active params-expression
   paramWeight: 0,    // current lerped weight of paramTarget
 
+  // cues (PRD 27): a set of active cue names, merged into one parameter blend each frame
+  activeCues: new Set(),
+  cueTarget: {},     // param id → target value, merged from the active cues
+  cuePulse: [],      // param ids that oscillate while their cue is active
+  cueWeight: 0,
+  lastIndex: {},     // motion group → last index played (no immediate repeat)
+  pendingGroup: null,   // a group the library refused (something was playing): play it next
+  lastTapAt: 0,
+  greeted: false,    // Greet fires once per session, on the first speech
+
   app: null,
 
   async init() {
@@ -334,14 +389,21 @@ const avatar = {
     if (!this.app) return; // PIXI/Live2D unavailable: nothing more to render
     if (this.model) { this.app.stage.removeChild(this.model); this.model.destroy(); this.model = null; }
     this.paramTarget = {}; this.paramWeight = 0; this.currentEmotion = 'neutral';
+    this.activeCues.clear(); this.cueTarget = {}; this.cuePulse = []; this.cueWeight = 0;
+    this.lastIndex = {}; this.pendingGroup = null; this.lastTapAt = 0;
 
     let model;
     try {
       model = await PIXI.live2d.Live2DModel.from(profile.modelUrl);
     } catch (e) {
-      console.warn('Live2D model failed to load', e);
-      avatarNote.hidden = false;
-      return;
+      // A model folder fetched before PRD 27 has no `.app.` file: fall back to the upstream one.
+      try {
+        model = await PIXI.live2d.Live2DModel.from(profile.fallbackModelUrl);
+      } catch (e2) {
+        console.warn('Live2D model failed to load', e, e2);
+        avatarNote.hidden = false;
+        return;
+      }
     }
     avatarNote.hidden = true;
     this.model = model;
@@ -376,8 +438,139 @@ const avatar = {
           core.setParameterValueById(id, cur + (v - cur) * this.paramWeight);
         }
       }
+      // cue blend (PRD 27): props no clip ever keys — lid, steam, sparkle, ears — so this
+      // just lerps them toward the merged cue target and back to 0 when the cue ends.
+      const cueIds = Object.keys(this.cueTarget);
+      this.cueWeight += ((cueIds.length || this.cuePulse.length ? 1 : 0) - this.cueWeight) * CONFIG.cueFade;
+      if (this.cueWeight > 0.01) {
+        for (const [id, v] of Object.entries(this.cueTarget)) {
+          const cur = core.getParameterValueById(id);
+          core.setParameterValueById(id, cur + (v - cur) * this.cueWeight);
+        }
+        const t = Date.now() / 1000 * CONFIG.steamHz * 2 * Math.PI;
+        this.cuePulse.forEach((id, i) => {
+          core.setParameterValueById(id, this.cueWeight * (Math.sin(t + i * Math.PI / 2) + 1) / 2);
+        });
+      }
     });
-    model.motion(profile.idle);
+
+    // Our own idle scheduler: the library picks idles uniformly and we want weights + no
+    // immediate repeat, so its auto-idle group is pointed at nothing and we start the next
+    // idle ourselves whenever a motion (idle or not) finishes. The microtask lets the
+    // library's MotionState.complete() run first, or the IDLE-priority start is refused.
+    const mm = model.internalModel.motionManager;
+    mm.groups.idle = '__app_idle_off__';
+    mm.on('motionFinish', () => {
+      Promise.resolve().then(() => {
+        const pending = this.pendingGroup;
+        this.pendingGroup = null;
+        if (pending) this.playGroup(pending);
+        else this.playGroup(profile.idle);
+      });
+    });
+
+    // Click/tap on the body: a big Pet after a pause, a small one when spammed.
+    model.on('hit', (areas) => { if (areas && areas.includes('Body')) this.pet(); });
+
+    this.playGroup(profile.idle);
+  },
+
+  // Play one clip from a motion group. Random index, never the same index twice in a row,
+  // weighted where MOTIONS says so. Returns the index played, or null if nothing could play.
+  playGroup(group, { index, priority } = {}) {
+    const def = MOTIONS[group];
+    if (!this.model || !def) return null;
+    const defs = (this.model.internalModel.motionManager.definitions || {})[group] || [];
+    if (!defs.length) return null;
+    const pick = index !== undefined ? index : this.pickIndex(group, defs.length, def.weights);
+    this.lastIndex[group] = pick;
+    const prio = priority !== undefined ? priority : def.priority;
+    Promise.resolve(this.model.motion(group, pick, prio)).then((ok) => {
+      // Refused because something else is playing (a tap during the speaking/greet motion):
+      // queue it instead of interrupting — motionFinish plays it next.
+      if (ok === false && prio === PRIORITY.NORMAL) this.pendingGroup = group;
+    }).catch(() => {});
+    return pick;
+  },
+
+  pickIndex(group, count, weights) {
+    const last = this.lastIndex[group];
+    const options = [];
+    for (let i = 0; i < count; i++) {
+      if (i === last && count > 1) continue;           // no immediate repeat
+      const w = weights && weights[i] !== undefined ? weights[i] : 1;
+      for (let n = 0; n < Math.round(w * 2); n++) options.push(i);
+    }
+    if (!options.length) return 0;
+    return options[Math.floor(Math.random() * options.length)];
+  },
+
+  // ---- cues: named parameter blends (+ an optional one-shot motion), merged per frame ----
+  setCue(name, on) {
+    const def = (profile.cues || {})[name];
+    if (!def) return;
+    if (on && !this.activeCues.has(name)) {
+      this.activeCues.add(name);
+      if (def.group) {
+        this.playGroup(def.group, {
+          index: def.index,
+          priority: def.force ? PRIORITY.FORCE : undefined,
+        });
+      }
+    } else if (!on) {
+      this.activeCues.delete(name);
+    }
+    this.recomputeCue();
+  },
+
+  recomputeCue() {
+    const target = {}, pulse = [];
+    for (const name of this.activeCues) {
+      const def = (profile.cues || {})[name] || {};
+      Object.assign(target, def.params || {});
+      for (const id of def.pulse || []) pulse.push(id);
+    }
+    this.cueTarget = target;
+    this.cuePulse = pulse;
+  },
+
+  // A tap on the body: big reaction after a pause, small one when spammed, plus a short
+  // happy blend. Never interrupts a motion that is already playing (playGroup queues it).
+  pet(now = Date.now()) {
+    const big = now - this.lastTapAt > CONFIG.petGapMs;
+    this.lastTapAt = now;
+    const group = big ? 'Pet' : 'PetSmall';
+    this.playGroup(group);
+    if (!playing) {
+      this.setEmotion('happy');
+      setTimeout(() => { if (!playing && this.currentEmotion === 'happy') this.setEmotion('neutral'); },
+                 CONFIG.petHappyMs);
+    }
+    return group;
+  },
+
+  // ---- the state/listening transitions the cues hang off (PRD 27) ----
+  onListening(value) {
+    this.setCue('listening', value === 'hearing');
+  },
+
+  onState(value) {
+    this.setCue('thinking', value === 'thinking');
+    if (value === 'idle') this.setCue('tool', false);
+  },
+
+  // First speech of a reply: the thinking cue ends, the session's first one also greets.
+  // A tool filler (chatbot.py marks it) sparkles instead of ending the thinking cue.
+  onSpeech(msg) {
+    if (msg.filler) { this.setCue('tool', true); return; }
+    this.setCue('thinking', false);
+    this.setCue('tool', false);
+    if (!this.greeted) { this.greeted = true; this.setCue('greet', true); }
+  },
+
+  onShutdown() {
+    this.activeCues.clear();
+    this.setCue('shutdown', true);
   },
 
   // Box the drawn art occupies inside the model's canvas, in canvas units. Live2D canvases
@@ -420,6 +613,9 @@ const avatar = {
 
   setEmotion(emotion) {
     if (!this.model || emotion === this.currentEmotion) return;
+    // An emotion tag we have no expression for is ignored, not a reset: whatever is
+    // showing keeps showing until a known tag (or 'neutral') replaces it.
+    if (emotion !== 'neutral' && !profile.expressions[emotion]) return;
     this.currentEmotion = emotion;
     const def = profile.expressions[emotion];
     const em = this.model.internalModel.motionManager.expressionManager;
@@ -1608,10 +1804,10 @@ function connect() {
       status.textContent = 'characters reloaded';
       setTimeout(renderComposer, 1500);
     }
-    else if (msg.type === 'listening') { listening = msg.value; renderComposer(); }
+    else if (msg.type === 'listening') { setListening(msg.value); }
     else if (msg.type === 'hands_free') {
       handsFree = msg.value;
-      if (!handsFree) listening = 'idle';
+      if (!handsFree) setListening('idle');
       renderComposer();
     }
     else if (msg.type === 'verbosity') {
@@ -1653,6 +1849,14 @@ function connect() {
 
 function setState(value) {
   state = value;
+  avatar.onState(value);          // PRD 27 cues: thinking lid/steam, tool sparkle off on idle
+  renderComposer();
+}
+
+// VAD activity: the composer's hearing state and Wanko's listening cue (PRD 27).
+function setListening(value) {
+  listening = value;
+  avatar.onListening(value);
   renderComposer();
 }
 

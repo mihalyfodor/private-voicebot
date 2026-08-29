@@ -7,7 +7,7 @@ followed by whitespace or end of text; any remainder is flushed on ``close()``.
 import re
 from typing import Iterator, Iterable
 
-EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic")
+EMOTIONS = ("neutral", "happy", "thinking", "surprised", "apologetic", "proud", "sleepy", "shy")
 # Optional leaked "thought" line seen from Gemma 4 after tool rounds, then the [tag].
 _TAG_RE = re.compile(r"^\s*(?:thought\s*\n)?\s*\[([a-zA-Z]+)\]\s*")
 _SENTENCE_END = re.compile(r"(?<=[.?!])\s+")

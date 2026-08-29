@@ -269,7 +269,8 @@ main {
 .chip:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- shutdown screen ---- */
-.gone { opacity: 0; transition: opacity 0.6s ease; pointer-events: none; }
+/* the 0.6s delay lets Wanko's shutdown settle (PRD 27) play before the columns fade */
+.gone { opacity: 0; transition: opacity 0.6s ease 0.6s; pointer-events: none; }
 #shutdown-screen {
   position: fixed; inset: 0; z-index: 10;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;

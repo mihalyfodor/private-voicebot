@@ -37,12 +37,13 @@ voicebot/
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
-│   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model and backdrop images (gitignored)
+│   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
+│   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
 │   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki / Sources / Settings), intake popup
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, rail (VIEWS table), setView (companion re-parenting), renderComposer (mic/mute/status), memory/wiki/settings views, drop-paste intake, keyboard, websocket
+│   ├── app.js           # PROFILES/CONFIG/MOTIONS, Live2D model load, audio queue, lip-sync, expressions, motion groups + click-to-pet + state cues (PRD 27), rail (VIEWS table), setView (companion re-parenting), renderComposer (mic/mute/status), memory/wiki/settings views, drop-paste intake, keyboard, websocket
 │   ├── style.css        # shell layout (--rail-w), rail, #companion chat-grid vs side slice, history/composer, views, settings rows, narrow-screen bottom tab bar
 │   ├── vendor/          # gitignored, fetched
 │   ├── models/           # gitignored, fetched (wanko/)
@@ -78,8 +79,9 @@ voicebot/
 │   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
 │   ├── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag
 │   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
-│   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio shim and prints one JSON
-│                                   # of results (companion re-parent, typed turn, mute, thumbs); its header
+│   ├── test_avatar_cues.py        # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
+│   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
+│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues); its header
 │                                   # documents the hooks and how to add a scenario
 ├── requirements.txt
 └── docs/
@@ -112,7 +114,7 @@ voicebot/
     ├── 24-chat-layout-text.md    # PRD: companion column, typed turns, mute instead of PTT (done)
     ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
     ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
-    ├── 27-wanko-interactivity: motion groups, click-to-pet, state cues, new emotions (implementation)
+    ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (implementation)
     └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (exploration)
 ```
 
@@ -142,7 +144,7 @@ voicebot/
 - [24-chat-layout-text.md](24-chat-layout-text.md) — companion column (avatar/history/composer), text input, mute replaces push-to-talk, backdrop thumbnails (done)
 - [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox with provenance (exploration)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
-- [27-wanko-interactivity: motion groups, click-to-pet, state cues, new emotions (implementation)
+- [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motion groups, click-to-pet, listening/thinking/tool/greeting/shutdown cues, three new emotion tags (implementation)
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor (exploration)
 
 ## Completed PRDs

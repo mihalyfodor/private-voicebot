@@ -1,7 +1,9 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from splitter import SentenceSplitter, split_stream, strip_tag
+import pytest
+
+from splitter import EMOTIONS, SentenceSplitter, split_stream, strip_tag
 
 
 def test_tag_split_across_deltas_and_two_sentences():
@@ -17,6 +19,18 @@ def test_no_tag_defaults_to_neutral():
 def test_unknown_tag_is_stripped_and_neutral():
     out = list(split_stream(["[angry] Not today."]))
     assert out == [("neutral", "Not today.")]
+
+
+@pytest.mark.parametrize("tag", ["proud", "sleepy", "shy"])
+def test_prd27_emotion_tags_survive(tag):
+    """PRD 27 added three tags; each one must reach the browser, not fall back to neutral."""
+    assert tag in EMOTIONS
+    assert list(split_stream([f"[{tag}] Done."])) == [(tag, "Done.")]
+
+
+def test_every_emotion_tag_round_trips():
+    for e in EMOTIONS:
+        assert list(split_stream([f"[{e}] Ok."])) == [(e, "Ok.")]
 
 
 def test_no_terminal_punctuation_flushed_on_close():

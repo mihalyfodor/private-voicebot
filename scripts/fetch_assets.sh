@@ -44,9 +44,21 @@ for f in filter(None, files):
 PY
 }
 
-fetch_model static/models/wanko \
-  https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Wanko \
-  Wanko.model3.json
+WANKO=static/models/wanko
+WANKO_BASE=https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Wanko
+fetch_model "$WANKO" "$WANKO_BASE" Wanko.model3.json
+
+# The upstream model3 wires only 5 of the 12 clips; PRD 27 groups all of them, so fetch the rest.
+echo "→ all Wanko motions"
+mkdir -p "$WANKO/motions"
+for m in idle_01 idle_02 idle_03 idle_04 shake_01 shake_02 \
+         touch_01 touch_02 touch_03 touch_04 touch_05 touch_06; do
+  curl -sSfL -o "$WANKO/motions/$m.motion3.json" "$WANKO_BASE/motions/$m.motion3.json"
+  echo "    motions/$m.motion3.json"
+done
+
+echo "→ Wanko.app.model3.json (PRD 27 motion groups)"
+python3 scripts/wanko_groups.py "$WANKO"
 echo "→ backdrops"
 mkdir -p static/backdrops
 python3 - <<'PY'
