@@ -28,7 +28,7 @@ voicebot/
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
 ├── vad.py            # Silero VAD endpointer (hands-free) + PTT Recorder
-├── asr.py            # mlx-whisper transcription + junk filter
+├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing
 ├── avatars.py          # avatar profile (Wanko only since PRD 23: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
@@ -69,9 +69,9 @@ voicebot/
 │   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys
 │   ├── test_backdrops.py          # backdrops.validate()/listing()
 │   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + PTT Recorder
-│   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked
+│   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing
 │   ├── test_hands_free.py         # WS hands-free/PTT actions and binary audio frames
-│   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection
+│   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection, identity aliases
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
 │   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
@@ -104,7 +104,8 @@ voicebot/
     ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (done, panel part superseded by 22b)
     ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
-    └── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
+    ├── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
+    └── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (implementation)
 ```
 
 ## Active PRDs
@@ -129,6 +130,7 @@ voicebot/
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
+- [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (implementation)
 
 ## Completed PRDs
 

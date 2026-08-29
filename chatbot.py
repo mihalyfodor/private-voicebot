@@ -281,7 +281,7 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
     responded = False
     try:
         send_sync({"type": "state", "value": "processing"})
-        text = asr.transcribe(audio)
+        text = asr.transcribe(audio, prompt=memory.asr_prompt())
         if not text:
             return
         print(f"You: {text}")

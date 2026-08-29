@@ -89,7 +89,7 @@ def test_set_hands_free_false_sends_listening_idle(monkeypatch):
 def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
     monkeypatch.setattr(chatbot, "hands_free", True)
     monkeypatch.setattr(chatbot.vad, "Endpointer", FakeEndpointer)
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "hello there"))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "hello there"))
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
@@ -121,7 +121,7 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append(text))
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "should not run"))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "should not run"))
 
     blocker = Blocker()
     client = TestClient(chatbot.app)
@@ -143,7 +143,7 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
 
 
 def test_ptt_start_then_stop_transcribes_and_responds(monkeypatch):
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "ptt hello"))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "ptt hello"))
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append(text))

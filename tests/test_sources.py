@@ -25,8 +25,12 @@ from tests.conftest import FakeClient
 
 
 @pytest.fixture
-def vault(wiki_sandbox):
-    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp)."""
+def vault(wiki_sandbox, memory_sandbox):
+    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp).
+
+    `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
+    can never see the real memory.json.
+    """
     wiki.ensure_vault()
     return wiki_sandbox
 
@@ -517,3 +521,58 @@ def test_ingest_files_several_uploads_in_one_request(http, monkeypatch):
     assert response.status_code == 200
     assert len(response.json()["filed"]) == 2
     assert len(raw_files()) == 2
+
+
+# --------------------------------------------------------------- 10. the user is not a person
+# PRD 26 scenario 5: a document naming the (mis-OCR'd) profile owner must not grow a people page.
+
+
+USER_SUMMARY = json.dumps({
+    "title": "Team screenshot",
+    "summary": "Mihay Fodor and Elena agreed to ship on Friday.",
+    "entities": [{"name": "Mihay Fodor", "type": "person"}, {"name": "Elena", "type": "person"}],
+    "unreadable": False,
+})
+
+USER_OPS = json.dumps([
+    {"op": "new_page", "path": "people/mihay-fodor", "type": "person", "name": "Mihay Fodor",
+     "summary": "Ships on Fridays."},
+    {"op": "new_page", "path": "people/elena", "type": "person", "name": "Elena",
+     "summary": "Agreed to ship on Friday."},
+    {"op": "link", "path": "people/elena", "target": "people/mihay-fodor"},
+])
+
+
+def test_a_document_naming_the_user_files_no_page_about_them(vault, monkeypatch, capsys):
+    memory._write_profile(memory._normalise(
+        {"identity": {"name": "Mihaly Fodor", "nickname": "Michael", "aliases": ["Misi"]}}))
+    client = FakeClient(USER_SUMMARY, USER_OPS)
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+
+    filed = sources.ingest_upload(b"Mihay Fodor and Elena met.", "screens.md")
+
+    assert not wiki.page_exists("people/mihay-fodor.md")
+    assert wiki.page_exists("people/elena.md")
+    assert "[[people/mihay-fodor]]" not in read("people/elena.md")
+
+    page = read(filed["path"] + ".md")
+    assert "- the user (Mihay Fodor)" in page          # named, but never linked
+    assert "[[people/elena]]" in page
+    assert "is the user, not another person" in capsys.readouterr().out
+
+    systems = [call["messages"][0]["content"] for call in client.calls]
+    assert all("Mihaly Fodor, Michael, Misi" in system for system in systems)
+
+
+def test_restrict_ops_rejects_pages_about_the_user(vault):
+    names = ["Mihaly Fodor", "Michael", "Misi"]
+    kept, rejected = sources.restrict_ops([
+        {"op": "new_page", "path": "people/misi", "type": "person", "name": "Misi"},
+        {"op": "new_page", "path": "people/mihay-fodor", "type": "person", "name": "Mihay Fodor"},
+        {"op": "new_page", "path": "people/elena", "type": "person", "name": "Elena"},
+        {"op": "link", "path": "people/elena", "target": "people/michael"},
+    ], "raw/inbox/doc.md", names)
+
+    assert [op["path"] for op in kept] == ["people/elena"]
+    assert len(rejected) == 3
+    assert all("is the user" in bad["reason"] for bad in rejected)

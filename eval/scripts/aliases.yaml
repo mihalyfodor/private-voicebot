@@ -1,0 +1,53 @@
+# Identity aliases (PRD 26), 4 sessions. The user has a real name (Mihaly Fodor), a form of
+# address (Michael) and other strings that mean them (Misi, the Hungarian spelling, what the
+# ASR tends to hear). The probes check that the three never collapse into one another, and that
+# an update-heavy turn opening with an alias does not rewrite identity.name.
+sessions:
+
+  # --- S1: the three forms of the name, plus one other person ---------------
+  - - user: "hi, my name is Mihaly Fodor, but call me Michael, it's easier to say"
+    - user: "friends back home say Misi, that's the same me"
+    - user: "I work with Elena, she runs the release train"
+    - user: "good to meet you, talk later"
+
+  # --- S2: probes on each form ---------------------------------------------
+  - - probe: "what's my actual name?"
+      expect: ["mihaly fodor", "mihaly", "mihály"]
+      category: single-hop
+    - probe: "and what do you call me?"
+      expect: ["michael"]
+      category: preference
+    - probe: "do you know who Misi is?"
+      expect: ["you", "yourself", "michael", "mihaly", "same"]
+      expect_not: ["don't know", "do not know", "never mentioned"]
+      category: multi-session
+    - user: "ok good, see you"
+
+  # --- S3: an update-heavy turn opening with an alias -----------------------
+  # "Michael here again" must not become identity.name; the ASR mishearing the name is exactly
+  # the failure PRD 26 guards against.
+  - - user: "Michael here again, quick update: I moved to Vienna last month"
+    - user: "also people at the new office started calling me Mike"
+    - user: "that's it, bye"
+
+  # --- S4: the real name survived the alias-heavy session -------------------
+  - - probe: "remind me, what's my real name?"
+      expect: ["mihaly fodor", "mihaly", "mihály"]
+      expect_not: ["michael is your real", "your real name is michael",
+                   "your real name is mike", "your real name is misi"]
+      category: update
+    - probe: "what should you call me?"
+      expect: ["michael"]
+      category: preference
+    - probe: "where do I live now?"
+      expect: ["vienna"]
+      category: update
+    - probe: "who is Elena?"
+      expect: ["release", "colleague", "work"]
+      category: multi-session
+    - probe: "what's my sister's name?"
+      expect: ["don't know", "do not know", "haven't", "have not", "not sure",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      category: abstention
+    - user: "thanks, that's all"

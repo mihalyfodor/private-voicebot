@@ -788,6 +788,7 @@ Frontmatter keys are exactly: type, name, tags, source, updated, seen.
 
 Rules:
 - Only file what the USER actually said. Never the assistant's words, never a guess.
+- %s
 - File people, projects, meetings and decisions — things the user would expect you to remember
   in a month.
 - Never file everyday trivia: meals, weather, moods, small talk, chores, commutes.
@@ -795,6 +796,53 @@ Rules:
 - A note is one sentence, at most 600 characters.
 - Nothing worth filing? Reply with exactly [].
 Today is %s."""
+
+#: The line that goes into every ingest prompt so the model never opens a people page about the
+#: profile owner. `%s` is the comma-separated list of names (docs/26-identity-aliases.md).
+USER_NOTE = ("The user (profile owner) is: %s; treat any of these as the user, never create a "
+             "people page for them.")
+NO_USER_NOTE = "Never create a people page for the user themselves."
+
+
+def user_note(names) -> str:
+    """The "who is the user" line for an ingest prompt, whatever the profile knows."""
+    names = [n for n in (names or []) if str(n).strip()]
+    return USER_NOTE % ", ".join(names) if names else NO_USER_NOTE
+
+
+def user_page_reason(op: dict, names) -> str | None:
+    """Why `op` would file the user as a person — or None when it is fine.
+
+    Only `new_page people/<slug>` and a `link` whose target is a people page can do that; the
+    slug and the op's `name` are both checked, because the model spells either one.
+    """
+    kind = str(op.get("op") or "").strip().lower()
+    if kind == "new_page":
+        checked = [op.get("path"), op.get("name")]
+    elif kind == "link":
+        checked = [op.get("target")]
+    else:
+        return None
+    rel = normalise_path(op.get("path") if kind == "new_page" else op.get("target"))
+    if rel is None or not rel.startswith("people/"):
+        return None
+    checked.append(os.path.basename(rel)[:-3].replace("-", " "))
+    for value in checked:
+        text = " ".join(str(value or "").split())
+        if "/" in text:
+            continue
+        if text and memory.is_user(text, names):
+            return f"{text} is the user, not another person"
+    return None
+
+
+def reject_user_pages(ops, names) -> tuple:
+    """``(kept, rejected)`` — the user never gets a people page of their own."""
+    kept, rejected = [], []
+    for raw in ops if isinstance(ops, list) else []:
+        reason = user_page_reason(raw if isinstance(raw, dict) else {}, names)
+        (rejected if reason else kept).append({"op": raw, "reason": reason} if reason else raw)
+    return kept, rejected
 
 
 def ingest(turns: list, client, model: str) -> list:
@@ -805,7 +853,8 @@ def ingest(turns: list, client, model: str) -> list:
     transcript = memory._transcript(turns)
     if not transcript.strip():
         return []
-    system = INGEST_SYSTEM % memory._today_iso()
+    names = memory.user_names()
+    system = INGEST_SYSTEM % (user_note(names), memory._today_iso())
     user = (f"Schema:\n{_read(SCHEMA_FILE) or SCHEMA_TEXT}\n\n"
             f"Index:\n{index_text(WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
             f"Transcript:\n{transcript}")
@@ -818,8 +867,9 @@ def ingest(turns: list, client, model: str) -> list:
     if not isinstance(ops, list):
         print("[Wiki] could not parse page ops; nothing filed")
         return []
+    ops, about_user = reject_user_pages(ops, names)
     applied, rejected = apply_page_ops(ops, f"session {memory._today_iso()}")
-    for bad in rejected:
+    for bad in about_user + rejected:
         print(f"[Wiki] rejected {bad['op']}: {bad['reason']}")
     if applied:
         print(f"[Wiki] {len(applied)} page op{'s' if len(applied) != 1 else ''} applied")

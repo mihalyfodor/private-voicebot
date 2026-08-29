@@ -110,7 +110,7 @@ def _run_utterance(monkeypatch, sess):
 
 
 def test_empty_transcript_still_sends_idle_state(monkeypatch):
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: ""))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: ""))
     sent = _run_utterance(monkeypatch, Session(websocket=None))
 
     assert {"type": "state", "value": "idle", "turn": 1} in sent
@@ -119,7 +119,7 @@ def test_empty_transcript_still_sends_idle_state(monkeypatch):
 
 def test_nonempty_transcript_sends_transcript_and_calls_respond(monkeypatch):
     respond_calls = []
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio: "hello there"))
+    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "hello there"))
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
 

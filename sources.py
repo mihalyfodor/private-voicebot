@@ -79,6 +79,7 @@ Reply with a JSON object and nothing else:
 - Set `unreadable` to true (and leave the summary short) when the text is garbled, empty or
   clearly a failed extraction.
 - For an image: describe what it shows and transcribe any text visible in it.
+- %s Never list the user as an entity of type person.
 Today is %s."""
 
 OPS_SYSTEM = """You maintain the USER's markdown wiki. A new document has just been filed as a
@@ -96,6 +97,7 @@ Rules:
 - Never touch the source page itself; it is already written.
 - A note is one sentence, at most 600 characters, and states a fact from the document.
 - Prefer appending to an existing page over creating a near-duplicate.
+- %s
 - Nothing worth filing? Reply with exactly [].
 Today is %s."""
 
@@ -289,11 +291,17 @@ def _free_path(folder: str, slug: str, ext: str) -> str:
     return rel
 
 
-def _entity_line(entity: dict) -> str:
-    """One `## Entities` bullet — a wikilink only when the page exists, so lint stays quiet."""
+def _entity_line(entity: dict, user_names=()) -> str:
+    """One `## Entities` bullet — a wikilink only when the page exists, so lint stays quiet.
+
+    The profile owner is spelled out as "the user" and never linked: they have no people page
+    (docs/26-identity-aliases.md) and one must not be invented for them here either.
+    """
     name = " ".join(str(entity.get("name") or "").split())
     if not name:
         return ""
+    if memory.is_user(name, user_names):
+        return f"- the user ({name})"
     etype = " ".join(str(entity.get("type") or "").split()).lower()
     folder = {"person": "people", "project": "projects"}.get(etype)
     if folder:
@@ -303,37 +311,46 @@ def _entity_line(entity: dict) -> str:
     return f"- {name} ({etype or 'entity'})"
 
 
-def _source_body(title: str, summary: str, entities: list, fed: list) -> str:
+def _source_body(title: str, summary: str, entities: list, fed: list, user_names=()) -> str:
     lines = [f"# {title}", "", "## Summary", summary.strip() or "(no summary)", "", "## Entities"]
-    lines += [line for line in (_entity_line(e) for e in entities if isinstance(e, dict)) if line]
+    lines += [line for line in (_entity_line(e, user_names) for e in entities
+                                if isinstance(e, dict)) if line]
     lines += ["", "## Fed"]
     lines += [f"- [[{path}]]" for path in fed]
     return "\n".join(lines).rstrip() + "\n"
 
 
 def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest: str,
-                       summary: str, entities: list, fed: list, source: str) -> None:
+                       summary: str, entities: list, fed: list, source: str,
+                       user_names=()) -> None:
     today = memory._today_iso()
     fm = {"type": "source", "name": title, "tags": [], "source": source,
           "updated": today, "seen": today,
           "kind": kind, "raw": raw_rel, "sha256": digest}
-    wiki._write(rel, wiki._page_text(fm, _source_body(title, summary, entities, fed)))
+    wiki._write(rel, wiki._page_text(fm, _source_body(title, summary, entities, fed, user_names)))
 
 
 # --- ops ---------------------------------------------------------------------------
 
 
-def restrict_ops(ops, raw_rel: str) -> tuple:
+def restrict_ops(ops, raw_rel: str, user_names=()) -> tuple:
     """``(kept, rejected)``: only index pages and new people/projects pages may be touched.
 
     The model proposes these, so they are untrusted twice over — once for the path (wiki does
     that) and once for the *target*: an ingest may not invent a `meetings/` or `sources/` page.
     Every kept op is stamped with `source: raw/…`, the PRD's provenance rule.
+
+    An op that would file the *user* as a person is refused too: a document mentioning their
+    own (possibly misspelled) name must not grow a `people/` page about them.
     """
     kept, rejected = [], []
     for raw in ops if isinstance(ops, list) else []:
         op = raw if isinstance(raw, dict) else {}
         kind = str(op.get("op") or "").strip().lower()
+        about_user = wiki.user_page_reason(op, user_names)
+        if about_user:
+            rejected.append({"op": raw, "reason": about_user})
+            continue
         if kind == "add_decision":
             kept.append({**op, "source": raw_rel})
             continue
@@ -357,7 +374,8 @@ def _target_allowed(path) -> str | None:
     return None
 
 
-def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str) -> dict:
+def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str,
+              user_names=()) -> dict:
     """One completion -> ``{title, summary, entities, unreadable}``; never raises.
 
     An empty extraction skips the call entirely: there is nothing to summarise, and the page is
@@ -378,7 +396,8 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     else:
         content = f"{header}\n\nDocument:\n{text}"
     try:
-        raw = _ask(client, model, SUMMARY_SYSTEM % memory._today_iso(), content, 700)
+        system = SUMMARY_SYSTEM % (wiki.user_note(user_names), memory._today_iso())
+        raw = _ask(client, model, system, content, 700)
     except Exception as exc:  # noqa: BLE001
         print(f"[Sources] summary failed: {exc}")
         fallback["summary"] = "the summary model could not be reached; the raw file is filed."
@@ -399,7 +418,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
 
 
 def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: str,
-                     hint_page: str = "") -> list:
+                     hint_page: str = "", user_names=()) -> list:
     """Ask for page ops about a just-filed source; [] on anything unparseable."""
     index = wiki.index_text(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
@@ -412,7 +431,8 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     if hint_page:
         parts.append(f"The user filed this under: {hint_page}")
     try:
-        raw = _ask(client, model, OPS_SYSTEM % memory._today_iso(), "\n\n".join(parts), 800)
+        system = OPS_SYSTEM % (wiki.user_note(user_names), memory._today_iso())
+        raw = _ask(client, model, system, "\n\n".join(parts), 800)
     except Exception as exc:  # noqa: BLE001
         print(f"[Sources] page ops failed: {exc}")
         return []
@@ -441,6 +461,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         client, model = _client_model()
     with memory._LOCK:
         wiki.ensure_vault()
+        names = memory.user_names()
         digest = sha256(data)
         seen = manifest_find(digest)
         if seen:
@@ -452,7 +473,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _store(raw_rel, data)
 
         text, image_part = extract(raw_rel, data)
-        summary = summarise(client, model, kind, text, image_part, hint, title or stem)
+        summary = summarise(client, model, kind, text, image_part, hint, title or stem, names)
         page_title = title or summary.get("title") or stem
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
 
@@ -461,14 +482,14 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
             _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
                                digest=digest, summary=summary.get("summary", ""),
                                entities=summary.get("entities", []), fed=fed,
-                               source=f"user drop {memory._today_iso()}")
+                               source=f"user drop {memory._today_iso()}", user_names=names)
 
         write_page([])
 
         applied = []
         if not summary.get("unreadable"):
-            ops = propose_page_ops(client, model, source_rel, summary, hint, page)
-            kept, rejected = restrict_ops(ops, raw_rel)
+            ops = propose_page_ops(client, model, source_rel, summary, hint, page, names)
+            kept, rejected = restrict_ops(ops, raw_rel, names)
             for bad in rejected:
                 print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
             applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)

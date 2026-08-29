@@ -20,8 +20,12 @@ TURNS = [{"role": "user", "content": "we agreed to deploy on Fridays; Anna runs 
 
 
 @pytest.fixture
-def vault(wiki_sandbox):
-    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp)."""
+def vault(wiki_sandbox, memory_sandbox):
+    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp).
+
+    `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
+    can never see the real memory.json.
+    """
     wiki.ensure_vault()
     return wiki_sandbox
 
@@ -606,3 +610,30 @@ def test_pull_wiki_action_replies_with_memory_and_wiki(wiki_panel):
 def test_a_bad_archive_comes_back_as_memory_error(wiki_panel):
     msg = wiki_panel.send({"action": "archive_memory", "section": "people", "index": 9})
     assert msg["type"] == "memory_error" and "does not exist" in msg["reason"]
+
+
+# PRD 26: the session ingest knows who the user is and never files them as a person.
+def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys):
+    memory._write_profile(memory._normalise(
+        {"identity": {"name": "Mihaly Fodor", "nickname": "Michael", "aliases": ["Misi"]}}))
+    ops = json.dumps([
+        {"op": "new_page", "path": "people/michael", "type": "person", "name": "Michael",
+         "summary": "The user."},
+        {"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
+         "summary": "Runs the release."},
+    ])
+    client = FakeClient(ops)
+
+    applied = wiki.ingest(TURNS, client, "m")
+
+    assert [op["path"] for op in applied] == ["people/anna"]
+    assert not wiki.page_exists("people/michael.md")
+    assert "is the user, not another person" in capsys.readouterr().out
+    system = client.calls[0]["messages"][0]["content"]
+    assert "The user (profile owner) is: Mihaly Fodor, Michael, Misi" in system
+
+
+def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault):
+    client = FakeClient("[]")
+    wiki.ingest(TURNS, client, "m")
+    assert wiki.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]

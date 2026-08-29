@@ -430,3 +430,152 @@ def test_reflect_cannot_invent_recurring_entries():
     cleaned["recurring"] = [{"what": "gym", "when": "evenings"}, {"what": "skydiving", "when": "Sundays"}]
     out = memory._validate_reflection(original, cleaned)
     assert [r["what"] for r in out["recurring"]] == ["gym"]
+
+
+# --------------------------------------------------------------- 11. identity aliases (PRD 26)
+
+
+ALIAS_IDENTITY = {"name": "Mihaly Fodor", "nickname": "Michael", "aliases": ["Misi", "Mihály"]}
+
+
+# Scenario 1: normalisation and the render clauses.
+def test_aliases_accept_a_comma_separated_string_and_render_as_a_clause():
+    profile = memory._normalise({"identity": {"name": "Mihaly Fodor", "nickname": "Michael",
+                                              "aliases": "Misi, Mihály"}})
+    assert profile["identity"]["aliases"] == ["Misi", "Mihály"]
+    assert memory.render(profile) == \
+        "Identity: name: Mihaly Fodor (call them: Michael; also: Misi, Mihály)"
+
+
+def test_an_empty_alias_list_adds_no_clause_and_no_fact():
+    profile = memory._normalise({"identity": {"name": "Mihaly Fodor", "aliases": "  ,  "}})
+    assert "aliases" not in profile["identity"]
+    assert memory.render(profile) == "Identity: name: Mihaly Fodor"
+    assert memory.fact_count(profile) == 1
+
+
+def test_aliases_are_rendered_on_their_own_when_there_is_no_name():
+    profile = memory._normalise({"identity": {"aliases": ["Misi"]}})
+    assert memory.render(profile) == "Identity: also known as: Misi"
+
+
+# Scenario 2: the ops.
+def test_alias_ops_add_update_and_delete():
+    profile = memory._normalise({"identity": dict(ALIAS_IDENTITY)})
+    profile, applied = memory.apply_ops(profile, [
+        {"op": "ADD", "path": "identity.aliases", "value": "Miki"},
+        {"op": "ADD", "path": "identity.aliases", "value": "misi"},      # duplicate, ignored
+        {"op": "ADD", "path": "identity.aliases", "value": "MIHÁLY"},    # duplicate, ignored
+    ])
+    assert profile["identity"]["aliases"] == ["Misi", "Mihály", "Miki"]
+    assert len(applied) == 1
+
+    profile, applied = memory.apply_ops(
+        profile, [{"op": "UPDATE", "path": "identity.aliases", "value": "Misi, Michael"}])
+    assert profile["identity"]["aliases"] == ["Misi", "Michael"]
+    assert "superseded" not in profile["identity"]        # a replaced list keeps no history
+
+    profile, applied = memory.apply_ops(
+        profile, [{"op": "DELETE", "path": "identity.aliases"}])
+    assert "aliases" not in profile["identity"]
+    assert len(applied) == 1
+
+
+def test_alias_ops_are_audited(sandbox):
+    memory._write_profile(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
+    profile, error = memory.edit({"op": "ADD", "path": "identity.aliases", "value": "Miki"})
+    assert error is None
+    logged = [json.loads(line) for line in open(memory.OPS_LOG_PATH) if line.strip()]
+    assert [(entry["op"], entry["path"], entry["value"]) for entry in logged] == \
+        [("ADD", "identity.aliases", "Miki")]
+
+
+def test_an_empty_alias_value_is_rejected(capsys):
+    profile = memory._normalise({"identity": dict(ALIAS_IDENTITY)})
+    profile, applied = memory.apply_ops(
+        profile, [{"op": "UPDATE", "path": "identity.aliases", "value": "   "}])
+    assert applied == [] and profile["identity"]["aliases"] == ["Misi", "Mihály"]
+    assert "comma-separated" in capsys.readouterr().out
+
+
+# Scenario 3: is_user.
+@pytest.mark.parametrize("text,expected", [
+    ("Michael", True),
+    ("Misi", True),
+    ("Mihay Fodor", True),      # an OCR / ASR mangling of the full name
+    ("mihaly", True),
+    ("Mihály Fodor", True),
+    ("Fodor", True),
+    ("Anna", False),
+    ("Elena", False),
+    ("", False),
+])
+def test_is_user_matches_every_form_of_the_owners_name(text, expected):
+    names = memory.user_names(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
+    assert names == ["Mihaly Fodor", "Michael", "Misi", "Mihály"]
+    assert memory.is_user(text, names) is expected
+
+
+def test_is_user_is_false_without_a_profile():
+    assert memory.is_user("Michael", []) is False
+
+
+# Scenario 4: the extraction guard.
+def test_an_extracted_name_that_is_only_an_alias_never_overwrites_the_real_name(sandbox, capsys):
+    memory._write_profile(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
+    client = FakeClient(json.dumps([
+        {"op": "UPDATE", "path": "identity.name", "value": "Michael", "reason": "they said so"},
+        {"op": "ADD", "path": "identity.aliases", "value": "Miki", "reason": "also called Miki"},
+    ]))
+    applied = memory.save([{"role": "user", "content": "Michael here again, some call me Miki"}],
+                          client, "fake-model")
+
+    assert [op["path"] for op in applied] == ["identity.aliases"]
+    profile = memory.load_profile()
+    assert profile["identity"]["name"] == "Mihaly Fodor"
+    assert profile["identity"]["aliases"] == ["Misi", "Mihály", "Miki"]
+    assert "name matches a known alias" in capsys.readouterr().out
+
+
+def test_the_real_name_can_still_be_corrected_and_set_when_missing():
+    profile, _ = memory.apply_ops(memory._empty_profile(), [
+        {"op": "ADD", "path": "identity.nickname", "value": "Michael"},
+        {"op": "UPDATE", "path": "identity.name", "value": "Michael"},   # no name yet: allowed
+    ])
+    assert profile["identity"]["name"] == "Michael"
+
+    profile = memory._normalise({"identity": dict(ALIAS_IDENTITY)})
+    profile, applied = memory.apply_ops(
+        profile, [{"op": "UPDATE", "path": "identity.name", "value": "Mihaly Kovacs"}])
+    assert profile["identity"]["name"] == "Mihaly Kovacs" and len(applied) == 1
+
+
+def test_the_propose_prompt_documents_the_alias_rules():
+    assert "identity.aliases" in memory.PROPOSE_SYSTEM
+    assert "Never UPDATE identity.name" in memory.PROPOSE_SYSTEM
+    assert "speech recognition" in memory.PROPOSE_SYSTEM
+
+
+# Scenario 6 (the prompt itself; the whisper call is tests/test_asr.py).
+def test_the_asr_prompt_lists_the_user_names_and_people_and_is_rebuilt_after_a_save(sandbox):
+    memory._write_profile(memory._normalise(
+        {"identity": dict(ALIAS_IDENTITY), "people": [{"name": "Anna"}]}))
+    first = memory.asr_prompt()
+    assert first == "Names: Mihaly Fodor, Michael, Misi, Mihály, Anna."
+    assert memory._ASR_CACHE["text"] == first and memory.asr_prompt() == first   # cached
+
+    memory.edit({"op": "ADD", "path": "identity.aliases", "value": "Miki"})
+    assert "Miki" in memory.asr_prompt()
+
+
+def test_the_asr_prompt_stays_within_its_token_budget(sandbox):
+    memory._write_profile(empty_profile(
+        identity={"name": "Mihaly Fodor"},
+        people=[{"name": f"Person Number {i}"} for i in range(20)]))
+    prompt = memory.asr_prompt()
+    assert memory.tokens_est(prompt) <= memory.ASR_PROMPT_TOKENS
+    assert prompt.startswith("Names: Mihaly Fodor,")
+
+
+def test_the_asr_prompt_is_empty_without_a_profile(sandbox):
+    assert memory.asr_prompt() == ""

@@ -386,3 +386,28 @@ def test_save_now_refuses_while_a_turn_is_running(panel, monkeypatch):
         blocker.free(chatbot.controller)
     assert reply == {"type": "error", "text": "Wait until the reply finishes."}
     assert calls == []
+
+
+# --------------------------------------------------------------- 9. aliases (PRD 26 scenario 7)
+
+
+def test_the_aliases_row_is_edited_as_a_comma_separated_string(panel):
+    seed(identity={"name": "Mihaly Fodor", "aliases": ["Misi"]})
+    reply = panel.send({"action": "memory_op", "op": "UPDATE",
+                        "path": "identity.aliases", "value": "Misi, Michael"})
+
+    assert reply["type"] == "memory"
+    assert reply["profile"]["identity"]["aliases"] == ["Misi", "Michael"]     # snapshot: a list
+    assert on_disk()["identity"]["aliases"] == ["Misi", "Michael"]
+    assert "also: Misi, Michael" in reply["rendered"]
+    assert audit_log()[0]["path"] == "identity.aliases"
+
+
+def test_an_alias_row_can_be_added_and_deleted_from_the_panel(panel):
+    seed(identity={"name": "Mihaly Fodor"})
+    added = panel.send({"action": "memory_op", "op": "UPDATE",
+                        "path": "identity.aliases", "value": "Misi"})
+    assert added["profile"]["identity"]["aliases"] == ["Misi"]
+
+    removed = panel.send({"action": "memory_op", "op": "DELETE", "path": "identity.aliases"})
+    assert "aliases" not in removed["profile"]["identity"]
