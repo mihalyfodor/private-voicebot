@@ -720,12 +720,13 @@ def _complete(client, model: str, system: str, user: str, max_tokens: int) -> st
     return response.choices[0].message.content or ""
 
 
-def propose_ops(profile: dict, turns: list, client, model: str) -> list:
-    """Ask the LLM for upsert ops against `profile`; [] on anything unparseable.
+def propose_ops(profile: dict, turns: list, client, model: str) -> list | None:
+    """Ask the LLM for upsert ops against `profile`; [] on anything unparseable, None when the
+    call itself failed (server down, timeout) so the caller can keep the turns for a retry.
 
     Proposal only — the returned ops are untrusted until :func:`apply_ops` validates them, and
-    the model never sees or writes the file itself. A failed or garbled call is a no-op, never
-    an exception: memory must not be able to break a session.
+    the model never sees or writes the file itself. A failed or garbled call never raises:
+    memory must not be able to break a session.
     """
     transcript = _transcript(turns)
     if not transcript.strip():
@@ -739,7 +740,7 @@ def propose_ops(profile: dict, turns: list, client, model: str) -> list:
         content = _complete(client, model, system, user, 600)
     except Exception as exc:  # noqa: BLE001 — memory must never break a session
         print(f"[Memory] warning: op proposal failed ({exc})")
-        return []
+        return None
     ops = _extract_json(content)
     if not isinstance(ops, list):
         print(f"[Memory] warning: could not parse ops from model output: {content[:200]!r}")
@@ -1509,12 +1510,13 @@ def _lint_wiki() -> list:
     return findings
 
 
-def save(session_turns: list, client, model: str) -> list:
+def save(session_turns: list, client, model: str) -> list | None:
     """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves.
 
-    The one entry point the chat path uses to write memory; returns the applied ops. The file is
-    only rewritten when something actually changed, and each write is atomic, so an interrupted
-    save leaves the previous profile intact.
+    The one entry point the chat path uses to write memory; returns the applied ops, or None
+    when the proposal call failed — nothing is touched then, and the caller keeps the turns.
+    The file is only rewritten when something actually changed, and each write is atomic, so
+    an interrupted save leaves the previous profile intact.
 
     Runs on the turn worker thread, so the whole load -> propose -> apply -> write -> reflect
     path is held under `_LOCK`: a hand edit from the UI waits for it instead of being overwritten
@@ -1523,6 +1525,9 @@ def save(session_turns: list, client, model: str) -> list:
     with _LOCK:
         profile = migrate_if_needed(client, model)
         ops = propose_ops(profile, session_turns, client, model)
+        if ops is None:
+            print("[Memory] save skipped — turns kept for the next attempt")
+            return None
         profile, applied = apply_ops(profile, ops)
 
         # Decay is a function of the calendar, not of what the user just said, so it runs on

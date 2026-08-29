@@ -337,11 +337,22 @@ def has_unsaved_turns() -> bool:
 
 
 def save_memory():
-    """Fold this session into the memory.json profile. Idempotent: turns are cleared once saved."""
+    """Fold this session into the memory.json profile. Idempotent: turns are cleared once saved.
+
+    When the save could not reach the model (memory.save returns None, or raises) the turns go
+    back in front of anything said meanwhile, so the next save — or the shutdown one — retries.
+    """
     global _session_turns
-    if _session_turns:
-        turns, _session_turns = _session_turns, []
-        memory.save(turns, client(), OMLX_MODEL)
+    if not _session_turns:
+        return
+    turns, _session_turns = _session_turns, []
+    try:
+        applied = memory.save(turns, client(), OMLX_MODEL)
+    except Exception:
+        _session_turns = turns + _session_turns
+        raise
+    if applied is None:
+        _session_turns = turns + _session_turns
 
 
 def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user"):

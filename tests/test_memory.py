@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 
 import memory
-from tests.conftest import FakeClient, days_ago, empty_profile
+from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 
 
 # --------------------------------------------------------------------------- helpers
@@ -387,10 +387,18 @@ def test_propose_ops_returns_empty_on_unparseable_output(content, capsys):
     assert "could not parse ops" in capsys.readouterr().out
 
 
-def test_propose_ops_survives_a_broken_client(capsys):
+def test_propose_ops_returns_none_when_the_call_fails(capsys):
     client = FakeClient(RuntimeError("connection refused"))
-    assert memory.propose_ops(memory._empty_profile(), TURNS, client, "m") == []
+    assert memory.propose_ops(memory._empty_profile(), TURNS, client, "m") is None
     assert "op proposal failed" in capsys.readouterr().out
+
+
+def test_save_leaves_the_file_alone_when_the_call_fails(memory_sandbox):
+    seed(identity={"name": "Michael"})
+    before = on_disk()
+    assert memory.save(TURNS, FakeClient(RuntimeError("connection refused")), "m") is None
+    assert on_disk() == before
+    assert audit_log() == []
 
 
 def test_propose_ops_skips_the_call_for_an_empty_transcript():
@@ -415,12 +423,38 @@ def test_shutdown_hook_saves_memory(monkeypatch):
 def test_save_memory_is_idempotent(monkeypatch):
     import llm
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, client, model: saved.append(list(turns)))
+    monkeypatch.setattr(memory, "save", lambda turns, client, model: (saved.append(list(turns)), [])[1])
     monkeypatch.setattr(llm, "client", lambda: object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
     llm.save_memory(); llm.save_memory()
     assert saved == [[{"role": "user", "content": "hi"}]]
+
+
+def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
+    import llm
+    monkeypatch.setattr(memory, "save", lambda turns, client, model: None)
+    monkeypatch.setattr(llm, "client", lambda: object())
+    llm.reset()
+    llm._session_turns.append({"role": "user", "content": "hi"})
+    llm.save_memory()
+    assert llm.has_unsaved_turns()
+    assert llm.get_session_turns() == [{"role": "user", "content": "hi"}]
+
+
+def test_save_memory_keeps_the_turns_when_the_save_raises(monkeypatch):
+    import llm
+
+    def boom(turns, client, model):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(memory, "save", boom)
+    monkeypatch.setattr(llm, "client", lambda: object())
+    llm.reset()
+    llm._session_turns.append({"role": "user", "content": "hi"})
+    with pytest.raises(RuntimeError):
+        llm.save_memory()
+    assert llm.get_session_turns() == [{"role": "user", "content": "hi"}]
 
 
 def test_reflect_cannot_invent_recurring_entries():
