@@ -45,6 +45,7 @@ const sendBtn = document.getElementById('send-btn');
 const micBtn = document.getElementById('mic-btn');
 const muteBtn = document.getElementById('mute-btn');
 const listeningDot = document.getElementById('listening-dot');
+const handsFreeToggle = document.getElementById('hands-free-toggle');   // Settings' copy of the mic switch
 let shutdownRequested = false;
 function showShutdownScreen() {
   for (const id of ['companion', 'workspace', 'rail']) {
@@ -130,7 +131,6 @@ verbositySlider.addEventListener('change', () => {
 
 const statusText = {
   idle: 'type a message or talk',
-  recording: 'recording...',
   processing: 'processing...',
   thinking: 'thinking...',
   speaking: 'speaking...',
@@ -159,7 +159,7 @@ function unlockAudio() {
 // ---------- microphone capture ----------
 // Uses the SAME audioCtx that plays TTS so Chrome's echo cancellation has the
 // far-end reference signal. Streams 16 kHz mono Int16 frames over the WS
-// while `mic.sending` is true (gated by PTT / hands-free state, see below).
+// while `mic.sending` is true (renderComposer gates it on hands-free).
 const mic = {
   started: false,
   starting: null,
@@ -195,10 +195,6 @@ const mic = {
     return this.starting;
   },
 };
-
-function updateSending() {
-  mic.sending = handsFree;
-}
 
 const queue = [];           // pending {emotion, buffer}
 let playing = false;        // a source is currently playing
@@ -265,7 +261,7 @@ async function playNext() {
         blockedSentForTurn = currentTurn;
         ws.send(JSON.stringify({ action: 'playback_blocked', turn: currentTurn }));
       }
-      render();
+      renderComposer();
       await new Promise(resolve => {
         const unlock = () => audioCtx.resume().then(() => {
           document.removeEventListener('click', unlock);
@@ -276,7 +272,7 @@ async function playNext() {
         document.addEventListener('keydown', unlock);
       });
       audioBlocked = false;
-      render();
+      renderComposer();
     }
   }
   avatar.setEmotion(item.emotion);
@@ -316,11 +312,10 @@ const avatar = {
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
-    renderHandsFreeToggle();
     renderVerbosity();
     renderBackdropList();
     renderWikiPanel();
-    render();
+    renderComposer();
 
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
 
@@ -446,6 +441,20 @@ const avatar = {
 // Sources is the wiki view filtered to `sources/`; there is no contextual panel (PRD 22b) —
 // settings live in the Settings view, view-local actions in the views themselves.
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// The inline icons are [tag, attrs][] tables (rail items, the typed glyph): one builder.
+function svgIcon(parts, attrs = {}) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  for (const [k, v] of Object.entries(attrs)) svg.setAttribute(k, String(v));
+  for (const [tag, a] of parts) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(a)) node.setAttribute(k, String(v));
+    svg.append(node);
+  }
+  return svg;
+}
+
 const RAIL_ICONS = {
   chat: [['path', { d: 'M4 5h16v10H8l-4 4z' }]],
   memory: [['ellipse', { cx: 12, cy: 6, rx: 7, ry: 2.6 }],
@@ -479,15 +488,7 @@ function railItem(v) {
   b.title = v.label + (v.key ? ` (${v.key})` : '');
   b.setAttribute('aria-label', v.label);
   b.append(el('span', 'rail-dot'));
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const [tag, attrs] of RAIL_ICONS[v.id]) {
-    const node = document.createElementNS(SVG_NS, tag);
-    for (const [k, val] of Object.entries(attrs)) node.setAttribute(k, String(val));
-    svg.append(node);
-  }
-  b.append(svg, el('span', 'rail-label', v.label));
+  b.append(svgIcon(RAIL_ICONS[v.id], { 'aria-hidden': 'true' }), el('span', 'rail-label', v.label));
   if (v.key) b.append(el('span', 'key', v.key));
   b.onclick = () => setView(v.id);
   return b;
@@ -505,9 +506,15 @@ function railItemFor(id) {
   return railItems.find(b => b.dataset.view === id);
 }
 
-// The companion lives in the chat slot on Chat and in the shell's left slot everywhere else;
-// PIXI only resizes on window events, so the canvas is resized and refitted after the move.
-function placeCompanion(name) {
+// Switching views does three things: move the companion column into this view's slot
+// (chat slot on Chat, the shell's left slice everywhere else — PIXI only resizes on window
+// events, so the canvas is resized and refitted after the move), show the view element,
+// and load whatever data that view needs.
+function setView(name) {
+  const v = VIEW_BY_ID.get(name);
+  if (!v) return;
+  currentView = name;
+
   const chat = name === 'chat';
   const slot = chat ? chatSlot : leftSlot;
   companionEl.className = chat ? 'chat' : 'side';
@@ -516,13 +523,7 @@ function placeCompanion(name) {
     if (avatar.app) avatar.app.resize();
     avatar.fit();
   });
-}
 
-function setView(name) {
-  const v = VIEW_BY_ID.get(name);
-  if (!v) return;
-  currentView = name;
-  placeCompanion(name);
   for (const other of VIEWS) document.getElementById(other.el).hidden = true;
   document.getElementById(v.el).hidden = false;
   railItems.forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -1605,15 +1606,13 @@ function connect() {
       currentAvatarKey = msg.avatar;
       avatarName = msg.name || avatarName;
       status.textContent = 'characters reloaded';
-      setTimeout(() => { render(); }, 1500);
+      setTimeout(renderComposer, 1500);
     }
-    else if (msg.type === 'listening') { listening = msg.value; render(); }
+    else if (msg.type === 'listening') { listening = msg.value; renderComposer(); }
     else if (msg.type === 'hands_free') {
       handsFree = msg.value;
       if (!handsFree) listening = 'idle';
-      updateSending();
-      renderHandsFreeToggle();
-      render();
+      renderComposer();
     }
     else if (msg.type === 'verbosity') {
       currentVerbosity = verbosityLevels.includes(msg.value) ? msg.value : currentVerbosity;
@@ -1632,7 +1631,7 @@ function connect() {
   };
 
   ws.onopen = () => {
-    render();
+    renderComposer();
     // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
     if (currentView === 'memory') requestMemory();
     else if (currentView === 'wiki' || currentView === 'sources') requestWiki();
@@ -1654,18 +1653,18 @@ function connect() {
 
 function setState(value) {
   state = value;
-  render();
+  renderComposer();
 }
 
-function renderHandsFreeToggle() {
-  document.getElementById('hands-free-toggle').classList.toggle('active', handsFree);
-}
-
-// Recomputes the composer buttons + status line from state/handsFree/muted/listening.
-function render() {
+// The one place the voice/mute UI is computed from (state, handsFree, muted, listening):
+// both mic buttons, the listening dot, the status line, and the mic's own sending gate.
+// Everything that changes one of those four variables just calls this.
+function renderComposer() {
   const busy = state === 'processing' || state === 'thinking' || state === 'speaking';
   const hearing = handsFree && listening === 'hearing';
 
+  mic.sending = handsFree;
+  handsFreeToggle.classList.toggle('active', handsFree);   // the Settings switch, same state
   micBtn.className = 'composer-btn' + (handsFree ? ' on' : '') + (hearing ? ' hearing' : '');
   micBtn.title = handsFree ? 'Voice on — click to stop listening' : 'Voice off — click to listen';
   muteBtn.className = 'composer-btn' + (muted ? ' muted' : state === 'speaking' ? ' speaking' : '');
@@ -1688,23 +1687,13 @@ function render() {
 const KEYBOARD_GLYPH = [['rect', { x: 2, y: 6, width: 20, height: 12, rx: 2 }],
                         ['path', { d: 'M7 10h.01M11 10h.01M15 10h.01M8 14h8' }]];
 
-function addMessage(role, text, typed) {
+// One history line. `typed` adds the keyboard glyph next to the role label (PRD 24).
+function addMessage(role, text, { typed = false } = {}) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   const r = document.createElement('span'); r.className = 'role';
   r.textContent = role === 'user' ? 'You' : avatarName;
-  if (typed) {
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '0 0 24 24');
-    svg.setAttribute('class', 'typed-glyph');
-    svg.setAttribute('aria-label', 'typed');
-    for (const [tag, attrs] of KEYBOARD_GLYPH) {
-      const node = document.createElementNS(SVG_NS, tag);
-      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
-      svg.append(node);
-    }
-    r.append(svg);
-  }
+  if (typed) r.append(svgIcon(KEYBOARD_GLYPH, { class: 'typed-glyph', 'aria-label': 'typed' }));
   const t = document.createElement('span'); t.className = 'text'; t.textContent = text;
   div.append(r, t);
   historyEl.appendChild(div);
@@ -1718,7 +1707,7 @@ function sendText() {
   const text = composerInput.value.trim();
   if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   unlockAudio();
-  addMessage('user', text, true);
+  addMessage('user', text, { typed: true });
   ws.send(JSON.stringify({ action: 'text_turn', text }));
   composerInput.value = '';
   growComposer();
@@ -1743,7 +1732,7 @@ sendBtn.addEventListener('click', sendText);
 // Output mute: client-side only, so nothing about the turn/interrupt protocol changes.
 function toggleMute() {
   muted = !muted;
-  render();
+  renderComposer();
 }
 muteBtn.addEventListener('click', toggleMute);
 
@@ -1789,7 +1778,7 @@ document.addEventListener('click', () => {
 });
 
 // The Settings "Listening" switch and the composer mic button drive the same state.
-document.getElementById('hands-free-toggle').onclick = () => setHandsFree(!handsFree);
+handsFreeToggle.onclick = () => setHandsFree(!handsFree);
 
 setView('chat');
 avatar.init();

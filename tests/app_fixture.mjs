@@ -1,10 +1,43 @@
-// A tiny DOM/WS/audio shim that runs static/app.js in node (PRD 24 scenarios 2 and 3).
+// A tiny DOM/WS/audio shim that boots static/app.js in node, so the client half of a PRD
+// can be asserted from pytest without a browser (first used for PRD 24).
 //
-// It is deliberately minimal: enough of the browser for app.js to boot, plus hooks the
-// python test drives. Every id in static/index.html gets a stub element, so a typo in a
-// getElementById is a null crash here, exactly as it would be in the browser.
+//   node tests/app_fixture.mjs      → prints ONE JSON object of results on stdout
 //
-// Usage: node tests/app_fixture.mjs   → prints one JSON object of results on stdout.
+// The python side (tests/test_text_input.py) runs that command once per module and asserts
+// on the parsed JSON; a non-zero exit (any uncaught error in app.js) fails the test.
+//
+// ---------------------------------------------------------------------------- what it is
+// Deliberately minimal: enough of the browser for app.js to boot, no more.
+//   * DOM      — `El`, a stub element with classList / textContent / append / replaceChildren /
+//                setAttribute / addEventListener + `dispatch(type, event)` / matches / closest /
+//                querySelectorAll (tag, #id and .class selectors only). Every id="…" in
+//                static/index.html gets one, so a typo in a getElementById is a null crash
+//                here exactly as it would be in the browser.
+//   * document — getElementById / createElement(NS) / addEventListener / dispatch / activeElement.
+//   * stubs    — AudioContext (counts decodes/plays in `audio`), WebSocket (records every
+//                frame in `socket.sent`), fetch (always answers CONFIG_JSON, i.e. /api/config),
+//                requestAnimationFrame, getComputedStyle, setTimeout (a no-op: nothing timed runs).
+//   * PIXI is undefined, so app.js takes its "no Live2D" path and draws no avatar.
+//
+// ------------------------------------------------------------------------ the test hooks
+// HOOKS below is appended to app.js inside the same VM context, so it closes over app.js's
+// module-level `const`s, and exposes them as `globalThis.__t`:
+//   setView(name) / toggleMute() / sendText() / addMessage(role, text, opts)  — app.js functions
+//   recv(msg)        push a server message into ws.onmessage
+//   sent()           every payload the client has sent (also `socket.sent`, which tests clear)
+//   muted            the client-side output mute flag
+//   companionParent()/companionClass()   where the companion column currently lives
+//   historyLines()   [{ role, text, typed }] rendered in #history
+//   input            the composer textarea (set .value, then dispatch a keydown)
+//   thumbs()/clickThumb(i)               the backdrop thumbnails over the avatar
+//   keydown(code)    a document-level keydown (the global shortcuts)
+//
+// ------------------------------------------------------------- adding a scenario (next PRD)
+// 1. add whatever the scenario needs to HOOKS (keep it a thin accessor, no logic);
+// 2. drive it in the "scenarios" section at the bottom and store the observable value in
+//    `results` under a snake_case key;
+// 3. assert on that key from python. Keep results JSON-serialisable and order-independent
+//    where possible — the whole file runs once per pytest module.
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -198,9 +231,10 @@ vm.runInContext(appSrc + HOOKS, sandbox);
 const t = sandbox.__t;
 await new Promise(r => setImmediate(r));   // let avatar.init()'s awaits settle
 
+// ---------------------------------------------------------------- scenarios (PRD 24)
 const results = {};
 
-// ---- scenario: setView re-parents the one companion element
+// ---- scenario 3: setView re-parents the one companion element
 results.parent_chat = t.companionParent();
 results.class_chat = t.companionClass();
 t.setView('memory');
@@ -210,13 +244,13 @@ t.setView('chat');
 results.parent_back = t.companionParent();
 results.class_back = t.companionClass();
 
-// ---- scenario: typed turn renders locally and sends text_turn
+// ---- scenario 1: typed turn renders locally and sends text_turn
 t.input.value = '  hello there  ';
 t.input.dispatch('keydown', { key: 'Enter', shiftKey: false });
 results.typed_sent = socket.sent.filter(m => m.action === 'text_turn');
 results.after_send_value = t.input.value;
 
-// ---- scenario: muted client shows the transcript but plays nothing, and still
+// ---- scenario 2: muted client shows the transcript but plays nothing, and still
 //      answers playback_done so the server's turn state advances
 const speech = { type: 'speech', emotion: 'happy', turn: 1, wav: btoa('RIFFfake') };
 t.keydown('Space');                    // no input focused → mute
@@ -243,7 +277,7 @@ doc.activeElement = doc.body;
 
 results.history = t.historyLines();
 
-// ---- scenario: backdrop thumbs send the same payload as the settings chips
+// ---- scenario 4: backdrop thumbs send the same payload as the settings chips
 socket.sent.length = 0;
 results.thumbs = t.thumbs();
 t.clickThumb(1);

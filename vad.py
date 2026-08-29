@@ -2,8 +2,8 @@
 
 `Endpointer` wraps Silero VAD (ONNX) with a pre-roll ring buffer and a small
 state machine (see docs/09-continuous-mode.md) to turn a continuous stream of
-PCM audio into discrete utterances. `Recorder` is the trivial push-to-talk
-counterpart with no VAD at all.
+PCM audio into discrete utterances. `Recorder` is a trivial no-VAD capture buffer,
+left over from push-to-talk (retired in PRD 24) and no longer used by the server.
 """
 
 import os
@@ -57,7 +57,7 @@ def _to_float32(pcm):
 
 
 class Recorder:
-    """Push-to-talk capture: no VAD, just accumulate until stop()."""
+    """Plain capture: no VAD, just accumulate until stop(). Unused since PRD 24."""
 
     def __init__(self):
         self._chunks = []

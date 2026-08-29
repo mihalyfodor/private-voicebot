@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 24 — Chat layout around Wanko + text input
 

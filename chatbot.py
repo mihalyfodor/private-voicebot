@@ -255,15 +255,20 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """LLM → sentence-streamed TTS → wait for browser playback → idle.
 
-    `origin` only tags the session log line ("user" for spoken, "typed" for the composer);
-    everything else — conversation, tools, memory — is identical either way.
+    The one reply path: a typed turn and a transcribed one differ only in `origin`, which
+    tags the session log line ("user" spoken, "typed" from the composer); the conversation,
+    tools and memory see them identically. Always ends in the idle state, errors included.
     """
-    send_sync({"type": "state", "value": "thinking"})
-    _arm_playback(sess, turn)
-    reply = speak_stream(llm.ask_events(user_text, origin=origin), send_sync)
-    print(f"Bot: {reply}")
-    send_sync({"type": "transcript", "role": "assistant", "text": reply})
-    _wait_for_playback_then_idle(sess, send_sync)
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        reply = speak_stream(llm.ask_events(user_text, origin=origin), send_sync)
+        print(f"Bot: {reply}")
+        send_sync({"type": "transcript", "role": "assistant", "text": reply})
+        _wait_for_playback_then_idle(sess, send_sync)
+    except Exception as e:
+        print(f"[Error] {e}")
+        send_sync({"type": "state", "value": "idle"})
 
 
 def say_canned(text: str, send_sync, tts=None):
@@ -276,44 +281,33 @@ def say_canned(text: str, send_sync, tts=None):
 
 
 def handle_text(sess: Session, turn: int, text: str, loop):
-    """One typed turn (PRD 24): the same path a final transcript takes, minus the ASR.
+    """One typed turn (PRD 24): the transcript path without the ASR.
 
     The browser already rendered the user's line, so no user transcript is echoed back.
     """
-    send_sync = make_sender(loop, turn)
-    responded = False
-    try:
-        print(f"You (typed): {text}")
-        respond(sess, turn, text, send_sync, origin="typed")
-        responded = True
-    except Exception as e:
-        print(f"[Error] {e}")
-    finally:
-        if not responded:
-            send_sync({"type": "state", "value": "idle"})
+    print(f"You (typed): {text}")
+    respond(sess, turn, text, make_sender(loop, turn), origin="typed")
 
 
 def handle_utterance(sess: Session, turn: int, audio, loop):
     """Transcribe one captured utterance (hands-free) and respond.
 
-    Idle is always sent when no reply was produced (empty transcript or an exception).
+    Idle is sent here when the transcript is empty or the ASR raised; once there is text,
+    `respond` owns the rest of the turn (and its own idle).
     """
     send_sync = make_sender(loop, turn)
-    responded = False
     try:
         send_sync({"type": "state", "value": "processing"})
         text = asr.transcribe(audio, prompt=memory.asr_prompt())
-        if not text:
-            return
-        print(f"You: {text}")
-        send_sync({"type": "transcript", "role": "user", "text": text})
-        respond(sess, turn, text, send_sync)
-        responded = True
     except Exception as e:
         print(f"[Error] {e}")
-    finally:
-        if not responded:
-            send_sync({"type": "state", "value": "idle"})
+        text = ""
+    if not text:
+        send_sync({"type": "state", "value": "idle"})
+        return
+    print(f"You: {text}")
+    send_sync({"type": "transcript", "role": "user", "text": text})
+    respond(sess, turn, text, send_sync)
 
 
 def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
