@@ -448,6 +448,48 @@ def _store(raw_rel: str, data: bytes) -> None:
         f.write(data)
 
 
+def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
+                   title: str, names) -> dict:
+    """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest."""
+    text, image_part = extract(raw_rel, data)
+    stem = os.path.splitext(os.path.basename(raw_rel))[0]
+    return summarise(client, model, kind, text, image_part, hint, title or stem, names)
+
+
+def _file_page(client, model: str, summary: dict, *, raw_rel: str, kind: str, source_rel: str,
+               digest: str, page_title: str, hint: str, page: str, source: str, names) -> list:
+    """Write the source page and apply the proposed ops — step 5. Returns the pages fed.
+
+    Shared by the first filing and a re-ingest; runs under the lock, commits nothing, so the
+    caller owns the manifest line and the single commit.
+    """
+
+    def write_page(fed: list) -> None:
+        """The source page, written once before the ops and once after (now with `## Fed`)."""
+        _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
+                           digest=digest, summary=summary.get("summary", ""),
+                           entities=summary.get("entities", []), fed=fed,
+                           source=source, user_names=names)
+
+    write_page([])
+
+    applied = []
+    if not summary.get("unreadable"):
+        ops = propose_page_ops(client, model, source_rel, summary, hint, page, names)
+        kept, rejected = restrict_ops(ops, raw_rel, names)
+        for bad in rejected:
+            print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
+        applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
+        for bad in more:
+            print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
+
+    fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
+                  for op in applied if op.get("path")}
+                 | {"decisions" for op in applied if op["op"] == "add_decision"})
+    write_page(fed)     # rewritten now that the ops are in, listing what it actually fed
+    return fed
+
+
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
                page: str = "", client=None, model: str = "") -> dict:
     """The one ingest path: store, extract, summarise, file, commit once.
@@ -470,34 +512,13 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         raw_rel = _free_path(folder, stem, ext)
         _store(raw_rel, data)
 
-        text, image_part = extract(raw_rel, data)
-        summary = summarise(client, model, kind, text, image_part, hint, title or stem, names)
+        summary = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names)
         page_title = title or summary.get("title") or stem
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
-
-        def write_page(fed: list) -> None:
-            """The source page, written once before the ops and once after (now with `## Fed`)."""
-            _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
-                               digest=digest, summary=summary.get("summary", ""),
-                               entities=summary.get("entities", []), fed=fed,
-                               source=f"user drop {memory._today_iso()}", user_names=names)
-
-        write_page([])
-
-        applied = []
-        if not summary.get("unreadable"):
-            ops = propose_page_ops(client, model, source_rel, summary, hint, page, names)
-            kept, rejected = restrict_ops(ops, raw_rel, names)
-            for bad in rejected:
-                print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
-            applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
-            for bad in more:
-                print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
-
-        fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
-                      for op in applied if op.get("path")}
-                     | {"decisions" for op in applied if op["op"] == "add_decision"})
-        write_page(fed)     # rewritten now that the ops are in, listing what it actually fed
+        fed = _file_page(client, model, summary, raw_rel=raw_rel, kind=kind,
+                         source_rel=source_rel, digest=digest, page_title=page_title,
+                         hint=hint, page=page, source=f"user drop {memory._today_iso()}",
+                         names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
                           "page": wiki.wikilink(source_rel), "pages_touched": fed})
@@ -506,6 +527,124 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                    + (f" -> {', '.join(fed)}" if fed else "")])
         wiki._commit(f"wiki: filed {raw_rel}")
         return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False}
+
+
+# --- the inbox (docs/25-sources-inbox.md) --------------------------------------------
+
+
+def _manifest_write(entries: list) -> None:
+    """Rewrite the whole manifest — the only time a line is replaced or dropped."""
+    wiki._write(MANIFEST, "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries))
+
+
+_DROP_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def _source_meta(entry: dict) -> dict:
+    """One inbox row: the manifest line joined with its page's frontmatter."""
+    page_rel = f"{entry.get('page', '')}.md"
+    fm = wiki.parse_page(wiki._read(page_rel))[0] if wiki.page_exists(page_rel) else {}
+    match = _DROP_DATE.search(str(fm.get("source") or ""))
+    date = match.group(1) if match else str(fm.get("updated") or "")
+    return {
+        "sha": entry.get("sha256", ""),
+        "path": entry.get("page", ""),
+        "raw": entry.get("path", ""),
+        "kind": str(fm.get("kind") or entry.get("kind") or ""),
+        "title": str(fm.get("name") or os.path.basename(entry.get("page", ""))),
+        "when": " ".join(part for part in (date, str(entry.get("ingested_at") or "")) if part),
+        "fed": list(entry.get("pages_touched") or []),
+    }
+
+
+def list_sources() -> list:
+    """Every filed source, newest first (the manifest is append-only, so reversed = newest)."""
+    return [_source_meta(e) for e in reversed(manifest_entries())]
+
+
+def _entry_or_raise(digest: str) -> dict:
+    entry = manifest_find(digest)
+    if entry is None:
+        raise IngestError(404, f"no filed source with sha {str(digest)[:12]}")
+    return entry
+
+
+def reingest(digest: str, *, client=None, model: str = "") -> dict:
+    """Re-run summary + ops from the stored raw file; same source page, same sha, one commit.
+
+    Touched pages get fresh dated notes (the ops are re-applied, not diffed); the manifest
+    line is replaced in place with the union of old and new `pages_touched`.
+    """
+    if client is None:
+        client, model = _client_model()
+    with memory._LOCK:
+        entry = _entry_or_raise(digest)
+        raw_rel, source_rel = entry["path"], f"{entry['page']}.md"
+        try:
+            with open(wiki._path(raw_rel), "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            raise IngestError(410, f"the raw file {raw_rel} is gone") from exc
+        names = memory.user_names()
+        kind = str(entry.get("kind") or KINDS.get(os.path.splitext(raw_rel)[1].lower()) or "txt")
+        old_fm = wiki.parse_page(wiki._read(source_rel))[0]
+        summary = _summarise_raw(client, model, raw_rel, data, kind, "", "", names)
+        page_title = str(old_fm.get("name") or summary.get("title") or "")
+        fed = _file_page(client, model, summary, raw_rel=raw_rel, kind=kind,
+                         source_rel=source_rel, digest=digest, page_title=page_title,
+                         hint="", page="",
+                         source=str(old_fm.get("source") or f"user drop {memory._today_iso()}"),
+                         names=names)
+        fed = sorted(set(entry.get("pages_touched") or []) | set(fed))
+        stamp = memory._stamp("%H:%M:%S")
+        _manifest_write([{**e, "pages_touched": fed, "ingested_at": stamp}
+                         if e.get("sha256") == digest else e for e in manifest_entries()])
+        wiki.rebuild_index()
+        wiki._log([f"re-ingested [[{entry['page']}]] from {raw_rel}"
+                   + (f" -> {', '.join(fed)}" if fed else "")])
+        wiki._commit(f"wiki: re-ingested {raw_rel}")
+        return {"path": entry["page"], "raw": raw_rel}
+
+
+def _without_source_notes(body: str, raw_rel: str) -> str:
+    """Drop the `## Notes` / `## History` bullets stamped `(source: <raw_rel>)`; nothing else."""
+    marker = f"(source: {raw_rel})"
+    out, section = [], None
+    for line in body.splitlines():
+        if line.startswith("## "):
+            section = line.strip()
+        if (section in ("## Notes", "## History") and line.lstrip().startswith("- ")
+                and line.rstrip().endswith(marker)):
+            continue
+        out.append(line)
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+def forget(digest: str) -> dict:
+    """Delete the source page and raw file, drop the manifest line and the notes it fed; one commit."""
+    with memory._LOCK:
+        entry = _entry_or_raise(digest)
+        raw_rel, page = entry["path"], entry["page"]
+        cleaned = []
+        for fed in entry.get("pages_touched") or []:
+            rel = wiki.normalise_path(fed)
+            if rel is None or not wiki.page_exists(rel):
+                continue
+            before = wiki._read(rel)
+            if f"(source: {raw_rel})" not in before:
+                continue
+            wiki._edit_page(rel, lambda body: _without_source_notes(body, raw_rel))
+            cleaned.append(wiki.wikilink(rel))
+        for rel in (f"{page}.md", raw_rel):
+            wiki._git("rm", "-q", "-f", "--", rel, quiet=True)
+            if os.path.exists(wiki._path(rel)):
+                os.remove(wiki._path(rel))
+        _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
+        wiki.rebuild_index()
+        wiki._log([f"forgot [[{page}]] and {raw_rel}"
+                   + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])
+        wiki._commit(f"wiki: forgot {raw_rel}")
+        return {"path": page, "raw": raw_rel, "cleaned": cleaned}
 
 
 def _dated(slug: str) -> str:

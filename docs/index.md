@@ -40,7 +40,7 @@ voicebot/
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under memory._LOCK), backlinks, tags
-├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
+├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
@@ -80,13 +80,14 @@ voicebot/
 │   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection, identity aliases
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
 │   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
+│   ├── test_sources_inbox.py      # PRD 25: list_sources newest-first, reingest, forget (only matching notes), get_sources/reingest_source/forget_source actions
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 │   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
 │   ├── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag
 │   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
 │   ├── test_avatar_cues.py        # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
 │   ├── test_wiki_editor.py        # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
-│   └── e2e/                       # PRD 29: Playwright browser tests (conftest spawns the server; test_app.py), marker `e2e`
+│   └── e2e/                       # PRD 29: Playwright browser tests (conftest spawns the server; test_app.py, test_sources.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
 │                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor); its header
 │                                   # documents the hooks and how to add a scenario
@@ -119,7 +120,7 @@ voicebot/
     ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
     ├── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
     ├── 24-chat-layout-text.md    # PRD: companion column, typed turns, mute instead of PTT (done)
-    ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
+    ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (refactoring)
     ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
     ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (done)
     ├── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
@@ -150,7 +151,7 @@ voicebot/
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
 - [23-wanko-only.md](23-wanko-only.md) — Wanko as the only assistant, avatar picker removed (done)
 - [24-chat-layout-text.md](24-chat-layout-text.md) — companion column (avatar/history/composer), text input, mute replaces push-to-talk, backdrop thumbnails (done)
-- [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox with provenance (exploration)
+- [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox: newest-first rows, kind chips, Open raw / Re-ingest / Forget, rail badge; `sources` WS message (refactoring)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
 - [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motion groups, click-to-pet, listening/thinking/tool/greeting/shutdown cues, three new emotion tags (done)
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)

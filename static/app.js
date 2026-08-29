@@ -689,6 +689,7 @@ function railItem(v) {
   b.append(el('span', 'rail-dot'));
   b.append(svgIcon(RAIL_ICONS[v.id], { 'aria-hidden': 'true' }), el('span', 'rail-label', v.label));
   if (v.key) b.append(el('span', 'key', v.key));
+  if (v.id === 'sources') { const badge = el('span', 'rail-badge'); badge.hidden = true; b.append(badge); }
   b.onclick = () => setView(v.id);
   return b;
 }
@@ -730,8 +731,9 @@ function setView(name) {
   wikiIngestBtn.hidden = name === 'sources';
   sourcesFileBtn.hidden = name !== 'sources';
   if (name === 'memory' && !memoryProfile) requestMemory();
+  if (name === 'sources') sourcesMarkSeen();   // opening the inbox clears its badge
   if (name === 'wiki' || name === 'sources') {
-    if (!wikiPages) requestWiki(); else renderWikiList();   // the list is filtered per view
+    if (!wikiPages) requestWiki(); else { renderWikiList(); renderWikiPage(); }   // per-view list + head
   }
 }
 
@@ -1413,13 +1415,102 @@ function wikiTagCounts(pages) {
   return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+// ---- Sources view (PRD 25): the manifest as an inbox, newest first, in the same list element ----
+let sourcesList = null;      // last `sources` message (null = never loaded)
+let sourcesSeen = null;      // shas known when the view was last opened (null = baseline pending)
+let sourcesKind = null;      // the kind-chip filter
+let sourcesBusy = false;     // a re-ingest / forget is in flight (buttons disabled until `sources`)
+
+function requestSources() {
+  sendAction({ action: 'get_sources' });
+}
+
+function sourceBadge() {
+  return railItemFor('sources') && railItemFor('sources').querySelector('.rail-badge');
+}
+
+// The badge is session-local: new shas since the view was last opened (or since connect).
+function renderSourceBadge() {
+  const badge = sourceBadge();
+  if (!badge) return;
+  const fresh = sourcesSeen ? (sourcesList || []).filter(s => !sourcesSeen.has(s.sha)).length : 0;
+  badge.textContent = String(fresh);
+  badge.hidden = !fresh || currentView === 'sources';
+}
+
+function sourcesMarkSeen() {
+  sourcesSeen = new Set((sourcesList || []).map(s => s.sha));
+  renderSourceBadge();
+}
+
+function setSources(msg) {
+  sourcesList = Array.isArray(msg.sources) ? msg.sources : [];
+  sourcesBusy = false;
+  if (sourcesSeen === null || currentView === 'sources') sourcesMarkSeen();
+  if (sourcesKind && !sourcesList.some(s => s.kind === sourcesKind)) sourcesKind = null;
+  renderSourceBadge();
+  if (currentView === 'sources') { renderWikiList(); renderWikiPage(); }
+}
+
+function sourceRow(s) {
+  const row = el('div', 'wiki-row source-row');
+  row.dataset.sha = s.sha;
+  if (s.path === wikiSelected) row.classList.add('selected');
+  row.append(el('span', 'source-kind', s.kind || '?'));
+  const text = el('div', 'source-text');
+  text.append(el('div', 'wiki-row-title', s.title || s.path));
+  const fed = s.fed.length === 1 ? '1 page fed' : `${s.fed.length} pages fed`;
+  text.append(el('div', 'source-meta', `${s.when} · ${fed}`));
+  row.append(text);
+  row.onclick = () => selectWikiPage(s.path);
+  return row;
+}
+
+function renderSourcesList() {
+  if (!sourcesList) { wikiListEl.replaceChildren(el('div', 'mem-empty', 'loading…')); return; }
+  if (!sourcesList.length) { wikiListEl.replaceChildren(el('div', 'mem-empty', 'nothing filed yet')); return; }
+  const kinds = Array.from(new Set(sourcesList.map(s => s.kind).filter(Boolean))).sort();
+  const chips = el('div', 'chip-grid source-kinds');
+  for (const kind of kinds) {
+    const chip = el('button', 'chip', kind);
+    if (kind === sourcesKind) chip.classList.add('active');
+    chip.onclick = () => { sourcesKind = sourcesKind === kind ? null : kind; renderWikiList(); };
+    chips.append(chip);
+  }
+  const rows = sourcesList.filter(s => !sourcesKind || s.kind === sourcesKind).map(sourceRow);
+  wikiListEl.replaceChildren(chips, ...(rows.length ? rows : [el('div', 'mem-empty', 'no sources of that kind')]));
+}
+
+function sourceSelected() {
+  return (sourcesList || []).find(s => s.path === wikiSelected) || null;
+}
+
+// The three per-source actions on the page head (only in the Sources view).
+function sourceHeadButtons(s) {
+  const raw = el('a', 'wiki-obsidian source-open-raw', 'Open raw');
+  raw.href = `${vaultHref()}&file=${encodeURIComponent(s.raw)}`;
+  const reingest = wikiHeadButton('source-reingest', sourcesBusy ? 'working…' : 'Re-ingest', () => {
+    sourcesBusy = true;
+    setWikiError('');
+    sendAction({ action: 'reingest_source', sha: s.sha });
+    renderWikiPage();
+  }, sourcesBusy);
+  const forget = wikiHeadButton('source-forget', 'Forget', () => {
+    if (!confirm(`Forget "${s.title}"? Its page, raw file and the notes it added are removed (one git commit).`)) return;
+    sourcesBusy = true;
+    setWikiError('');
+    sendAction({ action: 'forget_source', sha: s.sha, confirm: true });
+    renderWikiPage();
+  }, sourcesBusy);
+  return [raw, reingest, forget];
+}
+
 function renderWikiList() {
-  // The Sources view is this same list, narrowed to the one folder intake writes to.
-  const sourcesOnly = currentView === 'sources';
-  const all = (wikiPages || []).filter(p => !sourcesOnly || wikiFolder(p.path) === 'sources');
+  // The Sources view is the inbox: manifest rows, newest first, no folders/tags/search.
+  if (currentView === 'sources') { renderSourcesList(); return; }
+  const all = wikiPages || [];
   if (!all.length) {
-    const empty = !wikiPages ? 'loading…' : sourcesOnly ? 'nothing filed yet' : 'no pages yet';
-    wikiListEl.replaceChildren(el('div', 'mem-empty', empty));
+    wikiListEl.replaceChildren(el('div', 'mem-empty', !wikiPages ? 'loading…' : 'no pages yet'));
     return;
   }
   const nodes = [];
@@ -1432,7 +1523,7 @@ function renderWikiList() {
   }
   const pages = wikiTag ? all.filter(p => (p.tags || []).includes(wikiTag)) : all;
   const recent = wikiRecent.map(path => all.find(p => p.path === path)).filter(Boolean);
-  if (!sourcesOnly && !wikiTag && recent.length) {
+  if (!wikiTag && recent.length) {
     nodes.push(el('div', 'wiki-group-title', 'recent'));
     nodes.push(...recent.map(wikiRow));
   }
@@ -1441,7 +1532,7 @@ function renderWikiList() {
     group.sort((a, b) => String(a.title || a.path).localeCompare(String(b.title || b.path)));
     nodes.push(...group.map(wikiRow));
   }
-  const tagCounts = sourcesOnly ? [] : wikiTagCounts(all);
+  const tagCounts = wikiTagCounts(all);
   if (tagCounts.length) {
     nodes.push(el('div', 'wiki-group-title', 'tags'));
     nodes.push(...tagCounts.map(([tag, count]) => wikiTagRow(tag, count)));
@@ -1627,6 +1718,8 @@ function renderWikiPage() {
     a.href = `${vaultHref()}&file=${encodeURIComponent(wikiSelected)}`;
     sub.append(a);
   }
+  const source = currentView === 'sources' && wikiPage ? sourceSelected() : null;
+  if (source) sub.append(...sourceHeadButtons(source));
   // Fallback for the drag bridge: the same move, as a button.
   const pull = meta && wikiMoves({ path: wikiSelected, type: meta.type }).find(m => m.to.endsWith('/section'));
   if (pull) {
@@ -2171,10 +2264,12 @@ function connect() {
     else if (msg.type === 'wiki_page') setWikiPage(msg);
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
+    else if (msg.type === 'sources') setSources(msg);
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();
       if (currentView === 'wiki' || currentView === 'sources') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
+      if (currentView === 'sources' && sourcesBusy) { sourcesBusy = false; renderWikiPage(); }
       if (currentView === 'memory') { memErrorEl.textContent = msg.text; memorySaveDone(); }
       renderVerbosity();
     }
@@ -2185,6 +2280,9 @@ function connect() {
     // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
     if (currentView === 'memory') requestMemory();
     else if (currentView === 'wiki' || currentView === 'sources') requestWiki();
+    // The badge baseline: what is filed now is "seen"; anything pushed later counts.
+    sourcesSeen = null;
+    requestSources();
   };
   ws.onclose = (e) => {
     if (shutdownRequested) { showShutdownScreen(); return; }

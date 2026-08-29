@@ -619,9 +619,48 @@ async def _send_memory_error(path, reason) -> None:
     await send({"type": "memory_error", "path": path, "reason": reason})
 
 
+def _sources_msg() -> dict:
+    """The `sources` message the Sources view (and its rail badge) re-renders from (PRD 25)."""
+    return {"type": "sources", "sources": sources.list_sources()}
+
+
 async def _send_wiki() -> None:
-    """Push a fresh `wiki` message (page list + lint); the Wiki tab re-renders from it."""
+    """Push a fresh `wiki` message (page list + lint); the Wiki tab re-renders from it.
+
+    A `sources` message follows: every path that changes the wiki may have filed a source, and
+    the rail badge counts what arrived while the user was elsewhere.
+    """
     await send(await asyncio.to_thread(_wiki_msg))
+    await send(await asyncio.to_thread(_sources_msg))
+
+
+async def _action_get_sources(sess, msg, loop):
+    """The Sources view asking for the inbox list (on open, and after every reconnect)."""
+    await send(await asyncio.to_thread(_sources_msg))
+
+
+async def _source_op(fn, *args):
+    """One inbox action: run it off the loop, then refresh the list — or report the refusal."""
+    try:
+        result = await asyncio.to_thread(fn, *args)
+    except sources.IngestError as exc:
+        await send({"type": "error", "text": exc.message})
+        return None
+    await _send_wiki()
+    return result
+
+
+async def _action_reingest_source(sess, msg, loop):
+    """`{sha}` → the source page rewritten from its raw file; the open page is re-read via `wiki`."""
+    await _source_op(sources.reingest, str(msg.get("sha") or ""))
+
+
+async def _action_forget_source(sess, msg, loop):
+    """`{sha, confirm: true}` → page, raw file, manifest line and its notes gone; one commit."""
+    if msg.get("confirm") is not True:
+        await send({"type": "error", "text": "forget needs an explicit confirm"})
+        return
+    await _source_op(sources.forget, str(msg.get("sha") or ""))
 
 
 async def _action_memory_op(sess, msg, loop):
@@ -786,6 +825,9 @@ ACTIONS = {
     "wiki_rename": _action_wiki_rename,
     "wiki_delete": _action_wiki_delete,
     "wiki_search": _action_wiki_search,
+    "get_sources": _action_get_sources,
+    "reingest_source": _action_reingest_source,
+    "forget_source": _action_forget_source,
     "archive_memory": _action_archive_memory,
     "pull_wiki": _action_pull_wiki,
     "shutdown": _action_shutdown,

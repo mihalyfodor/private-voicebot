@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 25 — Sources view as inbox and provenance
 
