@@ -107,3 +107,24 @@ Not worth it: browser-automation tests of the panel (Playwright not in the stack
 - Editing the persona/character cards (that's PRD 12 territory).
 - Multi-user profiles; importing/exporting memory files.
 - Fixing existing nickname-in-`identity.name` profiles automatically (the editor is the manual fix).
+
+## Follow-up (2026-08-29): save triggers
+
+A session used to reach `memory.json` only every 10 turns or at shutdown, so the panel often showed
+a stale profile. There are now four triggers:
+
+1. **Every `MEMORY_SAVE_EVERY` completed turns** (default **5**, was 10). The constant lives in
+   `session.py` next to the turn worker that decides the cadence and reads
+   `MEMORY_SAVE_EVERY` from the environment; the hook is still `chatbot._periodic_memory`.
+2. **Opening the Memory tab.** `get_memory` sends the current snapshot straight away (the panel
+   never waits on the LLM), then — only if `llm.has_unsaved_turns()` and `controller.busy` is
+   false — runs `llm.save_memory()` off the loop and sends a second, fresh snapshot. While a turn
+   is running nothing is saved here; the periodic save catches up.
+3. **"Save now"** in the Memory panel (`#memory-save-now` → action `save_memory`): the same
+   two-snapshot save, unconditional. While a turn is running it answers
+   `{"type":"error","text":"Wait until the reply finishes."}`. The button is disabled until the
+   next `memory` (or `error`) message, or 30 s.
+4. **Shutdown**, unchanged (the `app.on_event("shutdown")` hook).
+
+Both new paths go through `_save_session_memory`, which refreshes the Wiki tab only when the save
+actually filed pages — the same rule the periodic save uses.

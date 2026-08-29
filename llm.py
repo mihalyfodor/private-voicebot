@@ -327,6 +327,11 @@ def get_last_tool_calls() -> list:
     return _last_tool_calls
 
 
+def has_unsaved_turns() -> bool:
+    """True when this session has turns that no save has folded into memory.json yet."""
+    return bool(_session_turns)
+
+
 def save_memory():
     """Fold this session into the memory.json profile. Idempotent: turns are cleared once saved."""
     global _session_turns

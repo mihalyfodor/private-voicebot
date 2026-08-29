@@ -18,6 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 import avatars
 import chatbot
 import llm
+import session as session_mod
 from session import Session, TurnController
 from tests.conftest import Blocker
 
@@ -262,21 +263,45 @@ def test_default_bind_host_is_loopback():
 # ---------------------------------------------------------------- periodic memory
 
 
-def test_scenario_10_memory_saved_every_ten_turns(monkeypatch):
+def test_scenario_10_memory_saved_every_n_turns(monkeypatch):
     calls = []
     monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    every = session_mod.MEMORY_SAVE_EVERY
     c = TurnController(on_turn_complete=chatbot._periodic_memory)
-    for _ in range(9):
+    for _ in range(every - 1):
         c.submit(lambda: None)
     assert c.join_idle(timeout=5)
     assert calls == []
     c.submit(lambda: None)
     assert c.join_idle(timeout=5)
     assert calls == [1]
-    for _ in range(10):
+    for _ in range(every):
         c.submit(lambda: None)
     assert c.join_idle(timeout=5)
     assert calls == [1, 1]
+
+
+def test_memory_save_cadence_defaults_to_five():
+    assert session_mod.MEMORY_SAVE_EVERY == 5
+
+
+def test_memory_save_cadence_follows_the_constant(monkeypatch):
+    """The hook fires on multiples of `MEMORY_SAVE_EVERY`, whatever the constant says."""
+    monkeypatch.setattr(session_mod, "MEMORY_SAVE_EVERY", 3)
+    counts = []
+    c = TurnController(on_turn_complete=counts.append)
+    for _ in range(6):
+        c.submit(lambda: None)
+    assert c.join_idle(timeout=5)
+    assert counts == [3, 6]
+
+
+def test_memory_save_cadence_is_read_from_the_environment():
+    """MEMORY_SAVE_EVERY=<n> overrides the default (checked in a fresh interpreter)."""
+    env = {**os.environ, "MEMORY_SAVE_EVERY": "7"}
+    out = subprocess.run([sys.executable, "-c", "import session; print(session.MEMORY_SAVE_EVERY)"],
+                         cwd=ROOT, env=env, capture_output=True, text=True)
+    assert out.stdout.strip() == "7", out.stderr
 
 
 def test_periodic_memory_error_does_not_kill_the_worker(monkeypatch):
@@ -286,7 +311,7 @@ def test_periodic_memory_error_does_not_kill_the_worker(monkeypatch):
     monkeypatch.setattr(llm, "save_memory", boom)
     done = []
     c = TurnController(on_turn_complete=chatbot._periodic_memory)
-    for _ in range(10):
+    for _ in range(session_mod.MEMORY_SAVE_EVERY):
         c.submit(lambda: None)
     c.submit(lambda: done.append(1))
     assert c.join_idle(timeout=5)

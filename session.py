@@ -4,8 +4,13 @@ See docs/12-turn-controller.md. A *turn* is one complete user-visible exchange:
 transcribe → LLM → TTS → wait for browser playback → idle. Turns never overlap:
 they all run on the controller's one worker thread, in submit order.
 """
+import os
 import queue
 import threading
+
+#: how many completed turns between periodic hook calls (the session-memory save).
+#: Override with MEMORY_SAVE_EVERY=<n> in the environment.
+MEMORY_SAVE_EVERY = int(os.getenv("MEMORY_SAVE_EVERY", "5"))
 
 
 class Session:
@@ -37,9 +42,6 @@ class TurnController:
     so the websocket handler can gate the VAD / refuse PTT synchronously, with no
     window between "submitted" and "started".
     """
-
-    #: how many completed turns between periodic hook calls (session-memory save)
-    PERIODIC_EVERY = 10
 
     def __init__(self, on_turn_complete=None):
         self._queue: queue.Queue = queue.Queue()
@@ -81,7 +83,7 @@ class TurnController:
                     count = self.completed
                     if self._pending == 0:
                         self._idle.set()
-                if self.on_turn_complete is not None and count % self.PERIODIC_EVERY == 0:
+                if self.on_turn_complete is not None and count % MEMORY_SAVE_EVERY == 0:
                     try:
                         self.on_turn_complete(count)
                     except Exception as e:

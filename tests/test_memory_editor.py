@@ -12,8 +12,10 @@ import threading
 
 import pytest
 
+import chatbot
+import llm
 import memory
-from tests.conftest import FakeClient, audit_log, on_disk, seed
+from tests.conftest import Blocker, FakeClient, audit_log, on_disk, seed
 
 
 # --------------------------------------------------------------------------- helpers
@@ -303,3 +305,84 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
     assert len([k for k in final["preferences"] if k != "superseded"]) == 200
     assert [p["name"] for p in final["people"]] == ["Anna"]
     assert sum(applied) == 201 == len(audit_log())
+
+
+# --------------------------------------------------- follow-up: session-save triggers
+
+
+def test_has_unsaved_turns_tracks_the_session_buffer(monkeypatch):
+    monkeypatch.setattr(llm, "_session_turns", [])
+    assert llm.has_unsaved_turns() is False
+    monkeypatch.setattr(llm, "_session_turns", [{"role": "user", "content": "hi"}])
+    assert llm.has_unsaved_turns() is True
+
+
+def test_opening_the_memory_tab_saves_the_session_and_sends_two_snapshots(panel, monkeypatch):
+    """Pending turns → the current snapshot goes out first, then the save, then a fresh one."""
+    seed(identity={"name": "Misi"})
+    calls = []
+
+    def fake_save():
+        calls.append(1)
+        memory.edit({"op": "ADD", "path": "preferences.coffee", "value": "black"})
+
+    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: True)
+    monkeypatch.setattr(llm, "save_memory", fake_save)
+
+    first, second = panel.send_many({"action": "get_memory"}, 2)
+    assert calls == [1]
+    assert first["type"] == second["type"] == "memory"
+    assert "coffee" not in first["profile"]["preferences"]
+    assert second["profile"]["preferences"]["coffee"] == "black"
+
+
+def test_opening_the_memory_tab_with_nothing_pending_does_not_save(panel, monkeypatch):
+    seed(identity={"name": "Misi"})
+    calls = []
+    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: False)
+    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+
+    reply = panel.send({"action": "get_memory"})
+    assert reply["type"] == "memory"
+    assert calls == []
+
+
+def test_opening_the_memory_tab_during_a_turn_does_not_save(panel, monkeypatch):
+    """A turn owns the LLM; the tab still gets its snapshot and the periodic save catches up."""
+    seed(identity={"name": "Misi"})
+    calls = []
+    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: True)
+    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+
+    blocker = Blocker()
+    blocker.hold(chatbot.controller)
+    try:
+        reply = panel.send({"action": "get_memory"})
+    finally:
+        blocker.free(chatbot.controller)
+    assert reply["type"] == "memory"
+    assert calls == []
+
+
+def test_save_now_saves_even_with_nothing_pending(panel, monkeypatch):
+    seed(identity={"name": "Misi"})
+    calls = []
+    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: False)
+    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+
+    first, second = panel.send_many({"action": "save_memory"}, 2)
+    assert calls == [1]
+    assert first["type"] == second["type"] == "memory"
+
+
+def test_save_now_refuses_while_a_turn_is_running(panel, monkeypatch):
+    calls = []
+    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    blocker = Blocker()
+    blocker.hold(chatbot.controller)
+    try:
+        reply = panel.send({"action": "save_memory"})
+    finally:
+        blocker.free(chatbot.controller)
+    assert reply == {"type": "error", "text": "Wait until the reply finishes."}
+    assert calls == []
