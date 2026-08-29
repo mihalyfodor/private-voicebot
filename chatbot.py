@@ -399,27 +399,20 @@ async def ingest(request: Request,
     if kind not in INGEST_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown kind {kind!r}")
 
+    fields = {"kind": kind, "title": title, "hint": hint, "page": page}
     items = []
-    for upload in file or []:
-        data = await upload.read()
-        limit = (sources.MAX_IMAGE_BYTES
-                 if os.path.splitext(upload.filename or "")[1].lower() in sources.IMAGE_EXTS
-                 or kind == "paste_image" else sources.MAX_FILE_BYTES)
-        if len(data) > limit:
-            raise HTTPException(status_code=413,
-                                detail=f"{upload.filename} is larger than {limit // (1024 * 1024)} MB")
-        if sources.KINDS.get(os.path.splitext(upload.filename or "")[1].lower()) is None \
-                and kind != "paste_image":
-            raise HTTPException(status_code=415, detail=f"unsupported file type: {upload.filename}")
-        items.append({"kind": kind, "data": data, "filename": upload.filename or "drop",
-                      "text": "", "title": title, "hint": hint, "page": page})
-    if not items and kind == "paste_text":
-        if not text.strip():
-            raise HTTPException(status_code=400, detail="nothing to file")
-        if len(text.encode()) > sources.MAX_FILE_BYTES:
-            raise HTTPException(status_code=413, detail="the text is too large")
-        items.append({"kind": kind, "data": b"", "filename": "", "text": text,
-                      "title": title, "hint": hint, "page": page})
+    try:
+        for upload in file or []:
+            data = await upload.read()
+            # refuse type/size here as well as in sources, so a bad drop costs no worker thread
+            sources.check_upload(upload.filename or "", len(data), kind)
+            items.append({**fields, "data": data, "filename": upload.filename or "drop",
+                          "text": ""})
+        if not items and kind == "paste_text":
+            items.append({**fields, "data": b"", "filename": "",
+                          "text": sources.check_note(text)})
+    except sources.IngestError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     if not items:
         raise HTTPException(status_code=400, detail="nothing to file")
 

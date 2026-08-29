@@ -107,6 +107,37 @@ def test_set_field_touches_only_frontmatter(vault):
     assert applied and fm["tags"] == ["team", "release"] and body == before_body
 
 
+def test_set_field_can_set_status_on_a_project_page(vault, memory_sandbox):
+    """PRD 19 gives project pages a `status`; it must be settable and must survive a pull."""
+    wiki.apply_page_ops([{"op": "new_page", "path": "projects/falcon", "type": "project",
+                          "name": "Falcon", "summary": "The platform rewrite."}], "s")
+
+    applied, rejected = wiki.apply_page_ops([{"op": "set_field", "path": "projects/falcon",
+                                              "key": "status", "value": "amber"}], "s")
+
+    assert applied and rejected == []
+    assert wiki.parse_page(read("projects/falcon.md"))[0]["status"] == "amber"
+    assert "Falcon, project, amber" in read("index.md")
+    entry, reason = wiki.entry_from_page("projects/falcon", "projects")
+    assert reason is None and entry["status"] == "amber"
+
+
+def test_a_page_without_a_status_does_not_grow_one(vault):
+    """`status` is optional: only project pages that were given one carry the key."""
+    wiki.apply_page_ops([a_page()], "s")
+    wiki.apply_page_ops([{"op": "append_note", "path": "people/anna", "text": "hi"}], "s")
+
+    assert "status:" not in read("people/anna.md")
+
+
+def test_ensure_vault_never_rewrites_an_edited_schema(vault):
+    wiki._write(wiki.SCHEMA_FILE, "---\ntype: schema\n---\n\n# My own schema\n")
+
+    wiki.ensure_vault()
+
+    assert read(wiki.SCHEMA_FILE) == "---\ntype: schema\n---\n\n# My own schema\n"
+
+
 def test_add_decision_appends_a_dated_section(vault):
     wiki.apply_page_ops([{"op": "add_decision", "title": "deploy on Fridays",
                           "text": "Ship at 10:00, Anna runs it."}], "session 2026-08-29")

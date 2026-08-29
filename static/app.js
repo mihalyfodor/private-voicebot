@@ -1197,13 +1197,16 @@ function intakeExt(name) {
 }
 
 // Refuse oversized/unsupported items here rather than at the server: the row stays in the list,
-// struck through with the reason, and is left out of the upload.
+// struck through with the reason, and is left out of the upload. Mirrors sources.check_upload.
 function intakeCheck(name, size) {
   const ext = intakeExt(name);
   if (!INTAKE_EXT.includes(ext)) return `unsupported (.${ext || '?'})`;
-  const cap = INTAKE_IMAGE_EXT.includes(ext) ? INTAKE_MAX_IMAGE : INTAKE_MAX_FILE;
-  if (size > cap) return `too large (${intakeSize(size)} > ${intakeSize(cap)})`;
-  return '';
+  return tooLarge(size, INTAKE_IMAGE_EXT.includes(ext) ? INTAKE_MAX_IMAGE : INTAKE_MAX_FILE);
+}
+
+// '' when it fits — the one wording for the size refusal, on files, images and pasted text.
+function tooLarge(size, cap) {
+  return size > cap ? `too large (${intakeSize(size)} > ${intakeSize(cap)})` : '';
 }
 
 function intakeSize(bytes) {
@@ -1304,6 +1307,8 @@ function closeIntake() {
   intakeEl.hidden = true;
   intakeClearItems();
   intakeKind = null;
+  intakeTitleEl.value = '';
+  intakeHintEl.value = '';
   setIntakeStatus('');
 }
 
@@ -1337,7 +1342,7 @@ function intakeFromFiles(files) {
 
 function intakeFromImage(blob) {
   const name = 'screenshot.png';
-  const reason = blob.size > INTAKE_MAX_IMAGE ? `too large (${intakeSize(blob.size)} > ${intakeSize(INTAKE_MAX_IMAGE)})` : '';
+  const reason = tooLarge(blob.size, INTAKE_MAX_IMAGE);
   const item = { name, size: blob.size, file: new File([blob], name, { type: blob.type || 'image/png' }), ok: !reason, reason };
   if (item.ok) item.url = URL.createObjectURL(blob);
   openIntake('paste_image', [item], `screenshot ${intakeStamp()}`);
@@ -1345,7 +1350,7 @@ function intakeFromImage(blob) {
 
 function intakeFromText(text) {
   const size = new Blob([text]).size;
-  const reason = size > INTAKE_MAX_FILE ? `too large (${intakeSize(size)} > ${intakeSize(INTAKE_MAX_FILE)})` : '';
+  const reason = tooLarge(size, INTAKE_MAX_FILE);
   openIntake('paste_text', [{ name: 'pasted text', size, text, ok: !reason, reason }],
     firstLines(text, 1).slice(0, 80).trim() || `note ${intakeStamp()}`);
 }

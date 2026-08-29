@@ -38,11 +38,11 @@ voicebot/
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
-│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`)
+│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 ├── static/
-│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory views) + menu drawer
+│   ├── index.html      # browser UI: avatar column + workspace (Chat / Memory / Wiki views), intake popup, menu drawer
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, menu drawer, websocket
+│   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, memory/wiki views, drop-paste intake, menu drawer, websocket
 │   ├── style.css
 │   ├── vendor/          # gitignored, fetched
 │   ├── models/           # gitignored, fetched (wanko/, haru/, natori/)
@@ -94,7 +94,13 @@ voicebot/
     ├── 13-streamed-first-call.md # PRD: stream the first LLM call (done)
     ├── 14-memory-eval.md        # PRD: text-only memory evaluation harness (done)
     ├── 15-memory-v2.md          # PRD: structured profile memory (done)
-    └── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
+    ├── 16-memory-editor.md      # PRD: memory viewer/editor panel (done)
+    ├── 17-long-term-memory.md   # PRD: research — decay, archive, wiki layer (exploration)
+    ├── 18-memory-decay.md        # PRD: seen/stale decay, CONFIRM op (done)
+    ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (refactoring)
+    ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
+    ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
+    └── 22-sidebar-navigation.md  # PRD: sidebar/navigation review (exploration)
 ```
 
 ## Active PRDs
@@ -115,7 +121,7 @@ voicebot/
 - [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration)
 - [18-memory-decay.md](18-memory-decay.md) — seen/stale decay, CONFIRM op, memory-view drag-and-drop (done)
 - [19-wiki-layer.md](19-wiki-layer.md) — ~/llm-wiki Obsidian vault: page ops, search_wiki/read_page, ingest, lint (refactoring)
-- [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (implementation)
+- [20-raw-ingestion.md](20-raw-ingestion.md) — raw ingestion: drops/pastes/emails/news into `raw/` + `sources/` pages (refactoring)
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel (exploration)
 

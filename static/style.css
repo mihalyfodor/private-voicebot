@@ -7,6 +7,13 @@ body {
   color: #e0e0e0;
 }
 
+/* the small-caps section label, shared by the drawer, the memory view, the wiki list
+   and the intake popup — only the margins differ per place */
+.drawer-title, .mem-section-title, .wiki-group-title, #intake-head {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a;
+}
+
 /* ---- menu button + drawer ---- */
 #menu-btn {
   position: fixed; top: 14px; left: 14px; z-index: 6;
@@ -31,10 +38,7 @@ body {
 }
 #drawer.open { transform: translateX(0); }
 .drawer-spacer { flex: 1; }
-.drawer-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 0 6px 8px;
-}
+.drawer-title { margin: 0 6px 8px; }
 .drawer-item {
   display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
   padding: 10px 12px; border-radius: 8px; border: 1px solid transparent;
@@ -243,10 +247,7 @@ main {
 }
 
 .mem-section { margin-bottom: 16px; }
-.mem-section-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 0 0 6px 2px;
-}
+.mem-section-title { margin: 0 0 6px 2px; }
 .mem-empty { font-size: 12px; color: #6a6a6a; padding: 4px 2px 2px; }
 
 .mem-row {
@@ -363,10 +364,7 @@ main {
 }
 #wiki-page { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 
-.wiki-group-title {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
-  color: #9a9a9a; margin: 10px 0 4px 2px;
-}
+.wiki-group-title { margin: 10px 0 4px 2px; }
 .wiki-group-title:first-child { margin-top: 0; }
 .wiki-row {
   display: flex; align-items: baseline; gap: 8px;
@@ -455,9 +453,6 @@ main {
   padding: 16px; border-radius: 12px;
   background: rgba(18,18,20,0.97); border: 1px solid #333;
   box-shadow: 0 18px 50px rgba(0,0,0,0.55);
-}
-#intake-head {
-  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: #9a9a9a;
 }
 #intake-items { display: flex; flex-direction: column; gap: 6px; max-height: 42vh; overflow-y: auto; scrollbar-width: thin; }
 .intake-item {

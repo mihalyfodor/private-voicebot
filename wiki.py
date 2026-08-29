@@ -40,8 +40,14 @@ RAW_SUBDIRS = ("inbox", "screens", "email", "news")
 #: pages that are machinery, not knowledge — never listed, never searched, never ingested about
 RESERVED = (INDEX_FILE, LOG_FILE, SCHEMA_FILE)
 
-#: fixed frontmatter keys (Bases/Dataview-friendly; docs/17-long-term-memory.md)
+#: fixed frontmatter keys, written on every page (Bases/Dataview-friendly; docs/17-long-term-memory.md)
 FIELDS = ("type", "name", "tags", "source", "updated", "seen")
+#: keys a page may carry but does not have to — written only once something sets them.
+#: `status` is the project pages' (docs/19-wiki-layer.md); `entry_from_page` reads it back
+#: into the profile and the index one-liner shows it.
+OPTIONAL_FIELDS = ("status",)
+#: what a `set_field` op may write
+SETTABLE_FIELDS = FIELDS + OPTIONAL_FIELDS
 
 MAX_PAGE_BYTES = 20 * 1024      # a page the assistant may still append to
 MAX_NOTE_CHARS = 600            # one `## Notes` bullet
@@ -97,7 +103,8 @@ Colleague on the platform team, joined 2026-08.
 ## History
 ```
 
-projects/<slug>.md — same, `type: project`, plus a `status` line in the Summary.
+projects/<slug>.md — same, `type: project`, plus a `status: green|amber|red|paused|done`
+frontmatter key and a status line in the Summary.
 meetings/YYYY-MM-DD.md — `type: meeting`, one page per day.
 sources/<slug>.md — `type: source`, one per filed document (PRD 20); the immutable original
 lives under `raw/` and is linked from the page's frontmatter.
@@ -111,7 +118,7 @@ decisions.md — one `## YYYY-MM-DD <title>` section per decision.
 - Not worth anything: meals, weather, small talk, moods, chores. Filing nothing is normal.
 - Every note and decision carries a `source`.
 - Never rewrite or delete a page: append.
-- Frontmatter keys are exactly: type, name, tags, source, updated, seen.
+- Frontmatter keys are exactly: type, name, tags, source, updated, seen — plus `status` on project pages.
 """
 
 
@@ -159,7 +166,7 @@ def ensure_vault() -> str:
     """Create the vault layout (and its git repo) if it isn't there yet; returns WIKI_PATH.
 
     Called lazily on the first write — never at import, so importing the app can't litter the
-    user's home directory.
+    user's home directory. An existing `schema.md` is never rewritten: it is the user's to edit.
     """
     fresh = not os.path.isdir(WIKI_PATH)
     os.makedirs(WIKI_PATH, exist_ok=True)
@@ -484,7 +491,7 @@ def set_field(op: dict, source: str) -> tuple:
     if reason:
         return None, reason
     key = str(op.get("key") or "").strip()
-    if key not in FIELDS:
+    if key not in SETTABLE_FIELDS:
         return None, f"unknown frontmatter key {key!r}"
     value = op.get("value")
     if key == "tags":

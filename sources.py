@@ -454,11 +454,16 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         text, image_part = extract(raw_rel, data)
         summary = summarise(client, model, kind, text, image_part, hint, title or stem)
         page_title = title or summary.get("title") or stem
-        source_line = f"user drop {memory._today_iso()}"
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
-        _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
-                           digest=digest, summary=summary.get("summary", ""),
-                           entities=summary.get("entities", []), fed=[], source=source_line)
+
+        def write_page(fed: list) -> None:
+            """The source page, written once before the ops and once after (now with `## Fed`)."""
+            _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
+                               digest=digest, summary=summary.get("summary", ""),
+                               entities=summary.get("entities", []), fed=fed,
+                               source=f"user drop {memory._today_iso()}")
+
+        write_page([])
 
         applied = []
         if not summary.get("unreadable"):
@@ -473,10 +478,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
                       for op in applied if op.get("path")}
                      | {"decisions" for op in applied if op["op"] == "add_decision"})
-        # rewritten now that the ops are in: the page lists what it actually fed
-        _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
-                           digest=digest, summary=summary.get("summary", ""),
-                           entities=summary.get("entities", []), fed=fed, source=source_line)
+        write_page(fed)     # rewritten now that the ops are in, listing what it actually fed
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
                           "page": wiki.wikilink(source_rel), "pages_touched": fed})
@@ -491,9 +493,12 @@ def _dated(slug: str) -> str:
     return f"{memory._today_iso()}-{wiki.slugify(slug)}"
 
 
-def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title: str = "",
-                  hint: str = "", page: str = "", client=None, model: str = "") -> dict:
-    """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
+def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
+    """``(ext, kind)`` for an upload, or `IngestError` — the one type/size gate.
+
+    The endpoint calls it on arrival (so an oversized drop is refused before any work happens)
+    and `ingest_upload` calls it again for the callers that never went through HTTP.
+    """
     ext = os.path.splitext(filename or "")[1].lower()
     if kind_hint == "paste_image" and ext not in IMAGE_EXTS:
         ext = ".png"
@@ -501,8 +506,15 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     if kind is None:
         raise IngestError(415, f"unsupported file type {ext or filename!r}")
     limit = MAX_IMAGE_BYTES if ext in IMAGE_EXTS else MAX_FILE_BYTES
-    if len(data) > limit:
+    if size > limit:
         raise IngestError(413, f"{filename} is larger than {limit // (1024 * 1024)} MB")
+    return ext, kind
+
+
+def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title: str = "",
+                  hint: str = "", page: str = "", client=None, model: str = "") -> dict:
+    """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
+    ext, kind = check_upload(filename, len(data), kind_hint)
     stem = title or os.path.splitext(os.path.basename(filename or ""))[0] or "drop"
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
@@ -510,14 +522,20 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
                       client=client, model=model)
 
 
-def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
-                client=None, model: str = "") -> dict:
-    """Pasted or spoken free text -> `raw/inbox/<date>-<slug>.md`."""
+def check_note(text: str) -> str:
+    """The stripped note body, or `IngestError` — the text counterpart of `check_upload`."""
     body = (text or "").strip()
     if not body:
         raise IngestError(400, "nothing to file: the text is empty")
     if len(body.encode()) > MAX_FILE_BYTES:
         raise IngestError(413, f"the text is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
+    return body
+
+
+def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
+                client=None, model: str = "") -> dict:
+    """Pasted or spoken free text -> `raw/inbox/<date>-<slug>.md`."""
+    body = check_note(text)
     stem = title or "note"
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
     return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
