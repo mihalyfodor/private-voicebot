@@ -78,17 +78,20 @@ def speak_stream(events, send_sync, tts=None):
     sentences = []
     started = False
 
-    def emit(emotion, text, wav):
+    def emit(emotion, text, wav, filler=False):
         nonlocal started
         if not started:
             started = True
             send_sync({"type": "state", "value": "speaking"})
-        send_sync({
+        msg = {
             "type": "speech",
             "emotion": emotion,
             "text": text,
             "wav": base64.b64encode(wav).decode("ascii"),
-        })
+        }
+        if filler:
+            msg["filler"] = True   # the browser sparkles while a tool runs (PRD 27)
+        send_sync(msg)
 
     def say(emotion, sentence):
         sentences.append(sentence)
@@ -98,7 +101,7 @@ def speak_stream(events, send_sync, tts=None):
         phrase = fillers.pick(tool_names[0] if tool_names else "default")
         if phrase not in _filler_wavs:
             _filler_wavs[phrase] = tts(phrase)
-        emit("thinking", phrase, _filler_wavs[phrase])
+        emit("thinking", phrase, _filler_wavs[phrase], filler=True)
 
     try:
         for kind, payload in events:

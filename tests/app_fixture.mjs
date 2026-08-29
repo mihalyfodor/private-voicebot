@@ -17,7 +17,9 @@
 //   * stubs    — AudioContext (counts decodes/plays in `audio`), WebSocket (records every
 //                frame in `socket.sent`), fetch (always answers CONFIG_JSON, i.e. /api/config),
 //                requestAnimationFrame, getComputedStyle, setTimeout (a no-op: nothing timed runs).
-//   * PIXI is undefined, so app.js takes its "no Live2D" path and draws no avatar.
+//   * PIXI    — a stub renderer + Live2D model (PRD 27): `model.motion()` only records its
+//                arguments in `motionCalls`, the core model is a plain param map, and the
+//                'hit' / 'afterMotionUpdate' handlers app.js registers are exposed as hooks.
 //
 // ------------------------------------------------------------------------ the test hooks
 // HOOKS below is appended to app.js inside the same VM context, so it closes over app.js's
@@ -31,6 +33,11 @@
 //   input            the composer textarea (set .value, then dispatch a keydown)
 //   thumbs()/clickThumb(i)               the backdrop thumbnails over the avatar
 //   keydown(code)    a document-level keydown (the global shortcuts)
+//   avatar           the avatar object itself (PRD 27; `pet(now)` takes an explicit clock)
+//   motions()        [group, index, priority] of every model.motion() call so far
+//   cue()            { target, pulse, active } of the current cue blend
+//   emotion()        the emotion the expression blend is showing
+//   setState(v) / showShutdownScreen()   the two transitions the cues hang off
 //
 // ------------------------------------------------------------- adding a scenario (next PRD)
 // 1. add whatever the scenario needs to HOOKS (keep it a thin accessor, no logic);
@@ -169,6 +176,60 @@ class AudioContextStub {
   resume() { return Promise.resolve(); }
 }
 
+// ---------------------------------------------------------------- PIXI / Live2D stub
+// Motion groups come from scripts/wanko_groups.py so the fixture and the generated
+// Wanko.app.model3.json can never drift apart.
+function motionGroups() {
+  const py = fs.readFileSync(path.join(ROOT, 'scripts/wanko_groups.py'), 'utf8');
+  const body = py.match(/GROUPS = \{([\s\S]*?)\n\}/)[1].replace(/#[^\n]*/g, '');
+  return JSON.parse(('{' + body + '}').replace(/,(\s*[}\]])/g, '$1'));
+}
+
+const motionCalls = [];          // [group, index, priority] for every model.motion() call
+const live2d = { hit: null, frame: null, url: null };
+const coreModel = {
+  params: {},
+  getDrawableCount: () => 0,
+  getDrawableDynamicFlagIsVisible: () => false,
+  getDrawableOpacity: () => 0,
+  getParameterValueById(id) { return this.params[id] || 0; },
+  setParameterValueById(id, v) { this.params[id] = v; },
+};
+const motionManager = {
+  definitions: Object.fromEntries(Object.entries(motionGroups())
+    .map(([g, clips]) => [g, clips.map(c => ({ File: `motions/${c}.motion3.json` }))])),
+  groups: { idle: 'Idle' },
+  expressionManager: null,
+  _finish: [],
+  on(type, fn) { if (type === 'motionFinish') this._finish.push(fn); },
+  emit(type) { if (type === 'motionFinish') this._finish.forEach(f => f()); },
+};
+const modelStub = {
+  width: 200, height: 200, x: 0, y: 0,
+  scale: { x: 1, y: 1, set(v) { this.x = v; this.y = v; } },
+  internalModel: {
+    coreModel, motionManager,
+    focusController: { x: 0, y: 0 },
+    getDrawableVertices: () => [],
+    on(type, fn) { if (type === 'afterMotionUpdate') live2d.frame = fn; },
+  },
+  motion(group, index, priority) { motionCalls.push([group, index, priority]); return Promise.resolve(true); },
+  on(type, fn) { if (type === 'hit') live2d.hit = fn; },
+  expression: () => Promise.resolve(),
+  destroy() {},
+};
+const PIXIStub = {
+  Application: class {
+    constructor() {
+      this.stage = { addChild() {}, removeChild() {} };
+      this.renderer = { on() {} };
+      this.screen = { width: 400, height: 400 };
+    }
+    resize() {}
+  },
+  live2d: { Live2DModel: { from: async (url) => { live2d.url = url; return modelStub; } } },
+};
+
 let socket = null;
 class WebSocketStub {
   constructor() { this.readyState = 1; this.sent = []; socket = this; }
@@ -201,7 +262,8 @@ const sandbox = {
   WebSocket: WebSocketStub,
   FormData: class {},
   URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
-  PIXI: undefined,
+  PIXI: PIXIStub,
+  performance: { now: () => Date.now() },
 };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
@@ -223,9 +285,19 @@ globalThis.__t = {
   thumbs: () => backdropThumbs.children.map(t => ({ cls: t.className, bg: t.style.backgroundImage })),
   clickThumb: (i) => backdropThumbs.children[i].dispatch('click'),
   keydown: (code) => document.dispatch('keydown', { code, key: code === 'Space' ? ' ' : code }),
+  // ---- avatar (PRD 27)
+  avatar,
+  motions: () => globalThis.__motionCalls,
+  cue: () => ({ target: { ...avatar.cueTarget }, pulse: [...avatar.cuePulse],
+                active: [...avatar.activeCues] }),
+  emotion: () => avatar.currentEmotion,
+  motionGroups: () => Object.keys(avatar.model.internalModel.motionManager.definitions),
+  setState,
+  showShutdownScreen,
 };
 `;
 
+sandbox.__motionCalls = motionCalls;
 vm.createContext(sandbox);
 vm.runInContext(appSrc + HOOKS, sandbox);
 const t = sandbox.__t;
@@ -276,6 +348,62 @@ results.muted_after_space_while_typing = t.muted;
 doc.activeElement = doc.body;
 
 results.history = t.historyLines();
+
+// ---------------------------------------------------------------- scenarios (PRD 27)
+// The greeting already fired above (the first `speech` of the "session"), so record that
+// first, then clear the motion log for the interactivity scenarios.
+results.greet_calls = t.motions().filter(m => m[0] === 'Greet').length;
+results.model_url = live2d.url;
+results.motion_groups = t.motionGroups().sort();
+motionCalls.length = 0;
+
+// ---- click → Pet, a second click within 4 s → PetSmall, after a pause → Pet again
+live2d.hit(['Body']);
+live2d.hit(['Body']);
+live2d.hit(['Ear']);                                   // not the body hit area: ignored
+results.tap_groups = t.motions().map(m => m[0]);
+results.tap_after_pause = t.avatar.pet(Date.now() + 5000);
+results.pet_emotion = t.emotion();
+
+// ---- idle picks: never the same index twice in a row, all four clips reachable
+motionCalls.length = 0;
+const idlePicks = [];
+for (let i = 0; i < 40; i++) idlePicks.push(t.avatar.playGroup('Idle'));
+results.idle_repeats = idlePicks.filter((v, i) => i > 0 && v === idlePicks[i - 1]).length;
+results.idle_indices = [...new Set(idlePicks)].sort();
+results.idle_priority = t.motions()[0][2];
+
+// ---- state thinking sets the lid/steam targets; the first speech clears them
+t.setState('thinking');
+results.thinking_cue = t.cue();
+results.thinking_motion = t.motions().filter(m => m[0] === 'Thinking').length;
+t.recv({ type: 'speech', emotion: 'happy', turn: 3, wav: btoa('RIFFfake'), filler: true });
+results.filler_cue = t.cue();
+t.recv({ type: 'speech', emotion: 'happy', turn: 3, wav: btoa('RIFFfake') });
+results.speaking_cue = t.cue();
+results.greet_calls_after = t.motions().filter(m => m[0] === 'Greet').length;   // still once
+
+// ---- listening: the Listening clip once, ears up while hearing
+motionCalls.length = 0;
+t.recv({ type: 'listening', value: 'hearing' });
+t.recv({ type: 'listening', value: 'hearing' });
+results.listening_cue = t.cue();
+results.listening_motions = t.motions().map(m => m[0]);
+t.recv({ type: 'listening', value: 'idle' });
+results.listening_cue_after = t.cue();
+
+// ---- an emotion tag with no expression is ignored, a known one is applied
+t.avatar.setEmotion('neutral');
+t.avatar.setEmotion('proud');
+results.emotion_proud = { name: t.emotion(), target: { ...t.avatar.paramTarget } };
+t.avatar.setEmotion('bewildered');
+results.emotion_unknown = t.emotion();
+
+// ---- shutdown: forced idle_04 + the lid closing
+motionCalls.length = 0;
+t.showShutdownScreen();
+results.shutdown_motion = t.motions();
+results.shutdown_cue = t.cue();
 
 // ---- scenario 4: backdrop thumbs send the same payload as the settings chips
 socket.sent.length = 0;
