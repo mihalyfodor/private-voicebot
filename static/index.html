@@ -39,6 +39,13 @@
       <div id="backdrop-list" class="chip-grid"></div>
     </div>
     <div class="drawer-section">
+      <div class="drawer-title">Memory</div>
+      <button id="open-memory" class="drawer-item">
+        <span class="name">Memory</span>
+        <span class="desc">view and edit what is remembered</span>
+      </button>
+    </div>
+    <div class="drawer-section">
       <div class="drawer-title">Characters</div>
       <button id="reload-characters" class="drawer-item">Reload characters</button>
     </div>
@@ -47,7 +54,6 @@
       <button id="shutdown" class="drawer-item danger">Shut down</button>
     </div>
   </nav>
-  <div id="credit"></div>
   <div id="shutdown-screen" hidden>
     <div class="title">Shut down complete</div>
     <div class="sub">Session memory saved. You can close this tab.</div>
@@ -58,12 +64,38 @@
     <section id="avatar">
       <canvas id="stage"></canvas>
       <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
+      <div id="credit"></div>
     </section>
 
-    <section id="panel">
-      <div id="transcript"></div>
-      <button id="btn">Speak</button>
-      <div id="status">connecting...</div>
+    <section id="workspace">
+      <div id="view-tabs">
+        <button class="view-tab active" data-view="chat">Chat</button>
+        <button class="view-tab" data-view="memory">Memory</button>
+      </div>
+
+      <div id="view-chat" class="view">
+        <section id="panel">
+          <div id="transcript"></div>
+          <button id="btn">Speak</button>
+          <div id="status">connecting...</div>
+        </section>
+      </div>
+
+      <div id="view-memory" class="view" hidden>
+        <div id="memory-head">
+          <div id="memory-count">Memory</div>
+          <button id="memory-model-toggle" class="chip">model view</button>
+        </div>
+        <div id="memory-body">
+          <div id="memory-sections"></div>
+          <pre id="memory-rendered" hidden></pre>
+        </div>
+        <div id="memory-foot">
+          <div id="memory-error"></div>
+          <div class="memory-note">changes apply from the next reply</div>
+          <button id="memory-reset" class="danger-link">Forget everything</button>
+        </div>
+      </div>
     </section>
   </main>
 

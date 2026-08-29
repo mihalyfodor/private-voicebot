@@ -40,6 +40,8 @@ const CONFIG = {
   expressionHoldMs: 500,
   mouthGain: 6.0,        // RMS → mouth openness multiplier
   mouthSmooth: 0.35,     // 0..1, higher = snappier
+  fitWidth: 0.8,         // share of the avatar column the drawn model may use…
+  fitHeight: 0.7,        // …and of its height; the smaller of the two wins
 };
 let profile = PROFILES.haru;
 let avatarName = 'Haru';
@@ -52,7 +54,7 @@ const avatarNote = document.getElementById('avatar-note');
 let shutdownRequested = false;
 function showShutdownScreen() {
   document.getElementById('avatar').classList.add('gone');
-  document.getElementById('panel').classList.add('gone');
+  document.getElementById('workspace').classList.add('gone');
   document.getElementById('menu-btn').classList.add('gone');
   document.getElementById('shutdown-screen').hidden = false;
 }
@@ -361,7 +363,9 @@ const avatar = {
     this.fit();
 
     const core = model.internalModel.coreModel;
+    this.fitted = false;
     model.internalModel.on('afterMotionUpdate', () => {
+      if (!this.fitted && this.artBox()) { this.fitted = true; this.fit(); }
       // lip-sync (skip the analyser read entirely when nothing is playing)
       const target = playing ? Math.min(1, rms() * CONFIG.mouthGain) : 0;
       mouth += (target - mouth) * CONFIG.mouthSmooth;
@@ -390,15 +394,42 @@ const avatar = {
     model.motion(profile.idle);
   },
 
+  // Box the drawn art occupies inside the model's canvas, in canvas units. Live2D canvases
+  // have generous transparent margins, so the model's own size is a poor thing to fit against.
+  // Returns null until the first frame has run and the vertices are filled in.
+  artBox() {
+    const im = this.model.internalModel, core = im.coreModel;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (let i = 0; i < core.getDrawableCount(); i++) {
+      if (!core.getDrawableDynamicFlagIsVisible(i) || core.getDrawableOpacity(i) < 0.01) continue;
+      const v = im.getDrawableVertices(i);
+      for (let j = 0; j < v.length; j += 2) {
+        if (v[j] < minX) minX = v[j];
+        if (v[j] > maxX) maxX = v[j];
+        if (v[j + 1] < minY) minY = v[j + 1];
+        if (v[j + 1] > maxY) maxY = v[j + 1];
+      }
+    }
+    const w = maxX - minX, h = maxY - minY;
+    if (!(w > 0 && h > 0)) return null;
+    return { x: minX, y: minY, w, h };
+  },
+
   fit() {
-    // Model canvases have generous transparent margins; scale relative to viewport height.
+    // The canvas resizes with its column (PIXI resizeTo: canvas.parentElement): scale the drawn
+    // art to CONFIG.fitWidth/fitHeight of the column, whichever limits, and centre it there.
     const app = this.app, m = this.model;
     if (!m) return;
-    const natural = { w: m.width / m.scale.x, h: m.height / m.scale.y };
-    const scale = (app.screen.height / natural.h) * profile.avatarScale;
+    const canvas = { w: m.width / m.scale.x, h: m.height / m.scale.y };
+    const art = this.artBox() || { x: 0, y: 0, w: canvas.w, h: canvas.h };
+    const scale = profile.avatarScale * Math.min(
+      CONFIG.fitWidth * app.screen.width / art.w,
+      CONFIG.fitHeight * app.screen.height / art.h,
+    );
     m.scale.set(scale);
-    m.x = (app.screen.width - natural.w * scale) / 2;
-    m.y = -natural.h * scale * profile.avatarTopCrop;
+    m.x = app.screen.width / 2 - (art.x + art.w / 2) * scale;
+    m.y = app.screen.height / 2 - (art.y + art.h / 2) * scale
+        - art.h * scale * profile.avatarTopCrop;
   },
 
   setEmotion(emotion) {
@@ -417,6 +448,249 @@ const avatar = {
     if (!def) { em.resetExpression(); return; }
     this.model.expression(def.expr).catch(e => console.warn('expression failed', e));
   },
+};
+
+// ---------- workspace views ----------
+const viewEls = { chat: document.getElementById('view-chat'), memory: document.getElementById('view-memory') };
+const viewTabs = Array.from(document.querySelectorAll('.view-tab'));
+let currentView = 'chat';
+
+function setView(name) {
+  if (!viewEls[name]) return;
+  currentView = name;
+  for (const [key, el] of Object.entries(viewEls)) el.hidden = key !== name;
+  viewTabs.forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  if (name === 'memory' && !memoryProfile) requestMemory();
+}
+viewTabs.forEach(t => { t.onclick = () => setView(t.dataset.view); });
+document.getElementById('open-memory').onclick = () => { setView('memory'); openDrawer(false); };
+
+// ---------- memory view ----------
+// One spec table drives all six sections: 'scalar' sections are key/value maps
+// (identity, preferences), 'list' sections are arrays of fixed-field dicts.
+// Every edit is sent as a single apply_ops op; the server answers with a fresh
+// `memory` message that we re-render from, so the UI never guesses at state.
+const MEMORY_SPEC = [
+  { section: 'identity', kind: 'scalar' },
+  { section: 'preferences', kind: 'scalar' },
+  { section: 'people', kind: 'list', key: 'name', fields: ['name', 'rel', 'note'] },
+  { section: 'projects', kind: 'list', key: 'name', fields: ['name', 'status', 'note'] },
+  { section: 'recurring', kind: 'list', key: 'what', fields: ['what', 'when'] },
+  { section: 'episodic', kind: 'list', key: 'text', fields: ['text', 'date', 'importance', 'ttl_days'] },
+];
+const MEMORY_NUMERIC = new Set(['importance', 'ttl_days']);
+
+const memSectionsEl = document.getElementById('memory-sections');
+const memRenderedEl = document.getElementById('memory-rendered');
+const memCountEl = document.getElementById('memory-count');
+const memErrorEl = document.getElementById('memory-error');
+const memModelToggle = document.getElementById('memory-model-toggle');
+
+let memoryProfile = null;    // last `profile` from the server
+let memoryRendered = '';     // last `rendered` block
+let memoryCount = 0;
+let memoryModelView = false;
+const memoryErrorEls = new Map();  // op path prefix → the row's error line
+
+// Every memory action is fire-and-forget: the server answers with a fresh `memory` message.
+function sendMemory(payload) {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
+}
+
+function requestMemory() {
+  sendMemory({ action: 'get_memory' });
+}
+
+function sendMemoryOp(op, path, value, reason) {
+  memErrorEl.textContent = '';
+  sendMemory({ action: 'memory_op', op, path, value, reason: reason || 'ui' });
+}
+
+function setMemory(msg) {
+  memoryProfile = msg.profile || {};
+  memoryRendered = msg.rendered || '';
+  memoryCount = typeof msg.count === 'number' ? msg.count : 0;
+  renderMemory();
+}
+
+// The server names the exact path it rejected; walk up to the row that owns it.
+function showMemoryError(path, reason) {
+  const text = reason || 'rejected';
+  const p = String(path || '');
+  const el = memoryErrorEls.get(p)
+    || memoryErrorEls.get(p.replace(/\.[^.]+$/, ''))
+    || memoryErrorEls.get(p.split(/[.[]/)[0]);
+  if (el) el.textContent = text;
+  else memErrorEl.textContent = text;
+}
+
+// ---- small builders ----
+function el(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined && text !== null) n.textContent = String(text);
+  return n;
+}
+
+// Click → input; Enter or blur saves (when changed), Esc cancels.
+function editable(value, placeholder, onSave) {
+  const current = value === undefined || value === null ? '' : String(value);
+  const span = el('span', 'mem-field', current === '' ? placeholder : current);
+  if (current === '') span.classList.add('empty');
+  span.title = 'click to edit';
+  span.onclick = () => {
+    const input = el('input', 'mem-input');
+    input.value = current;
+    input.size = Math.max(8, current.length + 2);
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      const next = input.value.trim();
+      input.replaceWith(span);
+      if (save && next !== '' && next !== current) onSave(next);
+    };
+    input.onkeydown = (e) => {
+      e.stopPropagation();  // Esc/Space are global shortcuts otherwise
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    };
+    input.onblur = () => finish(true);
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+  };
+  return span;
+}
+
+function deleteButton(path) {
+  const b = el('button', 'mem-del', '🗑');
+  b.title = 'delete';
+  b.onclick = () => sendMemoryOp('DELETE', path);
+  return b;
+}
+
+// A row plus the error line the server's memory_error is routed into.
+function memRow(path) {
+  const row = el('div', 'mem-row');
+  const err = el('div', 'mem-error');
+  memoryErrorEls.set(path, err);
+  row.append(err);
+  return { row, err };
+}
+
+function scalarRow(section, key, value, superseded) {
+  const path = `${section}.${key}`;
+  const { row, err } = memRow(path);
+  row.prepend(el('span', 'mem-key', key), editable(value, '(empty)', v => sendMemoryOp('UPDATE', path, v)), deleteButton(path));
+  const old = superseded && superseded[key];
+  if (Array.isArray(old) && old.length) {
+    const prev = old[old.length - 1];
+    const was = el('div', 'mem-was', `was: ${prev} `);
+    const restore = el('button', 'mem-restore', 'restore');
+    restore.onclick = () => sendMemoryOp('UPDATE', path, prev, 'ui:restore');
+    was.append(restore);
+    row.insertBefore(was, err);
+  }
+  return row;
+}
+
+function listRow(spec, entry, index) {
+  const path = `${spec.section}[${index}]`;
+  const { row, err } = memRow(path);
+  const parts = [];
+  spec.fields.forEach((field, i) => {
+    if (i) parts.push(el('span', 'mem-sep', '·'));
+    parts.push(editable(entry[field], field, v => {
+      sendMemoryOp('UPDATE', `${path}.${field}`, MEMORY_NUMERIC.has(field) ? Number(v) : v);
+    }));
+  });
+  if (entry.expired) {
+    row.classList.add('expired');
+    parts.push(el('span', 'mem-tag', 'expired'));
+  }
+  parts.push(deleteButton(path));
+  row.prepend(...parts);
+  return row;
+}
+
+function addForm(spec) {
+  const form = el('div', 'mem-add');
+  const fields = spec.kind === 'scalar' ? ['key', 'value'] : spec.fields;
+  const inputs = fields.map(f => {
+    const i = el('input');
+    i.placeholder = f;
+    return i;
+  });
+  const submit = () => {
+    const values = inputs.map(i => i.value.trim());
+    if (!values[0]) { inputs[0].focus(); return; }
+    if (spec.kind === 'scalar') {
+      if (!values[1]) { inputs[1].focus(); return; }
+      sendMemoryOp('UPDATE', `${spec.section}.${values[0]}`, values[1]);
+    } else {
+      const value = {};
+      fields.forEach((f, i) => {
+        if (!values[i]) return;
+        value[f] = MEMORY_NUMERIC.has(f) ? Number(values[i]) : values[i];
+      });
+      sendMemoryOp('ADD', `${spec.section}[]`, value);
+    }
+    inputs.forEach(i => { i.value = ''; });
+  };
+  inputs.forEach(i => {
+    i.onkeydown = (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+    };
+  });
+  const btnAdd = el('button', null, '+ add');
+  btnAdd.onclick = submit;
+  // The section itself owns errors from an ADD (path `people[]`, no row to blame).
+  memoryErrorEls.set(spec.section, el('div', 'mem-error'));
+  form.append(...inputs, btnAdd);
+  return form;
+}
+
+function memorySection(spec) {
+  const wrap = el('div', 'mem-section');
+  wrap.append(el('div', 'mem-section-title', spec.section));
+  const data = (memoryProfile && memoryProfile[spec.section]) || (spec.kind === 'scalar' ? {} : []);
+  let rows = [];
+  if (spec.kind === 'scalar') {
+    const superseded = data.superseded || null;
+    rows = Object.keys(data)
+      .filter(k => k !== 'superseded')
+      .map(k => scalarRow(spec.section, k, data[k], superseded));
+  } else {
+    rows = data.map((entry, i) => listRow(spec, entry || {}, i));
+  }
+  if (rows.length) wrap.append(...rows);
+  else wrap.append(el('div', 'mem-empty', 'nothing yet'));
+  wrap.append(addForm(spec));
+  wrap.append(memoryErrorEls.get(spec.section));
+  return wrap;
+}
+
+function renderMemory() {
+  memoryErrorEls.clear();
+  memErrorEl.textContent = '';
+  memCountEl.textContent = `Memory · ${memoryCount} ${memoryCount === 1 ? 'fact' : 'facts'}`;
+  memModelToggle.classList.toggle('active', memoryModelView);
+  memSectionsEl.hidden = memoryModelView;
+  memRenderedEl.hidden = !memoryModelView;
+  if (memoryModelView) {
+    memRenderedEl.textContent = memoryRendered || '(nothing yet)';
+    memSectionsEl.replaceChildren();
+    return;
+  }
+  memSectionsEl.replaceChildren(...MEMORY_SPEC.map(memorySection));
+}
+
+memModelToggle.onclick = () => { memoryModelView = !memoryModelView; renderMemory(); };
+document.getElementById('memory-reset').onclick = () => {
+  if (!confirm('Forget everything the assistant remembers about you? This cannot be undone.')) return;
+  sendMemory({ action: 'memory_reset' });
 };
 
 // ---------- websocket / ui ----------
@@ -457,10 +731,16 @@ function connect() {
       currentVerbosity = verbosityLevels.includes(msg.value) ? msg.value : currentVerbosity;
       renderVerbosity();
     }
+    else if (msg.type === 'memory') setMemory(msg);
+    else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') { status.textContent = msg.text.toLowerCase(); renderVerbosity(); }
   };
 
-  ws.onopen = () => render();
+  ws.onopen = () => {
+    render();
+    // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
+    if (currentView === 'memory') requestMemory();
+  };
   ws.onclose = (e) => {
     if (shutdownRequested) { showShutdownScreen(); return; }
     if (e.code === 4000) {

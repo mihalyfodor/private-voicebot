@@ -20,7 +20,7 @@ Unchanged layout. Transcript label uses the avatar's name. Wanko is framed large
 - `avatars.py`: `AVATARS = {key: {name, voice, speed, persona}}`, `current()` reads `AVATAR` env (default `wanko`).
 - `llm.py`: system prompt built from `avatars.current()` name/persona.
 - `chatbot.py`: Kokoro voice/speed from the profile; `GET /api/config` → `{avatar, name}`.
-- `static/app.js`: `PROFILES[key]` = modelUrl, avatarScale/topCrop, idle group, expressions. Expressions support two forms: `{expr: "f04"}` (model expression file) or `{params: {ParamId: value}}` (applied every frame after motion update with a lerped weight → this also gives the intensity cap PRD 04 wanted). Client fetches `/api/config` before loading.
+- `static/app.js`: `PROFILES[key]` = modelUrl, avatarScale/topCrop (per-model nudges on top of `fit()`, which measures the drawn art's bounds and sizes it to the avatar column), idle group, expressions. Expressions support two forms: `{expr: "f04"}` (model expression file) or `{params: {ParamId: value}}` (applied every frame after motion update with a lerped weight → this also gives the intensity cap PRD 04 wanted). Client fetches `/api/config` before loading.
 - `scripts/fetch_assets.sh`: generic `fetch_model dir base model3.json` used for Haru and Wanko (CubismWebSamples, develop branch).
 
 ### Decisions

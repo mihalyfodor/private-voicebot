@@ -4,48 +4,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
 from datetime import date, timedelta
-from types import SimpleNamespace
 
 import pytest
 
 import memory
+from tests.conftest import FakeClient, empty_profile
 
 
 # --------------------------------------------------------------------------- helpers
 
 
-class FakeClient:
-    """Same shape as tests/test_llm_unit.py's FakeClient: queued completion contents."""
-
-    def __init__(self, *contents):
-        self._contents = list(contents)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(kw)
-        content = self._contents.pop(0) if self._contents else "[]"
-        if isinstance(content, Exception):
-            raise content
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-
-
 @pytest.fixture(autouse=True)
-def sandbox(monkeypatch, tmp_path):
-    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
-    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
-    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
-    return tmp_path
+def sandbox(memory_sandbox):
+    """Every test in this module writes to a tmp memory.json (fixture lives in conftest)."""
+    return memory_sandbox
 
 
 def _days_ago(n: int) -> str:
     return (date.today() - timedelta(days=n)).isoformat()
-
-
-def _profile(**kw):
-    p = memory._empty_profile()
-    p.update(kw)
-    return p
 
 
 TURNS = [{"role": "user", "content": "I'm Mihaly and I live in Budapest"}]
@@ -77,7 +53,7 @@ def test_apply_ops_adds_every_path_type():
 
 
 def test_update_scalar_stores_superseded():
-    profile = _profile(identity={"occupation": "software engineer"})
+    profile = empty_profile(identity={"occupation": "software engineer"})
     profile, applied = memory.apply_ops(
         profile, [{"op": "UPDATE", "path": "identity.occupation", "value": "engineering manager"}])
     assert profile["identity"]["occupation"] == "engineering manager"
@@ -89,7 +65,7 @@ def test_update_scalar_stores_superseded():
 
 
 def test_update_list_entry_matches_by_key_and_delete_removes():
-    profile = _profile(projects=[{"name": "half marathon", "note": "race in October"}],
+    profile = empty_profile(projects=[{"name": "half marathon", "note": "race in October"}],
                        people=[{"name": "Anna", "rel": "colleague"}])
     profile, _ = memory.apply_ops(profile, [
         {"op": "UPDATE", "path": "projects[]", "value": {"name": "half marathon", "note": "race in November"}},
@@ -100,7 +76,7 @@ def test_update_list_entry_matches_by_key_and_delete_removes():
 
 
 def test_delete_scalar_removes_key():
-    profile = _profile(preferences={"coffee": "black"})
+    profile = empty_profile(preferences={"coffee": "black"})
     profile, applied = memory.apply_ops(
         profile, [{"op": "DELETE", "path": "preferences.coffee"}])
     assert profile["preferences"] == {} and len(applied) == 1
@@ -134,7 +110,7 @@ def test_list_paths_tolerate_a_missing_bracket_suffix(path):
 
 
 def test_indexed_entry_field_path_updates_one_field():
-    profile = _profile(projects=[{"name": "half marathon", "note": "race in October"}])
+    profile = empty_profile(projects=[{"name": "half marathon", "note": "race in October"}])
     profile, applied = memory.apply_ops(
         profile, [{"op": "UPDATE", "path": "projects[0].note", "value": "race in November"}])
     assert profile["projects"] == [{"name": "half marathon", "note": "race in November"}]
@@ -148,7 +124,7 @@ def test_indexed_entry_field_path_out_of_range_is_rejected(capsys):
 
 
 def test_restating_a_scalar_in_another_casing_is_not_an_update():
-    profile = _profile(identity={"occupation": "Engineering manager"})
+    profile = empty_profile(identity={"occupation": "Engineering manager"})
     profile, applied = memory.apply_ops(
         profile, [{"op": "UPDATE", "path": "identity.occupation", "value": "engineering manager!"}])
     assert applied == []
@@ -156,7 +132,7 @@ def test_restating_a_scalar_in_another_casing_is_not_an_update():
 
 
 def test_caps_are_enforced_per_list(capsys):
-    profile = _profile(people=[{"name": f"p{i}"} for i in range(memory.CAPS["people"])])
+    profile = empty_profile(people=[{"name": f"p{i}"} for i in range(memory.CAPS["people"])])
     profile, _ = memory.apply_ops(profile, [{"op": "ADD", "path": "people[]", "value": {"name": "newest"}}])
     assert len(profile["people"]) == memory.CAPS["people"]
     assert profile["people"][0]["name"] == "p1"          # oldest evicted
@@ -165,7 +141,7 @@ def test_caps_are_enforced_per_list(capsys):
 
 
 def test_episodic_cap_drops_least_important_and_oldest_first():
-    profile = _profile(episodic=[
+    profile = empty_profile(episodic=[
         {"date": _days_ago(i % 5), "text": f"e{i}", "ttl_days": 90, "importance": 1 if i < 5 else 3}
         for i in range(memory.CAPS["episodic"] + 5)
     ])
@@ -179,7 +155,7 @@ def test_episodic_cap_drops_least_important_and_oldest_first():
 
 
 def test_render_orders_episodics_by_recency_times_importance_and_drops_expired():
-    profile = _profile(episodic=[
+    profile = empty_profile(episodic=[
         {"date": _days_ago(1), "text": "medium thing", "ttl_days": 30, "importance": 2},
         {"date": _days_ago(2), "text": "big thing", "ttl_days": 30, "importance": 3},
         {"date": _days_ago(40), "text": "expired thing", "ttl_days": 7, "importance": 3},
@@ -191,7 +167,7 @@ def test_render_orders_episodics_by_recency_times_importance_and_drops_expired()
 
 def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
     """Everyday trivia that slipped through is stored until its TTL, never prompted."""
-    profile = _profile(episodic=[
+    profile = empty_profile(episodic=[
         {"date": _days_ago(0), "text": "had a sandwich for lunch", "ttl_days": 3, "importance": 1},
         {"date": _days_ago(0), "text": "signed the flat contract", "ttl_days": 30, "importance": 3},
     ])
@@ -203,17 +179,17 @@ def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
 
 
 def test_render_folds_nickname_into_the_name_line():
-    profile = _profile(identity={"name": "Mihaly", "nickname": "Misi", "location": "Budapest"})
+    profile = empty_profile(identity={"name": "Mihaly", "nickname": "Misi", "location": "Budapest"})
     assert memory.render(profile) == "Identity: name: Mihaly (call them: Misi); location: Budapest"
 
 
 def test_render_shows_a_nickname_without_a_name():
-    profile = _profile(identity={"nickname": "Misi"})
+    profile = empty_profile(identity={"nickname": "Misi"})
     assert memory.render(profile) == "Identity: call them: Misi"
 
 
 def test_render_shows_at_most_five_episodics_and_stays_in_budget():
-    profile = _profile(
+    profile = empty_profile(
         identity={"name": "Mihaly"},
         episodic=[{"date": _days_ago(i), "text": f"episode number {i} " + "x" * 200,
                    "ttl_days": 90, "importance": 2} for i in range(20)])
@@ -240,7 +216,7 @@ REFLECTED = json.dumps({
 
 
 def _dup_profile():
-    return _profile(
+    return empty_profile(
         identity={"name": "Mihaly"},
         preferences={"coffee": "black"},
         people=[{"name": "Anna", "rel": "colleague"}, {"name": "anna", "note": "joined the team"}],
@@ -323,7 +299,7 @@ def test_save_migrates_before_proposing(sandbox):
 
 
 def test_load_injects_profile_block_with_friendly_wording():
-    memory._write_profile(_profile(identity={"name": "Mihaly"}, preferences={"coffee": "black"}))
+    memory._write_profile(empty_profile(identity={"name": "Mihaly"}, preferences={"coffee": "black"}))
     prompt = memory.load("PERSONA.")
     assert prompt.startswith("PERSONA.")
     assert "<user_profile>\nIdentity: name: Mihaly\nPreferences: coffee: black\n</user_profile>" in prompt
@@ -375,7 +351,7 @@ def test_save_with_nothing_new_writes_nothing(capsys):
 
 
 def test_save_counts_updates_and_deletes(capsys):
-    memory._write_profile(_profile(identity={"occupation": "software engineer"},
+    memory._write_profile(empty_profile(identity={"occupation": "software engineer"},
                                    people=[{"name": "Anna"}]))
     ops = [{"op": "UPDATE", "path": "identity.occupation", "value": "engineering manager"},
            {"op": "DELETE", "path": "people[]", "value": {"name": "Anna"}}]

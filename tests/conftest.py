@@ -1,9 +1,13 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import time
+from types import SimpleNamespace
+
 import pytest
 
 import chatbot
+import memory
 
 
 @pytest.fixture(autouse=True)
@@ -43,3 +47,50 @@ class Blocker:
     def free(self, controller):
         self.release.set()
         controller.join_idle(timeout=5)
+
+
+# --------------------------------------------------------------------------- memory helpers
+# Shared by tests/test_memory.py (PRD 15) and tests/test_memory_editor.py (PRD 16).
+
+
+class FakeClient:
+    """A stand-in OpenAI client: returns the queued completion contents, one per call.
+
+    A queued `Exception` is raised instead of returned. `delay` sleeps inside the call and
+    `entered` is set as soon as it starts — that is how the concurrency tests park a save
+    inside the memory lock.
+    """
+
+    def __init__(self, *contents, delay: float = 0.0, entered=None):
+        self._contents = list(contents)
+        self.delay = delay
+        self.entered = entered
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kw):
+        self.calls.append(kw)
+        if self.entered is not None:
+            self.entered.set()
+        if self.delay:
+            time.sleep(self.delay)
+        content = self._contents.pop(0) if self._contents else "[]"
+        if isinstance(content, Exception):
+            raise content
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+
+@pytest.fixture
+def memory_sandbox(monkeypatch, tmp_path):
+    """Point every memory file at tmp_path, so no test can touch the real memory.json."""
+    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
+    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
+    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
+    return tmp_path
+
+
+def empty_profile(**sections) -> dict:
+    """A v2 profile with the given sections filled in (not written to disk)."""
+    profile = memory._empty_profile()
+    profile.update(sections)
+    return profile
