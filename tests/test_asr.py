@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 import asr
+from tests.conftest import fake_asr
 
 
 # Scenario 5: is_junk cases.
@@ -107,9 +108,8 @@ def test_the_chat_path_hands_the_profile_names_to_the_asr(monkeypatch, memory_sa
 
     memory._write_profile(memory._normalise(
         {"identity": {"name": "Mihaly Fodor", "aliases": ["Misi"]}}))
-    calls = []
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(
-        transcribe=lambda audio, prompt=None: calls.append(prompt) or ""))
+    prompts = []
+    monkeypatch.setattr(chatbot, "asr", fake_asr(prompts=prompts))
     monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: lambda msg: None)
     chatbot.handle_utterance(SimpleNamespace(), 1, np.zeros(16000, dtype=np.float32), None)
-    assert calls == ["Names: Mihaly Fodor, Misi."]
+    assert prompts == ["Names: Mihaly Fodor, Misi."]

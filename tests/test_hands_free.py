@@ -1,6 +1,5 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -8,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
-from tests.conftest import Blocker, untagged
+from tests.conftest import Blocker, fake_asr, untagged
 
 
 @pytest.fixture(autouse=True)
@@ -89,7 +88,7 @@ def test_set_hands_free_false_sends_listening_idle(monkeypatch):
 def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
     monkeypatch.setattr(chatbot, "hands_free", True)
     monkeypatch.setattr(chatbot.vad, "Endpointer", FakeEndpointer)
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "hello there"))
+    monkeypatch.setattr(chatbot, "asr", fake_asr("hello there"))
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
@@ -121,7 +120,7 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append(text))
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "should not run"))
+    monkeypatch.setattr(chatbot, "asr", fake_asr("should not run"))
 
     blocker = Blocker()
     client = TestClient(chatbot.app)
@@ -143,7 +142,7 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
 
 
 def test_ptt_start_then_stop_transcribes_and_responds(monkeypatch):
-    monkeypatch.setattr(chatbot, "asr", SimpleNamespace(transcribe=lambda audio, prompt=None: "ptt hello"))
+    monkeypatch.setattr(chatbot, "asr", fake_asr("ptt hello"))
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append(text))

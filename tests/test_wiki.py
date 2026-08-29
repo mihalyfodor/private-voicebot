@@ -636,4 +636,4 @@ def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys):
 def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault):
     client = FakeClient("[]")
     wiki.ingest(TURNS, client, "m")
-    assert wiki.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]
+    assert memory.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]

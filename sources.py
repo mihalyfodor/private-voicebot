@@ -340,17 +340,15 @@ def restrict_ops(ops, raw_rel: str, user_names=()) -> tuple:
     that) and once for the *target*: an ingest may not invent a `meetings/` or `sources/` page.
     Every kept op is stamped with `source: raw/…`, the PRD's provenance rule.
 
-    An op that would file the *user* as a person is refused too: a document mentioning their
-    own (possibly misspelled) name must not grow a `people/` page about them.
+    Ops that would file the *user* as a person are refused first, by the same wiki helper the
+    session ingest uses: a document mentioning their own (possibly misspelled) name must not
+    grow a `people/` page about them.
     """
-    kept, rejected = [], []
-    for raw in ops if isinstance(ops, list) else []:
+    candidates, rejected = wiki.reject_user_pages(ops, user_names)
+    kept = []
+    for raw in candidates:
         op = raw if isinstance(raw, dict) else {}
         kind = str(op.get("op") or "").strip().lower()
-        about_user = wiki.user_page_reason(op, user_names)
-        if about_user:
-            rejected.append({"op": raw, "reason": about_user})
-            continue
         if kind == "add_decision":
             kept.append({**op, "source": raw_rel})
             continue
@@ -396,7 +394,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     else:
         content = f"{header}\n\nDocument:\n{text}"
     try:
-        system = SUMMARY_SYSTEM % (wiki.user_note(user_names), memory._today_iso())
+        system = SUMMARY_SYSTEM % (memory.user_note(user_names), memory._today_iso())
         raw = _ask(client, model, system, content, 700)
     except Exception as exc:  # noqa: BLE001
         print(f"[Sources] summary failed: {exc}")
@@ -431,7 +429,7 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     if hint_page:
         parts.append(f"The user filed this under: {hint_page}")
     try:
-        system = OPS_SYSTEM % (wiki.user_note(user_names), memory._today_iso())
+        system = OPS_SYSTEM % (memory.user_note(user_names), memory._today_iso())
         raw = _ask(client, model, system, "\n\n".join(parts), 800)
     except Exception as exc:  # noqa: BLE001
         print(f"[Sources] page ops failed: {exc}")

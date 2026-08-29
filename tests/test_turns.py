@@ -20,7 +20,7 @@ import chatbot
 import llm
 import session as session_mod
 from session import Session, TurnController
-from tests.conftest import Blocker
+from tests.conftest import Blocker, fake_asr
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 
@@ -90,8 +90,7 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
 
     monkeypatch.setattr(llm, "ask_events", fake_ask_events)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(chatbot, "asr",
-                        type("A", (), {"transcribe": staticmethod(lambda a, prompt=None: f"q{int(a[0])}")}))
+    monkeypatch.setattr(chatbot, "asr", fake_asr(lambda a: f"q{int(a[0])}"))
     monkeypatch.setattr(chatbot, "make_sender",
                         lambda lp, turn=None: lambda m: sent.append((turn, m["type"], m.get("value"))))
     monkeypatch.setattr(chatbot, "session", sess)

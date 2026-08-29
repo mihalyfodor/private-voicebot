@@ -102,32 +102,6 @@ def _empty_profile() -> dict:
     }
 
 
-def _is_alias(section: str, key: str) -> bool:
-    """True for the one path whose value is a list rather than a string: identity.aliases."""
-    return section == "identity" and key == ALIAS_KEY
-
-
-def alias_list(value) -> list:
-    """Aliases as a clean list of strings.
-
-    Accepts a list (the stored form) or a comma-separated string, which is what the memory
-    editor's scalar row sends and what a model tends to propose. Blanks are dropped and
-    duplicates removed case-insensitively, first spelling wins.
-    """
-    if isinstance(value, str):
-        parts = value.split(",")
-    elif isinstance(value, (list, tuple)):
-        parts = list(value)
-    else:
-        return []
-    out = []
-    for part in parts:
-        text = " ".join(str(part).split())
-        if text and not any(_norm(text) == _norm(kept) for kept in out):
-            out.append(text)
-    return out
-
-
 def _normalise(data: dict) -> dict:
     profile = _empty_profile()
     if not isinstance(data, dict):
@@ -401,40 +375,98 @@ def render(profile: dict, budget_tokens: int | None = None) -> str:
     return _text(blocks)
 
 
-# --------------------------------------------------------------------------- the user
+# --------------------------------------------------------------------------- identity
 
-# "Is this the user?" is asked all over the app — by the extraction guard that refuses to
-# overwrite the real name with an alias, by the wiki ingest that must not open a people page
-# about the profile owner, and by the ASR prompt. One implementation, docs/26-identity-aliases.md.
+# Who the user is, in one place (docs/26-identity-aliases.md). "Is this the user?" is asked all
+# over the app — by the extraction guard that refuses to overwrite the real name with an alias,
+# by the wiki ingest that must not open a people page about the profile owner, by the source
+# page's entity list and by the ASR prompt — so the alias list, the matching, the ops that
+# maintain the list and the prompt lines that describe it all live together here.
+
+
+def _is_alias(section: str, key: str) -> bool:
+    """True for the one path whose value is a list rather than a string: identity.aliases."""
+    return section == "identity" and key == ALIAS_KEY
+
+
+def alias_list(value) -> list:
+    """Aliases as a clean list of strings.
+
+    Accepts a list (the stored form) or a comma-separated string, which is what the memory
+    editor's scalar row sends and what a model tends to propose. Blanks are dropped and
+    duplicates removed case-insensitively, first spelling wins.
+    """
+    if isinstance(value, str):
+        parts = value.split(",")
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        return []
+    out = []
+    for part in parts:
+        text = " ".join(str(part).split())
+        if text and not any(_norm(text) == _norm(kept) for kept in out):
+            out.append(text)
+    return out
 
 
 def user_names(profile: dict | None = None) -> list:
-    """Every string that means "the user": name, nickname and aliases, in that order."""
-    if profile is None:
-        profile = load_profile()
-    identity = profile.get("identity") or {}
-    candidates = [identity.get("name"), identity.get("nickname"), *alias_list(identity.get(ALIAS_KEY))]
-    names = []
-    for candidate in candidates:
-        text = " ".join(str(candidate or "").split())
-        if text and not any(_norm(text) == _norm(kept) for kept in names):
-            names.append(text)
-    return names
+    """Every string that means "the user": name, nickname and aliases, in that order.
+
+    `alias_list` does the tidying — blanks dropped, duplicates removed case-insensitively.
+    """
+    identity = (load_profile() if profile is None else profile).get("identity") or {}
+    return alias_list([identity.get("name") or "", identity.get("nickname") or "",
+                       *alias_list(identity.get(ALIAS_KEY))])
 
 
 def _fold(text) -> str:
-    """Casefolded, diacritic-free, punctuation-free — "Mihály" and "mihaly" are one string."""
+    """Lowercased, diacritic-free, punctuation-free — "Mihály" and "mihaly" are one string.
+
+    `_norm` with the accents stripped first and runs of spaces collapsed, so folded strings can
+    be compared word by word.
+    """
     decomposed = unicodedata.normalize("NFKD", str(text or ""))
     plain = "".join(c for c in decomposed if not unicodedata.combining(c))
-    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", plain.casefold()).split())
+    return " ".join(_norm(plain).split())
 
 
 def _long_tokens(text: str) -> list:
+    """The words of a folded name that could identify someone on their own."""
     return [t for t in text.split() if len(t) >= USER_MIN_TOKEN]
 
 
+def _shares_a_name(target: str, names: list) -> bool:
+    """A bare "Misi" against "Misi Fodor", or "Mihaly Fodor" against the bare alias "Mihaly".
+
+    One side must be a single word: two full names that merely share a surname are two people.
+    """
+    for name in names:
+        if " " not in target and target in _long_tokens(name):
+            return True
+        if " " not in name and name in _long_tokens(target):
+            return True
+    return False
+
+
+def _almost_a_name(target: str, names: list) -> bool:
+    """The ASR/OCR case — "Mihay Fodor" for "Mihaly Fodor".
+
+    The project's one fuzzy rule (`_similar`) at the looser USER_RATIO: the whole string first,
+    then token against token, so a single mangled word is enough.
+    """
+    for name in names:
+        if _similar(target, name, USER_RATIO):
+            return True
+        if any(_similar(token, name_token, USER_RATIO)
+               for name_token in _long_tokens(name) for token in _long_tokens(target)):
+            return True
+    return False
+
+
 def is_user(text, names: list | None = None) -> bool:
-    """True when `text` names the profile owner — exactly, by a token, or fuzzily.
+    """True when `text` names the profile owner: the same name, one of its words, or a
+    near-miss spelling of either — tried in that order.
 
     Deliberately generous, and only for the user: an OCR'd "Mihay Fodor", a whisper "Michael"
     and a bare "Misi" must all be recognised, because the cost of missing one is a duplicate
@@ -444,24 +476,67 @@ def is_user(text, names: list | None = None) -> bool:
     if not target:
         return False
     folded = [f for f in (_fold(n) for n in (user_names() if names is None else names)) if f]
-    target_tokens = _long_tokens(target)
-    for name in folded:
-        if target == name:
-            return True
-        name_tokens = _long_tokens(name)
-        if len(target.split()) == 1 and target in name_tokens:
-            return True
-        if len(name.split()) == 1 and name in target_tokens:
-            return True
-    for name in folded:
-        if difflib.SequenceMatcher(None, target, name).ratio() >= USER_RATIO:
-            return True
-        for name_token in _long_tokens(name):
-            for token in target_tokens:
-                if difflib.SequenceMatcher(None, token, name_token).ratio() >= USER_RATIO:
-                    return True
-    return False
+    return (target in folded
+            or _shares_a_name(target, folded)
+            or _almost_a_name(target, folded))
 
+
+#: The "who is the user" line every ingest prompt carries so the model never opens a people page
+#: about the profile owner. `%s` is the comma-separated list of names.
+USER_NOTE = ("The user (profile owner) is: %s; treat any of these as the user, never create a "
+             "people page for them.")
+NO_USER_NOTE = "Never create a people page for the user themselves."
+
+
+def user_note(names=None) -> str:
+    """The "who is the user" line for an ingest prompt, whatever the profile knows."""
+    names = [n for n in (user_names() if names is None else names) if str(n).strip()]
+    return USER_NOTE % ", ".join(names) if names else NO_USER_NOTE
+
+
+# --- alias ops (applied from _apply_scalar_op) --------------------------------------
+
+
+def _apply_alias_op(identity: dict, kind: str, value, op) -> bool:
+    """`identity.aliases` — the one list-valued scalar key.
+
+    ADD appends one alias (or a comma-separated few), UPDATE replaces the whole list and DELETE
+    clears it. No `superseded` history: the list is the history, and restoring one old spelling
+    out of a replaced list would be meaningless.
+    """
+    current = alias_list(identity.get(ALIAS_KEY))
+    if kind == "DELETE":
+        if ALIAS_KEY not in identity:
+            _reject(op, "key not present")
+            return False
+        del identity[ALIAS_KEY]
+        return True
+    incoming = alias_list(value)
+    if not incoming:
+        _reject(op, f"{ALIAS_PATH} needs one alias or a comma-separated list")
+        return False
+    wanted = alias_list(current + incoming) if kind == "ADD" else incoming
+    if [_norm(a) for a in wanted] == [_norm(a) for a in current]:
+        return False        # nothing new (duplicates are ignored case-insensitively)
+    identity[ALIAS_KEY] = wanted
+    return True
+
+
+def _alias_guard(identity: dict, value, op) -> bool:
+    """True when this write to `identity.name` would replace the real name with an alias.
+
+    The classic failure: whisper hears "Michael", the extractor proposes
+    `UPDATE identity.name "Michael"` and the real name is gone. An alias is a name for the
+    user, never *the* name — unless we have no name at all yet.
+    """
+    current = " ".join(str(identity.get("name") or "").split())
+    if not current:
+        return False        # nothing to protect yet
+    names = user_names({"identity": identity})
+    return is_user(value, names) and not is_user(value, [current])
+
+
+# --- asr biasing --------------------------------------------------------------------
 
 #: The last built ASR prompt, keyed on (path, mtime) — every save/edit/reset rewrites the file.
 _ASR_CACHE = {"key": None, "text": ""}
@@ -469,11 +544,8 @@ _ASR_CACHE = {"key": None, "text": ""}
 
 def _asr_prompt_text(profile: dict) -> str:
     """`Names: …` — the user's names plus the people they talk about, capped at ~40 tokens."""
-    names = user_names(profile)
-    for entry in _live(profile.get("people", [])):
-        name = " ".join(str(entry.get("name") or "").split())
-        if name and not any(_norm(name) == _norm(kept) for kept in names):
-            names.append(name)
+    people = [entry.get("name") or "" for entry in _live(profile.get("people", []))]
+    names = alias_list(user_names(profile) + people)
     while names and tokens_est("Names: " + ", ".join(names) + ".") > ASR_PROMPT_TOKENS:
         names.pop()
     return "Names: " + ", ".join(names) + "." if names else ""
@@ -985,45 +1057,6 @@ def apply_ops(profile: dict, ops: list, rejected: list | None = None) -> tuple:
     for note in _enforce_caps(profile):
         print(f"[Memory] cap enforced — {note}")
     return profile, applied
-
-
-def _apply_alias_op(identity: dict, kind: str, value, op) -> bool:
-    """`identity.aliases` — the one list-valued scalar key (docs/26-identity-aliases.md).
-
-    ADD appends one alias (or a comma-separated few), UPDATE replaces the whole list and DELETE
-    clears it. No `superseded` history: the list is the history, and restoring one old spelling
-    out of a replaced list would be meaningless.
-    """
-    current = alias_list(identity.get(ALIAS_KEY))
-    if kind == "DELETE":
-        if ALIAS_KEY not in identity:
-            _reject(op, "key not present")
-            return False
-        del identity[ALIAS_KEY]
-        return True
-    incoming = alias_list(value)
-    if not incoming:
-        _reject(op, f"{ALIAS_PATH} needs one alias or a comma-separated list")
-        return False
-    wanted = alias_list(current + incoming) if kind == "ADD" else incoming
-    if [_norm(a) for a in wanted] == [_norm(a) for a in current]:
-        return False        # nothing new (duplicates are ignored case-insensitively)
-    identity[ALIAS_KEY] = wanted
-    return True
-
-
-def _alias_guard(identity: dict, value, op) -> bool:
-    """True when this write to `identity.name` would replace the real name with an alias.
-
-    The classic failure: whisper hears "Michael", the extractor proposes
-    `UPDATE identity.name "Michael"` and the real name is gone. An alias is a name for the
-    user, never *the* name — unless we have no name at all yet.
-    """
-    current = " ".join(str(identity.get("name") or "").split())
-    if not current:
-        return False        # nothing to protect yet
-    names = user_names({"identity": identity})
-    return is_user(value, names) and not is_user(value, [current])
 
 
 def _apply_scalar_op(profile, section, key, kind, value, op) -> bool:

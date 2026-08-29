@@ -797,18 +797,6 @@ Rules:
 - Nothing worth filing? Reply with exactly [].
 Today is %s."""
 
-#: The line that goes into every ingest prompt so the model never opens a people page about the
-#: profile owner. `%s` is the comma-separated list of names (docs/26-identity-aliases.md).
-USER_NOTE = ("The user (profile owner) is: %s; treat any of these as the user, never create a "
-             "people page for them.")
-NO_USER_NOTE = "Never create a people page for the user themselves."
-
-
-def user_note(names) -> str:
-    """The "who is the user" line for an ingest prompt, whatever the profile knows."""
-    names = [n for n in (names or []) if str(n).strip()]
-    return USER_NOTE % ", ".join(names) if names else NO_USER_NOTE
-
 
 def user_page_reason(op: dict, names) -> str | None:
     """Why `op` would file the user as a person — or None when it is fine.
@@ -854,7 +842,7 @@ def ingest(turns: list, client, model: str) -> list:
     if not transcript.strip():
         return []
     names = memory.user_names()
-    system = INGEST_SYSTEM % (user_note(names), memory._today_iso())
+    system = INGEST_SYSTEM % (memory.user_note(names), memory._today_iso())
     user = (f"Schema:\n{_read(SCHEMA_FILE) or SCHEMA_TEXT}\n\n"
             f"Index:\n{index_text(WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
             f"Transcript:\n{transcript}")

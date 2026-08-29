@@ -69,6 +69,21 @@ class Blocker:
         controller.join_idle(timeout=5)
 
 
+def fake_asr(reply="", prompts=None) -> SimpleNamespace:
+    """A stand-in for `chatbot.asr`: `transcribe(audio, prompt=None)` without mlx-whisper.
+
+    `reply` is the transcript — a string, or a callable over the audio for tests that need one
+    per utterance. Pass a list as `prompts` to record the `initial_prompt` each call was given.
+    """
+
+    def transcribe(audio, prompt=None):
+        if prompts is not None:
+            prompts.append(prompt)
+        return reply(audio) if callable(reply) else reply
+
+    return SimpleNamespace(transcribe=transcribe)
+
+
 # --------------------------------------------------------------------------- memory helpers
 # Shared by tests/test_memory.py (PRD 15) and tests/test_memory_editor.py (PRD 16).
 

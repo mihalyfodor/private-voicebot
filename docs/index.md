@@ -33,8 +33,8 @@ voicebot/
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
-├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, and the editor entry points (snapshot/edit/edit_many/reset)
-├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest, lint, archive/pull bridge
+├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
+├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model and backdrop images (gitignored)
@@ -57,7 +57,7 @@ voicebot/
 ├── workflows/
 │   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
 │   └── classification_rules.example.py
-├── eval/             # memory eval harness: harness.py, scripts/*.yaml, fixtures/, results/
+├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/
 ├── tests/
 │   ├── test_splitter.py         # SentenceSplitter / split_stream / strip_tag
 │   ├── test_llm_unit.py          # llm.py with a mocked OpenAI client, no oMLX needed
@@ -105,7 +105,7 @@ voicebot/
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (done, panel part superseded by 22b)
     ├── 22b-rail-only.md          # PRD: no contextual panel — rail switches views, settings live in the Settings view (done)
     ├── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
-    └── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (implementation)
+    └── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
 ```
 
 ## Active PRDs
@@ -130,7 +130,7 @@ voicebot/
 - [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
-- [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (implementation)
+- [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
 
 ## Completed PRDs
 
