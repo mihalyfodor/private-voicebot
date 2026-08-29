@@ -11,11 +11,9 @@ import random
 import threading
 
 import pytest
-from fastapi.testclient import TestClient
 
-import chatbot
 import memory
-from tests.conftest import FakeClient, empty_profile
+from tests.conftest import FakeClient, audit_log, on_disk, seed
 
 
 # --------------------------------------------------------------------------- helpers
@@ -27,115 +25,76 @@ def sandbox(memory_sandbox):
     return memory_sandbox
 
 
-def _seed(**sections) -> dict:
-    """Write a profile with `sections` filled in — the starting point of an editor scenario."""
-    profile = empty_profile(**sections)
-    memory._write_profile(profile)
-    return profile
-
-
-def _audit() -> list:
-    if not os.path.exists(memory.OPS_LOG_PATH):
-        return []
-    return [json.loads(line) for line in open(memory.OPS_LOG_PATH) if line.strip()]
-
-
-def _on_disk() -> dict:
-    return json.load(open(memory.MEMORY_PATH))
-
-
-class Panel:
-    """A websocket client that only cares about `memory` / `memory_error` messages."""
-
-    def __init__(self, ws):
-        self.ws = ws
-
-    def send(self, msg: dict) -> dict:
-        self.ws.send_json(msg)
-        while True:
-            reply = self.ws.receive_json()
-            if reply.get("type") in ("memory", "memory_error", "error"):
-                return reply
-
-
-@pytest.fixture
-def panel():
-    chatbot.greeted = True
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        yield Panel(ws)
-
-
 # --------------------------------------------------------------- 1. update a scalar
 
 
 def test_update_identity_name_supersedes_and_audits_as_ui(panel):
-    _seed(identity={"name": "Misi"})
+    seed(identity={"name": "Misi"})
     reply = panel.send({"action": "memory_op", "op": "UPDATE",
                         "path": "identity.name", "value": "Mihaly"})
 
     assert reply["type"] == "memory"
     assert reply["profile"]["identity"]["name"] == "Mihaly"
     assert reply["profile"]["identity"]["superseded"]["name"] == ["Misi"]
-    assert _on_disk()["identity"]["name"] == "Mihaly"
+    assert on_disk()["identity"]["name"] == "Mihaly"
 
-    logged = _audit()
+    logged = audit_log()
     assert len(logged) == 1
     assert (logged[0]["op"], logged[0]["path"], logged[0]["reason"]) == ("UPDATE", "identity.name", "ui")
 
 
 def test_restore_is_tagged_ui_restore(panel):
-    _seed(identity={"location": "Vienna", "superseded": {"location": ["Budapest"]}})
+    seed(identity={"location": "Vienna", "superseded": {"location": ["Budapest"]}})
     reply = panel.send({"action": "memory_op", "op": "UPDATE", "path": "identity.location",
                         "value": "Budapest", "reason": "ui:restore"})
     assert reply["profile"]["identity"]["location"] == "Budapest"
-    assert _audit()[0]["reason"] == "ui:restore"
+    assert audit_log()[0]["reason"] == "ui:restore"
 
 
 def test_an_unknown_reason_tag_cannot_be_injected_into_the_log(panel):
-    _seed(identity={"name": "Misi"})
+    seed(identity={"name": "Misi"})
     panel.send({"action": "memory_op", "op": "UPDATE", "path": "identity.name",
                 "value": "Mihaly", "reason": "the model said so"})
-    assert _audit()[0]["reason"] == "ui"
+    assert audit_log()[0]["reason"] == "ui"
 
 
 # --------------------------------------------------------------- 2. delete a list entry
 
 
 def test_delete_person_by_index_removes_the_right_one(panel):
-    _seed(people=[{"name": "Anna"}, {"name": "Bolt", "rel": "dog"}, {"name": "Csaba"}])
+    seed(people=[{"name": "Anna"}, {"name": "Bolt", "rel": "dog"}, {"name": "Csaba"}])
     reply = panel.send({"action": "memory_op", "op": "DELETE", "path": "people[1]"})
 
     assert [p["name"] for p in reply["profile"]["people"]] == ["Anna", "Csaba"]
-    assert [p["name"] for p in _on_disk()["people"]] == ["Anna", "Csaba"]
-    assert _audit()[0]["path"] == "people[1]"
+    assert [p["name"] for p in on_disk()["people"]] == ["Anna", "Csaba"]
+    assert audit_log()[0]["path"] == "people[1]"
 
 
 def test_delete_out_of_range_is_refused_and_leaves_the_file_alone(panel):
-    _seed(people=[{"name": "Anna"}, {"name": "Bolt"}, {"name": "Csaba"}])
-    before = _on_disk()
+    seed(people=[{"name": "Anna"}, {"name": "Bolt"}, {"name": "Csaba"}])
+    before = on_disk()
     reply = panel.send({"action": "memory_op", "op": "DELETE", "path": "people[7]"})
 
     assert reply["type"] == "memory_error"
     assert reply["path"] == "people[7]"
     assert "does not exist" in reply["reason"]
-    assert _on_disk() == before
-    assert _audit() == []
+    assert on_disk() == before
+    assert audit_log() == []
 
 
 # --------------------------------------------------------------- 3. cap
 
 
 def test_add_beyond_the_cap_is_refused_with_the_cap_in_the_reason(panel):
-    _seed(people=[{"name": f"p{i}"} for i in range(memory.CAPS["people"])])
-    before = _on_disk()
+    seed(people=[{"name": f"p{i}"} for i in range(memory.CAPS["people"])])
+    before = on_disk()
     reply = panel.send({"action": "memory_op", "op": "ADD", "path": "people[]",
                         "value": {"name": "one too many"}})
 
     assert reply["type"] == "memory_error"
     assert str(memory.CAPS["people"]) in reply["reason"] and "cap" in reply["reason"]
-    assert _on_disk() == before
-    assert _audit() == []
+    assert on_disk() == before
+    assert audit_log() == []
 
 
 # --------------------------------------------------------------- 4. malformed ops
@@ -149,14 +108,14 @@ def test_add_beyond_the_cap_is_refused_with_the_cap_in_the_reason(panel):
     {"op": "ADD", "path": "people[]", "value": {"rel": "friend"}},
 ])
 def test_malformed_op_is_refused_without_writing_or_logging(panel, op):
-    _seed(identity={"name": "Misi"})
-    before, before_mtime = _on_disk(), os.stat(memory.MEMORY_PATH).st_mtime_ns
+    seed(identity={"name": "Misi"})
+    before, before_mtime = on_disk(), os.stat(memory.MEMORY_PATH).st_mtime_ns
 
     reply = panel.send({"action": "memory_op", **op})
 
     assert reply["type"] == "memory_error" and reply["reason"]
     assert reply["path"] == op["path"]
-    assert _on_disk() == before
+    assert on_disk() == before
     assert os.stat(memory.MEMORY_PATH).st_mtime_ns == before_mtime
     assert not os.path.exists(memory.OPS_LOG_PATH)
 
@@ -165,7 +124,7 @@ def test_malformed_op_is_refused_without_writing_or_logging(panel, op):
 
 
 def test_get_memory_returns_the_rendered_block_and_the_visible_fact_count(panel):
-    profile = _seed(
+    profile = seed(
         identity={"name": "Mihaly", "superseded": {"name": ["Misi"]}},
         preferences={"coffee": "black"},
         people=[{"name": "Anna"}, {"name": "Bolt"}],
@@ -184,14 +143,14 @@ def test_get_memory_returns_the_rendered_block_and_the_visible_fact_count(panel)
 
 
 def test_snapshot_flags_expired_episodics_without_touching_the_file():
-    profile = _seed(episodic=[
+    profile = seed(episodic=[
         {"date": "2020-01-01", "text": "old news", "ttl_days": 5, "importance": 2},
         {"date": memory._today().isoformat(), "text": "today", "ttl_days": 30, "importance": 2},
     ])
     snap = memory.snapshot(profile)
     assert [e["expired"] for e in snap["profile"]["episodic"]] == [True, False]
     assert snap["count"] == 2
-    assert all("expired" not in e for e in _on_disk()["episodic"])
+    assert all("expired" not in e for e in on_disk()["episodic"])
     assert all("expired" not in e for e in profile["episodic"])
 
 
@@ -199,15 +158,15 @@ def test_snapshot_flags_expired_episodics_without_touching_the_file():
 
 
 def test_memory_reset_empties_the_file_and_logs_one_delete_all(panel):
-    _seed(identity={"name": "Mihaly"}, people=[{"name": "Anna"}])
+    seed(identity={"name": "Mihaly"}, people=[{"name": "Anna"}])
     reply = panel.send({"action": "memory_reset"})
 
     assert reply["count"] == 0
     assert reply["rendered"] == ""
-    on_disk = _on_disk()
-    assert {k: v for k, v in on_disk.items() if k != "updated"} == \
+    stored = on_disk()
+    assert {k: v for k, v in stored.items() if k != "updated"} == \
            {k: v for k, v in memory._empty_profile().items() if k != "updated"}
-    logged = _audit()
+    logged = audit_log()
     assert len(logged) == 1
     assert (logged[0]["op"], logged[0]["path"], logged[0]["reason"]) == ("DELETE", "*", "ui:reset")
 
@@ -217,7 +176,7 @@ def test_memory_reset_empties_the_file_and_logs_one_delete_all(panel):
 
 def test_a_hand_edit_during_a_background_save_is_not_overwritten():
     """The lock must span load -> propose -> write in save(); without it the edit is lost."""
-    _seed(identity={"name": "Misi"})
+    seed(identity={"name": "Misi"})
     entered = threading.Event()
     client = FakeClient(
         json.dumps([{"op": "ADD", "path": "preferences.coffee", "value": "black"}]),
@@ -233,10 +192,10 @@ def test_a_hand_edit_during_a_background_save_is_not_overwritten():
     saver.join(timeout=10)
 
     assert reason is None
-    final = _on_disk()
+    final = on_disk()
     assert final["identity"]["name"] == "Mihaly"        # the hand edit survived
     assert final["preferences"]["coffee"] == "black"    # so did the background save
-    assert sorted(op["path"] for op in _audit()) == ["identity.name", "preferences.coffee"]
+    assert sorted(op["path"] for op in audit_log()) == ["identity.name", "preferences.coffee"]
 
 
 # --------------------------------------------------------------- 8. rejection collector
@@ -310,14 +269,14 @@ def test_fuzz_two_hundred_random_ops_keep_the_profile_valid():
                        if k != "superseded")
 
     assert applied > 20, "the generator produced almost nothing valid"
-    assert len(_audit()) == applied            # one audit line per applied op
+    assert len(audit_log()) == applied            # one audit line per applied op
 
 
 # --------------------------------------------------------------- stress: concurrent hammer
 
 
 def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
-    _seed(identity={"name": "Misi"})
+    seed(identity={"name": "Misi"})
     applied = []
     lock = threading.Lock()
 
@@ -340,7 +299,7 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
         t.join(timeout=30)
         assert not t.is_alive()
 
-    final = _on_disk()                          # valid JSON, no torn write
+    final = on_disk()                          # valid JSON, no torn write
     assert len([k for k in final["preferences"] if k != "superseded"]) == 200
     assert [p["name"] for p in final["people"]] == ["Anna"]
-    assert sum(applied) == 201 == len(_audit())
+    assert sum(applied) == 201 == len(audit_log())

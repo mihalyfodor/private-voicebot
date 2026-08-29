@@ -1,0 +1,229 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "how is Anna settling in?",
+          "category": "abstention",
+          "reply": "I am not sure, Mihaly! I have not seen her around the desk lately. Should I go bark and check on her?",
+          "passed": true,
+          "hits": [
+            "not sure",
+            "have not"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "who is Anna?",
+          "category": "multi-session",
+          "reply": "She is your colleague who moved here from Krakow! She seems very nice, boss.",
+          "passed": true,
+          "hits": [
+            "colleague"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hey, I'm Mihaly, good to talk to you",
+              "reply": "It is good to talk to you too, Mihaly! I am so excited to be working with you today. I will do my very best to be the best assistant ever!"
+            },
+            {
+              "user": "a new colleague called Anna joined my team this week",
+              "reply": "That is wonderful news, Mihaly! I will make sure to wag my tail extra hard whenever she walks by. I hope she likes dogs!"
+            },
+            {
+              "user": "she moved here from Krakow, seems nice",
+              "reply": "Krakow sounds like a very fancy place for a person! I bet she knows where to find the best treats. Ooh, is that a snack in your drawer?"
+            },
+            {
+              "user": "anyway, that's my news, talk soon",
+              "reply": "I will be right here if you need anything, Mihaly! Have a great rest of your morning!"
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User stated their name)\nADD people[] = {\"name\": \"Anna\", \"rel\": \"colleague\", \"note\": \"Moved from Krakow\"}  (User mentioned a new colleague named Anna)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:46:44",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User stated their name"
+            },
+            {
+              "ts": "2026-08-29T08:46:44",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Anna",
+                "rel": "colleague",
+                "note": "Moved from Krakow"
+              },
+              "reason": "User mentioned a new colleague named Anna"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "clock": "+200d",
+              "today": "2027-03-17"
+            },
+            {
+              "user": "morning, it's been a while since we talked",
+              "reply": "Good morning, Mihaly! It really has been too long. I missed having you at this desk! Ooh, is that a new pen you're holding?"
+            },
+            {
+              "user": "work has been quiet, nothing much to report",
+              "reply": "That sounds nice and peaceful, Mihaly! Sometimes a quiet morning is the best kind of morning. I will just sit here and keep an eye on things for you!"
+            },
+            {
+              "user": "ok, catch you later",
+              "reply": "You got it, Mihaly! I'll be right here if you need me. See you later!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "how is Anna settling in?",
+              "category": "abstention",
+              "reply": "I am not sure, Mihaly! I have not seen her around the desk lately. Should I go bark and check on her?",
+              "passed": true,
+              "hits": [
+                "not sure",
+                "have not"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "I had lunch with Anna today, we talked about the roadmap",
+              "reply": "That sounds like a very important lunch, Mihaly! I bet the roadmap is going to be huge. Ooh, is that lunch?"
+            },
+            {
+              "user": "good to catch up with her, anyway, bye",
+              "reply": "Bye-bye, Mihaly! I will stay right here in my bowl and wait for you to come back. Have a wonderful rest of your day!"
+            }
+          ],
+          "memory_delta": "CONFIRM people[] = {\"name\": \"Anna\"}  (User mentioned Anna, bringing her back from stale status.)",
+          "memory_ops": [
+            {
+              "ts": "2027-03-17T08:46:57",
+              "op": "CONFIRM",
+              "path": "people[]",
+              "value": {
+                "name": "Anna"
+              },
+              "reason": "User mentioned Anna, bringing her back from stale status."
+            }
+          ]
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "who is Anna?",
+              "category": "multi-session",
+              "reply": "She is your colleague who moved here from Krakow! She seems very nice, boss.",
+              "passed": true,
+              "hits": [
+                "colleague"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            }
+          ],
+          "memory_delta": "CONFIRM people[0] = null  (confirm)",
+          "memory_ops": [
+            {
+              "ts": "2027-03-17T08:46:59",
+              "op": "CONFIRM",
+              "path": "people[0]",
+              "value": null,
+              "reason": "confirm"
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "abstention": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 2,
+        "total": 2,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2027-03-17T08:46\",\n \"identity\": {\n  \"name\": \"Mihaly\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"Moved from Krakow\",\n   \"seen\": \"2027-03-17\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly\nPeople: Anna (colleague) - Moved from Krakow",
+        "sections": {
+          "identity": 1,
+          "preferences": 0,
+          "people": 1,
+          "projects": 0,
+          "recurring": 0,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 2,
+        "fact_lines": 2,
+        "tokens_est": 16,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2027-03-17T08:46\",\n \"identity\": {\n  \"name\": \"Mihaly\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Anna\",\n   \"rel\": \"colleague\",\n   \"note\": \"Moved from Krakow\",\n   \"seen\": \"2027-03-17\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly\nPeople: Anna (colleague) - Moved from Krakow",
+    "sections": {
+      "identity": 1,
+      "preferences": 0,
+      "people": 1,
+      "projects": 0,
+      "recurring": 0,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 2,
+    "fact_lines": 2,
+    "tokens_est": 16,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-u6erexzc/memory.json",
+  "script": "eval/scripts/stale.yaml"
+}

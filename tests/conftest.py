@@ -1,10 +1,13 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import json
 import time
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 import chatbot
 import memory
@@ -94,3 +97,50 @@ def empty_profile(**sections) -> dict:
     profile = memory._empty_profile()
     profile.update(sections)
     return profile
+
+
+def days_ago(n: int) -> str:
+    """An ISO date `n` days before today — episodic `date` and entry `seen` values."""
+    return (date.today() - timedelta(days=n)).isoformat()
+
+
+def seed(**sections) -> dict:
+    """Write a profile with `sections` filled in — the starting point of an editor scenario."""
+    profile = empty_profile(**sections)
+    memory._write_profile(profile)
+    return profile
+
+
+def audit_log() -> list:
+    """Every line of the sandboxed memory_ops.jsonl, parsed."""
+    if not os.path.exists(memory.OPS_LOG_PATH):
+        return []
+    return [json.loads(line) for line in open(memory.OPS_LOG_PATH) if line.strip()]
+
+
+def on_disk() -> dict:
+    """The sandboxed memory.json as written (no normalisation)."""
+    return json.load(open(memory.MEMORY_PATH))
+
+
+class Panel:
+    """A websocket client that only cares about `memory` / `memory_error` messages."""
+
+    def __init__(self, ws):
+        self.ws = ws
+
+    def send(self, msg: dict) -> dict:
+        self.ws.send_json(msg)
+        while True:
+            reply = self.ws.receive_json()
+            if reply.get("type") in ("memory", "memory_error", "error"):
+                return reply
+
+
+@pytest.fixture
+def panel():
+    """A connected memory panel — the websocket the editor tests drive."""
+    chatbot.greeted = True
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        yield Panel(ws)

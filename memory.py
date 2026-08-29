@@ -171,9 +171,14 @@ def _today() -> date:
     return date.today()
 
 
+def _today_iso() -> str:
+    """Today as ``YYYY-MM-DD`` — the form every date stored in the profile takes."""
+    return _today().isoformat()
+
+
 def _stamp(time_format: str) -> str:
     """An ISO timestamp whose date part comes from :func:`_today` (so a mocked clock shows)."""
-    return f"{_today().isoformat()}T{datetime.now().strftime(time_format)}"
+    return f"{_today_iso()}T{datetime.now().strftime(time_format)}"
 
 
 def _parse_date(value) -> date | None:
@@ -465,7 +470,7 @@ def propose_ops(profile: dict, turns: list, client, model: str) -> list:
     transcript = _transcript(turns)
     if not transcript.strip():
         return []
-    system = PROPOSE_SYSTEM % _today().isoformat()
+    system = PROPOSE_SYSTEM % _today_iso()
     user = (
         f"Current profile:\n{json.dumps(_public(profile), ensure_ascii=False, indent=1)}\n\n"
         f"New conversation:\n{transcript}"
@@ -512,11 +517,11 @@ def _find(entries: list, key_field: str, key_value) -> int:
 
 def _episodic_entry(value: dict) -> dict:
     entry = {
-        "date": str(value.get("date") or _today().isoformat())[:10],
+        "date": str(value.get("date") or _today_iso())[:10],
         "text": str(value["text"]).strip(),
         "ttl_days": DEFAULT_TTL_DAYS,
         "importance": _importance(value),
-        SEEN_FIELD: _today().isoformat(),
+        SEEN_FIELD: _today_iso(),
     }
     try:
         entry["ttl_days"] = max(1, int(value.get("ttl_days", DEFAULT_TTL_DAYS)))
@@ -614,7 +619,7 @@ def _as_bool(value):
 
 def _touch(entry: dict) -> dict:
     """Mark `entry` as confirmed today (ADD / UPDATE / CONFIRM all count as a mention)."""
-    entry[SEEN_FIELD] = _today().isoformat()
+    entry[SEEN_FIELD] = _today_iso()
     return entry
 
 
@@ -670,7 +675,7 @@ def _apply_stale_op(entry: dict, value, op) -> bool:
             return False
         entry[STALE_FIELD] = True
         return True
-    if not is_stale(entry) and entry.get(SEEN_FIELD) == _today().isoformat():
+    if not is_stale(entry) and entry.get(SEEN_FIELD) == _today_iso():
         return False
     _revive(entry)
     return True
@@ -1010,7 +1015,7 @@ def reflect(profile: dict, client, model: str) -> dict:
     that cannot be traced back to an entry already in `profile`. Returns `profile` unchanged if
     the call fails.
     """
-    system = REFLECT_SYSTEM % _today().isoformat()
+    system = REFLECT_SYSTEM % _today_iso()
     user = json.dumps(_public(profile), ensure_ascii=False, indent=1)
     try:
         content = _complete(client, model, system, user, 900)
@@ -1032,7 +1037,7 @@ def _carry_decay(entry: dict, source: dict | None) -> dict:
     """
     carried = dict(entry)
     carried[SEEN_FIELD] = (source or {}).get(SEEN_FIELD) or entry.get(SEEN_FIELD) \
-        or _today().isoformat()
+        or _today_iso()
     if is_stale(source or {}):
         carried[STALE_FIELD] = True
     else:

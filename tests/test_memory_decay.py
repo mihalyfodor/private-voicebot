@@ -10,13 +10,11 @@ import json
 from datetime import date, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
 
-import chatbot
 import llm
 import memory
 from eval import harness
-from tests.conftest import FakeClient, empty_profile
+from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 
 TODAY = date.today().isoformat()
 
@@ -38,48 +36,6 @@ def clock(monkeypatch):
         monkeypatch.setattr(memory, "_today", lambda: when)
         return when
     return travel
-
-
-def _days_ago(n: int) -> str:
-    return (date.today() - timedelta(days=n)).isoformat()
-
-
-def _seed(**sections) -> dict:
-    profile = empty_profile(**sections)
-    memory._write_profile(profile)
-    return profile
-
-
-def _audit() -> list:
-    if not os.path.exists(memory.OPS_LOG_PATH):
-        return []
-    return [json.loads(line) for line in open(memory.OPS_LOG_PATH) if line.strip()]
-
-
-def _on_disk() -> dict:
-    return json.load(open(memory.MEMORY_PATH))
-
-
-class Panel:
-    """A websocket client that only cares about `memory` / `memory_error` messages."""
-
-    def __init__(self, ws):
-        self.ws = ws
-
-    def send(self, msg: dict) -> dict:
-        self.ws.send_json(msg)
-        while True:
-            reply = self.ws.receive_json()
-            if reply.get("type") in ("memory", "memory_error", "error"):
-                return reply
-
-
-@pytest.fixture
-def panel():
-    chatbot.greeted = True
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        yield Panel(ws)
 
 
 # --------------------------------------------------------------- 1. schema backfill
@@ -124,8 +80,8 @@ def test_add_sets_seen_to_today_whatever_the_path_form(path):
 
 def test_update_refreshes_seen_on_every_entry_path_form():
     profile = empty_profile(
-        people=[{"name": "Anna", "rel": "colleague", "seen": _days_ago(100)}],
-        projects=[{"name": "half marathon", "note": "October", "seen": _days_ago(100)}],
+        people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(100)}],
+        projects=[{"name": "half marathon", "note": "October", "seen": days_ago(100)}],
     )
     profile, _ = memory.apply_ops(profile, [
         {"op": "UPDATE", "path": "people[]", "value": {"name": "Anna", "note": "moved teams"}},
@@ -143,21 +99,21 @@ def test_episodic_add_carries_seen():
 
 def test_confirm_refreshes_seen_and_clears_stale():
     profile = empty_profile(people=[
-        {"name": "Bob", "seen": _days_ago(10)},
-        {"name": "Anna", "rel": "colleague", "seen": _days_ago(200), "stale": True},
+        {"name": "Bob", "seen": days_ago(10)},
+        {"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True},
     ])
     profile, applied = memory.apply_ops(
         profile, [{"op": "CONFIRM", "path": "people[1]", "reason": "mentioned at lunch"}])
     anna = profile["people"][1]
     assert anna["seen"] == TODAY and "stale" not in anna
     assert anna["rel"] == "colleague"                     # CONFIRM changes nothing else
-    assert profile["people"][0]["seen"] == _days_ago(10)  # and touches nothing else
+    assert profile["people"][0]["seen"] == days_ago(10)  # and touches nothing else
     assert applied == [{"op": "CONFIRM", "path": "people[1]",
                         "value": None, "reason": "mentioned at lunch"}]
 
 
 def test_confirm_by_identifying_key_works_and_defaults_its_reason():
-    profile = empty_profile(recurring=[{"what": "gym", "seen": _days_ago(120), "stale": True}])
+    profile = empty_profile(recurring=[{"what": "gym", "seen": days_ago(120), "stale": True}])
     profile, applied = memory.apply_ops(
         profile, [{"op": "CONFIRM", "path": "recurring[]", "value": {"what": "Gym"}}])   # matched case-insensitively
     assert profile["recurring"][0] == {"what": "gym", "seen": TODAY}
@@ -170,19 +126,19 @@ def test_confirm_by_identifying_key_works_and_defaults_its_reason():
     ({"op": "CONFIRM", "path": "identity.name"}, "CONFIRM needs a list entry path"),
 ])
 def test_confirm_on_something_that_is_not_there_is_rejected(op, expected, capsys):
-    profile = empty_profile(people=[{"name": "Anna", "seen": _days_ago(5)}])
+    profile = empty_profile(people=[{"name": "Anna", "seen": days_ago(5)}])
     profile, applied = memory.apply_ops(profile, [op])
     assert applied == [] and expected in capsys.readouterr().out
-    assert profile["people"][0]["seen"] == _days_ago(5)
+    assert profile["people"][0]["seen"] == days_ago(5)
 
 
 def test_confirm_is_logged_with_the_confirm_reason():
-    _seed(people=[{"name": "Anna", "seen": _days_ago(200), "stale": True}])
+    seed(people=[{"name": "Anna", "seen": days_ago(200), "stale": True}])
     memory.save([{"role": "user", "content": "had lunch with Anna"}],
                 FakeClient('[{"op":"CONFIRM","path":"people[0]"}]'), "m")
-    logged = _audit()
+    logged = audit_log()
     assert [(o["op"], o["path"], o["reason"]) for o in logged] == [("CONFIRM", "people[0]", "confirm")]
-    assert _on_disk()["people"][0] == {"name": "Anna", "seen": TODAY}
+    assert on_disk()["people"][0] == {"name": "Anna", "seen": TODAY}
 
 
 # --------------------------------------------------------------- 3. _mark_stale
@@ -190,11 +146,11 @@ def test_confirm_is_logged_with_the_confirm_reason():
 
 def test_mark_stale_retires_entries_past_their_window_only(clock):
     profile = empty_profile(
-        people=[{"name": "Anna", "seen": _days_ago(0)},
-                {"name": "Bob", "seen": _days_ago(0)}],
-        projects=[{"name": "half marathon", "seen": _days_ago(0)}],
-        recurring=[{"what": "gym", "seen": _days_ago(0)}],
-        episodic=[{"date": _days_ago(0), "text": "ran a 10k", "seen": _days_ago(0),
+        people=[{"name": "Anna", "seen": days_ago(0)},
+                {"name": "Bob", "seen": days_ago(0)}],
+        projects=[{"name": "half marathon", "seen": days_ago(0)}],
+        recurring=[{"what": "gym", "seen": days_ago(0)}],
+        episodic=[{"date": days_ago(0), "text": "ran a 10k", "seen": days_ago(0),
                    "ttl_days": 30, "importance": 2}],
     )
     profile["people"][1]["seen"] = (date.today() + timedelta(days=100)).isoformat()  # seen later
@@ -211,8 +167,8 @@ def test_mark_stale_retires_entries_past_their_window_only(clock):
 
 
 def test_mark_stale_is_idempotent_and_windows_are_per_section(clock):
-    profile = empty_profile(people=[{"name": "Anna", "seen": _days_ago(0)}],
-                            recurring=[{"what": "gym", "seen": _days_ago(0)}])
+    profile = empty_profile(people=[{"name": "Anna", "seen": days_ago(0)}],
+                            recurring=[{"what": "gym", "seen": days_ago(0)}])
     clock(100)
     assert len(memory._mark_stale(profile)) == 1          # recurring (90) only
     assert memory._mark_stale(profile) == []              # nothing new to say
@@ -226,24 +182,24 @@ def test_stale_windows_are_env_overridable():
 # --------------------------------------------------------------- 4. render / count / snapshot
 
 
-def test_render_omits_stale_entries_but_they_stay_counted_and_on_disk():
-    profile = _seed(
+def test_render_omits_stale_entries_but_they_stay_counted_andon_disk():
+    profile = seed(
         identity={"name": "Mihaly"},
-        people=[{"name": "Anna", "rel": "colleague", "seen": _days_ago(200), "stale": True},
+        people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True},
                 {"name": "Bob", "rel": "brother", "seen": TODAY}],
-        recurring=[{"what": "gym", "seen": _days_ago(100), "stale": True}],
+        recurring=[{"what": "gym", "seen": days_ago(100), "stale": True}],
         episodic=[{"date": TODAY, "text": "ran a 10k", "importance": 3, "stale": True}],
     )
     rendered = memory.render(profile)
     assert "Anna" not in rendered and "gym" not in rendered and "10k" not in rendered
     assert "Bob" in rendered
     assert memory.fact_count(profile) == 5                # stale facts still count
-    assert len(_on_disk()["people"]) == 2                 # nothing was deleted
+    assert len(on_disk()["people"]) == 2                 # nothing was deleted
 
 
 def test_snapshot_carries_seen_stale_and_the_section_window():
-    profile = _seed(
-        people=[{"name": "Anna", "seen": _days_ago(200), "stale": True}, {"name": "Bob"}],
+    seed(
+        people=[{"name": "Anna", "seen": days_ago(200), "stale": True}, {"name": "Bob"}],
         projects=[{"name": "half marathon", "seen": TODAY}],
         recurring=[{"what": "gym", "seen": TODAY}],
         episodic=[{"date": "2020-01-01", "text": "old news", "ttl_days": 5}],
@@ -251,14 +207,14 @@ def test_snapshot_carries_seen_stale_and_the_section_window():
     snap = memory.snapshot(memory.load_profile())
     people = snap["profile"]["people"]
     assert (people[0]["stale"], people[0]["seen"], people[0]["stale_after"]) == \
-           (True, _days_ago(200), 180)
+           (True, days_ago(200), 180)
     assert (people[1]["stale"], people[1]["stale_after"]) == (False, 180)
     assert snap["profile"]["projects"][0]["stale_after"] == 120
     assert snap["profile"]["recurring"][0]["stale_after"] == 90
     episodic = snap["profile"]["episodic"][0]
     assert episodic["expired"] is True and episodic["stale"] is False and episodic["seen"]
     assert "stale_after" not in episodic
-    assert all("stale" not in e for e in _on_disk()["people"][1:])   # flags are view-only
+    assert all("stale" not in e for e in on_disk()["people"][1:])   # flags are view-only
     assert snap["count"] == 5
 
 
@@ -266,7 +222,7 @@ def test_snapshot_carries_seen_stale_and_the_section_window():
 
 
 def test_caps_evict_stale_entries_first_then_the_oldest_seen():
-    people = [{"name": f"P{i}", "seen": _days_ago(i)} for i in range(30)]   # P29 seen longest ago
+    people = [{"name": f"P{i}", "seen": days_ago(i)} for i in range(30)]   # P29 seen longest ago
     people[3]["stale"] = True
     people[4]["stale"] = True
     profile = empty_profile(people=people)
@@ -282,7 +238,7 @@ def test_caps_evict_stale_entries_first_then_the_oldest_seen():
 
 
 def test_caps_fall_back_to_oldest_seen_when_nothing_is_stale():
-    people = [{"name": f"P{i}", "seen": _days_ago(30 - i)} for i in range(31)]  # P0 is the oldest
+    people = [{"name": f"P{i}", "seen": days_ago(30 - i)} for i in range(31)]  # P0 is the oldest
     profile = empty_profile(people=people)
     memory._enforce_caps(profile)
     assert [p["name"] for p in profile["people"]][0] == "P1"
@@ -304,20 +260,20 @@ REFLECTED = json.dumps({
 def test_validate_reflection_keeps_seen_and_stale_even_when_the_model_drops_them():
     original = empty_profile(
         identity={"name": "Mihaly"},
-        people=[{"name": "Anna", "rel": "colleague", "seen": _days_ago(200), "stale": True},
-                {"name": "Anna K", "rel": "colleague", "seen": _days_ago(200), "stale": True}],
-        recurring=[{"what": "gym", "when": "Tue", "seen": _days_ago(3)}],
-        episodic=[{"date": _days_ago(2), "text": "gym again", "ttl_days": 30, "importance": 2}],
+        people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True},
+                {"name": "Anna K", "rel": "colleague", "seen": days_ago(200), "stale": True}],
+        recurring=[{"what": "gym", "when": "Tue", "seen": days_ago(3)}],
+        episodic=[{"date": days_ago(2), "text": "gym again", "ttl_days": 30, "importance": 2}],
     )
     result = memory._validate_reflection(original, json.loads(REFLECTED))
-    assert result["people"][0]["seen"] == _days_ago(200)
+    assert result["people"][0]["seen"] == days_ago(200)
     assert result["people"][0]["stale"] is True
-    assert result["recurring"][0] == {"what": "gym", "when": "Tue/Thu", "seen": _days_ago(3)}
+    assert result["recurring"][0] == {"what": "gym", "when": "Tue/Thu", "seen": days_ago(3)}
 
 
 def test_reflection_dates_a_freshly_promoted_recurring_entry_today():
     original = empty_profile(episodic=[
-        {"date": _days_ago(i), "text": "went to the gym", "ttl_days": 30, "importance": 2}
+        {"date": days_ago(i), "text": "went to the gym", "ttl_days": 30, "importance": 2}
         for i in (1, 4, 8)
     ])
     cleaned = {"recurring": [{"what": "went to the gym", "when": "most days"}]}
@@ -327,19 +283,19 @@ def test_reflection_dates_a_freshly_promoted_recurring_entry_today():
 
 
 def test_a_stale_entry_survives_a_reflection_pass_through_save():
-    _seed(people=[{"name": "Anna", "rel": "colleague", "seen": _days_ago(200), "stale": True}],
+    seed(people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True}],
           meta={"saves": memory.REFLECT_EVERY - 1})
     client = FakeClient('[{"op":"ADD","path":"identity.name","value":"Mihaly"}]', REFLECTED)
     memory.save([{"role": "user", "content": "I'm Mihaly"}], client, "m")
-    anna = _on_disk()["people"][0]
-    assert anna["stale"] is True and anna["seen"] == _days_ago(200)
+    anna = on_disk()["people"][0]
+    assert anna["stale"] is True and anna["seen"] == days_ago(200)
 
 
 # --------------------------------------------------------------- 7. memory_ops batch
 
 
 def test_memory_ops_batch_promotes_an_episodic_atomically(panel):
-    _seed(recurring=[], episodic=[{"date": TODAY, "text": "gym again", "ttl_days": 30,
+    seed(recurring=[], episodic=[{"date": TODAY, "text": "gym again", "ttl_days": 30,
                                    "importance": 2}])
     reply = panel.send({"action": "memory_ops", "ops": [
         {"op": "ADD", "path": "recurring[]", "value": {"what": "gym again", "when": ""}},
@@ -348,37 +304,37 @@ def test_memory_ops_batch_promotes_an_episodic_atomically(panel):
     assert reply["type"] == "memory"
     assert [e["what"] for e in reply["profile"]["recurring"]] == ["gym again"]
     assert reply["profile"]["episodic"] == []
-    on_disk = _on_disk()
-    assert on_disk["recurring"][0]["seen"] == TODAY and on_disk["episodic"] == []
-    assert [(o["op"], o["path"], o["reason"]) for o in _audit()] == [
+    stored = on_disk()
+    assert stored["recurring"][0]["seen"] == TODAY and stored["episodic"] == []
+    assert [(o["op"], o["path"], o["reason"]) for o in audit_log()] == [
         ("ADD", "recurring[]", "ui"), ("DELETE", "episodic[0]", "ui")]
 
 
 def test_one_bad_op_rejects_the_whole_batch_and_writes_nothing(panel):
-    _seed(people=[{"name": "Anna", "seen": TODAY}], episodic=[])
-    before = _on_disk()
+    seed(people=[{"name": "Anna", "seen": TODAY}], episodic=[])
+    before = on_disk()
     reply = panel.send({"action": "memory_ops", "ops": [
         {"op": "ADD", "path": "recurring[]", "value": {"what": "gym"}},
         {"op": "DELETE", "path": "episodic[7]"},
     ]})
     assert reply["type"] == "memory_error"
     assert reply["path"] == "episodic[7]" and "does not exist" in reply["reason"]
-    assert _on_disk() == before and _audit() == []
+    assert on_disk() == before and audit_log() == []
 
 
 def test_edit_many_reports_the_path_of_the_op_that_failed():
-    _seed(people=[{"name": "Anna", "seen": TODAY}])
+    seed(people=[{"name": "Anna", "seen": TODAY}])
     profile, error = memory.edit_many([
         {"op": "UPDATE", "path": "identity.name", "value": "Mihaly"},
         {"op": "UPDATE", "path": "identity.name", "value": "Mihaly"},   # nothing changed
     ])
     assert error == {"path": "identity.name", "reason": "nothing changed"}
-    assert "name" not in _on_disk()["identity"]                          # first op rolled back
+    assert "name" not in on_disk()["identity"]                          # first op rolled back
     assert memory.edit_many([])[1]["reason"] == "no ops"
 
 
 def test_edit_is_still_the_single_op_wrapper():
-    _seed(people=[{"name": "Anna", "seen": _days_ago(9)}])
+    seed(people=[{"name": "Anna", "seen": days_ago(9)}])
     profile, reason = memory.edit({"op": "UPDATE", "path": "people[0]",
                                    "value": {"rel": "colleague"}})
     assert reason is None and profile["people"][0]["rel"] == "colleague"
@@ -389,29 +345,29 @@ def test_edit_is_still_the_single_op_wrapper():
 
 
 def test_the_ui_can_retire_and_restore_an_entry_with_a_boolean_stale(panel):
-    _seed(people=[{"name": "Anna", "rel": "colleague", "seen": _days_ago(30)}])
+    seed(people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(30)}])
 
     retired = panel.send({"action": "memory_op", "op": "UPDATE",
                           "path": "people[0].stale", "value": True})
     assert retired["profile"]["people"][0]["stale"] is True
-    assert _on_disk()["people"][0]["seen"] == _days_ago(30)      # retiring is not a mention
+    assert on_disk()["people"][0]["seen"] == days_ago(30)      # retiring is not a mention
     assert "Anna" not in retired["rendered"]
 
     restored = panel.send({"action": "memory_op", "op": "UPDATE",
                            "path": "people[0].stale", "value": False,
                            "reason": "ui:restore"})
     assert restored["profile"]["people"][0]["stale"] is False
-    assert _on_disk()["people"][0] == {"name": "Anna", "rel": "colleague", "seen": TODAY}
+    assert on_disk()["people"][0] == {"name": "Anna", "rel": "colleague", "seen": TODAY}
     assert "Anna" in restored["rendered"]
-    assert [o["reason"] for o in _audit()] == ["ui", "ui:restore"]
+    assert [o["reason"] for o in audit_log()] == ["ui", "ui:restore"]
 
 
 def test_a_non_boolean_stale_value_is_refused(panel):
-    _seed(people=[{"name": "Anna", "seen": TODAY}])
+    seed(people=[{"name": "Anna", "seen": TODAY}])
     reply = panel.send({"action": "memory_op", "op": "UPDATE",
                         "path": "people[0].stale", "value": "maybe"})
     assert reply["type"] == "memory_error" and "true or false" in reply["reason"]
-    assert "stale" not in _on_disk()["people"][0]
+    assert "stale" not in on_disk()["people"][0]
 
 
 def test_booleans_are_not_accepted_as_ordinary_field_values(capsys):
@@ -448,11 +404,11 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock):
 
 
 def test_a_save_that_learns_nothing_still_writes_the_retirement(clock, capsys):
-    _seed(people=[{"name": "Anna", "seen": _days_ago(0)}])
+    seed(people=[{"name": "Anna", "seen": days_ago(0)}])
     clock(200)
     applied = memory.save([{"role": "user", "content": "hi"}], FakeClient("[]"), "m")
     assert applied == []
-    assert _on_disk()["people"][0]["stale"] is True
+    assert on_disk()["people"][0]["stale"] is True
     assert "[Memory] stale — people: Anna" in capsys.readouterr().out
 
 
@@ -472,7 +428,7 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     monkeypatch.setattr(llm, "client", lambda: session_one)
     llm._session_turns[:] = [{"role": "user", "content": "I've got a dog called Bolt"}]
     llm.save_memory()
-    assert [p["name"] for p in _on_disk()["people"]] == ["Bolt"]
+    assert [p["name"] for p in on_disk()["people"]] == ["Bolt"]
 
     # the user fixes the profile by hand between the two sessions
     memory.edit_many([
@@ -487,9 +443,9 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     llm._session_turns[:] = [{"role": "user", "content": "big presentation next Thursday"}]
     llm.save_memory()
 
-    on_disk = _on_disk()
-    assert on_disk["people"] == []
-    assert on_disk["identity"]["occupation"] == "engineering manager"
+    stored = on_disk()
+    assert stored["people"] == []
+    assert stored["identity"]["occupation"] == "engineering manager"
     transcript = session_two.calls[0]["messages"][1]["content"]
     assert "Bolt" not in transcript          # the old turns are gone, not just ignored
     assert llm._session_turns == []
@@ -513,18 +469,18 @@ def test_harness_clock_turn_shifts_memorys_today():
 
 
 def test_harness_edit_turn_applies_one_op_and_a_list_as_a_batch(capsys):
-    _seed(people=[{"name": "Bolt", "rel": "dog", "seen": TODAY}],
+    seed(people=[{"name": "Bolt", "rel": "dog", "seen": TODAY}],
           episodic=[{"date": TODAY, "text": "gym again", "ttl_days": 30, "importance": 2}])
 
     single = harness._run_edit({"op": "DELETE", "path": "people[]", "value": {"name": "Bolt"}})
-    assert single["error"] is None and _on_disk()["people"] == []
+    assert single["error"] is None and on_disk()["people"] == []
 
     batch = harness._run_edit([
         {"op": "ADD", "path": "recurring[]", "value": {"what": "gym", "when": "Mon/Wed"}},
         {"op": "DELETE", "path": "episodic[0]"},
     ])
     assert batch["error"] is None
-    assert _on_disk()["recurring"][0]["what"] == "gym" and _on_disk()["episodic"] == []
+    assert on_disk()["recurring"][0]["what"] == "gym" and on_disk()["episodic"] == []
 
     refused = harness._run_edit({"op": "DELETE", "path": "people[9]"})
     assert refused["error"]["path"] == "people[9]"

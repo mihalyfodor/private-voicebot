@@ -479,6 +479,7 @@ const MEMORY_SPEC = [
   { section: 'episodic', kind: 'list', key: 'text', fields: ['text', 'date', 'importance', 'ttl_days'], retirable: false },
 ];
 const MEMORY_NUMERIC = new Set(['importance', 'ttl_days']);
+const MEM_SPEC_BY_SECTION = new Map(MEMORY_SPEC.map(s => [s.section, s]));
 
 const memSectionsEl = document.getElementById('memory-sections');
 const memRenderedEl = document.getElementById('memory-rendered');
@@ -606,10 +607,8 @@ function memRelative(days) {
 }
 
 // Muted right-aligned "3 months ago" with the ISO date in the tooltip.
-function seenLabel(entry) {
-  if (!entry.seen) return null;
-  const days = memDaysSince(entry.seen);
-  if (days === null) return null;
+function seenLabel(entry, days) {
+  if (!entry.seen || days === null) return null;
   const node = el('span', 'mem-seen', memRelative(days));
   node.title = `last confirmed ${entry.seen}`;
   return node;
@@ -634,12 +633,26 @@ function promoteEpisodic(entry, index) {
   ]);
 }
 
-// Moves offered for a row, by both the "→" menu and drag-and-drop.
+// The moves offered for one row. `to` names the drop zone that performs the move, so the same
+// table drives the "→" menu and drag-and-drop (see memDropZone) — no second set of conditionals.
 function rowMoves(spec, entry, index, stale) {
-  if (stale) return [{ label: 'restore', run: () => retireEntry(spec.section, index, false) }];
-  if (spec.section === 'episodic') return [{ label: 'make recurring', run: () => promoteEpisodic(entry, index) }];
-  if (spec.retirable) return [{ label: 'retire', run: () => retireEntry(spec.section, index, true) }];
+  if (stale) return [{ label: 'restore', to: `${spec.section}/section`, run: () => retireEntry(spec.section, index, false) }];
+  if (spec.section === 'episodic') return [{ label: 'make recurring', to: 'recurring/section', run: () => promoteEpisodic(entry, index) }];
+  if (spec.retirable) return [{ label: 'retire', to: `${spec.section}/stale`, run: () => retireEntry(spec.section, index, true) }];
   return [];
+}
+
+// One entry of a section by index — how a drag payload resolves back to its row.
+function memEntryAt(section, index) {
+  const list = (memoryProfile && memoryProfile[section]) || [];
+  return list[index] || {};
+}
+
+// The same moves for the row a drag payload ({section, index, kind}) refers to.
+function dragMoves(drag) {
+  const spec = drag && MEM_SPEC_BY_SECTION.get(drag.section);
+  if (!spec) return [];
+  return rowMoves(spec, memEntryAt(drag.section, drag.index), drag.index, drag.kind === 'stale');
 }
 
 // ---- inline "→" menu ----
@@ -705,30 +718,26 @@ function makeDraggable(row, drag) {
   };
 }
 
-// Only compatible drags get preventDefault (and therefore a drop) plus the highlight.
-function dropTarget(node, accepts, run, armable) {
+// `node` accepts a drag exactly when one of the dragged row's moves names `zone`, and dropping
+// runs that move. Only compatible drags get preventDefault (and therefore a drop) plus the
+// highlight; `armable` also shows the zone while such a drag is in progress.
+function memDropZone(node, zone, armable) {
+  const moveFor = (drag) => dragMoves(drag).find(m => m.to === zone);
   node.ondragover = (e) => {
-    const drag = memReadDrag(e);
-    if (!drag || !accepts(drag)) return;
+    if (!moveFor(memReadDrag(e))) return;
     e.preventDefault();
     node.classList.add('drop-ok');
   };
   node.ondragleave = () => node.classList.remove('drop-ok');
   node.ondrop = (e) => {
     node.classList.remove('drop-ok');
-    const drag = memReadDrag(e);
-    if (!drag || !accepts(drag)) return;
+    const move = moveFor(memReadDrag(e));
+    if (!move) return;
     e.preventDefault();
     clearDropTargets();
-    run(drag);
+    move.run();
   };
-  if (armable) memArmable.push({ node, accepts });
-}
-
-// The live rows of a section, so a drag knows which entry it carries.
-function memEntryAt(section, index) {
-  const list = (memoryProfile && memoryProfile[section]) || [];
-  return list[index] || {};
+  if (armable) memArmable.push({ node, accepts: (drag) => !!moveFor(drag) });
 }
 
 // A row plus the error line the server's memory_error is routed into.
@@ -771,14 +780,15 @@ function listRow(spec, entry, index, stale) {
     parts.push(el('span', 'mem-tag', 'expired'));
   }
   const days = entry.seen ? memDaysSince(entry.seen) : null;
-  const seen = seenLabel(entry);
+  const seen = seenLabel(entry, days);
   if (seen) parts.push(seen);
   if (stale) row.classList.add('mem-stale');
   else if (memIsAging(entry, days)) row.classList.add('aging');
   const moves = rowMoves(spec, entry, index, stale);
-  if (stale) {
+  if (stale && moves.length) {
+    // A stale row's one move is "restore"; it gets a spelled-out button as well as the menu.
     const restore = el('button', 'mem-restore', 'restore');
-    restore.onclick = () => retireEntry(spec.section, index, false);
+    restore.onclick = moves[0].run;
     parts.push(restore);
   }
   if (moves.length) parts.push(moveButton(moves));
@@ -796,32 +806,10 @@ function staleGroup(spec, entries) {
   const count = entries.length;
   head.textContent = count ? `stale (${count})` : 'drop here to retire';
   if (!count) head.classList.add('empty');
-  if (spec.retirable) {
-    dropTarget(
-      head,
-      (drag) => drag.section === spec.section && drag.kind === 'live',
-      (drag) => retireEntry(drag.section, drag.index, true),
-      true,
-    );
-  }
+  if (spec.retirable) memDropZone(head, `${spec.section}/stale`, true);
   group.append(head, ...entries.map(([entry, i]) => listRow(spec, entry, i, true)));
   group.hidden = !count && !spec.retirable;
   return group;
-}
-
-// The section title accepts an episodic row (promote) or one of its own stale rows (restore).
-function sectionDropTarget(spec, title) {
-  const accepts = (drag) =>
-    (spec.section === 'recurring' && drag.section === 'episodic' && drag.kind === 'live')
-    || (drag.section === spec.section && drag.kind === 'stale');
-  const run = (drag) => {
-    if (drag.section === 'episodic' && spec.section === 'recurring') {
-      promoteEpisodic(memEntryAt('episodic', drag.index), drag.index);
-    } else {
-      retireEntry(drag.section, drag.index, false);
-    }
-  };
-  dropTarget(title, accepts, run, false);
 }
 
 function addForm(spec) {
@@ -875,7 +863,8 @@ function memorySection(spec) {
       .filter(k => k !== 'superseded')
       .map(k => scalarRow(spec.section, k, data[k], superseded));
   } else {
-    sectionDropTarget(spec, title);
+    // the title accepts an episodic row (promote) or one of its own stale rows (restore)
+    memDropZone(title, `${spec.section}/section`, false);
     const live = [];
     data.forEach((entry, i) => (entry && entry.stale ? stale : live).push([entry || {}, i]));
     rows = live.map(([entry, i]) => listRow(spec, entry, i, false));

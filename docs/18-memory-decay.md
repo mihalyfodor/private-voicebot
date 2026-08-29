@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 18 — Memory decay: `seen`, stale entries, archive group, drag-and-drop
 

@@ -33,7 +33,7 @@ voicebot/
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
-├── memory.py           # structured profile memory: load/render, LLM-proposed ops, reflection, and the editor entry points (snapshot/edit/reset)
+├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, and the editor entry points (snapshot/edit/edit_many/reset)
 ├── scripts/
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
 │   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`)
