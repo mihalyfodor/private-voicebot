@@ -352,6 +352,7 @@ main {
 .danger-link:hover { background: rgba(200,50,50,0.10); }
 
 /* ---- wiki view ---- */
+.wiki-text[hidden], #wiki-note[hidden], #wiki-lint[hidden] { display: none; }
 #wiki-body {
   flex: 1 1 auto; min-height: 0; display: flex; gap: 14px;
   padding: 14px 22px 12px;
@@ -391,7 +392,6 @@ main {
 }
 .wiki-obsidian:hover, .wiki-pull:hover { text-decoration: underline; }
 
-.wiki-text[hidden] { display: none; }
 .wiki-text {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin;
   margin: 0; white-space: pre-wrap; word-break: break-word;
@@ -404,7 +404,6 @@ main {
 .wiki-link.missing { color: #c07a7a; }
 
 #wiki-note { flex: none; display: flex; gap: 6px; }
-#wiki-note[hidden] { display: none; }
 #wiki-note input {
   flex: 1 1 auto; min-width: 0;
   font: inherit; font-size: 12px; color: #e6e6e6; padding: 5px 8px;
@@ -424,7 +423,6 @@ main {
 #wiki-error { flex-basis: 100%; font-size: 11px; color: #e06060; }
 #wiki-error:empty { display: none; }
 #wiki-lint { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; }
-#wiki-lint[hidden] { display: none; }
 .wiki-lint-line { font-size: 11px; color: #8a8a8a; }
 #wiki-foot .chip { margin-left: auto; }
 #wiki-foot .chip:disabled { opacity: 0.5; cursor: default; }

@@ -226,7 +226,7 @@ def test_search_ranks_the_decisions_page_first(vault):
          "text": "We decided the deploy happens on Friday mornings."},
     ], "s")
     hits = wiki.search("deploy decision")
-    assert hits and hits[0]["path"] == "decisions.md"
+    assert hits and hits[0]["path"] == "decisions"
     assert "deploy" in hits[0]["snippet"].lower()
 
 
@@ -240,7 +240,7 @@ def test_search_sees_a_page_edited_on_disk(vault):
     wiki.apply_page_ops([a_page()], "s")
     assert wiki.search("kayaking") == []
     wiki._write("people/anna.md", read("people/anna.md") + "\n- she is into kayaking\n")
-    assert [h["path"] for h in wiki.search("kayaking")] == ["people/anna.md"]
+    assert [h["path"] for h in wiki.search("kayaking")] == ["people/anna"]
 
 
 def test_read_page_truncates_at_four_kb(vault):
@@ -260,7 +260,7 @@ def test_the_tools_wrap_search_and_read(vault):
     from tools import run_tool
 
     wiki.apply_page_ops([a_page()], "s")
-    assert "people/anna.md" in run_tool("search_wiki", {"query": "colleague platform"})
+    assert "people/anna:" in run_tool("search_wiki", {"query": "colleague platform"})
     assert "# Anna" in run_tool("read_page", {"path": "people/anna"})
     assert run_tool("search_wiki", {"query": "submarine"}) == "no matching wiki pages"
 
@@ -275,6 +275,34 @@ def test_load_injects_the_wiki_index(vault, memory_sandbox):
     assert "read_page" in prompt and "search_wiki" in prompt
     block = prompt.split("<wiki_index>")[1].split("</wiki_index>")[0]
     assert memory.tokens_est(block) <= wiki.WIKI_INDEX_TOKENS
+
+
+def test_the_tool_hint_is_dropped_when_the_tools_are_not_registered(vault, memory_sandbox,
+                                                                    monkeypatch):
+    """PRD 19 Results: tool-free runs (the harness sets `llm.TOOLS = []`) get the index only.
+
+    Advertising search_wiki to a model that has not been offered it only teaches it to type a
+    tool call at the user.
+    """
+    import llm
+
+    wiki.apply_page_ops([a_page()], "s")
+    monkeypatch.setattr(llm, "TOOLS", [])
+
+    prompt = memory.load("BASE")
+
+    assert not wiki.tools_registered()
+    assert "<wiki_index>" in prompt and "[[people/anna]]" in prompt
+    assert "search_wiki" not in prompt and "read_page" not in prompt
+    assert prompt.rstrip().endswith("</wiki_index>")
+
+
+def test_the_hint_names_the_tools_that_are_actually_registered():
+    import llm
+
+    assert wiki.tools_registered()
+    assert set(wiki.RECALL_TOOLS) <= {t["function"]["name"] for t in llm.TOOLS}
+    assert all(name in memory.WIKI_NOTE for name in wiki.RECALL_TOOLS)
 
 
 def test_an_empty_vault_adds_no_block(vault, memory_sandbox):
@@ -301,6 +329,7 @@ def test_lint_flags_a_broken_link_and_a_page_missing_from_the_index(vault):
     findings = wiki.lint()
     assert any("broken link [[projects/ghost]]" in f for f in findings)
     assert any("missing from index.md" in f for f in findings)
+    assert all(f.startswith("people/anna:") for f in findings)   # suffix-less, like wikilinks
 
     wiki.rebuild_index()
     findings = wiki.lint()
@@ -484,50 +513,27 @@ def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox
 # --------------------------------------------------------------- actions (PRD scenario 11)
 
 
-class WikiPanel:
-    """A websocket client that only cares about the wiki / memory replies."""
-
-    WANTED = ("wiki", "wiki_page", "memory", "memory_error", "error")
-
-    def __init__(self, ws):
-        self.ws = ws
-
-    def send(self, msg: dict, count: int = 1) -> list:
-        self.ws.send_json(msg)
-        got = []
-        while len(got) < count:
-            reply = self.ws.receive_json()
-            if reply.get("type") in self.WANTED:
-                got.append(reply)
-        return got
-
-
 @pytest.fixture
-def wiki_panel(vault, memory_sandbox):
-    from fastapi.testclient import TestClient
-
-    import chatbot
-
-    chatbot.greeted = True
-    with TestClient(chatbot.app).websocket_connect("/ws") as ws:
-        yield WikiPanel(ws)
+def wiki_panel(vault, memory_sandbox, panel):
+    """The shared `panel` websocket client, with a created vault and a sandboxed profile."""
+    return panel
 
 
 def test_get_wiki_lists_pages_with_lint_and_vault(wiki_panel):
     wiki.apply_page_ops([a_page()], "s")
-    (msg,) = wiki_panel.send({"action": "get_wiki"})
+    msg = wiki_panel.send({"action": "get_wiki"})
     assert msg["type"] == "wiki"
     assert msg["vault"] == wiki.WIKI_PATH
     assert msg["lint"] == []
-    assert [p["path"] for p in msg["pages"]] == ["people/anna.md"]
-    assert msg["pages"][0] == {"path": "people/anna.md", "title": "Anna",
+    assert [p["path"] for p in msg["pages"]] == ["people/anna"]
+    assert msg["pages"][0] == {"path": "people/anna", "title": "Anna",
                                "type": "person", "updated": memory._today_iso()}
 
 
 def test_read_wiki_page_returns_text_and_links(wiki_panel):
     wiki.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The rewrite."),
                          {"op": "link", "path": "people/anna", "target": "projects/atlas"}], "s")
-    (msg,) = wiki_panel.send({"action": "read_wiki_page", "path": "people/anna"})
+    msg = wiki_panel.send({"action": "read_wiki_page", "path": "people/anna"})
     assert msg["type"] == "wiki_page" and msg["path"] == "people/anna"
     assert "# Anna" in msg["text"]
     assert msg["links"] == ["projects/atlas"]
@@ -535,7 +541,7 @@ def test_read_wiki_page_returns_text_and_links(wiki_panel):
 
 def test_wiki_note_appends_and_refreshes_both_panes(wiki_panel):
     wiki.apply_page_ops([a_page()], "s")
-    page, listing = wiki_panel.send(
+    page, listing = wiki_panel.send_many(
         {"action": "wiki_note", "path": "people/anna", "text": "she prefers async standups"}, 2)
     assert page["type"] == "wiki_page" and listing["type"] == "wiki"
     assert f"user note {memory._today_iso()}" in page["text"]
@@ -543,7 +549,7 @@ def test_wiki_note_appends_and_refreshes_both_panes(wiki_panel):
 
 
 def test_wiki_note_on_a_missing_page_errors(wiki_panel):
-    (msg,) = wiki_panel.send({"action": "wiki_note", "path": "people/ghost", "text": "hi"})
+    msg = wiki_panel.send({"action": "wiki_note", "path": "people/ghost", "text": "hi"})
     assert msg["type"] == "error" and "no such page" in msg["text"]
 
 
@@ -551,14 +557,15 @@ def test_archive_memory_action_replies_with_memory_and_wiki(wiki_panel):
     from tests.conftest import seed
 
     seed(people=[{"name": "Anna", "rel": "colleague", memory.SEEN_FIELD: "2026-01-05"}])
-    mem, listing = wiki_panel.send({"action": "archive_memory", "section": "people", "index": 0}, 2)
+    mem, listing = wiki_panel.send_many(
+        {"action": "archive_memory", "section": "people", "index": 0}, 2)
     assert mem["type"] == "memory" and mem["profile"]["people"][0]["stale"] is True
-    assert [p["path"] for p in listing["pages"]] == ["people/anna.md"]
+    assert [p["path"] for p in listing["pages"]] == ["people/anna"]
 
 
 def test_pull_wiki_action_replies_with_memory_and_wiki(wiki_panel):
     wiki.apply_page_ops([a_page()], "s")
-    mem, listing = wiki_panel.send(
+    mem, listing = wiki_panel.send_many(
         {"action": "pull_wiki", "path": "people/anna", "section": "people"}, 2)
     assert mem["type"] == "memory"
     assert mem["profile"]["people"][0]["name"] == "Anna"
@@ -566,5 +573,5 @@ def test_pull_wiki_action_replies_with_memory_and_wiki(wiki_panel):
 
 
 def test_a_bad_archive_comes_back_as_memory_error(wiki_panel):
-    (msg,) = wiki_panel.send({"action": "archive_memory", "section": "people", "index": 9})
+    msg = wiki_panel.send({"action": "archive_memory", "section": "people", "index": 9})
     assert msg["type"] == "memory_error" and "does not exist" in msg["reason"]

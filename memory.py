@@ -357,6 +357,10 @@ WIKI_NOTE = (
 def _wiki_block() -> str:
     """The `<wiki_index>` block, or "" when there is no vault / no pages (docs/19-wiki-layer.md).
 
+    The tool hint is only appended when the recall tools are actually registered for this run:
+    the eval harness runs tool-free, and telling a tool-less model to "use search_wiki" just
+    makes it type a tool call at the user (PRD 19, Results).
+
     Imported lazily and never allowed to raise: the wiki is an add-on to the prompt, and a
     broken vault must not be able to stop a conversation from starting.
     """
@@ -364,12 +368,13 @@ def _wiki_block() -> str:
         import wiki
 
         index = wiki.index_text(wiki.WIKI_INDEX_TOKENS)
+        note = f"\n{WIKI_NOTE}" if wiki.tools_registered() else ""
     except Exception as exc:  # noqa: BLE001
         print(f"[Memory] warning: wiki index unavailable ({exc})")
         return ""
     if not index.strip():
         return ""
-    return f"\n\n<wiki_index>\n{index}\n</wiki_index>\n{WIKI_NOTE}"
+    return f"\n\n<wiki_index>\n{index}\n</wiki_index>{note}"
 
 
 def load(system_prompt: str) -> str:

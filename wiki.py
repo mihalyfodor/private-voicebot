@@ -178,8 +178,7 @@ def ensure_vault() -> str:
         rebuild_index()
     if not os.path.isdir(_path(".git")):
         _git("init", "-q")
-        _git("add", "-A")
-        _git("commit", "-q", "-m", "wiki: initial vault")
+        _commit("wiki: initial vault")
     elif fresh:
         _commit("wiki: vault layout")
     return WIKI_PATH
@@ -238,6 +237,21 @@ def _page_text(fm: dict, body: str) -> str:
     return f"{_fm_text(fm)}\n\n{body.lstrip()}"
 
 
+def _edit_page(rel: str, body_fn=None, defaults: dict | None = None, **fields) -> None:
+    """The one read-modify-write path for an existing page.
+
+    Bumps `updated`, fills `defaults` in where a frontmatter key is missing, applies `fields`
+    over the frontmatter and `body_fn` over the body. No op formats a whole page itself, so
+    "never rewrite, only append" is enforced in one place.
+    """
+    fm, body = parse_page(_read(rel))
+    fm["updated"] = memory._today_iso()
+    for key, value in (defaults or {}).items():
+        fm.setdefault(key, value)
+    fm.update(fields)
+    _write(rel, _page_text(fm, body_fn(body) if body_fn else body))
+
+
 # --- paths -------------------------------------------------------------------------
 
 _SLUG = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -271,7 +285,8 @@ def normalise_path(path) -> str | None:
 
 
 def wikilink(rel: str) -> str:
-    return rel[:-3] if rel.endswith(".md") else rel
+    """The public form of a page path: `people/anna.md` -> `people/anna`, as wikilinks write it."""
+    return rel.removesuffix(".md")
 
 
 def page_exists(rel: str) -> bool:
@@ -377,7 +392,7 @@ def _log(entries: list) -> None:
 def _check_size(rel: str, addition: str) -> str | None:
     size = len(_read(rel).encode()) + len(addition.encode())
     if size > MAX_PAGE_BYTES:
-        return f"page {rel} would exceed {MAX_PAGE_BYTES // 1024} kB"
+        return f"page {wikilink(rel)} would exceed {MAX_PAGE_BYTES // 1024} kB"
     return None
 
 
@@ -394,14 +409,31 @@ def _insert_into_section(body: str, heading: str, line: str) -> str:
     return "\n".join(lines[:tail] + [line] + lines[tail:]) + "\n"
 
 
-def new_page(op: dict, source: str) -> tuple:
-    rel = normalise_path(op.get("path"))
+def _target(op: dict, key: str = "path", *, exists: bool | None = None,
+            reserved: bool = False) -> tuple:
+    """Validate an op's (untrusted) path: ``(rel, None)`` or ``(None, reason)``.
+
+    `exists=True` demands the page is there, `exists=False` demands it is not; `reserved=True`
+    additionally refuses the machinery pages. Every op's path check goes through here, so the
+    rejection reasons the model sees are worded the same way everywhere.
+    """
+    rel = normalise_path(op.get(key))
     if rel is None:
-        return None, f"bad path {op.get('path')!r}"
-    if rel in RESERVED:
-        return None, f"{rel} is not a page"
-    if page_exists(rel):
-        return None, f"{rel} already exists"
+        return None, f"bad path {op.get(key)!r}"
+    if reserved and rel in RESERVED:
+        return None, f"{wikilink(rel)} is not a page"
+    if exists is True and not page_exists(rel):
+        return None, f"no such page {wikilink(rel)}"
+    if exists is False and page_exists(rel):
+        return None, f"{wikilink(rel)} already exists"
+    return rel, None
+
+
+def new_page(op: dict, source: str) -> tuple:
+    """`{path, type, name, summary}` → a fresh page with the six frontmatter keys and sections."""
+    rel, reason = _target(op, exists=False, reserved=True)
+    if reason:
+        return None, reason
     page_type = str(op.get("type") or "note").strip().lower()
     name = str(op.get("name") or "").strip() or os.path.basename(rel)[:-3]
     summary = str(op.get("summary") or "").strip()
@@ -416,13 +448,10 @@ def new_page(op: dict, source: str) -> tuple:
 
 
 def append_note(op: dict, source: str) -> tuple:
-    rel = normalise_path(op.get("path"))
-    if rel is None:
-        return None, f"bad path {op.get('path')!r}"
-    if rel in RESERVED:
-        return None, f"{rel} is not a page"
-    if not page_exists(rel):
-        return None, f"no such page {rel}"
+    """`{path, text, section?}` → one dated bullet at the end of `## Notes` (or another section)."""
+    rel, reason = _target(op, exists=True, reserved=True)
+    if reason:
+        return None, reason
     text = " ".join(str(op.get("text") or "").split())
     if not text:
         return None, "empty note"
@@ -436,19 +465,16 @@ def append_note(op: dict, source: str) -> tuple:
     oversize = _check_size(rel, line)
     if oversize:
         return None, oversize
-    fm, body = parse_page(_read(rel))
-    fm["updated"] = today
-    fm.setdefault("seen", today)
-    _write(rel, _page_text(fm, _insert_into_section(body, heading, line)))
+    _edit_page(rel, lambda body: _insert_into_section(body, heading, line),
+               defaults={"seen": today})
     return f"noted on [[{wikilink(rel)}]] (source: {source})", None
 
 
 def set_field(op: dict, source: str) -> tuple:
-    rel = normalise_path(op.get("path"))
-    if rel is None:
-        return None, f"bad path {op.get('path')!r}"
-    if not page_exists(rel):
-        return None, f"no such page {rel}"
+    """`{path, key, value}` → one frontmatter key, from the fixed set. The body is untouched."""
+    rel, reason = _target(op, exists=True)
+    if reason:
+        return None, reason
     key = str(op.get("key") or "").strip()
     if key not in FIELDS:
         return None, f"unknown frontmatter key {key!r}"
@@ -459,15 +485,12 @@ def set_field(op: dict, source: str) -> tuple:
         value = " ".join(str(value or "").split())
         if len(value) > MAX_NOTE_CHARS:
             return None, f"value longer than {MAX_NOTE_CHARS} characters"
-    fm, body = parse_page(_read(rel))
-    fm[key] = value
-    if key != "updated":
-        fm["updated"] = memory._today_iso()
-    _write(rel, _page_text(fm, body))
+    _edit_page(rel, **{key: value})     # `updated` is bumped unless it *is* the key being set
     return f"set {key} on [[{wikilink(rel)}]] (source: {source})", None
 
 
 def add_decision(op: dict, source: str) -> tuple:
+    """`{title, text}` → a dated `## YYYY-MM-DD <title>` section appended to `decisions.md`."""
     title = " ".join(str(op.get("title") or "").split())
     text = " ".join(str(op.get("text") or "").split())
     if not title:
@@ -479,28 +502,24 @@ def add_decision(op: dict, source: str) -> tuple:
     oversize = _check_size(DECISIONS_FILE, block)
     if oversize:
         return None, oversize
-    fm, body = parse_page(_read(DECISIONS_FILE))
-    fm["updated"] = today
-    _write(DECISIONS_FILE, _page_text(fm or {"type": "decisions", "name": "Decisions"},
-                                      body.rstrip("\n") + "\n" + block))
+    _edit_page(DECISIONS_FILE, lambda body: body.rstrip("\n") + "\n" + block,
+               defaults={"type": "decisions", "name": "Decisions"})
     return f"decided {title} in [[decisions]] (source: {source})", None
 
 
 def link(op: dict, source: str) -> tuple:
-    rel = normalise_path(op.get("path"))
-    target = normalise_path(op.get("target"))
+    """`{path, target}` → a `[[target]]` bullet under `## Related`, once."""
+    rel, target = normalise_path(op.get("path")), normalise_path(op.get("target"))
     if rel is None or target is None:
         return None, f"bad path {op.get('path')!r} -> {op.get('target')!r}"
     if not page_exists(rel):
-        return None, f"no such page {rel}"
+        return None, f"no such page {wikilink(rel)}"
     if rel == target:
         return None, "a page cannot link to itself"
-    fm, body = parse_page(_read(rel))
     mark = f"[[{wikilink(target)}]]"
-    if mark in body:
-        return None, f"{rel} already links to {wikilink(target)}"
-    fm["updated"] = memory._today_iso()
-    _write(rel, _page_text(fm, _insert_into_section(body, "## Related", f"- {mark}")))
+    if mark in parse_page(_read(rel))[1]:
+        return None, f"{wikilink(rel)} already links to {wikilink(target)}"
+    _edit_page(rel, lambda body: _insert_into_section(body, "## Related", f"- {mark}"))
     return f"linked [[{wikilink(rel)}]] -> {mark} (source: {source})", None
 
 
@@ -599,7 +618,11 @@ def _snippet(text: str, terms: set, width: int = 180) -> str:
 
 
 def search(query: str, k: int = 5) -> list:
-    """Top-`k` pages for `query` as ``[{path, snippet, score}]`` (BM25, best first)."""
+    """Top-`k` pages for `query` as ``[{path, snippet, score}]`` (BM25, best first).
+
+    `path` is the suffix-less form the model sees everywhere else (`people/anna`), so a hit can
+    be handed straight to :func:`read_page`.
+    """
     docs = _corpus()
     terms = set(_tokenise(query))
     if not docs or not terms:
@@ -617,7 +640,8 @@ def search(query: str, k: int = 5) -> list:
             idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
             score += idf * freq * (_K1 + 1) / (freq + _K1 * (1 - _B + _B * dl / avgdl))
         if score > 0:
-            scored.append({"path": rel, "snippet": _snippet(text, terms), "score": round(score, 3)})
+            scored.append({"path": wikilink(rel), "snippet": _snippet(text, terms),
+                           "score": round(score, 3)})
     return sorted(scored, key=lambda d: (-d["score"], d["path"]))[:k]
 
 
@@ -645,16 +669,41 @@ def links_in(text: str) -> list:
     return seen
 
 
+#: the recall tools tools/wiki.py registers — the prompt may only advertise them when they
+#: are actually offered to the model this run (see :func:`tools_registered`).
+RECALL_TOOLS = ("search_wiki", "read_page")
+
+
+def tools_registered() -> bool:
+    """True when `search_wiki`/`read_page` are on the tool list the model is being given.
+
+    `llm.TOOLS` is the live list: the eval harness empties it to run tool-free, and a prompt
+    that tells a tool-less model to "use search_wiki" only teaches it to fake a tool call
+    (docs/19-wiki-layer.md, Results).
+    """
+    try:
+        import llm
+
+        names = {(t.get("function") or {}).get("name") for t in llm.TOOLS if isinstance(t, dict)}
+    except Exception:  # noqa: BLE001 — no llm (tests, scripts) means no tools
+        return False
+    return any(name in names for name in RECALL_TOOLS)
+
+
 # --- listing / lint ----------------------------------------------------------------
 
 
 def pages() -> list:
-    """``[{path, title, type, updated}]`` for the Wiki tab, sorted by path."""
+    """``[{path, title, type, updated}]`` for the Wiki tab, sorted by path.
+
+    Paths are suffix-less (`people/anna`), the same form wikilinks and the tools use; the
+    normalising on the way back in (:func:`normalise_path`) still accepts `.md`.
+    """
     listing = []
     for rel in page_paths():
         fm, _ = parse_page(_read(rel))
         listing.append({
-            "path": rel,
+            "path": wikilink(rel),
             "title": str(fm.get("name") or os.path.basename(rel)[:-3]),
             "type": str(fm.get("type") or ""),
             "updated": str(fm.get("updated") or ""),
@@ -663,7 +712,10 @@ def pages() -> list:
 
 
 def lint() -> list:
-    """Findings, worst first: broken links, pages missing from the index, bad frontmatter, size."""
+    """Findings, worst first: broken links, pages missing from the index, bad frontmatter, size.
+
+    Each finding names its page the way the rest of the layer does, `people/anna`.
+    """
     if not exists():
         return []
     findings = []
@@ -673,16 +725,17 @@ def lint() -> list:
     for rel in paths:
         text = _read(rel)
         fm, _ = parse_page(text)
+        name = wikilink(rel)
         for target in links_in(text):
             if target not in known:
-                findings.append(f"{rel}: broken link [[{target}]]")
-        if wikilink(rel) not in indexed:
-            findings.append(f"{rel}: missing from index.md")
+                findings.append(f"{name}: broken link [[{target}]]")
+        if name not in indexed:
+            findings.append(f"{name}: missing from index.md")
         missing = [key for key in FIELDS if key not in fm]
         if missing:
-            findings.append(f"{rel}: frontmatter missing {', '.join(missing)}")
+            findings.append(f"{name}: frontmatter missing {', '.join(missing)}")
         if len(text.encode()) > MAX_PAGE_BYTES:
-            findings.append(f"{rel}: larger than {MAX_PAGE_BYTES // 1024} kB")
+            findings.append(f"{name}: larger than {MAX_PAGE_BYTES // 1024} kB")
     return findings
 
 
@@ -780,7 +833,7 @@ def history_line(section: str, entry: dict) -> str:
 
 
 def archive_entry(section: str, entry: dict) -> tuple:
-    """Create or extend the wiki page for `entry`; ``(path, None)`` or ``(None, reason)``."""
+    """Create or extend the wiki page for `entry`; ``(page, None)`` or ``(None, reason)``."""
     ensure_vault()
     rel, page_type, name = page_for(section, entry)
     source = f"archived from {section} {memory._today_iso()}"
@@ -794,7 +847,7 @@ def archive_entry(section: str, entry: dict) -> tuple:
     applied, rejected = apply_page_ops(ops, source)
     if not applied:
         return None, (rejected[0]["reason"] if rejected else "nothing to archive")
-    return rel, None
+    return wikilink(rel), None
 
 
 def entry_from_page(path: str, section: str) -> tuple:

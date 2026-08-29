@@ -976,12 +976,6 @@ function wikiMoves(drag) {
   return moves;
 }
 
-// The server may name pages with or without the `.md` suffix; wikilinks never have it, so the
-// view works in stripped paths and lets the server normalise on the way back in.
-function wikiNormPath(path) {
-  return String(path || '').replace(/\.md$/, '');
-}
-
 function wikiFolder(path) {
   const i = String(path).indexOf('/');
   return i === -1 ? 'root' : path.slice(0, i);
@@ -1005,8 +999,10 @@ function wikiGroups(pages) {
   });
 }
 
+// Paths are suffix-less everywhere (`people/anna`) — in the page list, in wikilinks and in
+// every action sent back; the server is what normalises them onto files.
 function selectWikiPage(path) {
-  path = wikiNormPath(path);
+  path = String(path || '').trim();
   if (!path) return;
   wikiSelected = path;
   wikiPage = null;
@@ -1099,7 +1095,7 @@ function renderWikiFoot() {
 }
 
 function setWiki(msg) {
-  wikiPages = (Array.isArray(msg.pages) ? msg.pages : []).map(p => ({ ...p, path: wikiNormPath(p.path) }));
+  wikiPages = Array.isArray(msg.pages) ? msg.pages : [];
   wikiLint = Array.isArray(msg.lint) ? msg.lint : [];
   wikiVault = msg.vault || wikiVault;
   wikiIngestDone();
@@ -1114,7 +1110,7 @@ function setWiki(msg) {
 }
 
 function setWikiPage(msg) {
-  if (wikiNormPath(msg.path) !== wikiSelected) return;   // a stale answer for a page we navigated away from
+  if (msg.path !== wikiSelected) return;   // a stale answer for a page we navigated away from
   wikiPage = msg;
   renderWikiPage();
 }

@@ -459,6 +459,16 @@ async def _action_get_memory(sess, msg, loop):
     await send(_memory_msg(profile))
 
 
+async def _send_memory_error(path, reason) -> None:
+    """The one shape a rejected memory/wiki edit comes back in; the panel puts it on the row."""
+    await send({"type": "memory_error", "path": path, "reason": reason})
+
+
+async def _send_wiki() -> None:
+    """Push a fresh `wiki` message (page list + lint); the Wiki tab re-renders from it."""
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
 async def _action_memory_op(sess, msg, loop):
     """One hand edit from the memory panel: {op, path, value, reason?} → memory | memory_error.
 
@@ -469,7 +479,7 @@ async def _action_memory_op(sess, msg, loop):
           "value": msg.get("value"), "reason": msg.get("reason")}
     profile, reason = await asyncio.to_thread(memory.edit, op)
     if reason:
-        await send({"type": "memory_error", "path": op["path"], "reason": reason})
+        await _send_memory_error(op["path"], reason)
         return
     await send(_memory_msg(profile))
 
@@ -483,7 +493,7 @@ async def _action_memory_ops(sess, msg, loop):
     ops = msg.get("ops")
     profile, error = await asyncio.to_thread(memory.edit_many, ops)
     if error:
-        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
+        await _send_memory_error(error.get("path"), error.get("reason"))
         return
     await send(_memory_msg(profile))
 
@@ -496,7 +506,7 @@ async def _action_memory_reset(sess, msg, loop):
 
 async def _action_get_wiki(sess, msg, loop):
     """The Wiki tab asking for the page list (on open, and after every reconnect)."""
-    await send(await asyncio.to_thread(_wiki_msg))
+    await _send_wiki()
 
 
 async def _action_read_wiki_page(sess, msg, loop):
@@ -515,7 +525,7 @@ async def _action_wiki_note(sess, msg, loop):
         await send({"type": "error", "text": reason})
         return
     await send(await asyncio.to_thread(_wiki_page_msg, path))
-    await send(await asyncio.to_thread(_wiki_msg))
+    await _send_wiki()
 
 
 def _ingest_now() -> None:
@@ -530,29 +540,27 @@ async def _action_wiki_ingest(sess, msg, loop):
     """"Re-ingest last session": run the memory save (which includes wiki ingest) on demand."""
     await asyncio.to_thread(_ingest_now)
     await send(_memory_msg(memory.load_profile()))
-    await send(await asyncio.to_thread(_wiki_msg))
+    await _send_wiki()
+
+
+async def _bridge(move, *args):
+    """One memory <-> wiki move (PRD 19), then refresh both views — or the error on its row."""
+    profile, error = await asyncio.to_thread(move, *args)
+    if error:
+        await _send_memory_error(error.get("path"), error.get("reason"))
+        return
+    await send(_memory_msg(profile))
+    await _send_wiki()
 
 
 async def _action_archive_memory(sess, msg, loop):
     """Drag a memory row onto the Wiki tab: file the entry, then mark it stale."""
-    profile, error = await asyncio.to_thread(
-        memory.archive, str(msg.get("section") or ""), msg.get("index"))
-    if error:
-        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
-        return
-    await send(_memory_msg(profile))
-    await send(await asyncio.to_thread(_wiki_msg))
+    await _bridge(memory.archive, str(msg.get("section") or ""), msg.get("index"))
 
 
 async def _action_pull_wiki(sess, msg, loop):
     """Drag a wiki page onto a memory section: recreate a live entry from the page."""
-    profile, error = await asyncio.to_thread(
-        memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
-    if error:
-        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
-        return
-    await send(_memory_msg(profile))
-    await send(await asyncio.to_thread(_wiki_msg))
+    await _bridge(memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
 
 
 async def _action_shutdown(sess, msg, loop):
