@@ -50,7 +50,7 @@ Followed by:
 - [ ] Out of scope is explicit
 - [ ] Status set to `exploration`
 - [ ] Feature branch created: `feature/<name>`
-- [ ] PRD committed with message: `PRD: <feature>`
+- [ ] AI commits on the feature branch with message: `PRD: <feature>`; user reviews
 
 **After gate:** Update PRD status to `implementation`.
 
@@ -95,7 +95,7 @@ Escalate based on symptoms:
 - [ ] User has executed every PRD test scenario once end-to-end
 - [ ] PRD status updated to `refactoring`
 - [ ] `docs/index.md` updated
-- [ ] Committed with message: `Impl: <feature>`
+- [ ] AI commits on the feature branch with message: `Impl: <feature>`; user reviews
 
 **Model:** Sonnet
 
@@ -114,8 +114,8 @@ Escalate based on symptoms:
 - [ ] No change in externally observable behavior (UI, routes, persisted data, public props)
 - [ ] PRD status updated to `done`
 - [ ] `docs/index.md` updated
-- [ ] Committed with message: `Refactor: <feature>`
-- [ ] Feature branch merged to `main`
+- [ ] AI commits on the feature branch with message: `Refactor: <feature>`; user reviews
+- [ ] User merges the feature branch to `main`
 
 **Model:** Opus
 
@@ -123,9 +123,9 @@ Escalate based on symptoms:
 
 - `main` stays clean and deployable
 - Feature branch created at Phase 1 sign-off: `feature/<name>`
-- Each quality gate = a user commit on the feature branch
-- AI never commits — user controls all commits
-- Merge to `main` after Phase 3
+- Each quality gate = one AI commit on the feature branch (`PRD:` / `Impl:` / `Refactor:` messages, no trailers)
+- User reviews each gate commit and merges to `main` after Phase 3
+- AI never pushes and never merges to `main`
 
 ## Repo Index
 

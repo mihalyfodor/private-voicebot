@@ -11,10 +11,9 @@ Follow [docs/process.md](docs/process.md). Every feature goes through Exploratio
 - No production code until the PRD is signed off
 - Tests define "done" — if it's not tested, it's not finished
 - Keep scope tight — cut anything non-essential
-- AI never commits — user signs off and commits at each quality gate
 - Never paste secrets/keys/tokens into prompts or code
 - Delegate basic implementation to small sub-agents; the main thread plans, coordinates and reviews
-- AI may commit on feature branches (no co-author trailers); never push
+- AI commits on feature branches at each quality gate (no trailers); user reviews and merges to `main`; AI never pushes
 
 ## Quick Reference
 
