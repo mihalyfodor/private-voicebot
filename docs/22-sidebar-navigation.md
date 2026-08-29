@@ -66,3 +66,13 @@ and picks a sidebar pattern that scales without becoming a settings dump.
 
 ## Out of scope
 Command palette (PRD 23 candidate); theming; touch gestures; any change to the avatar rendering.
+
+## Decisions on the prototype's open questions (2026-08-29, defaults unless the user overrides)
+1. Rail far left (rail | panel | avatar | workspace) — the avatar column keeps its 25 %, controls stay together.
+2. Floating by default, one global pin state persisted in settings.json; pinning is opt-in.
+3. 72 px rail with icon + tiny label (self-explanatory for an occasional-use app); collapses to icon-only below 1100 px.
+4. Chat gets a panel too (the user wants configuration in the sidebar, not a separate drawer); the ☰ drawer is removed.
+5. Settings view holds the rarely-touched items (characters reload, shutdown, vault path, screenshot tool); decay windows
+   sit in the Memory panel next to the data they govern.
+6. One global open/closed flag; Settings view hides the panel.
+Prototype: `docs/prototypes/sidebar/index.html`.
