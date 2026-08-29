@@ -1,3 +1,5 @@
+"""Server-side avatar state. Since PRD 23 Wanko is the only avatar, so these cover
+persistence and the fallback rather than switching between characters."""
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import json
@@ -13,35 +15,33 @@ def isolated_settings(tmp_path, monkeypatch):
     yield
 
 
-def test_current_key_falls_back_on_invalid_persisted_key(capsys):
-    with open(avatars.SETTINGS_PATH, "w") as f:
-        json.dump({"avatar": "miku"}, f)
-    assert avatars.current_key() == "wanko"
-    assert "miku" in capsys.readouterr().out
-
-
-def test_set_current_persists_and_validates():
-    avatars.set_current("natori")
-    assert avatars.current()["name"] == "Natori"
-    assert json.load(open(avatars.SETTINGS_PATH)) == {"avatar": "natori", "version": 1}
+def test_set_current_persists():
+    avatars.set_current("wanko")
+    assert avatars.current()["name"] == "Wanko"
+    assert json.load(open(avatars.SETTINGS_PATH)) == {"avatar": "wanko", "version": 1}
     avatars._current = None  # simulate restart
-    assert avatars.current_key() == "natori"
-    with pytest.raises(ValueError, match="wanko"):
-        avatars.set_current("nope")
+    assert avatars.current_key() == "wanko"
+
+
+def test_set_current_with_a_retired_key_resolves_to_wanko(capsys):
+    """Scenario 1: set_current("haru") returns wanko instead of raising."""
+    assert avatars.set_current("haru")["key"] == "wanko"
+    assert "haru" in capsys.readouterr().out
+    assert json.load(open(avatars.SETTINGS_PATH))["avatar"] == "wanko"
 
 
 def test_llm_set_avatar_keeps_history():
     import llm
     llm.reset()
     llm._conversation += [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "[happy] Hello."}]
-    avatars.set_current("haru")
+    avatars.set_current("wanko")
     llm.set_avatar()
-    assert "Haru" in llm._conversation[0]["content"]
-    assert "from now on you are Haru" in llm._conversation[0]["content"]
+    assert "Wanko" in llm._conversation[0]["content"]
     assert llm._conversation[1:] == [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "[happy] Hello."}]
 
 
-def test_ws_set_avatar_switches_and_is_blocked_while_busy(monkeypatch):
+def test_ws_set_avatar_is_blocked_while_busy(monkeypatch):
+    """The action stays server-side (the UI no longer sends it) and still guards the controller."""
     from fastapi.testclient import TestClient
     import chatbot
     from tests.conftest import Blocker
@@ -52,17 +52,16 @@ def test_ws_set_avatar_switches_and_is_blocked_while_busy(monkeypatch):
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["type"] == "hands_free"
         assert ws.receive_json()["type"] == "state"
-        ws.send_json({"action": "set_avatar", "key": "natori"})
-        assert ws.receive_json() == {"type": "avatar", "key": "natori", "name": "Natori"}
-        assert chatbot.KOKORO_VOICE == "am_michael"
-        assert client.get("/api/config").json()["avatar"] == "natori"
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
+        assert ws.receive_json() == {"type": "avatar", "key": "wanko", "name": "Wanko"}
+        assert chatbot.KOKORO_VOICE == "am_puck"
+        assert client.get("/api/config").json()["avatar"] == "wanko"
         chatbot.controller.join_idle(timeout=5)
 
         blocker = Blocker()
         blocker.hold(chatbot.controller)
-        ws.send_json({"action": "set_avatar", "key": "haru"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
         assert ws.receive_json()["type"] == "error"
-        assert avatars.current_key() == "natori"
         blocker.free(chatbot.controller)
 
 
@@ -78,8 +77,8 @@ def test_switch_claims_the_controller_immediately(monkeypatch):
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()  # hands_free
         ws.receive_json()  # state idle
-        ws.send_json({"action": "set_avatar", "key": "haru"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
         assert ws.receive_json()["type"] == "avatar"
-        ws.send_json({"action": "set_avatar", "key": "natori"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
         assert ws.receive_json()["type"] == "error"
         hold.free(chatbot.controller)

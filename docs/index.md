@@ -29,7 +29,7 @@ voicebot/
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
 ├── vad.py            # Silero VAD endpointer (hands-free) + PTT Recorder
 ├── asr.py            # mlx-whisper transcription + junk filter
-├── avatars.py          # avatar profiles (Wanko/Haru/Natori: name, voice, speed, persona), current/set_current, settings.json persistence
+├── avatars.py          # avatar profile (Wanko only since PRD 23: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
@@ -37,7 +37,7 @@ voicebot/
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest, lint, archive/pull bridge
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core
 ├── scripts/
-│   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the 3 Live2D models and backdrop images (gitignored)
+│   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model and backdrop images (gitignored)
 │   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--panel`, `--pin`, `--drag`, `--drop-file`)
 ├── static/
 │   ├── index.html      # browser UI: icon rail + contextual panel, avatar column, workspace views (Chat / Memory / Wiki / Sources / Settings), intake popup
@@ -45,7 +45,7 @@ voicebot/
 │   ├── app.js           # PROFILES/CONFIG, Live2D model load, audio queue, lip-sync, expressions, rail/panel (VIEWS table), memory/wiki/settings views, drop-paste intake, keyboard, websocket
 │   ├── style.css        # shell layout (--rail-w / --panel-w), rail, panel, views, narrow-screen bottom tab bar
 │   ├── vendor/          # gitignored, fetched
-│   ├── models/           # gitignored, fetched (wanko/, haru/, natori/)
+│   ├── models/           # gitignored, fetched (wanko/)
 │   └── backdrops/        # gitignored, fetched
 ├── tools/
 │   ├── time.py         # current time tool
@@ -86,8 +86,8 @@ voicebot/
     ├── 03-email-classification.md  # PRD: Gmail triage workflow (done)
     ├── 04-avatar.md             # PRD: Live2D avatar + oMLX backend (done)
     ├── 05-fillers.md            # PRD: tool-intent spoken fillers (done)
-    ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (done)
-    ├── 07-avatar-menu.md        # PRD: Natori + in-app menu with live switching (done)
+    ├── 06-avatar-switch.md      # PRD: switchable avatars, Wanko default (done, superseded by 23)
+    ├── 07-avatar-menu.md        # PRD: Natori + in-app menu with live switching (done, superseded by 23)
     ├── 08-backdrops.md          # PRD: selectable backdrops (done)
     ├── 09-continuous-mode.md    # PRD: hands-free conversation mode (done)
     ├── 10-personalities.md      # PRD: character cards (done)
@@ -102,15 +102,16 @@ voicebot/
     ├── 19-wiki-layer.md          # PRD: ~/llm-wiki vault, page ops, search (refactoring)
     ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
     ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
-    └── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (refactoring)
+    ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (refactoring)
+    └── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
 ```
 
 ## Active PRDs
 
 - [04-avatar.md](04-avatar.md) — Live2D avatar, browser playback, oMLX backend (done)
 - [05-fillers.md](05-fillers.md) — tool-intent spoken fillers (done)
-- [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (done)
-- [07-avatar-menu.md](07-avatar-menu.md) — third avatar (Natori) and in-app menu with live switching (done)
+- [06-avatar-switch.md](06-avatar-switch.md) — switchable avatars, Wanko default (done, superseded by 23)
+- [07-avatar-menu.md](07-avatar-menu.md) — third avatar (Natori) and in-app menu with live switching (done, superseded by 23)
 - [08-backdrops.md](08-backdrops.md) — selectable backdrops (done)
 - [09-continuous-mode.md](09-continuous-mode.md) — hands-free conversation mode (done)
 - [10-personalities.md](10-personalities.md) — character cards, canned greetings (done)

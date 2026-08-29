@@ -1,14 +1,6 @@
 // ---------- config ----------
-// Server picks the avatar (AVATAR in .env); the matching client profile is loaded from here.
+// Wanko is the only avatar (PRD 23); the client half of its profile lives here.
 const PROFILES = {
-  haru: {
-    modelUrl: '/static/models/haru/haru_greeter_t03.model3.json',
-    avatarScale: 1.15, avatarTopCrop: 0.0, idle: 'Idle',
-    mouthParam: 'ParamMouthOpenY',
-    // Haru ships expression files (f00–f07); see docs/04-avatar.md for what each looks like.
-    expressions: { happy: { expr: 'f04' }, surprised: { expr: 'f05' }, thinking: { expr: 'f07' }, apologetic: { expr: 'f06' } },
-    credit: 'Haru © Live2D Inc.',
-  },
   wanko: {
     modelUrl: '/static/models/wanko/Wanko.model3.json',
     avatarScale: 1.0, avatarTopCrop: 0.12, idle: 'Idle',
@@ -25,13 +17,6 @@ const PROFILES = {
     },
     credit: 'Wanko © Live2D Inc.',
   },
-  natori: {
-    modelUrl: '/static/models/natori/Natori.model3.json',
-    avatarScale: 1.15, avatarTopCrop: 0.0, idle: 'Idle',
-    mouthParam: 'ParamMouthOpenY',
-    expressions: { happy: { expr: 'Smile' }, surprised: { expr: 'Surprised' }, thinking: { expr: 'Normal' }, apologetic: { expr: 'Sad' } },
-    credit: 'Natori © Live2D Inc.',
-  },
 };
 
 const CONFIG = {
@@ -43,8 +28,8 @@ const CONFIG = {
   fitWidth: 0.8,         // share of the avatar column the drawn model may use…
   fitHeight: 0.7,        // …and of its height; the smaller of the two wins
 };
-let profile = PROFILES.haru;
-let avatarName = 'Haru';
+let profile = PROFILES.wanko;
+let avatarName = 'Wanko';
 
 // ---------- DOM ----------
 const btn = document.getElementById('btn');
@@ -68,9 +53,7 @@ document.getElementById('reload-characters').onclick = () => {
   ws.send(JSON.stringify({ action: 'reload_characters' }));
 };
 
-// ---------- avatar + backdrop pickers (chat panel) ----------
-const avatarList = document.getElementById('avatar-list');
-let avatarOptions = [];
+// ---------- backdrop picker (chat panel) ----------
 let currentAvatarKey = null;
 let backdropOptions = [];
 let currentBackdropKey = 'none';
@@ -116,19 +99,6 @@ verbositySlider.addEventListener('change', () => {
   const idx = Number(verbositySlider.value);
   ws.send(JSON.stringify({ action: 'set_verbosity', value: verbosityLevels[idx] }));
 });
-
-function renderAvatarList() {
-  avatarList.replaceChildren(...avatarOptions.map(a => {
-    const b = document.createElement('button');
-    b.className = 'panel-item' + (a.key === currentAvatarKey ? ' active' : '');
-    b.disabled = state !== 'idle';
-    const n = document.createElement('span'); n.className = 'name'; n.textContent = a.name;
-    const d = document.createElement('span'); d.className = 'desc'; d.textContent = a.description || '';
-    b.append(n, d);
-    b.onclick = () => ws.send(JSON.stringify({ action: 'set_avatar', key: a.key }));
-    return b;
-  }));
-}
 
 const statusText = {
   idle: 'press space or click to speak',
@@ -305,7 +275,6 @@ const avatar = {
   async init() {
     try {
       const cfg = await (await fetch('/api/config')).json();
-      avatarOptions = cfg.avatars || [];
       currentAvatarKey = cfg.avatar;
       avatarName = cfg.name || avatarName;
       backdropOptions = cfg.backdrops || [];
@@ -321,7 +290,6 @@ const avatar = {
     applyBackdrop(currentBackdropKey);
     renderHandsFreeToggle();
     renderVerbosity();
-    renderAvatarList();
     renderBackdropList();
     renderWikiPanel();
     renderPanel();
@@ -556,7 +524,7 @@ function renderPanel() {
   pinBtn.textContent = panelPinned ? 'pinned' : 'floating';
   if (v) panelHeadingEl.textContent = v.label;
   panelViewEls.forEach(p => { p.hidden = p.dataset.view !== currentView; });
-  if (open && currentView === 'chat') { renderAvatarList(); renderBackdropList(); }
+  if (open && currentView === 'chat') renderBackdropList();
   relayoutAvatar();
 }
 
@@ -1640,17 +1608,10 @@ function connect() {
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
     else if (msg.type === 'speech') enqueueSpeech(msg);
     else if (msg.type === 'speech_end') { replyEnded = true; playNext(); }
-    else if (msg.type === 'avatar') {
-      currentAvatarKey = msg.key; avatarName = msg.name;
-      renderAvatarList();
-      avatar.load(msg.key);
-    }
     else if (msg.type === 'backdrop') { applyBackdrop(msg.key); renderBackdropList(); }
     else if (msg.type === 'characters_reloaded') {
-      avatarOptions = msg.avatars || avatarOptions;
       currentAvatarKey = msg.avatar;
       avatarName = msg.name || avatarName;
-      renderAvatarList();
       status.textContent = 'characters reloaded';
       setTimeout(() => { render(); }, 1500);
     }
@@ -1704,7 +1665,6 @@ function connect() {
 
 function setState(value) {
   state = value;
-  renderAvatarList();   // the avatar buttons are disabled while a turn is running
   render();
 }
 

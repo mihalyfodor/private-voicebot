@@ -1,5 +1,7 @@
 Status: done
 
+> Superseded by [PRD 23](23-wanko-only.md): the avatar picker is removed; Wanko is the only avatar.
+
 # 07 — Third avatar (Natori) and in-app menu with live switching
 
 ## Overview

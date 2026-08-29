@@ -78,31 +78,27 @@ def _load_saved() -> str | None:
     return load_settings().get("avatar")
 
 
-def _validate(key: str) -> str:
+def _resolve(key: str) -> str:
+    """Map a requested key to a known one. Since PRD 23 there is only Wanko, so anything
+    else (a stale settings.json, an old AVATAR env value) quietly resolves to the default."""
     key = (key or "").lower()
-    if key not in AVATARS:
-        raise ValueError(f"Unknown avatar {key!r}; valid: {', '.join(AVATARS)}")
-    return key
+    if key in AVATARS:
+        return key
+    fallback = DEFAULT if DEFAULT in AVATARS else next(iter(AVATARS))
+    print(f"[avatars] unknown avatar {key!r}; using {fallback}")
+    return fallback
 
 
 def current_key() -> str:
     global _current
     if _current is None:
-        saved = _load_saved()
-        if saved:
-            try:
-                _current = _validate(saved)
-            except ValueError:
-                print(f"[avatars] warning: invalid saved avatar {saved!r}; falling back")
-                _current = _validate(os.getenv("AVATAR") or DEFAULT)
-        else:
-            _current = _validate(os.getenv("AVATAR") or DEFAULT)
+        _current = _resolve(_load_saved() or os.getenv("AVATAR") or DEFAULT)
     return _current
 
 
 def set_current(key: str) -> dict:
     global _current
-    _current = _validate(key)
+    _current = _resolve(key)
     save_setting("avatar", _current)
     return current()
 

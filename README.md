@@ -4,7 +4,7 @@ A local voice assistant with memory, real-time tools and an animated Live2D avat
 
 **Stack:** Whisper (`mlx-whisper`, in-process STT) + Silero VAD → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8010.
 
-**Avatars:** three switchable characters — **Wanko** (dog mascot, default), **Haru** (calm office assistant), **Natori** (easygoing office assistant) — each with its own voice, persona and expressions. Switch any time from the ☰ menu, mid-conversation, without losing context; your pick is remembered across restarts. The menu also lets you pick a **backdrop** behind the avatar.
+**Avatar:** **Wanko**, an upbeat dog office assistant, with her own voice, persona and expressions. The menu also lets you pick a **backdrop** behind her.
 
 **Built-in tools:** current time, weather (open-meteo), BBC world news headlines + article detail, Gmail inbox — each plays a short spoken filler ("Let me check outside...") the moment it's called, so the wait feels natural.
 
@@ -45,9 +45,9 @@ source .venv/bin/activate
 python3 chatbot.py    # opens http://localhost:8010 automatically
 ```
 
-Press **Space** or click the button to start/stop recording (push-to-talk), or enable **Hands-free** in the ☰ menu to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to switch avatar or backdrop, or to shut down cleanly. Switching avatar is disabled while the bot is speaking/thinking, to avoid a mid-utterance voice change.
+Press **Space** or click the button to start/stop recording (push-to-talk), or enable **Hands-free** in the ☰ menu to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to pick a backdrop or to shut down cleanly.
 
-The starting avatar is chosen by the `AVATAR` env var (`wanko` | `haru` | `natori`, default `wanko`); once you switch from the menu, that choice is saved to `settings.json` (gitignored) and takes precedence over `AVATAR` on every future start. `KOKORO_VOICE` / `KOKORO_SPEED` in `.env` override the current avatar's default voice/speed if set. Per-avatar client behaviour (model, framing, expression mapping) lives in `PROFILES` at the top of `static/app.js`; emotion→expression tuning is in the same file's `CONFIG`.
+Wanko is the only avatar; anything else in `AVATAR` or in `settings.json` (gitignored) quietly resolves back to her. Her persona lives in `characters/wanko.yaml`. `KOKORO_VOICE` / `KOKORO_SPEED` in `.env` override the current avatar's default voice/speed if set. Client-side avatar behaviour (model, framing, expression mapping) lives in `PROFILES` at the top of `static/app.js`; emotion→expression tuning is in the same file's `CONFIG`.
 
 **Email triage dashboard:**
 ```bash
@@ -76,7 +76,7 @@ Conversations are summarized and saved to `shortmem.txt` on exit. This file is l
 
 ## Licensing
 
-Live2D sample models (Wanko, Haru, Natori) and Cubism Core, and the backdrop images, are downloaded by `scripts/fetch_assets.sh` and are gitignored — they are not committed to this repo. **Natori is used under a collaboration license and must not be redistributed.** Backdrops are Pixabay Content License images; credit is shown in-app.
+The Live2D sample model (Wanko) and Cubism Core, and the backdrop images, are downloaded by `scripts/fetch_assets.sh` and are gitignored — they are not committed to this repo. Backdrops are Pixabay Content License images; credit is shown in-app.
 
 ## Development process
 

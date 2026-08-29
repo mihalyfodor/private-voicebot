@@ -31,7 +31,7 @@ def test_ws_set_backdrop_persists_and_survives_avatar_switch():
         assert ws.receive_json() == {"type": "backdrop", "key": key}
         ws.send_json({"action": "set_backdrop", "key": "mars"})
         assert ws.receive_json()["type"] == "error"
-        ws.send_json({"action": "set_avatar", "key": "haru"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
         ws.receive_json()
-    assert avatars.load_settings() == {"backdrop": key, "avatar": "haru", "version": 1}
+    assert avatars.load_settings() == {"backdrop": key, "avatar": "wanko", "version": 1}
     assert client.get("/api/config").json()["backdrop"] == key

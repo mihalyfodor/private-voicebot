@@ -7,12 +7,10 @@ import characters
 import avatars
 
 
-def test_load_all_loads_three_shipped_cards():
+def test_load_all_loads_the_single_shipped_card():
     cards = characters.load_all()
-    assert set(["wanko", "haru", "natori"]).issubset(cards.keys())
+    assert list(cards.keys()) == ["wanko"]
     assert cards["wanko"]["name"] == "Wanko"
-    assert cards["haru"]["name"] == "Haru"
-    assert cards["natori"]["name"] == "Natori"
 
 
 def test_card_missing_name_raises_with_filename(tmp_path):
@@ -50,9 +48,27 @@ def test_build_persona_contains_all_sections():
 def test_avatars_listing_uses_tagline():
     listing = avatars.listing()
     by_key = {a["key"]: a for a in listing}
-    assert by_key["wanko"]["description"] == "Dog mascot, upbeat"
-    assert by_key["haru"]["description"] == "Office assistant, calm"
-    assert by_key["natori"]["description"] == "Office assistant, easygoing"
+    assert by_key["wanko"]["description"] == "Office assistant, upbeat"
+
+
+# The word appears once in the card, in the rule that forbids it as a form of address.
+_BOSS_PROHIBITION = 'never "boss" or pet names'
+
+
+def test_system_prompt_never_tells_wanko_to_say_boss():
+    """Scenario 2: the only mention of "boss" in the built prompt is the ban on using it."""
+    import llm
+    prompt = llm.build_system_prompt(avatars.current())
+    assert _BOSS_PROHIBITION in prompt
+    assert "boss" not in prompt.replace(_BOSS_PROHIBITION, "").lower()
+
+
+def test_system_prompt_keeps_the_preferred_name_rule():
+    """Scenario 2: the PRD 15 nickname rule still overrides the character's own habit."""
+    import llm
+    prompt = llm.build_system_prompt(avatars.current())
+    assert "preferred name or nickname" in prompt
+    assert "overrides any habit from your character" in prompt
 
 
 def test_persona_over_cap_prints_warning(tmp_path, capsys, monkeypatch):

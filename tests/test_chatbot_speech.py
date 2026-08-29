@@ -83,9 +83,9 @@ def test_apply_avatar_respects_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("KOKORO_VOICE", "af_bella")
     monkeypatch.delenv("KOKORO_SPEED", raising=False)
 
-    profile = chatbot.apply_avatar("natori")
+    profile = chatbot.apply_avatar("wanko")
 
-    assert profile["voice"] == "am_michael"  # profile itself is unaffected
+    assert profile["voice"] == "am_puck"  # profile itself is unaffected
     assert chatbot.KOKORO_VOICE == "af_bella"  # but env wins for runtime setting
     assert chatbot.KOKORO_SPEED == profile["speed"]  # no env override here
 

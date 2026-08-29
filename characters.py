@@ -9,7 +9,7 @@ VALID_VERBOSITY = ("short", "normal", "long")
 
 # Files loaded first, in this order, so downstream iteration order is deterministic;
 # any additional cards follow alphabetically by key.
-_PRIORITY_ORDER = ["wanko", "haru", "natori"]
+_PRIORITY_ORDER = ["wanko"]
 
 
 def _as_list(value) -> list:
