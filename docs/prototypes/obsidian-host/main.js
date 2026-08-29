@@ -147,7 +147,7 @@ class VoicebotSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('Repo path')
-      .setDesc('Path to the anime-chatbot repo (cwd for chatbot.py)')
+      .setDesc('Path to the private-voicebot repo (cwd for chatbot.py)')
       .addText((text) => text.setValue(this.plugin.settings.repoPath).onChange(async (value) => {
         this.plugin.settings.repoPath = value.trim();
         await this.plugin.saveSettings();
