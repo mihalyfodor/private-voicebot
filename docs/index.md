@@ -103,7 +103,7 @@ voicebot/
     ├── 20-raw-ingestion.md       # PRD: raw ingestion — drops/pastes/emails/news (refactoring)
     ├── 21-obsidian-host.md       # PRD: research only, Obsidian as host (not building)
     ├── 22-sidebar-navigation.md  # PRD: rail + contextual panel, Settings view (refactoring)
-    └── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (implementation)
+    └── 23-wanko-only.md          # PRD: Wanko as the only assistant, avatar picker removed (done)
 ```
 
 ## Active PRDs

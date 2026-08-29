@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 23 — Wanko only: one office-neutral assistant
 
