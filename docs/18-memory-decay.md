@@ -98,3 +98,12 @@ stale entries before live ones; no automatic DELETE of non-episodic entries anyw
 ## Out of scope
 Archiving to the wiki (PRD 19 adds the archive target); decay for identity/preferences (they only change by
 UPDATE); any numeric scoring; DnD between sections other than the two moves above.
+
+## Results (harness, live, 2026-08-29, gemma-4-26B)
+
+| script | probes | notes |
+|---|---|---|
+| `stale.yaml` | 2/2 | Anna retired by the +200 d save (`[Memory] stale — people: Anna`), abstention on "how is Anna settling in?", real mention → `CONFIRM`, entry live again with the original note |
+| `editor.yaml` ×2 rounds | 5/5, 5/5 | hand `DELETE` of the dog + `UPDATE` job between sessions; dog never re-added across rounds; 0 duplicates; 26 → 37 tokens rendered |
+
+Run with `.env` sourced (`set -a; source .env; set +a`) — the harness does not load it itself.
