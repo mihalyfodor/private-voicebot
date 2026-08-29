@@ -83,15 +83,12 @@ tags, source: user drop <date>, updated`. Body: `## Summary`, `## Entities` ([[l
    project note; open the raw file from the page in Obsidian. ⌘⇧⌃4 a region, ⌘V in the app → popup with thumbnail
    → File → page with the transcribed text.
 
-### Work Outlook intake (user question 2026-08-29)
-Spike first (≤ 1 h, not a deliverable): device-code login to Microsoft Graph with delegated `Mail.Read`. If the
-tenant grants consent → `tools/outlook.py` mirrors `gmail.py` (`get_work_emails`, and `file_source("email", id)`
-fetches by id via Graph). If admin consent is required/blocked → fallback is (a) `.eml`/`.msg` drop (always works)
-and (b) an AppleScript "file selected message" command for legacy Outlook for Mac (`selected objects`), posting to
-`/ingest`. Never auto-forwarding or IMAP workarounds. Check the org's data policy before any automatic path.
+### Work Outlook
+Decided 2026-08-29: **not touched at all** — no Graph API, no AppleScript, no mailbox access of any kind. The only route
+for a work email is the user dragging an `.eml`/`.msg` into the intake popup, which needs no integration.
 
 ## Out of scope
-Chunked/long documents, OCR, mailbox polling, folder watching, non-text attachments, web clipping.
+Chunked/long documents, OCR, mailbox polling, folder watching, non-text attachments, web clipping, any Outlook/Graph integration.
 
 ## Results (harness, live, 2026-08-29, gemma-4-26B, `--tools`)
 
