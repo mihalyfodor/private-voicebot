@@ -15,113 +15,9 @@
   <div id="backdrop"></div>
 
   <div id="shell">
-    <!-- The scrim lives inside #shell: a fixed-position element is its own stacking context,
-         so a scrim outside it would paint over the rail and the panel. -->
-    <div id="scrim" hidden></div>
-
-    <!-- PRD 22: the rail is the only always-visible navigation; buttons are built in app.js
-         from the VIEWS table so the icon set and the keyboard digits stay in one place. -->
+    <!-- PRD 22/22b: the rail is the only always-visible navigation; buttons are built in
+         app.js from the VIEWS table so the icon set and the keyboard digits stay in one place. -->
     <nav id="rail" aria-label="Views"></nav>
-
-    <!-- Contextual panel: one fragment per view, all of them in the DOM so the controls keep
-         their ids (and their handlers) whether the panel is open or not. -->
-    <div id="panel-wrap" hidden>
-      <aside id="side-panel" aria-label="View options">
-        <div id="sheet-handle"></div>
-        <div id="panel-head">
-          <span id="panel-heading">Chat</span>
-          <button id="pin-btn" title="pinned: pushes the workspace / floating: overlays it">floating</button>
-        </div>
-        <div id="panel-body">
-
-          <div class="panel-view" data-view="chat">
-            <div class="panel-section">
-              <div class="panel-title">Listening</div>
-              <button id="hands-free-toggle" class="panel-item">
-                <span class="name">Hands-free</span>
-                <span class="switch"><span class="knob"></span></span>
-              </button>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Reply length</div>
-              <div id="verbosity-control" class="verbosity-control">
-                <input type="range" id="verbosity-slider" min="0" max="2" step="1" value="1">
-                <div class="verbosity-labels">
-                  <span class="verbosity-label" data-value="0">short</span>
-                  <span class="verbosity-label" data-value="1">normal</span>
-                  <span class="verbosity-label" data-value="2">long</span>
-                </div>
-              </div>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Backdrop</div>
-              <div id="backdrop-list" class="chip-grid"></div>
-            </div>
-          </div>
-
-          <div class="panel-view" data-view="memory" hidden>
-            <div class="panel-section">
-              <div class="panel-title">View</div>
-              <button id="memory-model-toggle" class="chip">model view</button>
-              <div class="panel-note">model view shows the exact block the assistant is given.</div>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Decay windows</div>
-              <div id="decay-list"></div>
-              <div class="panel-note">an entry not mentioned within its window is marked stale
-                and leaves the prompt; nothing is deleted.</div>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Session</div>
-              <button id="memory-save-now" class="panel-item">
-                <span class="name" id="memory-save-now-label">Save now</span>
-                <span class="desc">folds this session into memory without waiting for the next save</span>
-              </button>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Danger</div>
-              <button id="memory-reset" class="panel-item danger">Forget everything</button>
-            </div>
-          </div>
-
-          <div class="panel-view" data-view="wiki" hidden>
-            <div class="panel-section">
-              <div class="panel-title">Ingest</div>
-              <button id="wiki-ingest" class="panel-item">
-                <span class="name" id="wiki-ingest-label">Re-ingest last session</span>
-                <span class="desc">re-reads the transcript into pages</span>
-              </button>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title" id="wiki-lint-title">Lint</div>
-              <div id="wiki-lint" hidden></div>
-              <div id="wiki-lint-empty" class="panel-note">no findings.</div>
-            </div>
-            <div class="panel-section">
-              <div class="panel-title">Vault</div>
-              <a id="wiki-open-vault" class="panel-item" href="#">
-                <span class="name">Open vault</span>
-                <span class="desc" id="wiki-vault"></span>
-              </a>
-            </div>
-          </div>
-
-          <div class="panel-view" data-view="sources" hidden>
-            <div class="panel-section">
-              <div class="panel-title">Sources</div>
-              <div class="panel-note">Everything filed from a drop, a paste or the button below
-                lands in <code>sources/</code>. Nothing is filed without you pressing File.</div>
-              <button id="sources-file" class="panel-item">
-                <span class="name">file a source…</span>
-                <span class="desc">pick files and review them before they are filed</span>
-              </button>
-              <input id="sources-input" type="file" multiple hidden>
-            </div>
-          </div>
-
-        </div>
-      </aside>
-    </div>
 
     <main>
       <section id="avatar">
@@ -142,6 +38,8 @@
         <div id="view-memory" class="view" hidden>
           <div id="memory-head">
             <div id="memory-count">Memory</div>
+            <button id="memory-model-toggle" class="chip">model view</button>
+            <button id="memory-save-now" class="chip"><span id="memory-save-now-label">Save now</span></button>
           </div>
           <div id="memory-body">
             <div id="memory-sections"></div>
@@ -167,21 +65,77 @@
           </div>
           <div id="wiki-foot">
             <div id="wiki-error"></div>
+            <div id="wiki-lint" hidden></div>
+            <div id="wiki-vault" class="wiki-muted"></div>
+            <!-- the two view-local actions: re-ingest belongs to Wiki, filing to Sources -->
+            <button id="wiki-ingest" class="chip"><span id="wiki-ingest-label">Re-ingest last session</span></button>
+            <button id="sources-file" class="chip" hidden>file a source…</button>
+            <input id="sources-input" type="file" multiple hidden>
           </div>
         </div>
 
-        <!-- Settings: everything touched less than weekly (PRD 22). -->
+        <!-- Settings: every control that is not a view-local action (PRD 22b). -->
         <div id="view-settings" class="view" hidden>
           <div id="settings-body">
-            <div class="set-head">Characters</div>
+            <div class="set-head">Listening</div>
             <div class="set-row">
               <span class="set-label">
-                <span class="name">Reload characters</span>
-                <span class="desc">re-reads characters/*.yaml without restarting</span>
+                <span class="name">Hands-free</span>
+                <span class="desc">the mic listens continuously; no push-to-talk</span>
               </span>
-              <span class="set-ctl"><button id="reload-characters" class="chip">Reload now</button></span>
+              <span class="set-ctl">
+                <button id="hands-free-toggle" aria-label="Hands-free">
+                  <span class="switch"><span class="knob"></span></span>
+                </button>
+              </span>
             </div>
-            <div class="set-head">Wiki vault</div>
+
+            <div class="set-head">Reply length</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Verbosity</span>
+                <span class="desc">how long the assistant's spoken replies run</span>
+              </span>
+              <span class="set-ctl">
+                <div id="verbosity-control" class="verbosity-control">
+                  <input type="range" id="verbosity-slider" min="0" max="2" step="1" value="1">
+                  <div class="verbosity-labels">
+                    <span class="verbosity-label" data-value="0">short</span>
+                    <span class="verbosity-label" data-value="1">normal</span>
+                    <span class="verbosity-label" data-value="2">long</span>
+                  </div>
+                </div>
+              </span>
+            </div>
+
+            <div class="set-head">Backdrop</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Scene</span>
+                <span class="desc">image drawn behind the avatar</span>
+              </span>
+              <span class="set-ctl"><div id="backdrop-list" class="chip-grid"></div></span>
+            </div>
+
+            <div class="set-head">Memory</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Decay windows</span>
+                <span class="desc">an entry not mentioned within its window is marked stale and
+                  leaves the prompt; nothing is deleted</span>
+              </span>
+              <span class="set-ctl"><div id="decay-list"></div></span>
+            </div>
+            <div class="set-head danger">Danger zone</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Forget everything</span>
+                <span class="desc">clears the whole profile; asks first, cannot be undone</span>
+              </span>
+              <span class="set-ctl"><button id="memory-reset" class="chip danger">Forget everything</button></span>
+            </div>
+
+            <div class="set-head">Wiki</div>
             <div class="set-row">
               <span class="set-label">
                 <span class="name">Vault path</span>
@@ -192,6 +146,16 @@
                 <a id="settings-open-vault" class="chip" href="#">Open vault</a>
               </span>
             </div>
+
+            <div class="set-head">Characters</div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Reload characters</span>
+                <span class="desc">re-reads characters/*.yaml without restarting</span>
+              </span>
+              <span class="set-ctl"><button id="reload-characters" class="chip">Reload now</button></span>
+            </div>
+
             <div class="set-head">Tools</div>
             <div class="set-row">
               <span class="set-label">
@@ -200,6 +164,7 @@
               </span>
               <span class="set-ctl"><code id="settings-screenshot" class="set-value"></code></span>
             </div>
+
             <div class="set-head">Session</div>
             <div class="set-row">
               <span class="set-label">

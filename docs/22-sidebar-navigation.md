@@ -1,4 +1,5 @@
 Status: done
+Superseded in part by [22b-rail-only.md](22b-rail-only.md): the contextual panel was removed — the rail only switches views and every setting lives in the Settings view.
 
 # 22 — Sidebar & interaction review: navigation and settings in one place
 
