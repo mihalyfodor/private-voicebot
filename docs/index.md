@@ -102,6 +102,7 @@ voicebot/
 - [15-memory-v2.md](15-memory-v2.md) — structured profile memory with upsert + reflection (done)
 - [16-memory-editor.md](16-memory-editor.md) — memory viewer/editor panel (exploration)
 - [17-long-term-memory.md](17-long-term-memory.md) — research: decay, archive, LLM-wiki layer (exploration)
+- [21-obsidian-host.md](21-obsidian-host.md) — research only: Obsidian as host vs TS rewrite (not building)
 
 ## Completed PRDs
 
