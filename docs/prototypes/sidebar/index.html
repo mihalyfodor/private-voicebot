@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PRD 22 — sidebar navigation prototype</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: radial-gradient(ellipse 70% 60% at 50% 35%, #1c1c20 0%, #0f0f0f 70%);
+  color: #e0e0e0;
+}
+
+/* ---------- shell ---------- */
+#shell { position: fixed; inset: 0; display: flex; align-items: stretch; }
+
+/* ---------- rail ---------- */
+#rail {
+  flex: 0 0 56px; z-index: 6;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 0 12px;
+  background: rgba(18,18,20,0.92); border-right: 1px solid #262626;
+  backdrop-filter: blur(12px);
+}
+.rail-spacer { flex: 1; }
+.rail-btn {
+  position: relative; width: 40px; height: 40px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 10px; border: 1px solid transparent; background: none;
+  color: #9a9a9a; cursor: pointer;
+}
+.rail-btn:hover { background: rgba(255,255,255,0.05); color: #e6e6e6; }
+.rail-btn.active { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.12); }
+.rail-btn svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.rail-btn .key {
+  position: absolute; right: 3px; bottom: 1px; font-size: 8px; color: #5a5a5a; letter-spacing: 0;
+}
+.rail-btn.active .key { color: #4a90d9; }
+/* tooltip */
+.rail-btn .tip {
+  position: absolute; left: 46px; top: 50%; transform: translateY(-50%);
+  padding: 4px 9px; border-radius: 6px; white-space: nowrap; pointer-events: none;
+  background: rgba(20,20,22,0.96); border: 1px solid #333; color: #e6e6e6;
+  font-size: 11px; letter-spacing: 0.04em; opacity: 0; transition: opacity 0.12s; z-index: 20;
+}
+.rail-btn:hover .tip { opacity: 1; }
+.rail-dot {
+  position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 0; border-radius: 2px; background: #4a90d9; transition: height 0.15s;
+}
+.rail-btn.active .rail-dot { height: 18px; }
+.rail-sep { width: 24px; height: 1px; background: #262626; margin: 4px 0; flex: none; }
+.rail-badge {
+  position: absolute; top: 4px; right: 4px; min-width: 14px; height: 14px; padding: 0 3px;
+  border-radius: 999px; background: #4a90d9; color: #0f0f0f;
+  font-size: 9px; font-weight: 700; line-height: 14px; text-align: center;
+}
+
+/* ---------- contextual panel ---------- */
+#panel-wrap { flex: 0 0 280px; min-width: 0; position: relative; z-index: 5; }
+#panel-wrap[hidden] { display: none; }
+#panel-wrap.floating {
+  position: absolute; left: 56px; top: 0; bottom: 0; flex: none; width: 280px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.55);
+}
+#panel {
+  height: 100%; width: 100%; overflow-y: auto; scrollbar-width: thin;
+  padding: 14px 14px 18px;
+  background: rgba(18,18,20,0.94); border-right: 1px solid #262626;
+  backdrop-filter: blur(12px);
+  display: flex; flex-direction: column;
+}
+#panel-head {
+  flex: none; display: flex; align-items: center; gap: 8px; margin: 0 2px 12px;
+}
+#panel-title { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; color: #f2f2f2; }
+#pin-btn {
+  margin-left: auto; background: none; border: 1px solid #3a3a3a; border-radius: 999px;
+  color: #9a9a9a; font: inherit; font-size: 11px; padding: 3px 10px; cursor: pointer;
+}
+#pin-btn:hover { color: #f2f2f2; border-color: #666; }
+#pin-btn.on { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.15); }
+
+.section + .section { margin-top: 18px; }
+.section-title {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a; margin: 0 6px 8px;
+}
+.item {
+  display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: 8px; border: 1px solid transparent;
+  background: none; color: #f2f2f2; font: inherit; cursor: pointer;
+}
+.item:hover { background: rgba(255,255,255,0.05); }
+.item.active { border-color: #4a90d9; background: rgba(74,144,217,0.10); }
+.item .name { font-size: 14px; font-weight: 600; }
+.item .desc { font-size: 11px; color: #b0b0b0; }
+.item.danger { color: #e06060; font-size: 13px; letter-spacing: 0.05em; }
+.item.danger:hover { background: rgba(200,50,50,0.10); }
+.item.row { flex-direction: row; align-items: center; justify-content: space-between; }
+
+.switch {
+  position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px;
+  background: rgba(255,255,255,0.12); border: 1px solid #3a3a3a;
+  transition: background 0.15s, border-color 0.15s;
+}
+.switch .knob {
+  position: absolute; top: 1px; left: 1px; width: 16px; height: 16px; border-radius: 50%;
+  background: #ccc; transition: transform 0.15s ease;
+}
+.item.on .switch { background: rgba(74,144,217,0.35); border-color: #4a90d9; }
+.item.on .switch .knob { background: #4a90d9; transform: translateX(16px); }
+
+.chip-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 4px; }
+.chip {
+  padding: 6px 10px; border-radius: 999px; border: 1px solid #3a3a3a;
+  background: rgba(255,255,255,0.04); color: #e6e6e6; font: inherit; font-size: 12px; cursor: pointer;
+}
+.chip:hover { border-color: #666; }
+.chip.active { border-color: #4a90d9; background: rgba(74,144,217,0.15); }
+.panel-note { font-size: 11px; color: #6a6a6a; padding: 0 6px; line-height: 1.5; }
+.lint-line { font-size: 11px; color: #8a8a8a; padding: 2px 6px; }
+.lint-line b { color: #c08a3e; font-weight: 600; }
+.src-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+}
+.src-row:hover { background: rgba(255,255,255,0.04); border-color: #232323; }
+.src-row.selected { background: rgba(74,144,217,0.14); border-color: #4a90d9; }
+.src-title { font-size: 13px; color: #ececec; }
+.src-when { margin-left: auto; flex: none; font-size: 10px; color: #6a6a6a; }
+
+/* ---------- avatar column ---------- */
+#avatar {
+  position: relative; flex: 0 0 25%; min-width: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.avatar-shape {
+  width: 100%; max-width: 240px; height: min(60%, 420px);
+  border-radius: 120px 120px 28px 28px;
+  border: 1px dashed #333; background: linear-gradient(180deg, rgba(74,144,217,0.10), rgba(255,255,255,0.02));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase; color: #5a5a5a;
+}
+#credit {
+  position: absolute; left: 12px; bottom: 8px; font-size: 10px; color: #3a3a3a; letter-spacing: 0.05em;
+}
+
+/* ---------- workspace ---------- */
+#workspace {
+  position: relative; z-index: 2; flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column;
+}
+#ws-head {
+  flex: none; display: flex; align-items: baseline; gap: 12px;
+  padding: 18px 24px 10px; border-bottom: 1px solid #1f1f1f;
+}
+#ws-title { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; color: #f2f2f2; }
+#ws-sub { font-size: 11px; color: #6a6a6a; letter-spacing: 0.04em; }
+#ws-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 16px 24px 24px; }
+.ws-view { height: 100%; }
+.ws-view[hidden] { display: none; }
+#ws-memory, #ws-wiki, #ws-sources, #ws-settings { height: auto; }
+
+/* chat view */
+#chat-stack { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 14px; }
+#transcript { width: min(640px, 96%); display: flex; flex-direction: column; gap: 10px; text-align: center; }
+.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.5; }
+.msg:last-child { opacity: 1; }
+.msg .role { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #666; }
+.msg.user .role { color: #4a90d9; }
+.msg .text { font-size: 16px; line-height: 1.45; color: #ececec; }
+.msg.user .text { color: #bfc7d0; font-size: 14px; }
+#speak {
+  width: 76px; height: 76px; border-radius: 50%;
+  border: 2px solid #555; background: rgba(26,26,26,0.85); color: #e0e0e0;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+}
+#speak:hover { border-color: #999; }
+#speak.hearing { background: #10240f; border-color: #3fae3f; color: #7fe07f; }
+#chat-status { font-size: 11px; color: #666; letter-spacing: 0.1em; text-transform: uppercase; height: 14px; }
+
+/* memory / wiki / sources / settings mock content */
+.card {
+  background: rgba(20,20,22,0.55); border: 1px solid #262626; border-radius: 10px;
+  padding: 14px; margin-bottom: 12px;
+}
+.mem-row {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px;
+  padding: 6px 8px; border-radius: 8px;
+  background: rgba(255,255,255,0.03); border: 1px solid #232323; margin-bottom: 4px;
+}
+.mem-key { font-size: 12px; color: #8fb4dd; min-width: 92px; }
+.mem-val { font-size: 13px; color: #ececec; }
+.mem-seen { margin-left: auto; font-size: 10px; color: #6a6a6a; }
+.group-title {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a; margin: 14px 0 6px 2px;
+}
+.group-title:first-child { margin-top: 0; }
+pre.mono {
+  white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; color: #cfcfcf;
+}
+.two-col { display: flex; gap: 16px; align-items: flex-start; }
+.two-col > .left { flex: 0 0 34%; min-width: 0; }
+.two-col > .right { flex: 1 1 auto; min-width: 0; }
+.wiki-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+.wiki-row:hover { background: rgba(255,255,255,0.04); border-color: #232323; }
+.wiki-row.selected { background: rgba(74,144,217,0.14); border-color: #4a90d9; }
+.wiki-row-title { font-size: 13px; color: #ececec; }
+.wiki-row-type { margin-left: auto; font-size: 10px; color: #6a6a6a; }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #8fb4dd; }
+.muted { font-size: 11px; color: #6a6a6a; }
+
+/* settings view */
+.set-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 12px 2px; border-bottom: 1px solid #1f1f1f;
+}
+.set-row:last-child { border-bottom: none; }
+.set-label { flex: 0 0 190px; }
+.set-label .name { display: block; font-size: 13px; color: #f2f2f2; }
+.set-label .desc { display: block; font-size: 11px; color: #6a6a6a; margin-top: 2px; }
+.set-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+input.text {
+  font: inherit; font-size: 12px; color: #e6e6e6; padding: 5px 8px; min-width: 260px;
+  background: rgba(255,255,255,0.04); border: 1px solid #333; border-radius: 6px; outline: none;
+}
+input.text:focus { border-color: #4a90d9; }
+.section-head {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
+  color: #9a9a9a; margin: 18px 0 4px 2px;
+}
+.section-head:first-child { margin-top: 0; }
+
+/* toast so clicks feel real */
+#toast {
+  position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 14px);
+  padding: 8px 16px; border-radius: 999px; z-index: 30;
+  background: rgba(20,20,22,0.96); border: 1px solid #333; color: #e6e6e6;
+  font-size: 12px; letter-spacing: 0.03em; opacity: 0; pointer-events: none;
+  transition: opacity 0.18s, transform 0.18s;
+}
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+/* scrim for the unpinned overlay panel */
+#scrim { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,0.35); }
+#scrim[hidden] { display: none; }
+
+/* ---------- narrow: bottom tab bar + sheet ---------- */
+#sheet-handle { display: none; }
+@media (max-width: 700px) {
+  #shell { flex-direction: column; }
+  #rail {
+    order: 3; flex: 0 0 58px; flex-direction: row; justify-content: space-around; align-items: center;
+    gap: 0; padding: 0 6px; border-right: none; border-top: 1px solid #262626;
+  }
+  .rail-spacer, .rail-sep { display: none; }
+  .rail-btn { width: 100%; max-width: 76px; height: 46px; flex-direction: column; gap: 2px; }
+  .rail-btn .tip {
+    left: 50%; top: auto; bottom: 52px; transform: translateX(-50%);
+    opacity: 1; position: static; border: none; background: none; padding: 0;
+    font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: inherit;
+  }
+  .rail-btn .key { display: none; }
+  .rail-dot { left: 50%; top: 2px; transform: translateX(-50%); width: 0; height: 3px; }
+  .rail-btn.active .rail-dot { width: 18px; height: 3px; }
+
+  #avatar { order: 1; flex: 0 0 22vh; padding: 8px; }
+  /* with the sheet up, anchor the chat to the top so it stays visible */
+  #chat-stack { min-height: 0; justify-content: flex-start; gap: 18px; }
+  #speak { align-self: center; }
+  .avatar-shape { height: 90%; max-width: 150px; border-radius: 75px 75px 20px 20px; }
+  #workspace { order: 2; flex: 1 1 auto; min-height: 0; }
+  #ws-head { padding: 12px 14px 8px; }
+  #ws-body { padding: 12px 14px 18px; }
+  .two-col { flex-direction: column; }
+  .two-col > .left { flex: 0 0 auto; width: 100%; }
+  .set-label { flex: 0 0 100%; }
+  input.text { min-width: 0; width: 100%; }
+
+  /* panel becomes a bottom sheet above the tab bar */
+  #panel-wrap, #panel-wrap.floating {
+    position: fixed; left: 0; right: 0; bottom: 58px; top: auto; width: auto;
+    max-height: 56vh; z-index: 7; box-shadow: 0 -18px 40px rgba(0,0,0,0.6);
+  }
+  #panel {
+    border-right: none; border-top: 1px solid #262626;
+    border-radius: 16px 16px 0 0; max-height: 56vh; padding-top: 6px;
+  }
+  #sheet-handle {
+    display: block; flex: none; width: 40px; height: 4px; border-radius: 999px;
+    background: #3a3a3a; margin: 4px auto 10px;
+  }
+  #pin-btn { display: none; }
+  #scrim { bottom: 58px; }
+}
+</style>
+</head>
+<body>
+
+<div id="scrim" hidden></div>
+
+<div id="shell">
+
+  <!-- ---------- icon rail ---------- -->
+  <nav id="rail" aria-label="Views"></nav>
+
+  <!-- ---------- contextual panel ---------- -->
+  <div id="panel-wrap" hidden>
+    <aside id="panel">
+      <div id="sheet-handle"></div>
+      <div id="panel-head">
+        <span id="panel-title">Chat</span>
+        <button id="pin-btn" class="on" title="pinned: pushes the workspace / unpinned: overlays it">pinned</button>
+      </div>
+      <div id="panel-body"></div>
+    </aside>
+  </div>
+
+  <!-- ---------- avatar column (placeholder) ---------- -->
+  <section id="avatar">
+    <div class="avatar-shape">avatar</div>
+    <div id="credit">Anna · Live2D · backdrop: dorm evening</div>
+  </section>
+
+  <!-- ---------- workspace ---------- -->
+  <section id="workspace">
+    <div id="ws-head">
+      <span id="ws-title">Chat</span>
+      <span id="ws-sub">hands-free · normal replies</span>
+    </div>
+    <div id="ws-body">
+
+      <div class="ws-view" id="ws-chat">
+        <div id="chat-stack">
+          <div id="transcript">
+            <div class="msg user"><span class="role">you</span><span class="text">did we ever finish the Kyoto trip notes?</span></div>
+            <div class="msg"><span class="role">anna</span><span class="text">Half of them. The temple list is in the wiki, the food notes are still just voice memos from Tuesday.</span></div>
+            <div class="msg user"><span class="role">you</span><span class="text">pull the food ones into the page then</span></div>
+            <div class="msg"><span class="role">anna</span><span class="text">Done — four notes merged into <b>Trips/Kyoto</b>. Two of them mention the same ramen place, I kept the longer one.</span></div>
+          </div>
+          <button id="speak" class="hearing">Listening</button>
+          <div id="chat-status">hands-free — say something</div>
+        </div>
+      </div>
+
+      <div class="ws-view" id="ws-memory" hidden>
+        <div class="group-title">Identity</div>
+        <div class="mem-row"><span class="mem-key">name</span><span class="mem-val">Mihaly</span><span class="mem-seen">seen 2h ago</span></div>
+        <div class="mem-row"><span class="mem-key">nickname</span><span class="mem-val">Fomi</span><span class="mem-seen">seen 2h ago</span></div>
+        <div class="mem-row"><span class="mem-key">timezone</span><span class="mem-val">Europe/Budapest</span><span class="mem-seen">seen 3d ago</span></div>
+        <div class="group-title">Preferences</div>
+        <div class="mem-row"><span class="mem-key">reply length</span><span class="mem-val">normal, no filler openers</span><span class="mem-seen">seen 1d ago</span></div>
+        <div class="mem-row"><span class="mem-key">coffee</span><span class="mem-val">flat white, no sugar</span><span class="mem-seen">seen 9d ago</span></div>
+        <div class="group-title">Episodics</div>
+        <div class="mem-row"><span class="mem-key">2026-08-24</span><span class="mem-val">planned the Kyoto trip for October</span><span class="mem-seen">seen 5d ago</span></div>
+        <div class="mem-row"><span class="mem-key">2026-08-19</span><span class="mem-val">started the gym block, 3× a week</span><span class="mem-seen">seen 10d ago</span></div>
+      </div>
+
+      <div class="ws-view" id="ws-wiki" hidden>
+        <div class="two-col">
+          <div class="left">
+            <div class="group-title">People</div>
+            <div class="wiki-row selected"><span class="wiki-row-title">Anna</span><span class="wiki-row-type">person</span></div>
+            <div class="wiki-row"><span class="wiki-row-title">Dani</span><span class="wiki-row-type">person</span></div>
+            <div class="group-title">Trips</div>
+            <div class="wiki-row"><span class="wiki-row-title">Kyoto</span><span class="wiki-row-type">place</span></div>
+            <div class="wiki-row"><span class="wiki-row-title">Lisbon 2025</span><span class="wiki-row-type">place</span></div>
+            <div class="group-title">Projects</div>
+            <div class="wiki-row"><span class="wiki-row-title">Voicebot</span><span class="wiki-row-type">project</span></div>
+          </div>
+          <div class="right card">
+            <div style="font-size:15px;font-weight:600;color:#f2f2f2;">Anna</div>
+            <div class="path" style="margin:4px 0 10px;">vault/People/Anna.md</div>
+            <pre class="mono"># Anna
+
+The assistant persona. Speaks short, dry, no filler openers.
+
+- avatar: `anna_v3` (Live2D)
+- backdrop default: dorm evening
+- see also: [[Voicebot]], [[Trips/Kyoto]]
+
+## Notes
+- 2026-08-24 — asked to stop starting replies with "Sure!"</pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="ws-view" id="ws-sources" hidden>
+        <div class="card">
+          <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Voice memo — Tuesday 21:40</div>
+          <pre class="mono">…so the ramen place near the station, the one with the yellow sign,
+that's the one worth going back to. Also the coffee stand inside
+Nishiki market opens at seven, earlier than the guide says.</pre>
+          <div class="muted" style="margin-top:10px;">2 candidate facts · 1 wiki page suggested (Trips/Kyoto)</div>
+        </div>
+        <div class="muted">Pick an item in the inbox panel to triage it. Accepting writes to memory or the wiki; skipping keeps it in the inbox for a week.</div>
+      </div>
+
+      <div class="ws-view" id="ws-settings" hidden>
+        <div class="section-head">Characters</div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Reload characters</span><span class="desc">re-reads characters/*.yaml without restarting</span></span>
+          <span class="set-ctl"><button class="chip" data-toast="characters reloaded (4 found)">Reload now</button></span>
+        </div>
+        <div class="section-head">Memory decay</div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Episodic window</span><span class="desc">how long an episodic stays before it ages out</span></span>
+          <span class="set-ctl">
+            <button class="chip" data-radio="epi">14 d</button>
+            <button class="chip active" data-radio="epi">30 d</button>
+            <button class="chip" data-radio="epi">90 d</button>
+            <button class="chip" data-radio="epi">never</button>
+          </span>
+        </div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Preference window</span><span class="desc">unseen preferences are marked stale after…</span></span>
+          <span class="set-ctl">
+            <button class="chip" data-radio="pref">30 d</button>
+            <button class="chip active" data-radio="pref">90 d</button>
+            <button class="chip" data-radio="pref">never</button>
+          </span>
+        </div>
+        <div class="section-head">Wiki vault</div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Vault path</span><span class="desc">where wiki pages are written as markdown</span></span>
+          <span class="set-ctl">
+            <input class="text" value="~/Documents/Obsidian/voicebot" spellcheck="false">
+            <button class="chip" data-toast="vault path saved">Save</button>
+            <button class="chip" data-toast="opened the vault in Obsidian">Open vault</button>
+          </span>
+        </div>
+        <div class="section-head">Tools</div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Screenshot tool</span><span class="desc">saves a PNG of the current window</span></span>
+          <span class="set-ctl"><button class="chip" data-toast="screenshot saved to /tmp/voicebot.png">Take screenshot</button></span>
+        </div>
+        <div class="section-head">Session</div>
+        <div class="set-row">
+          <span class="set-label"><span class="name">Shut down</span><span class="desc">saves session memory and stops the server</span></span>
+          <span class="set-ctl"><button class="chip" data-toast="shutting down…" style="border-color:#4a3030;color:#e06060;">Shut down</button></span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   PRD 22 prototype — fake data only, no backend. Everything below is
+   throwaway: it exists to argue about the layout, not to be reused.
+------------------------------------------------------------------ */
+
+const ICONS = {
+  chat: '<path d="M4 5h16v10H8l-4 4z"/>',
+  memory: '<ellipse cx="12" cy="6" rx="7" ry="2.6"/><path d="M5 6v6c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6V6"/><path d="M5 12v6c0 1.4 3.1 2.6 7 2.6s7-1.2 7-2.6v-6"/>',
+  wiki: '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v16H6.5A2.5 2.5 0 0 0 4 21z"/><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H12v16h5.5A2.5 2.5 0 0 1 20 21z"/>',
+  sources: '<path d="M4 13h4l2 3h4l2-3h4"/><path d="M5 6h14l1 7v5H4v-5z"/>',
+  settings: '<path d="M4 7h9m3 0h4M4 17h4m3 0h9M4 12h14m3 0h1"/><circle cx="15" cy="7" r="2"/><circle cx="9.5" cy="17" r="2"/><circle cx="19.5" cy="12" r="2"/>',
+};
+
+const VIEWS = [
+  { id: 'chat',     label: 'Chat',     key: '1', title: 'Chat',     sub: 'hands-free · normal replies' },
+  { id: 'memory',   label: 'Memory',   key: '2', title: 'Memory',   sub: '7 entries · 2 aging' },
+  { id: 'wiki',     label: 'Wiki',     key: '3', title: 'Wiki',     sub: '12 pages · vault in sync' },
+  { id: 'sources',  label: 'Sources',  key: '4', title: 'Sources',  sub: '3 items in the inbox', badge: 3 },
+  { id: 'settings', label: 'Settings', key: '',  title: 'Settings', sub: 'things you touch less than weekly', bottom: true },
+];
+
+let current = 'chat';
+let panelOpen = true;
+let pinned = true;
+
+/* ---------- panel content per view ---------- */
+const PANELS = {
+  chat: () => `
+    <div class="section">
+      <div class="section-title">Listening</div>
+      <button class="item row on" data-toggle="1">
+        <span class="name">Hands-free</span>
+        <span class="switch"><span class="knob"></span></span>
+      </button>
+    </div>
+    <div class="section">
+      <div class="section-title">Reply length</div>
+      <div class="chip-grid">
+        <button class="chip" data-radio="len">short</button>
+        <button class="chip active" data-radio="len">normal</button>
+        <button class="chip" data-radio="len">long</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Avatar</div>
+      <div class="chip-grid">
+        <button class="chip active" data-radio="av">Anna</button>
+        <button class="chip" data-radio="av">Haru</button>
+        <button class="chip" data-radio="av">Mei</button>
+        <button class="chip" data-radio="av">Rin</button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Backdrop</div>
+      <div class="chip-grid">
+        <button class="chip" data-radio="bd">none</button>
+        <button class="chip active" data-radio="bd">dorm evening</button>
+        <button class="chip" data-radio="bd">rooftop</button>
+        <button class="chip" data-radio="bd">library</button>
+        <button class="chip" data-radio="bd">train</button>
+      </div>
+    </div>`,
+
+  memory: () => `
+    <div class="section">
+      <div class="section-title">View</div>
+      <div class="chip-grid">
+        <button class="chip active" data-radio="mv">edit view</button>
+        <button class="chip" data-radio="mv">model view</button>
+      </div>
+      <div class="panel-note" style="margin-top:8px;">model view shows the exact block the LLM is given.</div>
+    </div>
+    <div class="section">
+      <div class="section-title">Decay</div>
+      <button class="item row on" data-toggle="1">
+        <span class="name">Show stale entries</span>
+        <span class="switch"><span class="knob"></span></span>
+      </button>
+      <div class="panel-note" style="margin-top:6px;">2 entries are aging out this week.</div>
+    </div>
+    <div class="section">
+      <div class="section-title">Danger</div>
+      <button class="item danger" data-toast="nothing deleted — this is a prototype">Forget everything</button>
+      <div class="panel-note" style="margin-top:6px;">changes apply from the next reply.</div>
+    </div>`,
+
+  wiki: () => `
+    <div class="section">
+      <div class="section-title">Ingest</div>
+      <button class="item" data-toast="re-ingesting last session…">
+        <span class="name">Re-ingest last session</span>
+        <span class="desc">re-reads the transcript into pages</span>
+      </button>
+    </div>
+    <div class="section">
+      <div class="section-title">Lint · 3 findings</div>
+      <div class="lint-line"><b>broken link</b> Trips/Kyoto → [[Ramen Yellow Sign]]</div>
+      <div class="lint-line"><b>orphan</b> People/Dani — nothing links here</div>
+      <div class="lint-line"><b>stub</b> Projects/Voicebot — 2 lines only</div>
+      <button class="item" style="margin-top:6px;" data-toast="lint re-run: 3 findings">
+        <span class="name">Re-run lint</span>
+      </button>
+    </div>
+    <div class="section">
+      <div class="section-title">Vault</div>
+      <button class="item" data-toast="opened the vault in Obsidian">
+        <span class="name">Open vault</span>
+        <span class="desc">~/Documents/Obsidian/voicebot</span>
+      </button>
+    </div>`,
+
+  sources: () => `
+    <div class="section">
+      <div class="section-title">Inbox · 3</div>
+      <div class="src-row selected" data-src="1"><span class="src-title">Voice memo — Tuesday</span><span class="src-when">2 d</span></div>
+      <div class="src-row" data-src="1"><span class="src-title">Email: “Kyoto hotel”</span><span class="src-when">3 d</span></div>
+      <div class="src-row" data-src="1"><span class="src-title">Clipboard note</span><span class="src-when">6 d</span></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Triage</div>
+      <button class="item" data-toast="accepted into memory"><span class="name">Accept into memory</span></button>
+      <button class="item" data-toast="accepted into the wiki"><span class="name">Accept into wiki</span></button>
+      <button class="item danger" data-toast="skipped">Skip</button>
+    </div>
+    <div class="section">
+      <div class="section-title">Sources</div>
+      <div class="panel-note">voice memos · mail rules · clipboard capture — configured in Settings.</div>
+    </div>`,
+
+  settings: () => `
+    <div class="section">
+      <div class="section-title">Settings</div>
+      <div class="panel-note">Settings is a full workspace view — it has no contextual panel.
+      Everything here lives on the right.</div>
+    </div>`,
+};
+
+/* ---------- rail ---------- */
+const rail = document.getElementById('rail');
+function buildRail() {
+  const frag = document.createDocumentFragment();
+  VIEWS.filter(v => !v.bottom).forEach(v => frag.appendChild(railBtn(v)));
+  const sp = document.createElement('div'); sp.className = 'rail-spacer'; frag.appendChild(sp);
+  const sep = document.createElement('div'); sep.className = 'rail-sep'; frag.appendChild(sep);
+  VIEWS.filter(v => v.bottom).forEach(v => frag.appendChild(railBtn(v)));
+  rail.replaceChildren(frag);
+}
+function railBtn(v) {
+  const b = document.createElement('button');
+  b.className = 'rail-btn' + (v.id === current ? ' active' : '');
+  b.dataset.view = v.id;
+  b.setAttribute('aria-label', v.label);
+  b.innerHTML = `<span class="rail-dot"></span>
+    <svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[v.id]}</svg>
+    ${v.key ? `<span class="key">${v.key}</span>` : ''}
+    ${v.badge ? `<span class="rail-badge">${v.badge}</span>` : ''}
+    <span class="tip">${v.label}</span>`;
+  b.onclick = () => {
+    if (v.id === current) { setPanelOpen(!panelOpen); }
+    else { setView(v.id); }
+  };
+  return b;
+}
+
+/* ---------- view switching ---------- */
+const wsTitle = document.getElementById('ws-title');
+const wsSub = document.getElementById('ws-sub');
+const panelWrap = document.getElementById('panel-wrap');
+const panelTitle = document.getElementById('panel-title');
+const panelBody = document.getElementById('panel-body');
+const scrim = document.getElementById('scrim');
+
+// Settings owns the whole workspace, so the panel folds away when you enter it
+// and comes back the way you left it when you go elsewhere.
+const NO_PANEL = ['settings'];
+let panelOpenBefore = true;
+
+function setView(id) {
+  const v = VIEWS.find(x => x.id === id);
+  if (!v) return;
+  if (NO_PANEL.includes(id) && !NO_PANEL.includes(current)) { panelOpenBefore = panelOpen; panelOpen = false; }
+  if (!NO_PANEL.includes(id) && NO_PANEL.includes(current)) { panelOpen = panelOpenBefore; }
+  current = id;
+  VIEWS.forEach(x => { document.getElementById('ws-' + x.id).hidden = x.id !== id; });
+  Array.from(rail.querySelectorAll('.rail-btn')).forEach(b => b.classList.toggle('active', b.dataset.view === id));
+  wsTitle.textContent = v.title;
+  wsSub.textContent = v.sub;
+  panelTitle.textContent = v.label;
+  panelBody.innerHTML = PANELS[id]();
+  render();
+}
+
+function setPanelOpen(open) { panelOpen = open; render(); }
+function setPinned(on) { pinned = on; render(); }
+
+function render() {
+  panelWrap.hidden = !panelOpen;
+  panelWrap.classList.toggle('floating', !pinned);
+  scrim.hidden = !(panelOpen && !pinned && window.innerWidth > 700);
+  const pin = document.getElementById('pin-btn');
+  pin.classList.toggle('on', pinned);
+  pin.textContent = pinned ? 'pinned' : 'floating';
+}
+
+document.getElementById('pin-btn').onclick = () => setPinned(!pinned);
+scrim.onclick = () => setPanelOpen(false);
+
+/* ---------- keyboard 1–4 (only when not typing) ---------- */
+document.addEventListener('keydown', (e) => {
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const v = VIEWS.find(x => x.key && x.key === e.key);
+  if (v) { setView(v.id); return; }
+  if (e.key === 'Escape' && panelOpen && !pinned) setPanelOpen(false);
+  if (e.key === 'b' || e.key === 'B') setPanelOpen(!panelOpen);
+});
+
+/* ---------- fake interactivity: chips, toggles, toasts ---------- */
+const toast = document.getElementById('toast');
+let toastTimer = null;
+function showToast(msg) {
+  toast.textContent = msg;
+  toast.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('on'), 1600);
+}
+
+document.addEventListener('click', (e) => {
+  const radio = e.target.closest('[data-radio]');
+  if (radio) {
+    const group = radio.dataset.radio;
+    radio.parentElement.querySelectorAll(`[data-radio="${group}"]`).forEach(c => c.classList.remove('active'));
+    radio.classList.add('active');
+    showToast(`${group}: ${radio.textContent.trim()}`);
+    return;
+  }
+  const toggle = e.target.closest('[data-toggle]');
+  if (toggle) {
+    toggle.classList.toggle('on');
+    showToast(toggle.querySelector('.name').textContent + (toggle.classList.contains('on') ? ' on' : ' off'));
+    return;
+  }
+  const src = e.target.closest('[data-src]');
+  if (src) {
+    src.parentElement.querySelectorAll('[data-src]').forEach(r => r.classList.remove('selected'));
+    src.classList.add('selected');
+    return;
+  }
+  const row = e.target.closest('.wiki-row');
+  if (row) {
+    row.parentElement.querySelectorAll('.wiki-row').forEach(r => r.classList.remove('selected'));
+    row.classList.add('selected');
+    return;
+  }
+  const t = e.target.closest('[data-toast]');
+  if (t) showToast(t.dataset.toast);
+});
+
+document.getElementById('speak').onclick = (e) => {
+  e.currentTarget.classList.toggle('hearing');
+  const on = e.currentTarget.classList.contains('hearing');
+  e.currentTarget.textContent = on ? 'Listening' : 'Speak';
+  document.getElementById('chat-status').textContent = on ? 'hands-free — say something' : 'press space or click to speak';
+};
+
+window.addEventListener('resize', render);
+
+buildRail();
+setView('chat');
+</script>
+</body>
+</html>
