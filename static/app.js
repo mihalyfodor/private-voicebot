@@ -1425,13 +1425,10 @@ function requestSources() {
   sendAction({ action: 'get_sources' });
 }
 
-function sourceBadge() {
-  return railItemFor('sources') && railItemFor('sources').querySelector('.rail-badge');
-}
-
 // The badge is session-local: new shas since the view was last opened (or since connect).
 function renderSourceBadge() {
-  const badge = sourceBadge();
+  const item = railItemFor('sources');
+  const badge = item && item.querySelector('.rail-badge');
   if (!badge) return;
   const fresh = sourcesSeen ? (sourcesList || []).filter(s => !sourcesSeen.has(s.sha)).length : 0;
   badge.textContent = String(fresh);
@@ -1446,10 +1443,17 @@ function sourcesMarkSeen() {
 function setSources(msg) {
   sourcesList = Array.isArray(msg.sources) ? msg.sources : [];
   sourcesBusy = false;
-  if (sourcesSeen === null || currentView === 'sources') sourcesMarkSeen();
+  if (sourcesSeen === null || currentView === 'sources') sourcesMarkSeen(); else renderSourceBadge();
   if (sourcesKind && !sourcesList.some(s => s.kind === sourcesKind)) sourcesKind = null;
-  renderSourceBadge();
   if (currentView === 'sources') { renderWikiList(); renderWikiPage(); }
+}
+
+// Re-ingest / Forget: mark the head busy until the next `sources` (or `error`) message.
+function sourceAction(payload) {
+  sourcesBusy = true;
+  setWikiError('');
+  sendAction(payload);
+  renderWikiPage();
 }
 
 function sourceRow(s) {
@@ -1489,18 +1493,11 @@ function sourceSelected() {
 function sourceHeadButtons(s) {
   const raw = el('a', 'wiki-obsidian source-open-raw', 'Open raw');
   raw.href = `${vaultHref()}&file=${encodeURIComponent(s.raw)}`;
-  const reingest = wikiHeadButton('source-reingest', sourcesBusy ? 'working…' : 'Re-ingest', () => {
-    sourcesBusy = true;
-    setWikiError('');
-    sendAction({ action: 'reingest_source', sha: s.sha });
-    renderWikiPage();
-  }, sourcesBusy);
+  const reingest = wikiHeadButton('source-reingest', sourcesBusy ? 'working…' : 'Re-ingest',
+    () => sourceAction({ action: 'reingest_source', sha: s.sha }), sourcesBusy);
   const forget = wikiHeadButton('source-forget', 'Forget', () => {
     if (!confirm(`Forget "${s.title}"? Its page, raw file and the notes it added are removed (one git commit).`)) return;
-    sourcesBusy = true;
-    setWikiError('');
-    sendAction({ action: 'forget_source', sha: s.sha, confirm: true });
-    renderWikiPage();
+    sourceAction({ action: 'forget_source', sha: s.sha, confirm: true });
   }, sourcesBusy);
   return [raw, reingest, forget];
 }

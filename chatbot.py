@@ -642,12 +642,11 @@ async def _action_get_sources(sess, msg, loop):
 async def _source_op(fn, *args):
     """One inbox action: run it off the loop, then refresh the list — or report the refusal."""
     try:
-        result = await asyncio.to_thread(fn, *args)
+        await asyncio.to_thread(fn, *args)
     except sources.IngestError as exc:
         await send({"type": "error", "text": exc.message})
-        return None
+        return
     await _send_wiki()
-    return result
 
 
 async def _action_reingest_source(sess, msg, loop):

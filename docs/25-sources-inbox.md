@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 25 — Sources view as inbox and provenance
 
