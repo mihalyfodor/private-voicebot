@@ -6,18 +6,24 @@ Two tiers live in ``memory.json``:
   ``people`` / ``projects`` / ``recurring`` lists;
 * dated **episodic** entries with a TTL, so "it rained today" never becomes a fact.
 
+Entries also age: every list entry carries a ``seen`` date, re-mentions refresh it (the
+``CONFIRM`` op), and :func:`_mark_stale` flags entries past their section window so they leave
+the prompt without leaving the file. See docs/18-memory-decay.md.
+
 The LLM never rewrites the file. It proposes ops (``ADD`` / ``UPDATE`` / ``DELETE`` /
-``NOOP``); :func:`apply_ops` validates and applies them, every applied op is appended to
+``CONFIRM`` / ``NOOP``); :func:`apply_ops` validates and applies them, every applied op is appended to
 ``memory_ops.jsonl``, and every ``REFLECT_EVERY`` saves a :func:`reflect` pass merges
 duplicates, expires episodics and promotes repeats — also validated, never blind.
 
 The memory editor (docs/16-memory-editor.md) is the second writer: :func:`snapshot` is what
-the panel renders, :func:`edit` applies one hand-made op and :func:`reset` clears the profile.
+the panel renders, :func:`edit` / :func:`edit_many` apply hand-made ops (a batch atomically)
+and :func:`reset` clears the profile.
 Both go through the very same :func:`apply_ops` path — the UI never writes the file itself.
 
 See docs/15-memory-v2.md and docs/16-memory-editor.md.
 """
 import contextlib
+import copy
 import difflib
 import json
 import os
@@ -45,6 +51,16 @@ EPISODIC_SHOWN = 5                                                # episodic lin
 EPISODIC_MIN_IMPORTANCE = 2  # importance-1 entries stay on disk until TTL, but are not rendered
 DEFAULT_TTL_DAYS = 30                                             # episodic lifetime when unstated
 DUP_RATIO = 0.85                                                  # _similar() threshold
+
+#: Days after the last `seen` date a list entry stops being rendered (docs/18-memory-decay.md).
+#: Nothing is deleted: a stale entry stays on disk and comes back with a CONFIRM or a restore.
+STALE_DAYS = {
+    "people": int(os.getenv("MEMORY_STALE_PEOPLE", "180")),
+    "projects": int(os.getenv("MEMORY_STALE_PROJECTS", "120")),
+    "recurring": int(os.getenv("MEMORY_STALE_RECURRING", "90")),
+}
+STALE_FIELD = "stale"      # the one entry field that holds a boolean
+SEEN_FIELD = "seen"        # "YYYY-MM-DD", last time the user confirmed the entry
 
 #: One process-wide writer lock. `save()` (worker thread) and `edit()` / `reset()` (UI actions,
 #: run in an executor) all hold it across load -> apply -> write -> log, so a background
@@ -89,15 +105,24 @@ def _normalise(data: dict) -> dict:
                 k: v for k, v in value.items()
                 if k == "superseded" or isinstance(v, str)
             }
+    profile["updated"] = data.get("updated")
+    backfill = _seen_default(profile["updated"])
     for section in LIST_SECTIONS:
         value = data.get(section)
         if isinstance(value, list):
-            profile[section] = [e for e in value if isinstance(e, dict)]
+            profile[section] = [
+                e if e.get(SEEN_FIELD) else {**e, SEEN_FIELD: backfill}
+                for e in value if isinstance(e, dict)
+            ]
     meta = data.get("meta")
     if isinstance(meta, dict):
         profile["meta"].update(meta)
-    profile["updated"] = data.get("updated")
     return profile
+
+
+def _seen_default(updated) -> str:
+    """The `seen` date for an entry that predates the field: the profile's own `updated` day."""
+    return (_parse_date(updated) or _today()).isoformat()
 
 
 def load_profile() -> dict:
@@ -119,7 +144,7 @@ def load_profile() -> dict:
 def _write_profile(profile: dict) -> None:
     """Atomic write: full file to `.tmp`, fsync, then os.replace."""
     profile["version"] = VERSION
-    profile["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    profile["updated"] = _stamp("%H:%M")
     tmp = MEMORY_PATH + ".tmp"
     with open(tmp, "w") as f:
         json.dump(profile, f, indent=1, ensure_ascii=False)
@@ -141,7 +166,19 @@ def has_content(profile: dict) -> bool:
 
 
 def _today() -> date:
+    """Today. The single source of "now" for every date in this module — the eval harness
+    monkeypatches it to run a scripted conversation against a shifted clock."""
     return date.today()
+
+
+def _today_iso() -> str:
+    """Today as ``YYYY-MM-DD`` — the form every date stored in the profile takes."""
+    return _today().isoformat()
+
+
+def _stamp(time_format: str) -> str:
+    """An ISO timestamp whose date part comes from :func:`_today` (so a mocked clock shows)."""
+    return f"{_today_iso()}T{datetime.now().strftime(time_format)}"
 
 
 def _parse_date(value) -> date | None:
@@ -165,6 +202,40 @@ def is_expired(entry: dict) -> bool:
     return _age_days(entry) > ttl
 
 
+def is_stale(entry: dict) -> bool:
+    """Stale = still on disk, no longer in the prompt. Absent flag means live."""
+    return bool(entry.get(STALE_FIELD))
+
+
+def _seen_date(entry: dict) -> date:
+    """The entry's `seen` day; a missing/garbled one counts as the oldest possible."""
+    return _parse_date(entry.get(SEEN_FIELD)) or date.min
+
+
+def _live(entries: list) -> list:
+    return [e for e in entries or [] if not is_stale(e)]
+
+
+def _mark_stale(profile: dict) -> list:
+    """Flag entries whose `seen` date is older than their section window; returns what changed.
+
+    Pure Python and deterministic — the model is never asked whether a fact is still current,
+    it just stops being rendered. Episodic entries have a TTL instead and are left alone.
+    """
+    marked = []
+    today = _today()
+    for section, window in STALE_DAYS.items():
+        for entry in profile.get(section, []):
+            if is_stale(entry):
+                continue
+            seen = _parse_date(entry.get(SEEN_FIELD))
+            if seen is None or (today - seen).days <= window:
+                continue
+            entry[STALE_FIELD] = True
+            marked.append(f"{section}: {entry.get(LIST_KEY[section], '?')} (seen {entry[SEEN_FIELD]})")
+    return marked
+
+
 def _importance(entry: dict) -> int:
     try:
         return max(1, min(3, int(entry.get("importance", 2))))
@@ -184,7 +255,7 @@ def live_episodics(profile: dict, min_importance: int = 1) -> list:
     until their TTL expires, they just don't earn a line in the prompt.
     """
     live = [e for e in profile.get("episodic", [])
-            if not is_expired(e) and _importance(e) >= min_importance]
+            if not is_expired(e) and not is_stale(e) and _importance(e) >= min_importance]
     return sorted(live, key=_episodic_score, reverse=True)
 
 
@@ -238,7 +309,9 @@ def _blocks(profile: dict) -> list:
         if items:
             blocks.append((section.capitalize(), items))
     for section in ("people", "projects", "recurring"):
-        items = [line for line in (_entry_line(section, e) for e in profile.get(section, [])) if line]
+        # stale entries stay on disk (and in fact_count) but leave the prompt — that is what
+        # "forgetting" means here (docs/18-memory-decay.md).
+        items = [line for line in (_entry_line(section, e) for e in _live(profile.get(section, []))) if line]
         if items:
             blocks.append((section.capitalize(), items))
     episodics = live_episodics(profile, EPISODIC_MIN_IMPORTANCE)[:EPISODIC_SHOWN]
@@ -301,7 +374,7 @@ Given the current profile (JSON) and a new conversation transcript, output the s
 operations that brings the profile up to date.
 
 Reply with a JSON array of operations and nothing else. Each operation is
-{"op": "ADD"|"UPDATE"|"DELETE"|"NOOP", "path": "<path>", "value": <value>, "reason": "<short>"}
+{"op": "ADD"|"UPDATE"|"DELETE"|"CONFIRM"|"NOOP", "path": "<path>", "value": <value>, "reason": "<short>"}
 
 Paths:
   identity.<key>    a plain string. Use keys like name, nickname, location, occupation, birthday.
@@ -327,6 +400,13 @@ Rules:
   would expect you to bring up next week. Give it importance 2 or 3; if the best you can justify
   is importance 1, don't store it at all. Never store transients as identity or preferences.
 - If a fact already in the profile changed, UPDATE that exact path. Never ADD a second copy.
+- If the user refers again to an entry that is already in the profile and nothing about it
+  changed, emit CONFIRM for it instead of ADD or UPDATE — that is how the profile learns the
+  fact is still current. Address it by index ({"op":"CONFIRM","path":"people[2]"}) or by its
+  identifying key ({"op":"CONFIRM","path":"people[]","value":{"name":"Anna"}}). CONFIRM has no
+  other effect: never use it to change a value. Entries marked "stale": true were not mentioned
+  for a long time and are currently hidden from the conversation — CONFIRM is what brings one
+  back when the user talks about it again.
 - If a fact stopped being true and has no replacement, DELETE it.
 - For UPDATE or DELETE on a list, the value must carry the identifying key (name for people and
   projects, what for recurring) so the right entry is matched.
@@ -390,7 +470,7 @@ def propose_ops(profile: dict, turns: list, client, model: str) -> list:
     transcript = _transcript(turns)
     if not transcript.strip():
         return []
-    system = PROPOSE_SYSTEM % _today().isoformat()
+    system = PROPOSE_SYSTEM % _today_iso()
     user = (
         f"Current profile:\n{json.dumps(_public(profile), ensure_ascii=False, indent=1)}\n\n"
         f"New conversation:\n{transcript}"
@@ -437,10 +517,11 @@ def _find(entries: list, key_field: str, key_value) -> int:
 
 def _episodic_entry(value: dict) -> dict:
     entry = {
-        "date": str(value.get("date") or _today().isoformat())[:10],
+        "date": str(value.get("date") or _today_iso())[:10],
         "text": str(value["text"]).strip(),
         "ttl_days": DEFAULT_TTL_DAYS,
         "importance": _importance(value),
+        SEEN_FIELD: _today_iso(),
     }
     try:
         entry["ttl_days"] = max(1, int(value.get("ttl_days", DEFAULT_TTL_DAYS)))
@@ -459,7 +540,7 @@ def _supersede(section: dict, key: str, old_value: str) -> None:
 
 
 def _enforce_caps(profile: dict) -> list:
-    """Trim lists to CAPS, dropping the least important / oldest first."""
+    """Trim lists to CAPS: episodics by score, the rest stale-first then oldest `seen` first."""
     dropped = []
     for section, cap in CAPS.items():
         entries = profile.get(section, [])
@@ -469,7 +550,12 @@ def _enforce_caps(profile: dict) -> list:
             keep = sorted(entries, key=_episodic_score, reverse=True)[:cap]
             profile[section] = [e for e in entries if e in keep]
         else:
-            profile[section] = entries[-cap:]  # oldest out
+            # evict the entries the user is least likely to miss: already stale ones, then the
+            # ones confirmed longest ago; position only breaks ties.
+            order = sorted(range(len(entries)),
+                           key=lambda i: (not is_stale(entries[i]), _seen_date(entries[i]), i))
+            evicted = set(order[:len(entries) - cap])
+            profile[section] = [e for i, e in enumerate(entries) if i not in evicted]
         dropped.append(f"{section}: dropped {len(entries) - cap} over cap {cap}")
     return dropped
 
@@ -513,8 +599,34 @@ def _parse_path(path: str) -> tuple:
 
 
 def _is_scalar(value) -> bool:
-    """A usable leaf value: a string or number that isn't blank."""
-    return isinstance(value, (str, int, float)) and bool(str(value).strip())
+    """A usable leaf value: a string or number that isn't blank.
+
+    Booleans are deliberately excluded (they would stringify to "True"); the only boolean field
+    in the schema is `stale`, handled by :func:`_apply_stale_op`.
+    """
+    return isinstance(value, (str, int, float)) and not isinstance(value, bool) \
+        and bool(str(value).strip())
+
+
+def _as_bool(value):
+    """True/False for a JSON boolean or its string spelling, else None."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.strip().lower() in ("true", "false"):
+        return value.strip().lower() == "true"
+    return None
+
+
+def _touch(entry: dict) -> dict:
+    """Mark `entry` as confirmed today (ADD / UPDATE / CONFIRM all count as a mention)."""
+    entry[SEEN_FIELD] = _today_iso()
+    return entry
+
+
+def _revive(entry: dict) -> None:
+    """Seen today and not stale — the one way an entry comes back into the prompt."""
+    _touch(entry)
+    entry.pop(STALE_FIELD, None)
 
 
 def _entries_at(profile, section, index, op):
@@ -544,7 +656,28 @@ def _apply_entry_op(profile, section, index, kind, value, op) -> bool:
     clean = {k: str(v).strip() for k, v in value.items() if _is_scalar(v)}
     if not clean or all(_norm(entry.get(k)) == _norm(v) for k, v in clean.items()):
         return False
-    entries[index] = {**entry, **clean}
+    entries[index] = _touch({**entry, **clean})
+    return True
+
+
+def _apply_stale_op(entry: dict, value, op) -> bool:
+    """`people[1].stale` — the editor retiring (true) or restoring (false) one entry.
+
+    The only boolean field in the schema, and the only op that can set it: staleness otherwise
+    comes from :func:`_mark_stale`. Restoring also refreshes `seen`, exactly like a CONFIRM.
+    """
+    flag = _as_bool(value)
+    if flag is None:
+        _reject(op, f"{STALE_FIELD} needs true or false")
+        return False
+    if flag:
+        if is_stale(entry):
+            return False
+        entry[STALE_FIELD] = True
+        return True
+    if not is_stale(entry) and entry.get(SEEN_FIELD) == _today_iso():
+        return False
+    _revive(entry)
     return True
 
 
@@ -559,13 +692,48 @@ def _apply_entry_field_op(profile, section, index, field, kind, value, op) -> bo
             return False
         del entry[field]
         return True
+    if field == STALE_FIELD:
+        return _apply_stale_op(entry, value, op)
     if not _is_scalar(value):
         _reject(op, f"{section}[{index}].{field} needs a scalar value")
         return False
     if _norm(entry.get(field)) == _norm(value):
         return False
     entry[field] = str(value).strip()
+    if field != SEEN_FIELD:
+        _touch(entry)
     return True
+
+
+def _apply_confirm(profile: dict, path: str, value, op) -> tuple:
+    """`CONFIRM people[2]` — "still true, mentioned again": `seen` = today, `stale` cleared.
+
+    Returns ``(applied, canonical_path)``. Addressed either by index (``people[2]``) or, like
+    every other list op, by the identifying key in the value (``{"name": "Anna"}``) — the value
+    wins when both are present. A stale entry is never refused: this is how it comes back.
+    """
+    target = _parse_path(path)
+    if target[0] == "entry_field":                 # people[2].note — confirm the whole entry
+        target = ("entry", target[1], target[2])
+    if target[0] not in ("entry", "list"):
+        _reject(op, f"CONFIRM needs a list entry path, got {path!r}")
+        return False, path
+    section = target[1]
+    entries = profile.setdefault(section, [])
+    key_field = LIST_KEY[section]
+    if isinstance(value, dict) and value.get(key_field):
+        index = _find(entries, key_field, value[key_field])
+        path = f"{section}[]"
+        if index == -1:
+            _reject(op, f"no {section} entry named {value[key_field]!r}")
+            return False, path
+    elif target[0] == "entry" and target[2] < len(entries):
+        index = target[2]
+    else:
+        _reject(op, f"{path} does not exist")
+        return False, path
+    _revive(entries[index])
+    return True, path
 
 
 def apply_ops(profile: dict, ops: list, rejected: list | None = None) -> tuple:
@@ -587,6 +755,12 @@ def apply_ops(profile: dict, ops: list, rejected: list | None = None) -> tuple:
             path = str(op.get("path", "")).strip()
             value = op.get("value")
             if kind == "NOOP":
+                continue
+            if kind == "CONFIRM":
+                ok, path = _apply_confirm(profile, path, value, op)
+                if ok:
+                    applied.append({"op": kind, "path": path, "value": value,
+                                    "reason": op.get("reason") or "confirm"})
                 continue
             if kind not in ("ADD", "UPDATE", "DELETE"):
                 _reject(op, f"unknown op {kind!r}")
@@ -679,11 +853,12 @@ def _apply_list_op(profile, section, kind, value, op) -> bool:
         entries.pop(index)
         return True
     if index == -1:
-        entries.append(clean)  # ADD, or an UPDATE of something we never stored
+        entries.append(_touch(clean))  # ADD, or an UPDATE of something we never stored
         return True
-    if kind == "ADD" and entries[index] == clean:
-        return False
-    entries[index] = {**entries[index], **clean}
+    if kind == "ADD" and {k: v for k, v in entries[index].items()
+                          if k not in (SEEN_FIELD, STALE_FIELD)} == clean:
+        return False   # the very same entry again; a re-mention is a CONFIRM, not an ADD
+    entries[index] = _touch({**entries[index], **clean})
     return True
 
 
@@ -714,7 +889,7 @@ def _reject(op: dict, reason: str) -> None:
 def _log_ops(applied: list) -> None:
     if not applied:
         return
-    stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    stamp = _stamp("%H:%M:%S")
     with open(OPS_LOG_PATH, "a") as f:
         for op in applied:
             f.write(json.dumps({"ts": stamp, **op}, ensure_ascii=False) + "\n")
@@ -729,14 +904,27 @@ def fact_count(profile: dict) -> int:
     return total + sum(len(profile.get(s, [])) for s in LIST_SECTIONS)
 
 
+def _shown(section: str, entry: dict, backfill: str) -> dict:
+    """One list entry as the panel wants it: always a `seen` and a `stale`, plus the window
+    (`stale_after`) so a row can dim as it ages, or `expired` for episodics."""
+    shown = {**entry, SEEN_FIELD: entry.get(SEEN_FIELD) or backfill, STALE_FIELD: is_stale(entry)}
+    if section == "episodic":
+        shown["expired"] = is_expired(entry)
+    else:
+        shown["stale_after"] = STALE_DAYS[section]
+    return shown
+
+
 def snapshot(profile: dict) -> dict:
     """What the memory panel needs: the profile, the rendered block, the fact count.
 
-    Expired episodics are kept (the panel greys them out) and get an ``expired`` flag; the flag
-    lives in the returned copy only, never on disk.
+    Stale and expired entries are kept (the panel groups/greys them) and carry ``stale`` /
+    ``expired`` flags; those flags and the backfilled ``seen`` live in the returned copy only.
     """
     public = dict(_public(profile))
-    public["episodic"] = [{**e, "expired": is_expired(e)} for e in profile.get("episodic", [])]
+    backfill = _seen_default(profile.get("updated"))
+    for section in LIST_SECTIONS:
+        public[section] = [_shown(section, e, backfill) for e in profile.get(section, [])]
     return {"profile": public, "rendered": render(profile), "count": fact_count(profile)}
 
 
@@ -758,31 +946,53 @@ def _cap_reason(profile: dict, op: dict) -> str | None:
     return None
 
 
-def edit(op: dict) -> tuple:
-    """Apply exactly one hand-made op; returns ``(profile, None)`` or ``(profile, reason)``.
+def _ui_op(op) -> dict:
+    """One op from the panel, with its audit tag forced back into `UI_REASONS`."""
+    op = op if isinstance(op, dict) else {}
+    reason = str(op.get("reason") or "ui")
+    return {"op": op.get("op"), "path": op.get("path"), "value": op.get("value"),
+            "reason": reason if reason in UI_REASONS else "ui"}
+
+
+def edit_many(ops: list) -> tuple:
+    """Apply a batch of hand-made ops atomically; ``(profile, None)`` or ``(profile, error)``.
 
     The editor never writes memory.json itself: a UI edit walks the same validated
     load -> apply_ops -> write -> audit path as an LLM op, under the same lock, and is tagged
-    ``ui`` / ``ui:restore`` in memory_ops.jsonl. A rejected op writes and logs nothing.
+    ``ui`` / ``ui:restore`` in memory_ops.jsonl.
+
+    All-or-nothing, which is what the drag-and-drop moves need (promoting an episodic is one
+    ADD plus one DELETE and the profile must never show both entries or neither): every op is
+    validated and applied to a *copy*, and the first one that fails aborts the batch with
+    ``{"path": ..., "reason": ...}`` — nothing is written and nothing is logged.
     """
-    op = op if isinstance(op, dict) else {}
-    reason = str(op.get("reason") or "ui")
-    if reason not in UI_REASONS:
-        reason = "ui"
-    single = {"op": op.get("op"), "path": op.get("path"), "value": op.get("value"), "reason": reason}
+    ops = [_ui_op(op) for op in ops] if isinstance(ops, list) else []
+    if not ops:
+        return load_profile(), {"path": None, "reason": "no ops"}
     with _LOCK:
-        profile = load_profile()
-        capped = _cap_reason(profile, single)
-        if capped:                       # checked before apply_ops: caps there evict silently
-            _reject(single, capped)
-            return profile, capped
-        rejected = []
-        profile, applied = apply_ops(profile, [single], rejected)
-        if not applied:
-            return profile, (rejected[0]["reason"] if rejected else "nothing changed")
-        _write_profile(profile)
-        _log_ops(applied)
-        return profile, None
+        stored = load_profile()
+        working = copy.deepcopy(stored)
+        applied_all = []
+        for single in ops:
+            capped = _cap_reason(working, single)
+            if capped:                   # checked before apply_ops: caps there evict silently
+                _reject(single, capped)
+                return stored, {"path": single["path"], "reason": capped}
+            rejected = []
+            working, applied = apply_ops(working, [single], rejected)
+            if not applied:
+                reason = rejected[0]["reason"] if rejected else "nothing changed"
+                return stored, {"path": single["path"], "reason": reason}
+            applied_all.extend(applied)
+        _write_profile(working)
+        _log_ops(applied_all)
+        return working, None
+
+
+def edit(op: dict) -> tuple:
+    """Apply exactly one hand-made op; returns ``(profile, None)`` or ``(profile, reason)``."""
+    profile, error = edit_many([op])
+    return profile, (error["reason"] if error else None)
 
 
 def reset() -> dict:
@@ -805,7 +1015,7 @@ def reflect(profile: dict, client, model: str) -> dict:
     that cannot be traced back to an entry already in `profile`. Returns `profile` unchanged if
     the call fails.
     """
-    system = REFLECT_SYSTEM % _today().isoformat()
+    system = REFLECT_SYSTEM % _today_iso()
     user = json.dumps(_public(profile), ensure_ascii=False, indent=1)
     try:
         content = _complete(client, model, system, user, 900)
@@ -819,18 +1029,45 @@ def reflect(profile: dict, client, model: str) -> dict:
     return _validate_reflection(profile, cleaned)
 
 
+def _carry_decay(entry: dict, source: dict | None) -> dict:
+    """`entry` with the decay fields of the entry it came from.
+
+    The reflection prompt does not ask for `seen`/`stale` and models drop them, which would
+    silently reset the age of every fact (or resurrect a retired one) on every fifth save.
+    """
+    carried = dict(entry)
+    carried[SEEN_FIELD] = (source or {}).get(SEEN_FIELD) or entry.get(SEEN_FIELD) \
+        or _today_iso()
+    if is_stale(source or {}):
+        carried[STALE_FIELD] = True
+    else:
+        carried.pop(STALE_FIELD, None)
+    return carried
+
+
+def _source_of(entry: dict, originals: list, key_field: str) -> dict | None:
+    """The original entry `entry` traces back to (fuzzy key match), or None if it is new."""
+    key = entry.get(key_field)
+    return next((o for o in originals if _similar(key, o.get(key_field))), None)
+
+
 def _traceable(cleaned: dict, original: dict, section: str) -> list:
     """Entries the model returned for `section` that trace back to one we already had.
 
-    Merges and rewordings survive (fuzzy key match); anything invented does not.
+    Merges and rewordings survive (fuzzy key match); anything invented does not. The `seen` /
+    `stale` fields always come from the original, never from the model.
     """
     key_field = LIST_KEY[section]
     originals = original.get(section, [])
-    return [
-        entry for entry in cleaned.get(section) or []
-        if isinstance(entry, dict) and entry.get(key_field)
-        and any(_similar(entry[key_field], o.get(key_field)) for o in originals)
-    ]
+    out = []
+    for entry in cleaned.get(section) or []:
+        if not isinstance(entry, dict) or not entry.get(key_field):
+            continue
+        source = _source_of(entry, originals, key_field)
+        if source is None:
+            continue
+        out.append(_carry_decay(entry, source))
+    return out
 
 
 def _validate_reflection(original: dict, cleaned: dict) -> dict:
@@ -859,7 +1096,9 @@ def _validate_reflection(original: dict, cleaned: dict) -> dict:
         return any(what and (what.lower() in (e.get("text") or "").lower() or _similar(what, e.get("text")))
                    for e in original.get("episodic", []))
 
-    recurring = [e for e in cleaned.get("recurring") or []
+    originals = original.get("recurring", [])
+    recurring = [_carry_decay(e, _source_of(e, originals, "what"))
+                 for e in cleaned.get("recurring") or []
                  if isinstance(e, dict) and e.get("what") and _grounded(e)]
     result["recurring"] = recurring[:CAPS["recurring"]]
 
@@ -924,7 +1163,15 @@ def save(session_turns: list, client, model: str) -> list:
         ops = propose_ops(profile, session_turns, client, model)
         profile, applied = apply_ops(profile, ops)
 
+        # Decay is a function of the calendar, not of what the user just said, so it runs on
+        # every save — even one that learned nothing new is worth a write when it retires a fact.
+        retired = _mark_stale(profile)
+        for note in retired:
+            print(f"[Memory] stale — {note}")
+
         if not applied:
+            if retired:
+                _write_profile(profile)
             print("\n[Nothing new to save]")
             return []
 
@@ -933,11 +1180,13 @@ def save(session_turns: list, client, model: str) -> list:
         _write_profile(profile)
         _log_ops(applied)
 
-        counts = {"ADD": 0, "UPDATE": 0, "DELETE": 0}
+        counts = {"ADD": 0, "UPDATE": 0, "DELETE": 0, "CONFIRM": 0}
         for op in applied:
             counts[op["op"]] = counts.get(op["op"], 0) + 1
+        confirms = f", {counts['CONFIRM']} confirm" if counts["CONFIRM"] else ""
         print(f"\n[Memory] {len(applied)} ops applied "
-              f"({counts['ADD']} add, {counts['UPDATE']} update, {counts['DELETE']} delete)")
+              f"({counts['ADD']} add, {counts['UPDATE']} update, {counts['DELETE']} delete"
+              f"{confirms})")
 
         if meta["saves"] % REFLECT_EVERY == 0:
             before = sum(len(profile.get(s, [])) for s in LIST_SECTIONS)

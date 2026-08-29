@@ -1,6 +1,6 @@
 """Headless screenshot of the running app for visual checks (dev only).
 
-    .venv/bin/python scripts/screenshot.py /tmp/chat.png [--view memory] [--width 1440] [--height 900]
+    .venv/bin/python scripts/screenshot.py /tmp/chat.png [--view memory] [--drag FROM TO] [--width 1440] [--height 900]
 """
 import argparse, sys
 from playwright.sync_api import sync_playwright
@@ -11,6 +11,8 @@ ap.add_argument("--url", default="http://127.0.0.1:8010/")
 ap.add_argument("--view", default=None, help="workspace tab to open, e.g. memory")
 ap.add_argument("--width", type=int, default=1440)
 ap.add_argument("--height", type=int, default=900)
+ap.add_argument("--drag", nargs=2, metavar=("FROM", "TO"), default=None,
+                help="drag one selector onto another before the screenshot")
 ap.add_argument("--wait", type=int, default=2500, help="ms to wait for the avatar to load")
 a = ap.parse_args()
 
@@ -24,6 +26,9 @@ with sync_playwright() as p:
     page.wait_for_timeout(a.wait)
     if a.view:
         page.click(f'.view-tab[data-view="{a.view}"]')
+        page.wait_for_timeout(800)
+    if a.drag:
+        page.drag_and_drop(a.drag[0], a.drag[1])
         page.wait_for_timeout(800)
     page.screenshot(path=a.out)
     browser.close()

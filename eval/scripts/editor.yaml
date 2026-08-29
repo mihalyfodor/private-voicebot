@@ -1,0 +1,56 @@
+# Hand edits between sessions (docs/16-memory-editor.md stress item 1, PRD 18 scenario 9).
+#
+#   python -m eval.harness eval/scripts/editor.yaml --rounds 2 --out eval/results/editor.json
+#
+# What the user fixes in the memory panel must stick: the deleted fact stays out of the prompt
+# and the corrected one is the only version the assistant uses. `edit:` turns go through
+# memory.edit / memory.edit_many, the same write path as the panel, and sit in their own session
+# because a session's prompt is built from memory when the session starts.
+sessions:
+
+  # --- S1: the facts the user will later correct by hand ------------------
+  - - user: "hi, I'm Mihaly, I live in Budapest"
+    - user: "I work as a software engineer at a fintech company"
+    - user: "I've got a dog called Bolt, he's a border collie"
+    - user: "right, that's it for today"
+
+  # --- S2: the memory panel: delete the dog, fix the job title ------------
+  - - edit: {op: "DELETE", path: "people[]", value: {name: "Bolt"}}
+    - edit: {op: "UPDATE", path: "identity.occupation", value: "engineering manager"}
+
+  # --- S3: the corrected profile is the one in the prompt -----------------
+  - - probe: "what do I do for work?"
+      expect: ["engineering manager", "manager"]
+      expect_not: ["software engineer"]
+      category: update
+    - probe: "do I have any pets?"
+      expect: ["don't know", "do not know", "not sure", "haven't", "have not",
+               "didn't mention", "did not mention", "never mentioned", "no idea",
+               "don't have", "do not have", "don't think you", "do not think you"]
+      expect_not: ["bolt", "border collie"]
+      category: abstention
+    - user: "just checking, thanks"
+
+  # --- S4: one more session — nothing has re-added the deleted fact -------
+  - - probe: "remind me what my job title is"
+      expect: ["engineering manager", "manager"]
+      expect_not: ["software engineer"]
+      category: multi-session
+    - probe: "have I ever told you about a dog?"
+      expect_not: ["bolt", "border collie"]
+      category: abstention
+    - user: "ok, bye"
+
+  # --- S5: the drag-and-drop promote — one ADD + one DELETE, applied as a batch
+  - - user: "I've got a big presentation at work next Thursday"
+    - user: "bit nervous about it, but it should be fine"
+    - user: "alright, talk later"
+  - - edit:
+        - {op: "ADD", path: "recurring[]", value: {what: "gym", when: "Mon/Wed/Fri"}}
+        - {op: "DELETE", path: "episodic[0]"}
+  # ^ atomic: if there is no episodic[0] the whole batch is refused and the gym entry is not
+  #   added either (the run log prints "refused") — that is the invariant being checked.
+  - - probe: "when do I usually go to the gym?"
+      expect: [["mon", "wed", "fri"]]
+      category: single-hop
+    - user: "thanks, bye"

@@ -1,0 +1,36 @@
+# Memory decay (docs/18-memory-decay.md, scenario 8), live LLM + mocked clock.
+#
+#   python -m eval.harness eval/scripts/stale.yaml --out eval/results/stale.json
+#
+# A person mentioned once should drop out of the prompt after the people window (180 days) and
+# come back on the next real mention (a CONFIRM op), without the user doing anything.
+# Note: each session's prompt is built when the session starts, so the clock jump and the save
+# that retires the entry live in their own session, before the session that probes for it.
+sessions:
+
+  # --- S1: Anna is introduced --------------------------------------------
+  - - user: "hey, I'm Mihaly, good to talk to you"
+    - user: "a new colleague called Anna joined my team this week"
+    - user: "she moved here from Krakow, seems nice"
+    - user: "anyway, that's my news, talk soon"
+
+  # --- S2: 200 days later; this session's save retires the untouched entry -
+  - - clock: "+200d"
+    - user: "morning, it's been a while since we talked"
+    - user: "work has been quiet, nothing much to report"
+    - user: "ok, catch you later"
+
+  # --- S3: Anna is out of the prompt now; then the user mentions her again -
+  - - probe: "how is Anna settling in?"
+      expect: ["don't know", "do not know", "not sure", "haven't", "have not",
+               "didn't mention", "did not mention", "don't have", "do not have",
+               "who is anna", "remind me", "can't remember", "cannot remember"]
+      expect_not: ["settling in well", "new colleague", "your new"]
+      category: abstention
+    - user: "I had lunch with Anna today, we talked about the roadmap"
+    - user: "good to catch up with her, anyway, bye"
+
+  # --- S4: the CONFIRM in S3's save brought her back ----------------------
+  - - probe: "who is Anna?"
+      expect: ["colleague", "team", "work"]
+      category: multi-session

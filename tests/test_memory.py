@@ -3,12 +3,12 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
-from datetime import date, timedelta
+from datetime import date
 
 import pytest
 
 import memory
-from tests.conftest import FakeClient, empty_profile
+from tests.conftest import FakeClient, days_ago, empty_profile
 
 
 # --------------------------------------------------------------------------- helpers
@@ -20,11 +20,12 @@ def sandbox(memory_sandbox):
     return memory_sandbox
 
 
-def _days_ago(n: int) -> str:
-    return (date.today() - timedelta(days=n)).isoformat()
-
-
 TURNS = [{"role": "user", "content": "I'm Mihaly and I live in Budapest"}]
+
+
+def undated(entries: list) -> list:
+    """Entries without the decay fields (`seen` / `stale`) — see docs/18-memory-decay.md."""
+    return [{k: v for k, v in e.items() if k not in ("seen", "stale")} for e in entries]
 
 
 # --------------------------------------------------------------- 1. apply_ops
@@ -71,7 +72,7 @@ def test_update_list_entry_matches_by_key_and_delete_removes():
         {"op": "UPDATE", "path": "projects[]", "value": {"name": "half marathon", "note": "race in November"}},
         {"op": "DELETE", "path": "people[]", "value": {"name": "Anna"}},
     ])
-    assert profile["projects"] == [{"name": "half marathon", "note": "race in November"}]
+    assert undated(profile["projects"]) == [{"name": "half marathon", "note": "race in November"}]
     assert profile["people"] == []
 
 
@@ -105,7 +106,7 @@ def test_list_paths_tolerate_a_missing_bracket_suffix(path):
     """Models drop the `[]` suffix all the time; the section name alone is enough."""
     profile, applied = memory.apply_ops(
         memory._empty_profile(), [{"op": "ADD", "path": path, "value": {"name": "Bolt", "rel": "dog"}}])
-    assert profile["people"] == [{"name": "Bolt", "rel": "dog"}]
+    assert undated(profile["people"]) == [{"name": "Bolt", "rel": "dog"}]
     assert applied[0]["path"] == "people[]"
 
 
@@ -113,7 +114,7 @@ def test_indexed_entry_field_path_updates_one_field():
     profile = empty_profile(projects=[{"name": "half marathon", "note": "race in October"}])
     profile, applied = memory.apply_ops(
         profile, [{"op": "UPDATE", "path": "projects[0].note", "value": "race in November"}])
-    assert profile["projects"] == [{"name": "half marathon", "note": "race in November"}]
+    assert undated(profile["projects"]) == [{"name": "half marathon", "note": "race in November"}]
     assert applied[0]["path"] == "projects[0].note"
 
 
@@ -142,7 +143,7 @@ def test_caps_are_enforced_per_list(capsys):
 
 def test_episodic_cap_drops_least_important_and_oldest_first():
     profile = empty_profile(episodic=[
-        {"date": _days_ago(i % 5), "text": f"e{i}", "ttl_days": 90, "importance": 1 if i < 5 else 3}
+        {"date": days_ago(i % 5), "text": f"e{i}", "ttl_days": 90, "importance": 1 if i < 5 else 3}
         for i in range(memory.CAPS["episodic"] + 5)
     ])
     profile, _ = memory.apply_ops(profile, [])
@@ -156,9 +157,9 @@ def test_episodic_cap_drops_least_important_and_oldest_first():
 
 def test_render_orders_episodics_by_recency_times_importance_and_drops_expired():
     profile = empty_profile(episodic=[
-        {"date": _days_ago(1), "text": "medium thing", "ttl_days": 30, "importance": 2},
-        {"date": _days_ago(2), "text": "big thing", "ttl_days": 30, "importance": 3},
-        {"date": _days_ago(40), "text": "expired thing", "ttl_days": 7, "importance": 3},
+        {"date": days_ago(1), "text": "medium thing", "ttl_days": 30, "importance": 2},
+        {"date": days_ago(2), "text": "big thing", "ttl_days": 30, "importance": 3},
+        {"date": days_ago(40), "text": "expired thing", "ttl_days": 7, "importance": 3},
     ])
     block = memory.render(profile)
     assert "expired thing" not in block
@@ -168,8 +169,8 @@ def test_render_orders_episodics_by_recency_times_importance_and_drops_expired()
 def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
     """Everyday trivia that slipped through is stored until its TTL, never prompted."""
     profile = empty_profile(episodic=[
-        {"date": _days_ago(0), "text": "had a sandwich for lunch", "ttl_days": 3, "importance": 1},
-        {"date": _days_ago(0), "text": "signed the flat contract", "ttl_days": 30, "importance": 3},
+        {"date": days_ago(0), "text": "had a sandwich for lunch", "ttl_days": 3, "importance": 1},
+        {"date": days_ago(0), "text": "signed the flat contract", "ttl_days": 30, "importance": 3},
     ])
     block = memory.render(profile)
     assert "sandwich" not in block
@@ -191,7 +192,7 @@ def test_render_shows_a_nickname_without_a_name():
 def test_render_shows_at_most_five_episodics_and_stays_in_budget():
     profile = empty_profile(
         identity={"name": "Mihaly"},
-        episodic=[{"date": _days_ago(i), "text": f"episode number {i} " + "x" * 200,
+        episodic=[{"date": days_ago(i), "text": f"episode number {i} " + "x" * 200,
                    "ttl_days": 90, "importance": 2} for i in range(20)])
     full = memory.render(profile, budget_tokens=10 ** 6)
     assert full.count("\n- ") == memory.EPISODIC_SHOWN
@@ -220,10 +221,10 @@ def _dup_profile():
         identity={"name": "Mihaly"},
         preferences={"coffee": "black"},
         people=[{"name": "Anna", "rel": "colleague"}, {"name": "anna", "note": "joined the team"}],
-        episodic=[{"date": _days_ago(40), "text": "rained all morning", "ttl_days": 3, "importance": 1},
-                  {"date": _days_ago(9), "text": "Went to the gym after work", "ttl_days": 30, "importance": 2},
-                  {"date": _days_ago(7), "text": "Gym session, legs day", "ttl_days": 30, "importance": 2},
-                  {"date": _days_ago(2), "text": "Hit the gym again on Thursday", "ttl_days": 30, "importance": 2}],
+        episodic=[{"date": days_ago(40), "text": "rained all morning", "ttl_days": 3, "importance": 1},
+                  {"date": days_ago(9), "text": "Went to the gym after work", "ttl_days": 30, "importance": 2},
+                  {"date": days_ago(7), "text": "Gym session, legs day", "ttl_days": 30, "importance": 2},
+                  {"date": days_ago(2), "text": "Hit the gym again on Thursday", "ttl_days": 30, "importance": 2}],
     )
 
 
@@ -231,7 +232,7 @@ def test_reflect_merges_duplicates_drops_expired_and_promotes():
     profile = memory.reflect(_dup_profile(), FakeClient(REFLECTED), "m")
     assert [p["name"] for p in profile["people"]] == ["Anna"]
     assert profile["episodic"] == []
-    assert profile["recurring"] == [{"what": "gym", "when": "Tue/Thu"}]
+    assert undated(profile["recurring"]) == [{"what": "gym", "when": "Tue/Thu"}]
 
 
 def test_reflect_never_rewrites_identity_or_invents_entries():

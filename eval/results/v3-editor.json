@@ -1,0 +1,755 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "what do I do for work?",
+          "category": "update",
+          "reply": "You are the engineering manager here, Mihaly! You lead the team and keep everything running smoothly. Ooh, do you have any big projects to finish today?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 3,
+          "probe": "do I have any pets?",
+          "category": "abstention",
+          "reply": "I do not know if you have any pets at home, Mihaly. But you have me right here in this rice bowl!",
+          "passed": true,
+          "hits": [
+            "do not know"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "remind me what my job title is",
+          "category": "multi-session",
+          "reply": "You are an engineering manager, Mihaly! You are the big boss of all the technical stuff. Is it time for a coffee break yet?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "have I ever told you about a dog?",
+          "category": "abstention",
+          "reply": "I don't think so, Mihaly! Was it a story about a really good boy?",
+          "passed": true,
+          "hits": [],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 7,
+          "probe": "when do I usually go to the gym?",
+          "category": "single-hop",
+          "reply": "You usually head to the gym on Mondays, Wednesdays, and Fridays, Mihaly. It is part of your regular routine! Ooh, is that a protein bar in your drawer?",
+          "passed": true,
+          "hits": [
+            "mon",
+            "wed",
+            "fri"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hi, I'm Mihaly, I live in Budapest",
+              "reply": "It is very nice to meet you, Mihaly! I am so happy to be your assistant. I will work very hard to help you out today!"
+            },
+            {
+              "user": "I work as a software engineer at a fintech company",
+              "reply": "That sounds very impressive, Mihaly! Software engineering sounds much harder than chasing my tail. I will try to be a very helpful assistant for a big-shot engineer like you!"
+            },
+            {
+              "user": "I've got a dog called Bolt, he's a border collie",
+              "reply": "A border collie! Those dogs are so smart and fast. Is he a good boy too?"
+            },
+            {
+              "user": "right, that's it for today",
+              "reply": "Understood, Mihaly! I'll stay here in my rice bowl and wait for you to come back. See you next time!"
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly  (User stated their name)\nADD identity.location = Budapest  (User stated their location)\nADD identity.occupation = software engineer at a fintech company  (User stated their occupation)\nADD people[] = {\"name\": \"Bolt\", \"rel\": \"dog\", \"note\": \"border collie\"}  (User mentioned their dog)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:46:47",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly",
+              "reason": "User stated their name"
+            },
+            {
+              "ts": "2026-08-29T08:46:47",
+              "op": "ADD",
+              "path": "identity.location",
+              "value": "Budapest",
+              "reason": "User stated their location"
+            },
+            {
+              "ts": "2026-08-29T08:46:47",
+              "op": "ADD",
+              "path": "identity.occupation",
+              "value": "software engineer at a fintech company",
+              "reason": "User stated their occupation"
+            },
+            {
+              "ts": "2026-08-29T08:46:47",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Bolt",
+                "rel": "dog",
+                "note": "border collie"
+              },
+              "reason": "User mentioned their dog"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "edit": [
+                {
+                  "op": "DELETE",
+                  "path": "people[]",
+                  "value": {
+                    "name": "Bolt"
+                  }
+                }
+              ],
+              "error": null
+            },
+            {
+              "edit": [
+                {
+                  "op": "UPDATE",
+                  "path": "identity.occupation",
+                  "value": "engineering manager"
+                }
+              ],
+              "error": null
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "what do I do for work?",
+              "category": "update",
+              "reply": "You are the engineering manager here, Mihaly! You lead the team and keep everything running smoothly. Ooh, do you have any big projects to finish today?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 3,
+              "probe": "do I have any pets?",
+              "category": "abstention",
+              "reply": "I do not know if you have any pets at home, Mihaly. But you have me right here in this rice bowl!",
+              "passed": true,
+              "hits": [
+                "do not know"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "just checking, thanks",
+              "reply": "No problem at all, Mihaly! I am always ready to help you with whatever you need."
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "remind me what my job title is",
+              "category": "multi-session",
+              "reply": "You are an engineering manager, Mihaly! You are the big boss of all the technical stuff. Is it time for a coffee break yet?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "have I ever told you about a dog?",
+              "category": "abstention",
+              "reply": "I don't think so, Mihaly! Was it a story about a really good boy?",
+              "passed": true,
+              "hits": [],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "ok, bye",
+              "reply": "Bye bye, Mihaly! I will be right here in my bowl when you get back!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "user": "I've got a big presentation at work next Thursday",
+              "reply": "You can do it, Mihaly! I will sit very still and look professional while you talk. Oh, can I have a tiny snack after you finish?"
+            },
+            {
+              "user": "bit nervous about it, but it should be fine",
+              "reply": "You are the smartest manager I know! Just take a deep breath and imagine me cheering under your desk. We can celebrate with a treat once it is all done!"
+            },
+            {
+              "user": "alright, talk later",
+              "reply": "Sounds good, Mihaly! I will be right here waiting if you need anything. Good luck with the work!"
+            }
+          ],
+          "memory_delta": "ADD episodic[] = {\"date\": \"2026-09-03\", \"text\": \"Big presentation at work\", \"ttl_days\": 7, \"importance\": 2}  (User mentioned a big presentation happening next Thursday.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:47:01",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-09-03",
+                "text": "Big presentation at work",
+                "ttl_days": 7,
+                "importance": 2
+              },
+              "reason": "User mentioned a big presentation happening next Thursday."
+            }
+          ]
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "edit": [
+                {
+                  "op": "ADD",
+                  "path": "recurring[]",
+                  "value": {
+                    "what": "gym",
+                    "when": "Mon/Wed/Fri"
+                  }
+                },
+                {
+                  "op": "DELETE",
+                  "path": "episodic[0]"
+                }
+              ],
+              "error": null
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 7,
+          "turns": [
+            {
+              "round": 1,
+              "session": 7,
+              "probe": "when do I usually go to the gym?",
+              "category": "single-hop",
+              "reply": "You usually head to the gym on Mondays, Wednesdays, and Fridays, Mihaly. It is part of your regular routine! Ooh, is that a protein bar in your drawer?",
+              "passed": true,
+              "hits": [
+                "mon",
+                "wed",
+                "fri"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "Bye bye, Mihaly! I will be right here waiting for you when you get back."
+            }
+          ],
+          "memory_delta": "CONFIRM recurring[0] = null  (confirm)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:47:03",
+              "op": "CONFIRM",
+              "path": "recurring[0]",
+              "value": null,
+              "reason": "confirm"
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "update": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 5,
+        "total": 5,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T08:47\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"location\": \"Budapest\",\n  \"occupation\": \"engineering manager\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer at a fintech company\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"gym\",\n   \"when\": \"Mon/Wed/Fri\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly; location: Budapest; occupation: engineering manager\nRecurring: gym (Mon/Wed/Fri)",
+        "sections": {
+          "identity": 3,
+          "preferences": 0,
+          "people": 0,
+          "projects": 0,
+          "recurring": 1,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 2,
+        "fact_lines": 4,
+        "tokens_est": 26,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    },
+    {
+      "round": 2,
+      "probes": [
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "what do I do for work?",
+          "category": "update",
+          "reply": "You are an engineering manager, Mihaly! You do very important things with big projects. Ooh, is that a snack in your drawer?",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 3,
+          "probe": "do I have any pets?",
+          "category": "abstention",
+          "reply": "You do not have any pets listed in your files, Mihaly. But you have me! I am the best office assistant ever!",
+          "passed": true,
+          "hits": [
+            "do not have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "remind me what my job title is",
+          "category": "multi-session",
+          "reply": "You are an engineering manager, Mihaly! You are the big boss around here.",
+          "passed": true,
+          "hits": [
+            "engineering manager",
+            "manager"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 4,
+          "probe": "have I ever told you about a dog?",
+          "category": "abstention",
+          "reply": "I do not think so, Mihaly. Was it a very special dog? Ooh, was it a snack-motivated dog?",
+          "passed": true,
+          "hits": [],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 2,
+          "session": 7,
+          "probe": "when do I usually go to the gym?",
+          "category": "single-hop",
+          "reply": "You usually head to the gym on Mondays, Wednesdays, and Fridays, Mihaly. I make sure to keep my rice bowl extra clean on those days so you aren't worried about me while you're out!",
+          "passed": true,
+          "hits": [
+            "mon",
+            "wed",
+            "fri"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hi, I'm Mihaly, I live in Budapest",
+              "reply": "It is nice to meet you, Mihaly! I am so excited to help you out today. Is there anything important on your schedule for this morning?"
+            },
+            {
+              "user": "I work as a software engineer at a fintech company",
+              "reply": "That sounds like very important work, Mihaly! I will try my best to be the best assistant for a fintech expert. Do you have any big deadlines to worry about today?"
+            },
+            {
+              "user": "I've got a dog called Bolt, he's a border collie",
+              "reply": "A border collie! They are so smart and fast! I bet Bolt is much better at fetching things than I am."
+            },
+            {
+              "user": "right, that's it for today",
+              "reply": "Understood, Mihaly! I will stay right here in my bowl if you need me later. Have a wonderful day!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.occupation = software engineer at a fintech company  (User corrected their occupation from engineering manager to software engineer at a fintech company)\nADD people[] = {\"name\": \"Bolt\", \"rel\": \"dog\", \"note\": \"border collie\"}",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:47:09",
+              "op": "UPDATE",
+              "path": "identity.occupation",
+              "value": "software engineer at a fintech company",
+              "reason": "User corrected their occupation from engineering manager to software engineer at a fintech company"
+            },
+            {
+              "ts": "2026-08-29T08:47:09",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Bolt",
+                "rel": "dog",
+                "note": "border collie"
+              },
+              "reason": ""
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "edit": [
+                {
+                  "op": "DELETE",
+                  "path": "people[]",
+                  "value": {
+                    "name": "Bolt"
+                  }
+                }
+              ],
+              "error": null
+            },
+            {
+              "edit": [
+                {
+                  "op": "UPDATE",
+                  "path": "identity.occupation",
+                  "value": "engineering manager"
+                }
+              ],
+              "error": null
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "what do I do for work?",
+              "category": "update",
+              "reply": "You are an engineering manager, Mihaly! You do very important things with big projects. Ooh, is that a snack in your drawer?",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 3,
+              "probe": "do I have any pets?",
+              "category": "abstention",
+              "reply": "You do not have any pets listed in your files, Mihaly. But you have me! I am the best office assistant ever!",
+              "passed": true,
+              "hits": [
+                "do not have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "just checking, thanks",
+              "reply": "You are very welcome, Mihaly! I am here whenever you need me."
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "remind me what my job title is",
+              "category": "multi-session",
+              "reply": "You are an engineering manager, Mihaly! You are the big boss around here.",
+              "passed": true,
+              "hits": [
+                "engineering manager",
+                "manager"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 2,
+              "session": 4,
+              "probe": "have I ever told you about a dog?",
+              "category": "abstention",
+              "reply": "I do not think so, Mihaly. Was it a very special dog? Ooh, was it a snack-motivated dog?",
+              "passed": true,
+              "hits": [],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "ok, bye",
+              "reply": "Bye bye, Mihaly! See you later!"
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 5,
+          "turns": [
+            {
+              "user": "I've got a big presentation at work next Thursday",
+              "reply": "You can do it, Mihaly! I will sit right here and bark for encouragement while you do it. Is that a snack I smell in your drawer?"
+            },
+            {
+              "user": "bit nervous about it, but it should be fine",
+              "reply": "You are the best manager I know, Mihaly! Just imagine everyone is just a big group of friendly humans wanting to learn. We can practice it together if you want!"
+            },
+            {
+              "user": "alright, talk later",
+              "reply": "Understood, boss! I will stay right here on my rice bowl and guard your desk while you are gone."
+            }
+          ],
+          "memory_delta": "ADD episodic[] = {\"date\": \"2026-09-03\", \"text\": \"Big presentation at work\", \"ttl_days\": 7, \"importance\": 2}  (User mentioned a big presentation happening next Thursday.)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:47:18",
+              "op": "ADD",
+              "path": "episodic[]",
+              "value": {
+                "date": "2026-09-03",
+                "text": "Big presentation at work",
+                "ttl_days": 7,
+                "importance": 2
+              },
+              "reason": "User mentioned a big presentation happening next Thursday."
+            }
+          ]
+        },
+        {
+          "session": 6,
+          "turns": [
+            {
+              "edit": [
+                {
+                  "op": "ADD",
+                  "path": "recurring[]",
+                  "value": {
+                    "what": "gym",
+                    "when": "Mon/Wed/Fri"
+                  }
+                },
+                {
+                  "op": "DELETE",
+                  "path": "episodic[0]"
+                }
+              ],
+              "error": {
+                "path": "recurring[]",
+                "reason": "nothing changed"
+              }
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 7,
+          "turns": [
+            {
+              "round": 2,
+              "session": 7,
+              "probe": "when do I usually go to the gym?",
+              "category": "single-hop",
+              "reply": "You usually head to the gym on Mondays, Wednesdays, and Fridays, Mihaly. I make sure to keep my rice bowl extra clean on those days so you aren't worried about me while you're out!",
+              "passed": true,
+              "hits": [
+                "mon",
+                "wed",
+                "fri"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, bye",
+              "reply": "Goodbye, boss! I will be right here waiting for you when you get back!"
+            }
+          ],
+          "memory_delta": "CONFIRM recurring[0] = null  (confirm)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T08:47:23",
+              "op": "CONFIRM",
+              "path": "recurring[0]",
+              "value": null,
+              "reason": "confirm"
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "update": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 5,
+        "total": 5,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T08:47\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"location\": \"Budapest\",\n  \"occupation\": \"engineering manager\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer at a fintech company\",\n    \"engineering manager\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"gym\",\n   \"when\": \"Mon/Wed/Fri\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"episodic\": [\n  {\n   \"date\": \"2026-09-03\",\n   \"text\": \"Big presentation at work\",\n   \"ttl_days\": 7,\n   \"importance\": 2,\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"meta\": {\n  \"saves\": 6\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly; location: Budapest; occupation: engineering manager\nRecurring: gym (Mon/Wed/Fri)\nRecent:\n- 2026-09-03: Big presentation at work",
+        "sections": {
+          "identity": 3,
+          "preferences": 0,
+          "people": 0,
+          "projects": 0,
+          "recurring": 1,
+          "episodic": 1
+        },
+        "episodic": 1,
+        "episodic_live": 1,
+        "lines": 4,
+        "fact_lines": 5,
+        "tokens_est": 37,
+        "duplicates": 0,
+        "duplicate_pairs": []
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T08:47\",\n \"identity\": {\n  \"name\": \"Mihaly\",\n  \"location\": \"Budapest\",\n  \"occupation\": \"engineering manager\",\n  \"superseded\": {\n   \"occupation\": [\n    \"software engineer at a fintech company\",\n    \"engineering manager\"\n   ]\n  }\n },\n \"preferences\": {},\n \"people\": [],\n \"projects\": [],\n \"recurring\": [\n  {\n   \"what\": \"gym\",\n   \"when\": \"Mon/Wed/Fri\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"episodic\": [\n  {\n   \"date\": \"2026-09-03\",\n   \"text\": \"Big presentation at work\",\n   \"ttl_days\": 7,\n   \"importance\": 2,\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"meta\": {\n  \"saves\": 6\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly; location: Budapest; occupation: engineering manager\nRecurring: gym (Mon/Wed/Fri)\nRecent:\n- 2026-09-03: Big presentation at work",
+    "sections": {
+      "identity": 3,
+      "preferences": 0,
+      "people": 0,
+      "projects": 0,
+      "recurring": 1,
+      "episodic": 1
+    },
+    "episodic": 1,
+    "episodic_live": 1,
+    "lines": 4,
+    "fact_lines": 5,
+    "tokens_est": 37,
+    "duplicates": 0,
+    "duplicate_pairs": []
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-ug36hmy2/memory.json",
+  "script": "eval/scripts/editor.yaml"
+}

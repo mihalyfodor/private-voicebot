@@ -473,12 +473,13 @@ document.getElementById('open-memory').onclick = () => { setView('memory'); open
 const MEMORY_SPEC = [
   { section: 'identity', kind: 'scalar' },
   { section: 'preferences', kind: 'scalar' },
-  { section: 'people', kind: 'list', key: 'name', fields: ['name', 'rel', 'note'] },
-  { section: 'projects', kind: 'list', key: 'name', fields: ['name', 'status', 'note'] },
-  { section: 'recurring', kind: 'list', key: 'what', fields: ['what', 'when'] },
-  { section: 'episodic', kind: 'list', key: 'text', fields: ['text', 'date', 'importance', 'ttl_days'] },
+  { section: 'people', kind: 'list', key: 'name', fields: ['name', 'rel', 'note'], retirable: true },
+  { section: 'projects', kind: 'list', key: 'name', fields: ['name', 'status', 'note'], retirable: true },
+  { section: 'recurring', kind: 'list', key: 'what', fields: ['what', 'when'], retirable: true },
+  { section: 'episodic', kind: 'list', key: 'text', fields: ['text', 'date', 'importance', 'ttl_days'], retirable: false },
 ];
 const MEMORY_NUMERIC = new Set(['importance', 'ttl_days']);
+const MEM_SPEC_BY_SECTION = new Map(MEMORY_SPEC.map(s => [s.section, s]));
 
 const memSectionsEl = document.getElementById('memory-sections');
 const memRenderedEl = document.getElementById('memory-rendered');
@@ -492,6 +493,13 @@ let memoryCount = 0;
 let memoryModelView = false;
 const memoryErrorEls = new Map();  // op path prefix → the row's error line
 
+// Drag-and-drop state: the row currently being dragged ({section, index, kind})
+// and the drop strips that only appear while a compatible drag is in progress.
+const MEM_DRAG_MIME = 'application/x-memory-row';
+let memDrag = null;
+let memArmable = [];   // [{node, accepts}] — stale drop strips
+let memOpenMenu = null;
+
 // Every memory action is fire-and-forget: the server answers with a fresh `memory` message.
 function sendMemory(payload) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(payload));
@@ -504,6 +512,12 @@ function requestMemory() {
 function sendMemoryOp(op, path, value, reason) {
   memErrorEl.textContent = '';
   sendMemory({ action: 'memory_op', op, path, value, reason: reason || 'ui' });
+}
+
+// Several ops the server applies atomically (used by the episodic → recurring promote).
+function sendMemoryOps(ops) {
+  memErrorEl.textContent = '';
+  sendMemory({ action: 'memory_ops', ops: ops.map(o => ({ reason: 'ui', ...o })) });
 }
 
 function setMemory(msg) {
@@ -570,6 +584,162 @@ function deleteButton(path) {
   return b;
 }
 
+// ---- decay: seen labels ----
+const MEM_DAY_MS = 86400000;
+
+// Whole days between an ISO date and today (null when the date is unusable).
+function memDaysSince(iso) {
+  const t = Date.parse(`${iso}T00:00:00`);
+  if (Number.isNaN(t)) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((today.getTime() - t) / MEM_DAY_MS));
+}
+
+function memRelative(days) {
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`;
+  const years = Math.round(days / 365);
+  return `${years} year${years === 1 ? '' : 's'} ago`;
+}
+
+// Muted right-aligned "3 months ago" with the ISO date in the tooltip.
+function seenLabel(entry, days) {
+  if (!entry.seen || days === null) return null;
+  const node = el('span', 'mem-seen', memRelative(days));
+  node.title = `last confirmed ${entry.seen}`;
+  return node;
+}
+
+// Half the section's window is when a row starts looking tired.
+function memIsAging(entry, days) {
+  return days !== null && typeof entry.stale_after === 'number' && days > entry.stale_after / 2;
+}
+
+// ---- the two moves ----
+function retireEntry(section, index, on) {
+  sendMemoryOp('UPDATE', `${section}[${index}].stale`, !!on);
+}
+
+function promoteEpisodic(entry, index) {
+  const value = { what: entry.text || '' };
+  if (entry.when) value.when = entry.when;
+  sendMemoryOps([
+    { op: 'ADD', path: 'recurring[]', value },
+    { op: 'DELETE', path: `episodic[${index}]` },
+  ]);
+}
+
+// The moves offered for one row. `to` names the drop zone that performs the move, so the same
+// table drives the "→" menu and drag-and-drop (see memDropZone) — no second set of conditionals.
+function rowMoves(spec, entry, index, stale) {
+  if (stale) return [{ label: 'restore', to: `${spec.section}/section`, run: () => retireEntry(spec.section, index, false) }];
+  if (spec.section === 'episodic') return [{ label: 'make recurring', to: 'recurring/section', run: () => promoteEpisodic(entry, index) }];
+  if (spec.retirable) return [{ label: 'retire', to: `${spec.section}/stale`, run: () => retireEntry(spec.section, index, true) }];
+  return [];
+}
+
+// One entry of a section by index — how a drag payload resolves back to its row.
+function memEntryAt(section, index) {
+  const list = (memoryProfile && memoryProfile[section]) || [];
+  return list[index] || {};
+}
+
+// The same moves for the row a drag payload ({section, index, kind}) refers to.
+function dragMoves(drag) {
+  const spec = drag && MEM_SPEC_BY_SECTION.get(drag.section);
+  if (!spec) return [];
+  return rowMoves(spec, memEntryAt(drag.section, drag.index), drag.index, drag.kind === 'stale');
+}
+
+// ---- inline "→" menu ----
+function closeMemMenu() {
+  if (memOpenMenu) memOpenMenu.remove();
+  memOpenMenu = null;
+}
+document.addEventListener('click', (e) => {
+  if (memOpenMenu && !memOpenMenu.contains(e.target)) closeMemMenu();
+});
+
+function moveButton(moves) {
+  const b = el('button', 'mem-move', '→');
+  b.title = 'move';
+  b.onclick = (e) => {
+    e.stopPropagation();
+    const open = memOpenMenu;
+    closeMemMenu();
+    if (open && open.previousSibling === b) return;   // second click closes
+    const menu = el('div', 'mem-menu');
+    for (const move of moves) {
+      const item = el('button', null, move.label);
+      item.onclick = (ev) => { ev.stopPropagation(); closeMemMenu(); move.run(); };
+      menu.append(item);
+    }
+    b.after(menu);
+    memOpenMenu = menu;
+  };
+  return b;
+}
+
+// ---- drag and drop ----
+function memReadDrag(e) {
+  if (memDrag) return memDrag;
+  try {
+    return JSON.parse(e.dataTransfer.getData(MEM_DRAG_MIME) || 'null');
+  } catch (_) {
+    return null;
+  }
+}
+
+// Show the stale drop strips that accept the row being dragged.
+function armDropTargets(drag) {
+  for (const t of memArmable) t.node.classList.toggle('armed', t.accepts(drag));
+}
+function clearDropTargets() {
+  for (const t of memArmable) t.node.classList.remove('armed');
+}
+
+function makeDraggable(row, drag) {
+  row.draggable = true;
+  row.ondragstart = (e) => {
+    memDrag = drag;
+    e.dataTransfer.setData(MEM_DRAG_MIME, JSON.stringify(drag));
+    e.dataTransfer.effectAllowed = 'move';
+    row.classList.add('mem-dragging');
+    armDropTargets(drag);
+  };
+  row.ondragend = () => {
+    memDrag = null;
+    row.classList.remove('mem-dragging');
+    clearDropTargets();
+  };
+}
+
+// `node` accepts a drag exactly when one of the dragged row's moves names `zone`, and dropping
+// runs that move. Only compatible drags get preventDefault (and therefore a drop) plus the
+// highlight; `armable` also shows the zone while such a drag is in progress.
+function memDropZone(node, zone, armable) {
+  const moveFor = (drag) => dragMoves(drag).find(m => m.to === zone);
+  node.ondragover = (e) => {
+    if (!moveFor(memReadDrag(e))) return;
+    e.preventDefault();
+    node.classList.add('drop-ok');
+  };
+  node.ondragleave = () => node.classList.remove('drop-ok');
+  node.ondrop = (e) => {
+    node.classList.remove('drop-ok');
+    const move = moveFor(memReadDrag(e));
+    if (!move) return;
+    e.preventDefault();
+    clearDropTargets();
+    move.run();
+  };
+  if (armable) memArmable.push({ node, accepts: (drag) => !!moveFor(drag) });
+}
+
 // A row plus the error line the server's memory_error is routed into.
 function memRow(path) {
   const row = el('div', 'mem-row');
@@ -595,7 +765,7 @@ function scalarRow(section, key, value, superseded) {
   return row;
 }
 
-function listRow(spec, entry, index) {
+function listRow(spec, entry, index, stale) {
   const path = `${spec.section}[${index}]`;
   const { row, err } = memRow(path);
   const parts = [];
@@ -609,9 +779,37 @@ function listRow(spec, entry, index) {
     row.classList.add('expired');
     parts.push(el('span', 'mem-tag', 'expired'));
   }
+  const days = entry.seen ? memDaysSince(entry.seen) : null;
+  const seen = seenLabel(entry, days);
+  if (seen) parts.push(seen);
+  if (stale) row.classList.add('mem-stale');
+  else if (memIsAging(entry, days)) row.classList.add('aging');
+  const moves = rowMoves(spec, entry, index, stale);
+  if (stale && moves.length) {
+    // A stale row's one move is "restore"; it gets a spelled-out button as well as the menu.
+    const restore = el('button', 'mem-restore', 'restore');
+    restore.onclick = moves[0].run;
+    parts.push(restore);
+  }
+  if (moves.length) parts.push(moveButton(moves));
   parts.push(deleteButton(path));
   row.prepend(...parts);
+  makeDraggable(row, { section: spec.section, index, kind: stale ? 'stale' : 'live' });
   return row;
+}
+
+// Bottom-of-section group holding the retired rows; its header doubles as the
+// "drop here to retire" target (rendered even when empty, shown only mid-drag).
+function staleGroup(spec, entries) {
+  const group = el('div', 'mem-stale-group');
+  const head = el('div', 'mem-stale-head');
+  const count = entries.length;
+  head.textContent = count ? `stale (${count})` : 'drop here to retire';
+  if (!count) head.classList.add('empty');
+  if (spec.retirable) memDropZone(head, `${spec.section}/stale`, true);
+  group.append(head, ...entries.map(([entry, i]) => listRow(spec, entry, i, true)));
+  group.hidden = !count && !spec.retirable;
+  return group;
 }
 
 function addForm(spec) {
@@ -654,19 +852,26 @@ function addForm(spec) {
 
 function memorySection(spec) {
   const wrap = el('div', 'mem-section');
-  wrap.append(el('div', 'mem-section-title', spec.section));
+  const title = el('div', 'mem-section-title', spec.section);
+  wrap.append(title);
   const data = (memoryProfile && memoryProfile[spec.section]) || (spec.kind === 'scalar' ? {} : []);
   let rows = [];
+  let stale = [];
   if (spec.kind === 'scalar') {
     const superseded = data.superseded || null;
     rows = Object.keys(data)
       .filter(k => k !== 'superseded')
       .map(k => scalarRow(spec.section, k, data[k], superseded));
   } else {
-    rows = data.map((entry, i) => listRow(spec, entry || {}, i));
+    // the title accepts an episodic row (promote) or one of its own stale rows (restore)
+    memDropZone(title, `${spec.section}/section`, false);
+    const live = [];
+    data.forEach((entry, i) => (entry && entry.stale ? stale : live).push([entry || {}, i]));
+    rows = live.map(([entry, i]) => listRow(spec, entry, i, false));
   }
   if (rows.length) wrap.append(...rows);
   else wrap.append(el('div', 'mem-empty', 'nothing yet'));
+  if (spec.kind === 'list') wrap.append(staleGroup(spec, stale));
   wrap.append(addForm(spec));
   wrap.append(memoryErrorEls.get(spec.section));
   return wrap;
@@ -674,6 +879,9 @@ function memorySection(spec) {
 
 function renderMemory() {
   memoryErrorEls.clear();
+  memArmable = [];
+  memDrag = null;
+  closeMemMenu();
   memErrorEl.textContent = '';
   memCountEl.textContent = `Memory · ${memoryCount} ${memoryCount === 1 ? 'fact' : 'facts'}`;
   memModelToggle.classList.toggle('active', memoryModelView);
