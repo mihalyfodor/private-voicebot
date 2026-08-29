@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import avatars  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
+import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
 
 CATEGORIES = (
@@ -101,8 +102,11 @@ class Sandbox:
         self.ops_path = os.path.join(mem_dir, "memory_ops.jsonl")
         self.shortmem_path = os.path.join(mem_dir, "shortmem.txt")
 
+        self.wiki_path = os.path.join(self._tmpdir, "wiki")
+
         self._saved = {
             "memory": memory.MEMORY_PATH,
+            "wiki": wiki.WIKI_PATH,
             "ops": memory.OPS_LOG_PATH,
             "shortmem": memory.SHORTMEM_PATH,
             "settings": avatars.SETTINGS_PATH,
@@ -116,6 +120,8 @@ class Sandbox:
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
         memory.MEMORY_PATH = self.memory_path
+        wiki.WIKI_PATH = self.wiki_path        # a live run must never touch the real ~/llm-wiki
+        wiki._index_cache = {"sig": None, "docs": []}
         memory.OPS_LOG_PATH = self.ops_path
         memory.SHORTMEM_PATH = self.shortmem_path
         avatars.SETTINGS_PATH = self.settings_path
@@ -144,8 +150,14 @@ class Sandbox:
     def read_ops(self) -> list:
         return _read_ops(_read(self.ops_path))
 
+    def wiki_pages(self) -> list:
+        """The pages the run filed — "pages created per session" is a PRD 19 budget."""
+        return wiki.pages()
+
     def __exit__(self, *exc) -> bool:
         memory.MEMORY_PATH = self._saved["memory"]
+        wiki.WIKI_PATH = self._saved["wiki"]
+        wiki._index_cache = {"sig": None, "docs": []}
         memory.OPS_LOG_PATH = self._saved["ops"]
         memory.SHORTMEM_PATH = self._saved["shortmem"]
         avatars.SETTINGS_PATH = self._saved["settings"]
@@ -488,9 +500,12 @@ def run_script(script, memory_path: str | None = None, rounds: int = 1,
                 "total": len(probes),
                 "rate": round(passed / len(probes), 3) if probes else 0.0,
             }
-            round_result["memory"] = memory_stats(box.read_memory())
+            round_result["memory"] = {**memory_stats(box.read_memory()),
+                                      "wiki_pages": len(box.wiki_pages())}
             results["rounds"].append(round_result)
-        results["memory"] = memory_stats(box.read_memory())
+        results["memory"] = {**memory_stats(box.read_memory()),
+                             "wiki_pages": len(box.wiki_pages()),
+                             "wiki_page_list": [p["path"] for p in box.wiki_pages()]}
         results["memory_path"] = box.memory_path
         return results
     finally:
@@ -519,16 +534,18 @@ def format_report(results: dict) -> str:
             lines.append(f"  FAIL ({p['category']}) {p['probe']} -- {', '.join(reason)}")
             lines.append(f"       {p['reply'][:200]}")
         m = rnd["memory"]
+        wiki_note = f", {m['wiki_pages']} wiki pages created" if "wiki_pages" in m else ""
         if m.get("version") == 2:
             sizes = ", ".join(f"{k} {v}" for k, v in m["sections"].items() if v)
             lines.append(
                 f"  memory: {m['fact_lines']} entries ({sizes or 'empty'}), "
                 f"~{m['tokens_est']} tokens rendered, {m['duplicates']} duplicate entries"
+                f"{wiki_note}"
             )
         else:
             lines.append(
                 f"  memory: {m['lines']} lines ({m['fact_lines']} facts), "
-                f"~{m['tokens_est']} tokens, {m['duplicates']} duplicate lines"
+                f"~{m['tokens_est']} tokens, {m['duplicates']} duplicate lines{wiki_note}"
             )
         lines.append("")
     return "\n".join(lines)

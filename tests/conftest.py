@@ -11,6 +11,20 @@ from fastapi.testclient import TestClient
 
 import chatbot
 import memory
+import wiki
+
+
+@pytest.fixture(autouse=True)
+def wiki_sandbox(monkeypatch, tmp_path):
+    """No test may touch the real ~/llm-wiki: every one gets its own empty vault path.
+
+    Nothing creates it — `wiki.ensure_vault()` is lazy — so a test that never writes to the
+    wiki pays nothing for this.
+    """
+    vault = tmp_path / "wiki"
+    monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
+    monkeypatch.setattr(wiki, "_index_cache", {"sig": None, "docs": []})
+    return vault
 
 
 @pytest.fixture(autouse=True)

@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 19 — Wiki layer: an Obsidian vault the assistant maintains
 

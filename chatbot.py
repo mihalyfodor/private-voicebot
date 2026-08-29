@@ -12,6 +12,7 @@ import webbrowser
 
 import llm
 import memory
+import wiki
 import splitter
 import fillers
 import avatars
@@ -127,21 +128,41 @@ def _memory_msg(profile: dict) -> dict:
     return {"type": "memory", **memory.snapshot(profile)}
 
 
-def push_memory() -> None:
-    """Push a fresh memory snapshot to an open panel. No socket (or no loop) → silent no-op."""
+def _wiki_msg() -> dict:
+    """The `wiki` message the Wiki tab re-renders itself from: page list + lint + vault path."""
+    wiki.ensure_vault()   # opening the tab is the first use that may create the vault
+    return {"type": "wiki", "pages": wiki.pages(), "lint": wiki.lint(), "vault": wiki.WIKI_PATH}
+
+
+def _wiki_page_msg(path: str) -> dict:
+    text = wiki.read_page(path)
+    return {"type": "wiki_page", "path": path, "text": text, "links": wiki.links_in(text)}
+
+
+def push_memory(with_wiki: bool = False) -> None:
+    """Push a fresh memory snapshot (and optionally the wiki) to an open panel.
+
+    No socket (or no loop) → silent no-op.
+    """
     sess, loop = session, _loop
     if sess is None or sess.websocket is None or loop is None or not loop.is_running():
         return
-    make_sender(loop)(_memory_msg(memory.load_profile()))
+    send_sync = make_sender(loop)
+    send_sync(_memory_msg(memory.load_profile()))
+    if with_wiki:
+        send_sync(_wiki_msg())
 
 
 def _periodic_memory(count: int) -> None:
     """Called by the worker thread every N completed turns: fold the session into the memory profile (memory.json)."""
+    filed = wiki.applied_count()
     try:
         llm.save_memory()
     except Exception as e:
         print(f"[Memory error] {e}")
-    push_memory()   # an open memory panel refreshes itself after a background save
+    # an open panel refreshes itself after a background save; the Wiki tab only when the
+    # save actually filed something, so a quiet session costs no extra traffic.
+    push_memory(with_wiki=wiki.applied_count() != filed)
 
 
 controller = TurnController(on_turn_complete=_periodic_memory)
@@ -473,6 +494,67 @@ async def _action_memory_reset(sess, msg, loop):
     await send(_memory_msg(profile))
 
 
+async def _action_get_wiki(sess, msg, loop):
+    """The Wiki tab asking for the page list (on open, and after every reconnect)."""
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
+async def _action_read_wiki_page(sess, msg, loop):
+    """One page for the right-hand pane, with its wikilink targets for the clickable links."""
+    await send(await asyncio.to_thread(_wiki_page_msg, str(msg.get("path") or "")))
+
+
+async def _action_wiki_note(sess, msg, loop):
+    """The "add note" box: append one dated bullet under `## Notes`, then refresh both panes."""
+    path = str(msg.get("path") or "")
+    op = {"op": "append_note", "path": path, "text": msg.get("text"),
+          "source": f"user note {memory._today_iso()}"}
+    applied, rejected = await asyncio.to_thread(wiki.apply_page_ops, [op], op["source"])
+    if not applied:
+        reason = rejected[0]["reason"] if rejected else "nothing to add"
+        await send({"type": "error", "text": reason})
+        return
+    await send(await asyncio.to_thread(_wiki_page_msg, path))
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
+def _ingest_now() -> None:
+    """Re-ingest the session on the worker/executor: the same save path a turn would take."""
+    try:
+        llm.save_memory()
+    except Exception as e:
+        print(f"[Memory error] {e}")
+
+
+async def _action_wiki_ingest(sess, msg, loop):
+    """"Re-ingest last session": run the memory save (which includes wiki ingest) on demand."""
+    await asyncio.to_thread(_ingest_now)
+    await send(_memory_msg(memory.load_profile()))
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
+async def _action_archive_memory(sess, msg, loop):
+    """Drag a memory row onto the Wiki tab: file the entry, then mark it stale."""
+    profile, error = await asyncio.to_thread(
+        memory.archive, str(msg.get("section") or ""), msg.get("index"))
+    if error:
+        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
+        return
+    await send(_memory_msg(profile))
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
+async def _action_pull_wiki(sess, msg, loop):
+    """Drag a wiki page onto a memory section: recreate a live entry from the page."""
+    profile, error = await asyncio.to_thread(
+        memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
+    if error:
+        await send({"type": "memory_error", "path": error.get("path"), "reason": error.get("reason")})
+        return
+    await send(_memory_msg(profile))
+    await send(await asyncio.to_thread(_wiki_msg))
+
+
 async def _action_shutdown(sess, msg, loop):
     print("\nShutdown requested from UI...")
     os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
@@ -491,6 +573,12 @@ ACTIONS = {
     "memory_op": _action_memory_op,
     "memory_ops": _action_memory_ops,
     "memory_reset": _action_memory_reset,
+    "get_wiki": _action_get_wiki,
+    "read_wiki_page": _action_read_wiki_page,
+    "wiki_note": _action_wiki_note,
+    "wiki_ingest": _action_wiki_ingest,
+    "archive_memory": _action_archive_memory,
+    "pull_wiki": _action_pull_wiki,
     "shutdown": _action_shutdown,
 }
 

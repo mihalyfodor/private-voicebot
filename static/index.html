@@ -39,10 +39,14 @@
       <div id="backdrop-list" class="chip-grid"></div>
     </div>
     <div class="drawer-section">
-      <div class="drawer-title">Memory</div>
+      <div class="drawer-title">Memory &amp; Wiki</div>
       <button id="open-memory" class="drawer-item">
         <span class="name">Memory</span>
         <span class="desc">view and edit what is remembered</span>
+      </button>
+      <button id="open-wiki" class="drawer-item">
+        <span class="name">Wiki</span>
+        <span class="desc">browse the pages the assistant keeps</span>
       </button>
     </div>
     <div class="drawer-section">
@@ -71,6 +75,7 @@
       <div id="view-tabs">
         <button class="view-tab active" data-view="chat">Chat</button>
         <button class="view-tab" data-view="memory">Memory</button>
+        <button class="view-tab" data-view="wiki">Wiki</button>
       </div>
 
       <div id="view-chat" class="view">
@@ -94,6 +99,26 @@
           <div id="memory-error"></div>
           <div class="memory-note">changes apply from the next reply</div>
           <button id="memory-reset" class="danger-link">Forget everything</button>
+        </div>
+      </div>
+
+      <div id="view-wiki" class="view" hidden>
+        <div id="wiki-body">
+          <div id="wiki-list"></div>
+          <div id="wiki-page">
+            <div id="wiki-page-head"></div>
+            <pre id="wiki-text" class="wiki-text"></pre>
+            <div id="wiki-note">
+              <input id="wiki-note-input" placeholder="add a dated note…">
+              <button id="wiki-note-add">add note</button>
+            </div>
+          </div>
+        </div>
+        <div id="wiki-foot">
+          <div id="wiki-error"></div>
+          <div id="wiki-lint" hidden></div>
+          <div id="wiki-vault" class="wiki-muted"></div>
+          <button id="wiki-ingest" class="chip">Re-ingest last session</button>
         </div>
       </div>
     </section>

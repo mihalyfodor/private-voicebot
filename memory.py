@@ -348,22 +348,46 @@ def render(profile: dict, budget_tokens: int | None = None) -> str:
     return _text(blocks)
 
 
-def load(system_prompt: str) -> str:
-    """`system_prompt` with the `<user_profile>` block appended (unchanged if empty).
+WIKI_NOTE = (
+    "Those pages can be opened with the read_page tool; use search_wiki when the user asks about "
+    "past work, meetings, decisions or someone they mentioned before. Never guess their contents."
+)
 
-    The one entry point the chat path uses to read memory.
+
+def _wiki_block() -> str:
+    """The `<wiki_index>` block, or "" when there is no vault / no pages (docs/19-wiki-layer.md).
+
+    Imported lazily and never allowed to raise: the wiki is an add-on to the prompt, and a
+    broken vault must not be able to stop a conversation from starting.
+    """
+    try:
+        import wiki
+
+        index = wiki.index_text(wiki.WIKI_INDEX_TOKENS)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Memory] warning: wiki index unavailable ({exc})")
+        return ""
+    if not index.strip():
+        return ""
+    return f"\n\n<wiki_index>\n{index}\n</wiki_index>\n{WIKI_NOTE}"
+
+
+def load(system_prompt: str) -> str:
+    """`system_prompt` with the `<user_profile>` and `<wiki_index>` blocks appended.
+
+    The one entry point the chat path uses to read memory. Either block is omitted when it
+    would be empty, so a fresh install gets exactly the prompt it had before memory existed.
     """
     profile = load_profile()
-    if not has_content(profile):
-        return system_prompt
-    block = render(profile, BUDGET_TOKENS)
-    if not block.strip():
-        return system_prompt
-    return (
-        f"{system_prompt}\n\n"
-        f"<user_profile>\n{block}\n</user_profile>\n"
-        f"{PROFILE_NOTE}"
-    )
+    prompt = system_prompt
+    block = render(profile, BUDGET_TOKENS) if has_content(profile) else ""
+    if block.strip():
+        prompt = (
+            f"{system_prompt}\n\n"
+            f"<user_profile>\n{block}\n</user_profile>\n"
+            f"{PROFILE_NOTE}"
+        )
+    return prompt + _wiki_block()
 
 
 # --------------------------------------------------------------------------- ops
@@ -995,6 +1019,72 @@ def edit(op: dict) -> tuple:
     return profile, (error["reason"] if error else None)
 
 
+ARCHIVABLE = ("people", "projects", "recurring")
+
+
+def archive(section: str, index) -> tuple:
+    """Move one profile entry into the wiki and mark it stale; ``(profile, error)``.
+
+    The bridge PRD 18 promised: a fact leaving working memory is *filed*, not forgotten. The
+    entry's fields and its last `seen` date become a `## History` bullet on the matching wiki
+    page (creating that page if needed), and only once that succeeded is the profile entry
+    retired through the normal :func:`edit_many` path. See docs/19-wiki-layer.md.
+    """
+    if section not in ARCHIVABLE:
+        return load_profile(), {"path": section, "reason": f"cannot archive {section}"}
+    try:
+        index = int(index)
+    except (TypeError, ValueError):
+        return load_profile(), {"path": section, "reason": f"bad index {index!r}"}
+    with _LOCK:
+        profile = load_profile()
+        entries = profile.get(section, [])
+        if not 0 <= index < len(entries):
+            return profile, {"path": f"{section}[{index}]", "reason": f"{section}[{index}] does not exist"}
+        entry = entries[index]
+        try:
+            import wiki
+
+            page, reason = wiki.archive_entry(section, entry)
+        except Exception as exc:  # noqa: BLE001
+            page, reason = None, str(exc)
+        if reason:
+            return profile, {"path": f"{section}[{index}]", "reason": f"wiki: {reason}"}
+        if is_stale(entry):
+            return profile, None        # already retired; the page is what mattered
+        path = f"{section}[{index}].{STALE_FIELD}"
+        profile, error = edit_many([{"op": "UPDATE", "path": path, "value": True, "reason": "ui"}])
+        if error:
+            error["reason"] = f"filed to {page} but could not retire the entry: {error['reason']}"
+        return profile, error
+
+
+def pull(path: str, section: str) -> tuple:
+    """The reverse of :func:`archive`: a live entry built from a wiki page; ``(profile, error)``."""
+    if section not in ARCHIVABLE:
+        return load_profile(), {"path": path, "reason": f"cannot pull into {section}"}
+    with _LOCK:
+        try:
+            import wiki
+
+            entry, reason = wiki.entry_from_page(path, section)
+        except Exception as exc:  # noqa: BLE001
+            entry, reason = None, str(exc)
+        if reason:
+            return load_profile(), {"path": path, "reason": reason}
+        profile = load_profile()
+        key_field = LIST_KEY[section]
+        found = _find(profile.get(section, []), key_field, entry.get(key_field))
+        if found != -1 and is_stale(profile[section][found]):
+            # the entry this page was archived from is still on disk: revive it in place
+            # rather than growing a second copy (`stale: false` also refreshes `seen`).
+            op = {"op": "UPDATE", "path": f"{section}[{found}].{STALE_FIELD}",
+                  "value": False, "reason": "ui:restore"}
+        else:
+            op = {"op": "ADD", "path": f"{section}[]", "value": entry, "reason": "ui"}
+        return edit_many([op])
+
+
 def reset() -> dict:
     """Forget everything: write an empty profile and audit it as one `DELETE *` line."""
     with _LOCK:
@@ -1147,6 +1237,36 @@ def migrate_if_needed(client, model: str) -> dict:
 # --------------------------------------------------------------------------- save
 
 
+def _ingest_wiki(turns: list, client, model: str) -> list:
+    """Hand the session to the wiki layer (docs/19-wiki-layer.md).
+
+    Runs last inside :func:`save`, still under `_LOCK`, and swallows everything: filing a page
+    is a bonus, and a broken vault, a missing git or a garbled ingest must never cost the user
+    the profile save that just succeeded.
+    """
+    try:
+        import wiki
+
+        return wiki.ingest(turns, client, model)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Wiki] ingest error: {exc}")
+        return []
+
+
+def _lint_wiki() -> list:
+    """Lint the vault on the reflection cadence; findings (only) earn a `log.md` line."""
+    try:
+        import wiki
+
+        findings = wiki.lint_and_log()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Wiki] lint error: {exc}")
+        return []
+    if findings:
+        print(f"[Wiki] lint: {len(findings)} finding(s)")
+    return findings
+
+
 def save(session_turns: list, client, model: str) -> list:
     """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves.
 
@@ -1173,6 +1293,7 @@ def save(session_turns: list, client, model: str) -> list:
             if retired:
                 _write_profile(profile)
             print("\n[Nothing new to save]")
+            _ingest_wiki(session_turns, client, model)
             return []
 
         meta = profile.setdefault("meta", {})
@@ -1195,5 +1316,7 @@ def save(session_turns: list, client, model: str) -> list:
             _write_profile(profile)
             after = sum(len(profile.get(s, [])) for s in LIST_SECTIONS)
             print(f"[Memory] reflection pass: {before} -> {after} entries")
+            _lint_wiki()
 
+        _ingest_wiki(session_turns, client, model)
         return applied
