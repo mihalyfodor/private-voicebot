@@ -816,10 +816,13 @@ function memRow(path) {
   return { row, err };
 }
 
+// `identity.aliases` is the one list-valued scalar key: shown (and edited) as a comma-separated
+// string, which the server normalises back into a list. See docs/26-identity-aliases.md.
 function scalarRow(section, key, value, superseded) {
   const path = `${section}.${key}`;
   const { row, err } = memRow(path);
-  row.prepend(el('span', 'mem-key', key), editable(value, '(empty)', v => sendMemoryOp('UPDATE', path, v)), deleteButton(path));
+  const shown = Array.isArray(value) ? value.join(', ') : value;
+  row.prepend(el('span', 'mem-key', key), editable(shown, '(empty)', v => sendMemoryOp('UPDATE', path, v)), deleteButton(path));
   const old = superseded && superseded[key];
   if (Array.isArray(old) && old.length) {
     const prev = old[old.length - 1];

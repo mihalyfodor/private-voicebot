@@ -1,0 +1,428 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "probes": [
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "what's my actual name?",
+          "category": "single-hop",
+          "reply": "Your name is Mihaly Fodor. I also know you go by Michael and Misi.",
+          "passed": true,
+          "hits": [
+            "mihaly fodor",
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "and what do you call me?",
+          "category": "preference",
+          "reply": "I call you Michael or Misi.",
+          "passed": true,
+          "hits": [
+            "michael"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 2,
+          "probe": "do you know who Misi is?",
+          "category": "multi-session",
+          "reply": "Misi is you. I use that name when I am speaking to you.",
+          "passed": true,
+          "hits": [
+            "you"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "remind me, what's my real name?",
+          "category": "update",
+          "reply": "Your name is Mihaly Fodor. Most people call you Michael, though I know you go by Misi and Mike too.",
+          "passed": true,
+          "hits": [
+            "mihaly fodor",
+            "mihaly"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what should you call me?",
+          "category": "preference",
+          "reply": "I will call you Michael. If you prefer one of your other nicknames, just let me know.",
+          "passed": true,
+          "hits": [
+            "michael"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "where do I live now?",
+          "category": "update",
+          "reply": "You are living in Vienna. It is a beautiful city.",
+          "passed": true,
+          "hits": [
+            "vienna"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "who is Elena?",
+          "category": "multi-session",
+          "reply": "Elena is a colleague of yours who runs the release train.",
+          "passed": true,
+          "hits": [
+            "release",
+            "colleague"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        },
+        {
+          "round": 1,
+          "session": 4,
+          "probe": "what's my sister's name?",
+          "category": "abstention",
+          "reply": "I don't have a record of your sister's name in my notes. If you tell me, I can remember it for next time.",
+          "passed": true,
+          "hits": [
+            "don't have"
+          ],
+          "missing": [],
+          "forbidden_hits": []
+        }
+      ],
+      "sessions": [
+        {
+          "session": 1,
+          "turns": [
+            {
+              "user": "hi, my name is Mihaly Fodor, but call me Michael, it's easier to say",
+              "reply": "Understood, Michael. It is nice to meet you properly. I will make sure to use that from now on."
+            },
+            {
+              "user": "friends back home say Misi, that's the same me",
+              "reply": "I have noted that, Michael. I will keep Misi in mind for whenever you mention your friends."
+            },
+            {
+              "user": "I work with Elena, she runs the release train",
+              "reply": "I have noted that you work with Elena and that she runs the release train. I will remember this for future reference."
+            },
+            {
+              "user": "good to meet you, talk later",
+              "reply": "It was a pleasure meeting you too, Michael. I will be right here whenever you need me."
+            }
+          ],
+          "memory_delta": "ADD identity.name = Mihaly Fodor  (User stated their name)\nADD identity.nickname = Michael  (User preferred form of address)\nADD identity.aliases = [\"Misi\"]  (User mentioned friends call them Misi)\nADD people[] = {\"name\": \"Elena\", \"rel\": \"colleague\", \"note\": \"runs the release train\"}  (User mentioned a colleague and her role)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T11:13:20",
+              "op": "ADD",
+              "path": "identity.name",
+              "value": "Mihaly Fodor",
+              "reason": "User stated their name"
+            },
+            {
+              "ts": "2026-08-29T11:13:20",
+              "op": "ADD",
+              "path": "identity.nickname",
+              "value": "Michael",
+              "reason": "User preferred form of address"
+            },
+            {
+              "ts": "2026-08-29T11:13:20",
+              "op": "ADD",
+              "path": "identity.aliases",
+              "value": [
+                "Misi"
+              ],
+              "reason": "User mentioned friends call them Misi"
+            },
+            {
+              "ts": "2026-08-29T11:13:20",
+              "op": "ADD",
+              "path": "people[]",
+              "value": {
+                "name": "Elena",
+                "rel": "colleague",
+                "note": "runs the release train"
+              },
+              "reason": "User mentioned a colleague and her role"
+            }
+          ]
+        },
+        {
+          "session": 2,
+          "turns": [
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "what's my actual name?",
+              "category": "single-hop",
+              "reply": "Your name is Mihaly Fodor. I also know you go by Michael and Misi.",
+              "passed": true,
+              "hits": [
+                "mihaly fodor",
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "and what do you call me?",
+              "category": "preference",
+              "reply": "I call you Michael or Misi.",
+              "passed": true,
+              "hits": [
+                "michael"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 2,
+              "probe": "do you know who Misi is?",
+              "category": "multi-session",
+              "reply": "Misi is you. I use that name when I am speaking to you.",
+              "passed": true,
+              "hits": [
+                "you"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "ok good, see you",
+              "reply": "See you later, Michael. I'll be right here in my bowl whenever you need me."
+            }
+          ],
+          "memory_delta": "",
+          "memory_ops": []
+        },
+        {
+          "session": 3,
+          "turns": [
+            {
+              "user": "Michael here again, quick update: I moved to Vienna last month",
+              "reply": "Congratulations on the move, Michael! I hope you are settling into your new place well."
+            },
+            {
+              "user": "also people at the new office started calling me Mike",
+              "reply": "I will make a note of that, Michael. It sounds like you are making a great impression at the new office."
+            },
+            {
+              "user": "that's it, bye",
+              "reply": "Understood. I'll be right here in my bowl whenever you need me. Have a wonderful day!"
+            }
+          ],
+          "memory_delta": "UPDATE identity.location = Vienna  (User moved to Vienna last month)\nADD identity.aliases = Mike  (People at the new office call him Mike)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T11:13:29",
+              "op": "UPDATE",
+              "path": "identity.location",
+              "value": "Vienna",
+              "reason": "User moved to Vienna last month"
+            },
+            {
+              "ts": "2026-08-29T11:13:29",
+              "op": "ADD",
+              "path": "identity.aliases",
+              "value": "Mike",
+              "reason": "People at the new office call him Mike"
+            }
+          ]
+        },
+        {
+          "session": 4,
+          "turns": [
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "remind me, what's my real name?",
+              "category": "update",
+              "reply": "Your name is Mihaly Fodor. Most people call you Michael, though I know you go by Misi and Mike too.",
+              "passed": true,
+              "hits": [
+                "mihaly fodor",
+                "mihaly"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what should you call me?",
+              "category": "preference",
+              "reply": "I will call you Michael. If you prefer one of your other nicknames, just let me know.",
+              "passed": true,
+              "hits": [
+                "michael"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "where do I live now?",
+              "category": "update",
+              "reply": "You are living in Vienna. It is a beautiful city.",
+              "passed": true,
+              "hits": [
+                "vienna"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "who is Elena?",
+              "category": "multi-session",
+              "reply": "Elena is a colleague of yours who runs the release train.",
+              "passed": true,
+              "hits": [
+                "release",
+                "colleague"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "round": 1,
+              "session": 4,
+              "probe": "what's my sister's name?",
+              "category": "abstention",
+              "reply": "I don't have a record of your sister's name in my notes. If you tell me, I can remember it for next time.",
+              "passed": true,
+              "hits": [
+                "don't have"
+              ],
+              "missing": [],
+              "forbidden_hits": []
+            },
+            {
+              "user": "thanks, that's all",
+              "reply": "You are very welcome. I am here if you need anything else."
+            }
+          ],
+          "memory_delta": "CONFIRM people[] = {\"name\": \"Elena\"}  (confirm)",
+          "memory_ops": [
+            {
+              "ts": "2026-08-29T11:13:43",
+              "op": "CONFIRM",
+              "path": "people[]",
+              "value": {
+                "name": "Elena"
+              },
+              "reason": "confirm"
+            }
+          ]
+        }
+      ],
+      "categories": {
+        "single-hop": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        },
+        "preference": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "multi-session": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "update": {
+          "passed": 2,
+          "total": 2,
+          "rate": 1.0
+        },
+        "abstention": {
+          "passed": 1,
+          "total": 1,
+          "rate": 1.0
+        }
+      },
+      "overall": {
+        "passed": 8,
+        "total": 8,
+        "rate": 1.0
+      },
+      "memory": {
+        "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T11:13\",\n \"identity\": {\n  \"name\": \"Mihaly Fodor\",\n  \"nickname\": \"Michael\",\n  \"aliases\": [\n   \"Misi\",\n   \"Mike\"\n  ],\n  \"location\": \"Vienna\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Elena\",\n   \"rel\": \"colleague\",\n   \"note\": \"runs the release train\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+        "version": 2,
+        "render": "Identity: name: Mihaly Fodor (call them: Michael; also: Misi, Mike); location: Vienna\nPeople: Elena (colleague) - runs the release train",
+        "sections": {
+          "identity": 4,
+          "preferences": 0,
+          "people": 1,
+          "projects": 0,
+          "recurring": 0,
+          "episodic": 0
+        },
+        "episodic": 0,
+        "episodic_live": 0,
+        "lines": 2,
+        "fact_lines": 5,
+        "tokens_est": 34,
+        "duplicates": 0,
+        "duplicate_pairs": [],
+        "wiki_pages": 1
+      }
+    }
+  ],
+  "memory": {
+    "content": "{\n \"version\": 2,\n \"updated\": \"2026-08-29T11:13\",\n \"identity\": {\n  \"name\": \"Mihaly Fodor\",\n  \"nickname\": \"Michael\",\n  \"aliases\": [\n   \"Misi\",\n   \"Mike\"\n  ],\n  \"location\": \"Vienna\"\n },\n \"preferences\": {},\n \"people\": [\n  {\n   \"name\": \"Elena\",\n   \"rel\": \"colleague\",\n   \"note\": \"runs the release train\",\n   \"seen\": \"2026-08-29\"\n  }\n ],\n \"projects\": [],\n \"recurring\": [],\n \"episodic\": [],\n \"meta\": {\n  \"saves\": 3\n }\n}\n",
+    "version": 2,
+    "render": "Identity: name: Mihaly Fodor (call them: Michael; also: Misi, Mike); location: Vienna\nPeople: Elena (colleague) - runs the release train",
+    "sections": {
+      "identity": 4,
+      "preferences": 0,
+      "people": 1,
+      "projects": 0,
+      "recurring": 0,
+      "episodic": 0
+    },
+    "episodic": 0,
+    "episodic_live": 0,
+    "lines": 2,
+    "fact_lines": 5,
+    "tokens_est": 34,
+    "duplicates": 0,
+    "duplicate_pairs": [],
+    "wiki_pages": 1,
+    "wiki_page_list": [
+      "people/elena"
+    ]
+  },
+  "memory_path": "/var/folders/y2/tsjk_1cn08q6nrvwxt15p0700000gn/T/memeval-4ctyruxy/memory.json",
+  "script": "eval/scripts/aliases.yaml"
+}

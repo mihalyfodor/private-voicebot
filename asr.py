@@ -29,16 +29,19 @@ def is_junk(text, avg_logprob=None):
     return False
 
 
-def _mlx_transcribe(audio):
+def _mlx_transcribe(audio, prompt=None):
     import mlx_whisper
 
+    kwargs = {"initial_prompt": prompt} if prompt else {}
     return mlx_whisper.transcribe(
-        audio, path_or_hf_repo=MODEL, language="en", fp16=True
+        audio, path_or_hf_repo=MODEL, language="en", fp16=True, **kwargs
     )
 
 
-def transcribe(audio):
-    result = _mlx_transcribe(audio)
+def transcribe(audio, prompt=None):
+    """Transcribe one utterance. `prompt` biases whisper towards names it keeps mangling
+    (memory.asr_prompt(); see docs/26-identity-aliases.md) — empty means no biasing."""
+    result = _mlx_transcribe(audio, prompt)
     text = (result.get("text") or "").strip()
 
     segments = result.get("segments") or []
