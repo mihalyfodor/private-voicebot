@@ -44,15 +44,9 @@ for f in filter(None, files):
 PY
 }
 
-fetch_model static/models/haru \
-  https://raw.githubusercontent.com/guansss/pixi-live2d-display/master/test/assets/haru \
-  haru_greeter_t03.model3.json
 fetch_model static/models/wanko \
   https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Wanko \
   Wanko.model3.json
-fetch_model static/models/natori \
-  https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Samples/Resources/Natori \
-  Natori.model3.json
 echo "→ backdrops"
 mkdir -p static/backdrops
 python3 - <<'PY'

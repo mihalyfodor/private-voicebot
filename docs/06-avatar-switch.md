@@ -1,5 +1,7 @@
 Status: done
 
+> Superseded by [PRD 23](23-wanko-only.md): Haru and Natori are gone; Wanko is the only avatar.
+
 # 06 — Switchable avatars, Wanko default
 
 ## Overview

@@ -21,28 +21,36 @@ def fake_tts(text):
 
 
 FAKE_AVATAR = {
-    "key": "natori",
-    "name": "Natori",
-    "tagline": "Office assistant, easygoing",
-    "voice": "am_michael",
-    "speed": 1.0,
-    "greeting": "[happy] Morning! Natori here.",
-    "switch_greeting": "[happy] Natori taking over now.",
-    "persona": "You are Natori.",
+    "key": "wanko",
+    "name": "Wanko",
+    "tagline": "Office assistant, upbeat",
+    "voice": "am_puck",
+    "speed": 1.05,
+    "greeting": "[happy] Morning! Wanko here.",
+    "switch_greeting": "[happy] Wanko taking over now.",
+    "persona": "You are Wanko.",
 }
+
+
+def test_shipped_greeting_is_the_current_card_greeting():
+    """Scenario 3: the spoken greeting comes from wanko.yaml."""
+    import avatars
+    a = avatars.AVATARS["wanko"]
+    assert a["greeting"] == "[happy] Morning! Wanko here. What are we working on today?"
+    assert a["switch_greeting"] == "[happy] Wanko here, ready when you are."
 
 
 def test_say_canned_emits_state_speech_speech_end_and_transcript():
     sent = []
-    reply = chatbot.say_canned("[happy] Hi boss.", sent.append, tts=fake_tts)
+    reply = chatbot.say_canned("[happy] Hi there.", sent.append, tts=fake_tts)
 
-    assert reply == "Hi boss."
+    assert reply == "Hi there."
     types = [m["type"] for m in sent]
     assert types == ["state", "speech", "speech_end", "transcript"]
     assert sent[0]["value"] == "speaking"
     assert sent[1]["emotion"] == "happy"
-    assert sent[1]["text"] == "Hi boss."
-    assert sent[3] == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
+    assert sent[1]["text"] == "Hi there."
+    assert sent[3] == {"type": "transcript", "role": "assistant", "text": "Hi there."}
 
 
 def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
@@ -63,9 +71,9 @@ def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
     chatbot.greet(sess, sess.next_turn(), SimpleNamespace())
 
     assert chatbot.is_busy() is False
-    assert llm._conversation[-1] == {"role": "assistant", "content": "Morning! Natori here."}
-    assert llm._session_turns[-1] == {"role": "assistant", "content": "Morning! Natori here."}
-    assert {"type": "transcript", "role": "assistant", "text": "Morning! Natori here."} in sent
+    assert llm._conversation[-1] == {"role": "assistant", "content": "Morning! Wanko here."}
+    assert llm._session_turns[-1] == {"role": "assistant", "content": "Morning! Wanko here."}
+    assert {"type": "transcript", "role": "assistant", "text": "Morning! Wanko here."} in sent
     assert {"type": "state", "value": "idle"} in sent
 
 
@@ -115,10 +123,10 @@ def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()  # hands_free
         ws.receive_json()  # initial idle state (greeted already True)
-        ws.send_json({"action": "set_avatar", "key": "natori"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
 
         msg = ws.receive_json()
-        assert msg == {"type": "avatar", "key": "natori", "name": "Natori"}
+        assert msg == {"type": "avatar", "key": "wanko", "name": "Wanko"}
 
         # Drain messages until we see the switch_greeting speech chunk.
         speech_msg = None
@@ -128,7 +136,7 @@ def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
                 speech_msg = m
                 break
         assert speech_msg is not None
-        assert speech_msg["text"] == "Natori taking over now."
+        assert speech_msg["text"] == "Wanko taking over now."
         assert speech_msg["turn"] == 1
 
 
@@ -146,7 +154,7 @@ def test_set_avatar_refused_while_a_turn_runs(monkeypatch):
         ws.receive_json()
         ws.receive_json()
         blocker.hold(chatbot.controller)
-        ws.send_json({"action": "set_avatar", "key": "natori"})
+        ws.send_json({"action": "set_avatar", "key": "wanko"})
         assert ws.receive_json()["type"] == "error"
         blocker.free(chatbot.controller)
 
@@ -156,7 +164,7 @@ def test_reload_characters_ws_action(monkeypatch):
     llm.reset()
 
     fake_profile = dict(FAKE_AVATAR)
-    fake_listing = [{"key": "natori", "name": "Natori", "description": "Office assistant, easygoing"}]
+    fake_listing = [{"key": "wanko", "name": "Wanko", "description": "Office assistant, upbeat"}]
 
     monkeypatch.setattr(avatars, "reload", lambda: fake_profile)
     monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
@@ -171,18 +179,18 @@ def test_reload_characters_ws_action(monkeypatch):
         ws.send_json({"action": "reload_characters"})
         msg = ws.receive_json()
         assert msg["type"] == "characters_reloaded"
-        assert msg["avatar"] == "natori"
-        assert msg["name"] == "Natori"
+        assert msg["avatar"] == "wanko"
+        assert msg["name"] == "Wanko"
         assert msg["avatars"] == fake_listing
 
 
 def test_reconnect_replays_transcript():
     llm.reset()
-    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi boss."},
+    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi there."},
                              {"role": "user", "content": "hello"}]
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
-        assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi boss."}
+        assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi there."}
         assert ws.receive_json() == {"type": "transcript", "role": "user", "text": "hello"}
         assert ws.receive_json()["type"] == "hands_free"
         assert ws.receive_json()["type"] == "state"
