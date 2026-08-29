@@ -131,6 +131,7 @@ voicebot/
 - [22-sidebar-navigation.md](22-sidebar-navigation.md) — sidebar/navigation review: rail + contextual panel, Settings view (done, panel part superseded by 22b)
 - [22b-rail-only.md](22b-rail-only.md) — rail switches views only; all settings live in the Settings view (done)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
+- [24-chat-layout-text.md](24-chat-layout-text.md) — companion column (avatar/history/composer), text input, mute replaces push-to-talk, backdrop thumbnails (implementation)
 
 ## Completed PRDs
 
