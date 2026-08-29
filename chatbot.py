@@ -565,10 +565,47 @@ async def _action_set_setting(sess, msg, loop):
     await send({"type": "setting", "key": key, "value": value})
 
 
+def _ingest_now() -> None:
+    """Re-ingest the session on the worker/executor: the same save path a turn would take."""
+    try:
+        llm.save_memory()
+    except Exception as e:
+        print(f"[Memory error] {e}")
+
+
+async def _save_session_memory() -> None:
+    """Fold the session into memory.json off the loop, then push the fresh snapshot.
+
+    The Wiki tab is only refreshed when the save actually filed pages — same rule as the
+    periodic save in `_periodic_memory`.
+    """
+    filed = wiki.applied_count()
+    await asyncio.to_thread(_ingest_now)
+    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    if wiki.applied_count() != filed:
+        await _send_wiki()
+
+
 async def _action_get_memory(sess, msg, loop):
-    """The memory panel asking for the current profile (on open, and after every reconnect)."""
-    profile = await asyncio.to_thread(memory.load_profile)
-    await send(_memory_msg(profile))
+    """The memory panel asking for the current profile (on open, and after every reconnect).
+
+    Opening the tab is also a save trigger: the current snapshot goes out first so the panel
+    never waits on the LLM, then — if this session has turns no save has folded in yet and no
+    turn is running — the save runs and a second, fresh snapshot follows. While a turn is in
+    flight nothing is saved here; the periodic save catches up.
+    """
+    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    if llm.has_unsaved_turns() and not controller.busy:
+        await _save_session_memory()
+
+
+async def _action_save_memory(sess, msg, loop):
+    """The panel's "Save now": the same save as the tab-open trigger, but unconditional."""
+    if controller.busy:
+        await send({"type": "error", "text": "Wait until the reply finishes."})
+        return
+    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    await _save_session_memory()
 
 
 async def _send_memory_error(path, reason) -> None:
@@ -640,14 +677,6 @@ async def _action_wiki_note(sess, msg, loop):
     await _send_wiki()
 
 
-def _ingest_now() -> None:
-    """Re-ingest the session on the worker/executor: the same save path a turn would take."""
-    try:
-        llm.save_memory()
-    except Exception as e:
-        print(f"[Memory error] {e}")
-
-
 async def _action_wiki_ingest(sess, msg, loop):
     """"Re-ingest last session": run the memory save (which includes wiki ingest) on demand."""
     await asyncio.to_thread(_ingest_now)
@@ -691,6 +720,7 @@ ACTIONS = {
     "set_verbosity": _action_set_verbosity,
     "set_setting": _action_set_setting,
     "get_memory": _action_get_memory,
+    "save_memory": _action_save_memory,
     "memory_op": _action_memory_op,
     "memory_ops": _action_memory_ops,
     "memory_reset": _action_memory_reset,

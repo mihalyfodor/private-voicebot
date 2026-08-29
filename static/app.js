@@ -608,6 +608,12 @@ const memRenderedEl = document.getElementById('memory-rendered');
 const memCountEl = document.getElementById('memory-count');
 const memErrorEl = document.getElementById('memory-error');
 const memModelToggle = document.getElementById('memory-model-toggle');
+const memSaveBtn = document.getElementById('memory-save-now');
+const memSaveLabel = document.getElementById('memory-save-now-label');
+
+//: how long "Save now" stays disabled if the server never answers with a `memory` message
+const MEMORY_SAVE_TIMEOUT_MS = 30000;
+let memSaveTimer = null;
 
 let memoryProfile = null;    // last `profile` from the server
 let memoryRendered = '';     // last `rendered` block
@@ -644,6 +650,7 @@ function sendMemoryOps(ops) {
 }
 
 function setMemory(msg) {
+  memorySaveDone();
   memoryProfile = msg.profile || {};
   memoryRendered = msg.rendered || '';
   memoryCount = typeof msg.count === 'number' ? msg.count : 0;
@@ -1035,6 +1042,23 @@ function renderMemory() {
   }
   memSectionsEl.replaceChildren(...MEMORY_SPEC.map(memorySection));
 }
+
+function memorySaveDone() {
+  if (memSaveTimer) { clearTimeout(memSaveTimer); memSaveTimer = null; }
+  memSaveBtn.disabled = false;
+  memSaveLabel.textContent = 'Save now';
+}
+
+// Fold the session into memory.json on demand; the server answers with a `memory` message
+// (or an `error` while a reply is still running), and either re-enables the button.
+memSaveBtn.onclick = () => {
+  if (memSaveBtn.disabled) return;
+  memErrorEl.textContent = '';
+  memSaveBtn.disabled = true;
+  memSaveLabel.textContent = 'saving…';
+  memSaveTimer = setTimeout(memorySaveDone, MEMORY_SAVE_TIMEOUT_MS);
+  sendAction({ action: 'save_memory' });
+};
 
 memModelToggle.onclick = () => { memoryModelView = !memoryModelView; renderMemory(); };
 document.getElementById('memory-reset').onclick = () => {
@@ -1652,6 +1676,7 @@ function connect() {
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();
       if (currentView === 'wiki' || currentView === 'sources') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
+      if (currentView === 'memory') { memErrorEl.textContent = msg.text; memorySaveDone(); }
       renderVerbosity();
     }
   };

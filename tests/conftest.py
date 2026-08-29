@@ -35,6 +35,9 @@ def reset_chatbot_session():
     """
     chatbot.session = None
     chatbot.greeted = True  # tests that want the greeting turn set this back to False
+    # The turn counter drives the periodic memory save; zero it so one test's turns cannot
+    # push an unexpected `memory` snapshot into the next test's socket.
+    chatbot.controller.completed = 0
     yield
     chatbot.controller.join_idle(timeout=5)
     chatbot.session = None
