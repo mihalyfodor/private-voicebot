@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 18 — Memory decay: `seen`, stale entries, archive group, drag-and-drop
 
