@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 22 — Sidebar & interaction review: navigation and settings in one place
 

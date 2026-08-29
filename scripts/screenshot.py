@@ -44,21 +44,22 @@ with sync_playwright() as p:
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+
+    def click_rail(name, wait=800):
+        page.click(f'.rail-item[data-view="{name}"]')
+        page.wait_for_timeout(wait)
+
     page.goto(a.url)
     page.wait_for_timeout(a.wait)
     view = a.view or "chat"
     if a.view:
-        page.click(f'.rail-item[data-view="{a.view}"]')
-        page.wait_for_timeout(800)
+        click_rail(view)
     # The panel is toggled by clicking the rail item you are already on; the pin button
-    # is inside it, so --pin implies --panel.
+    # is inside it, so --pin implies --panel. NB: pinning is persisted in settings.json.
     if a.panel or a.pin:
         if page.is_hidden("#panel-wrap"):
-            page.click(f'.rail-item[data-view="{view}"]')
-            page.wait_for_timeout(400)
-        if a.pin and not page.locator("#pin-btn.on").count():
-            page.click("#pin-btn")
-        if not a.pin and page.locator("#pin-btn.on").count():
+            click_rail(view, wait=400)
+        if bool(page.locator("#pin-btn.on").count()) != a.pin:
             page.click("#pin-btn")
         page.wait_for_timeout(800)
     if a.drop_file:

@@ -467,12 +467,11 @@ const VIEWS = [
   { id: 'memory', label: 'Memory', key: '2', el: 'view-memory' },
   { id: 'wiki', label: 'Wiki', key: '3', el: 'view-wiki' },
   { id: 'sources', label: 'Sources', key: '4', el: 'view-wiki' },
-  { id: 'settings', label: 'Settings', key: '', el: 'view-settings', bottom: true },
+  // Settings owns the whole workspace (noPanel); entering it folds the panel away, leaving it
+  // brings the panel back exactly as it was (panelOpen is never touched for it).
+  { id: 'settings', label: 'Settings', key: '', el: 'view-settings', bottom: true, noPanel: true },
 ];
 const VIEW_BY_ID = new Map(VIEWS.map(v => [v.id, v]));
-//: Settings owns the whole workspace; entering it folds the panel away, leaving it brings the
-//: panel back exactly as it was (panelOpen is never touched for it).
-const NO_PANEL = new Set(['settings']);
 
 const railEl = document.getElementById('rail');
 const panelWrapEl = document.getElementById('panel-wrap');
@@ -549,7 +548,7 @@ function setPinned(on, persist) {
 
 function renderPanel() {
   const v = VIEW_BY_ID.get(currentView);
-  const open = panelOpen && !NO_PANEL.has(currentView);
+  const open = panelOpen && !(v && v.noPanel);
   panelWrapEl.hidden = !open;
   panelWrapEl.classList.toggle('floating', !panelPinned);
   scrimEl.hidden = !(open && !panelPinned && window.innerWidth > 700);
@@ -580,21 +579,6 @@ function renderDecayWindows(staleDays) {
 pinBtn.onclick = () => setPinned(!panelPinned, true);
 scrimEl.onclick = () => setPanelOpen(false);
 window.addEventListener('resize', () => renderPanel());
-
-// 1–4 switch views, `b` toggles the panel, Esc closes it while floating — all only when the
-// keyboard isn't being used for typing, and never while the intake popup owns it.
-function isTyping(node) {
-  return !!(node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable));
-}
-document.addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
-  if (isTyping(e.target) || isTyping(document.activeElement)) return;
-  if (!intakeEl.hidden) return;
-  const v = VIEWS.find(x => x.key && x.key === e.key);
-  if (v) { e.preventDefault(); setView(v.id); return; }
-  if (e.key === 'b' || e.key === 'B') { e.preventDefault(); togglePanel(); return; }
-  if (e.key === 'Escape' && panelOpen && !panelPinned) setPanelOpen(false);
-});
 
 buildRail();
 
@@ -787,8 +771,8 @@ function rowMoves(spec, entry, index, stale) {
   if (stale) moves.push({ label: 'restore', to: `${spec.section}/section`, run: () => retireEntry(spec.section, index, false) });
   else if (spec.section === 'episodic') moves.push({ label: 'make recurring', to: 'recurring/section', run: () => promoteEpisodic(entry, index) });
   else if (spec.retirable) moves.push({ label: 'retire', to: `${spec.section}/stale`, run: () => retireEntry(spec.section, index, true) });
-  // PRD 19: file the entry into its wiki page (and mark it stale); the drop zone is the Wiki tab.
-  if (spec.archivable) moves.push({ label: 'archive', to: 'wiki/tab', run: () => archiveEntry(spec.section, index) });
+  // PRD 19: file the entry into its wiki page (and mark it stale); the drop zone is the Wiki rail item.
+  if (spec.archivable) moves.push({ label: 'archive', to: 'wiki/rail', run: () => archiveEntry(spec.section, index) });
   return moves;
 }
 
@@ -1110,7 +1094,7 @@ function wikiMoves(drag) {
       run: () => { setWikiError(''); sendAction({ action: 'pull_wiki', path: drag.path, section }); },
     });
   }
-  moves.push({ label: 'open memory', to: 'memory/tab', run: () => setView('memory') });
+  moves.push({ label: 'open memory', to: 'memory/rail', run: () => setView('memory') });
   return moves;
 }
 
@@ -1299,8 +1283,8 @@ wikiNoteInput.onkeydown = (e) => {
 
 // The two cross-view drop zones, wired with the same table-driven helper as the memory rows.
 // They used to be the top-right tabs; they are the rail items now.
-memDropZone(railItemFor('wiki'), 'wiki/tab', false);
-memDropZone(railItemFor('memory'), 'memory/tab', false);
+memDropZone(railItemFor('wiki'), 'wiki/rail', false);
+memDropZone(railItemFor('memory'), 'memory/rail', false);
 renderWikiList();
 renderWikiPage();
 
@@ -1574,7 +1558,6 @@ for (const input of [intakeTitleEl, intakeHintEl]) {
     if (e.key === 'Enter') { e.preventDefault(); submitIntake(); }
   };
 }
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !intakeEl.hidden) closeIntake(); });
 
 // ---- workspace drop zone ----
 function showDropOverlay(on) {
@@ -1605,13 +1588,9 @@ document.addEventListener('drop', (e) => {
 });
 
 // ---- paste ----
-function inTextEntry(node) {
-  const t = node && node.closest ? node.closest('input, textarea, [contenteditable=""], [contenteditable="true"]') : null;
-  return !!t;
-}
 document.addEventListener('paste', (e) => {
   if (!intakeEl.hidden) return;                                  // the popup owns its own inputs
-  if (inTextEntry(e.target) || inTextEntry(document.activeElement)) return;
+  if (isTyping(e.target) || isTyping(document.activeElement)) return;
   const cd = e.clipboardData;
   if (!cd) return;
   const image = Array.from(cd.items || []).find(i => i.kind === 'file' && i.type.startsWith('image/'));
@@ -1778,8 +1757,24 @@ function btnAction() {
 }
 
 btn.addEventListener('click', btnAction);
+
+// ---------- keyboard ----------
+// The one keydown handler: Esc closes whatever is open (intake first, then a floating panel),
+// Space is push-to-talk, 1–4 switch views and `b` toggles the panel. Everything below the
+// typing guard is off while the keyboard is being used for typing or the intake popup is up.
+function isTyping(node) {
+  return !!(node && node.closest && node.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
+}
 document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); btnAction(); }
+  if (e.key === 'Escape' && !intakeEl.hidden) { closeIntake(); return; }
+  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); btnAction(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (isTyping(e.target) || isTyping(document.activeElement)) return;
+  if (!intakeEl.hidden) return;
+  const v = VIEWS.find(x => x.key === e.key);
+  if (v) { e.preventDefault(); setView(v.id); return; }
+  if (e.key === 'b' || e.key === 'B') { e.preventDefault(); togglePanel(); return; }
+  if (e.key === 'Escape' && panelOpen && !panelPinned) setPanelOpen(false);
 });
 // Any click counts as the user gesture Chrome wants: unlock audio playback, and
 // lazily (re)start the mic if hands-free was already on at load (e.g. after a

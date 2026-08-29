@@ -342,23 +342,24 @@ def current_backdrop() -> str:
         return backdrops.DEFAULT
 
 
-#: Settings the UI may write straight to settings.json via `set_setting`, and the type each
-#: one must have. Deliberately tiny: everything with side effects keeps its own action.
-SETTABLE = {"panel_pinned": bool}
-
 #: Shown read-only in the Settings view — the command that takes a screenshot of the app.
 SCREENSHOT_CMD = ".venv/bin/python scripts/screenshot.py /tmp/shot.png"
 
 
 @app.get("/api/config")
 async def api_config():
+    """Everything the UI needs at boot: what to render, what is switched on, what to display."""
     settings = avatars.load_settings()
     return {
+        # who is on stage and what else can be picked
         "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
+        # session state the chat panel mirrors
         "hands_free": hands_free,
         "verbosity": llm.current_verbosity(),
+        # layout preference persisted via `set_setting` (see SETTABLE)
         "panel_pinned": bool(settings.get("panel_pinned", False)),
+        # read-only facts shown in the memory panel and the Settings view
         "stale_days": dict(memory.STALE_DAYS),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
@@ -540,8 +541,17 @@ async def _action_set_verbosity(sess, msg, loop):
     await send({"type": "verbosity", "value": llm.current_verbosity()})
 
 
+#: Settings the UI may write straight to settings.json via `set_setting`, and the type each
+#: one must have. Deliberately tiny: everything with side effects keeps its own action.
+SETTABLE = {"panel_pinned": bool}
+
+
 async def _action_set_setting(sess, msg, loop):
-    """Persist one whitelisted UI setting (see SETTABLE) — currently only the panel pin state."""
+    """Persist one whitelisted UI setting and echo it back; unknown keys and wrong types are refused.
+
+    The whole point is that a layout preference does not need an action of its own — anything
+    with a side effect (avatar, verbosity, hands-free) still gets a dedicated handler.
+    """
     key = msg.get("key")
     kind = SETTABLE.get(key)
     value = msg.get("value")

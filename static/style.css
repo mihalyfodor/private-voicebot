@@ -8,8 +8,8 @@ body {
 }
 
 /* the small-caps section label, shared by the panel, the memory view, the wiki list
-   and the intake popup — only the margins differ per place */
-.panel-title, .mem-section-title, .wiki-group-title, #intake-head, .set-head {
+   and the intake popup (which tightens the tracking) — only margins/tracking differ per place */
+.panel-title, .mem-section-title, .wiki-group-title, #intake-head, .set-head, .intake-label {
   font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase;
   color: #9a9a9a;
 }
@@ -17,7 +17,10 @@ body {
 /* ---- shell: rail | panel | avatar | workspace (PRD 22) ---- */
 /* no z-index here on purpose: it would make #shell a stacking context and trap the rail
    and the panel below the scrim */
-#shell { position: fixed; inset: 0; display: flex; align-items: stretch; --rail-w: 72px; }
+#shell {
+  position: fixed; inset: 0; display: flex; align-items: stretch;
+  --rail-w: 72px; --panel-w: 280px;
+}
 
 #rail {
   flex: 0 0 var(--rail-w); z-index: 6;
@@ -54,11 +57,11 @@ body {
 #scrim { position: fixed; inset: 0; z-index: 4; background: rgba(0,0,0,0.35); }
 #scrim[hidden] { display: none; }
 
-#panel-wrap { flex: 0 0 280px; min-width: 0; position: relative; z-index: 5; }
+#panel-wrap { flex: 0 0 var(--panel-w); min-width: 0; position: relative; z-index: 5; }
 #panel-wrap[hidden] { display: none; }
 /* floating: the panel overlays the avatar's left edge instead of pushing it */
 #panel-wrap.floating {
-  position: fixed; left: var(--rail-w); top: 0; bottom: 0; flex: none; width: 280px;
+  position: fixed; left: var(--rail-w); top: 0; bottom: 0; flex: none; width: var(--panel-w);
   box-shadow: 0 0 40px rgba(0,0,0,0.55);
 }
 #side-panel {
@@ -511,10 +514,7 @@ main {
 #intake-form { display: flex; flex-direction: column; gap: 8px; }
 .intake-field { display: flex; align-items: center; gap: 10px; }
 .intake-field[hidden] { display: none; }
-.intake-label {
-  flex: none; width: 66px;
-  font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #9a9a9a;
-}
+.intake-label { flex: none; width: 66px; letter-spacing: 0.12em; }
 .intake-field input, .intake-field select {
   flex: 1 1 auto; min-width: 0;
   font: inherit; font-size: 12px; color: #e6e6e6; padding: 5px 8px;
@@ -575,7 +575,7 @@ a.chip { text-decoration: none; }
 @media (max-width: 700px) {
   #shell { flex-direction: column; --rail-w: 58px; }
   #rail {
-    order: 3; flex: 0 0 58px; flex-direction: row; justify-content: space-around; align-items: center;
+    order: 3; flex: 0 0 var(--rail-w); flex-direction: row; justify-content: space-around; align-items: center;
     gap: 0; padding: 0 6px; border-right: none; border-top: 1px solid #262626;
   }
   .rail-spacer, .rail-sep { display: none; }
@@ -590,7 +590,7 @@ a.chip { text-decoration: none; }
 
   /* the panel becomes a bottom sheet above the tab bar, pinned or not */
   #panel-wrap, #panel-wrap.floating {
-    position: fixed; left: 0; right: 0; bottom: 58px; top: auto; width: auto;
+    position: fixed; left: 0; right: 0; bottom: var(--rail-w); top: auto; width: auto;
     max-height: 56vh; z-index: 7; box-shadow: 0 -18px 40px rgba(0,0,0,0.6);
   }
   #side-panel {
@@ -602,7 +602,7 @@ a.chip { text-decoration: none; }
     background: #3a3a3a; margin: 4px auto 10px;
   }
   #pin-btn { display: none; }
-  #scrim { bottom: 58px; }
+  #scrim { bottom: var(--rail-w); }
 
   #memory-head, #memory-body, #memory-foot { padding-left: 12px; padding-right: 12px; }
   #wiki-body, #wiki-foot { padding-left: 12px; padding-right: 12px; }
