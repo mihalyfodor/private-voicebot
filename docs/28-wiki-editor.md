@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 28 — Wiki as a light editor (Obsidian-compatible)
 

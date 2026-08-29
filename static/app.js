@@ -1233,16 +1233,32 @@ document.getElementById('memory-reset').onclick = () => {
 };
 
 // ---------- wiki view ----------
-// Browse-only mirror of ~/llm-wiki: the server sends the page index (`wiki`) and one page at a
-// time (`wiki_page`); the only writes from here are an appended note, an on-demand ingest and
-// the two drag bridges to the memory view (archive / pull).
-const WIKI_FOLDERS = ['people', 'projects', 'meetings', 'sources'];
-const WIKI_LINK_RE = /\[\[([^[\]]+)\]\]/g;
+// A light editor over ~/llm-wiki (PRD 28): the server sends the page index (`wiki`) and one
+// page at a time (`wiki_page`, with its content-hash etag and backlinks). Writes from here are
+// whole-page saves guarded by that etag, create/rename/delete, an appended note, an on-demand
+// ingest and the two drag bridges to the memory view (archive / pull).
+const WIKI_FOLDERS = ['people', 'projects', 'meetings', 'sources', 'notes'];
+const WIKI_LINK_RE = /(!?)\[\[([^[\]]+)\]\]/g;
+const WIKI_PLACEHOLDER_RE = /(\d+)/g;
 const WIKI_INGEST_TIMEOUT_MS = 60000;
+const WIKI_RECENT_MAX = 5;
+// What a rendered page may contain: marked's output is parsed into an inert document and only
+// these tags/attributes are copied out, so user text never reaches innerHTML.
+const WIKI_SAFE_TAGS = new Set(['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote',
+  'pre', 'code', 'em', 'strong', 'del', 'a', 'br', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'input', 'span', 'div', 'img']);
+const WIKI_SAFE_ATTRS = { a: ['href', 'title'], input: ['type', 'checked', 'disabled'], img: ['alt', 'title'],
+  th: ['align'], td: ['align'], code: ['class'] };
 
 const wikiListEl = document.getElementById('wiki-list');
 const wikiHeadEl = document.getElementById('wiki-page-head');
+const wikiFmEl = document.getElementById('wiki-fm');
 const wikiTextEl = document.getElementById('wiki-text');
+const wikiEditorEl = document.getElementById('wiki-editor');
+const wikiConflictEl = document.getElementById('wiki-conflict');
+const wikiConflictReloadBtn = document.getElementById('wiki-conflict-reload');
+const wikiConflictOverwriteBtn = document.getElementById('wiki-conflict-overwrite');
+const wikiBacklinksEl = document.getElementById('wiki-backlinks');
 const wikiNoteEl = document.getElementById('wiki-note');
 const wikiLintEl = document.getElementById('wiki-lint');
 const wikiVaultEl = document.getElementById('wiki-vault');
@@ -1251,6 +1267,9 @@ const wikiIngestBtn = document.getElementById('wiki-ingest');
 const wikiIngestLabel = document.getElementById('wiki-ingest-label');
 const wikiNoteInput = document.getElementById('wiki-note-input');
 const wikiNoteBtn = document.getElementById('wiki-note-add');
+const wikiSearchInput = document.getElementById('wiki-search');
+const wikiTodayBtn = document.getElementById('wiki-today');
+const wikiNewBtn = document.getElementById('wiki-new');
 const sourcesFileBtn = document.getElementById('sources-file');
 const sourcesInputEl = document.getElementById('sources-input');
 
@@ -1260,6 +1279,12 @@ let wikiVault = '';
 let wikiSelected = null;   // path of the open page, kept across refreshes
 let wikiPage = null;       // last `wiki_page` for wikiSelected
 let wikiIngestTimer = null;
+let wikiMode = 'view';     // 'view' (rendered) | 'edit' (textarea)
+let wikiDraft = null;      // unsaved editor text (null = nothing typed since the last load)
+let wikiConflict = null;   // the server's {text, etag} after a stale save
+let wikiTag = null;        // the Tags-group filter
+let wikiSearch = null;     // last `wiki_search` hits (null = no query)
+const wikiRecent = [];     // MRU paths, client-side only
 
 function requestWiki() {
   sendAction({ action: 'get_wiki' });
@@ -1308,16 +1333,43 @@ function wikiGroups(pages) {
   });
 }
 
+function wikiKnown(path) {
+  return (wikiPages || []).some(p => p.path === path);
+}
+
 // Paths are suffix-less everywhere (`people/anna`) — in the page list, in wikilinks and in
 // every action sent back; the server is what normalises them onto files.
 function selectWikiPage(path) {
   path = String(path || '').trim();
   if (!path) return;
+  if (path !== wikiSelected && wikiDraft !== null && !wikiDiscard()) return;
   wikiSelected = path;
   wikiPage = null;
+  wikiMode = 'view';
+  wikiDraft = null;
+  wikiConflict = null;
+  const at = wikiRecent.indexOf(path);
+  if (at !== -1) wikiRecent.splice(at, 1);
+  wikiRecent.unshift(path);
+  wikiRecent.length = Math.min(wikiRecent.length, WIKI_RECENT_MAX);
   setWikiError('');
   sendAction({ action: 'read_wiki_page', path });
   renderWikiList();
+  renderWikiPage();
+}
+
+// Create a page the server does not have yet and open it when the `wiki_page` comes back.
+function createWikiPage(path) {
+  path = String(path || '').trim().replace(/\.md$/, '');
+  if (!path) return;
+  if (wikiDraft !== null && !wikiDiscard()) return;
+  wikiSelected = path;
+  wikiPage = null;
+  wikiMode = 'view';
+  wikiDraft = null;
+  wikiConflict = null;
+  setWikiError('');
+  sendAction({ action: 'wiki_create', path });
   renderWikiPage();
 }
 
@@ -1334,54 +1386,242 @@ function wikiRow(page) {
   return row;
 }
 
+function wikiTagRow(tag, count) {
+  const row = el('div', 'wiki-row wiki-tag-row');
+  if (tag === wikiTag) row.classList.add('selected');
+  row.append(el('span', 'wiki-row-title', `#${tag}`), el('span', 'wiki-row-type', String(count)));
+  row.onclick = () => { wikiTag = wikiTag === tag ? null : tag; renderWikiList(); };
+  return row;
+}
+
+function wikiHitRow(hit) {
+  const meta = (wikiPages || []).find(p => p.path === hit.path);
+  const row = el('div', 'wiki-row wiki-hit');
+  if (hit.path === wikiSelected) row.classList.add('selected');
+  const text = el('div', 'wiki-hit-text');
+  text.append(el('div', 'wiki-row-title', (meta && meta.title) || hit.path));
+  if (hit.snippet) text.append(el('div', 'wiki-hit-snippet', hit.snippet));
+  row.append(text);
+  row.onclick = () => selectWikiPage(hit.path);
+  return row;
+}
+
+function wikiTagCounts(pages) {
+  const counts = new Map();
+  for (const page of pages) for (const tag of page.tags || []) counts.set(tag, (counts.get(tag) || 0) + 1);
+  return Array.from(counts.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+}
+
 function renderWikiList() {
   // The Sources view is this same list, narrowed to the one folder intake writes to.
   const sourcesOnly = currentView === 'sources';
-  const pages = (wikiPages || []).filter(p => !sourcesOnly || wikiFolder(p.path) === 'sources');
-  if (!pages.length) {
+  const all = (wikiPages || []).filter(p => !sourcesOnly || wikiFolder(p.path) === 'sources');
+  if (!all.length) {
     const empty = !wikiPages ? 'loading…' : sourcesOnly ? 'nothing filed yet' : 'no pages yet';
     wikiListEl.replaceChildren(el('div', 'mem-empty', empty));
     return;
   }
   const nodes = [];
+  if (wikiSearch) {
+    nodes.push(el('div', 'wiki-group-title', 'results'));
+    if (!wikiSearch.length) nodes.push(el('div', 'mem-empty', 'no matches'));
+    nodes.push(...wikiSearch.map(wikiHitRow));
+    wikiListEl.replaceChildren(...nodes);
+    return;
+  }
+  const pages = wikiTag ? all.filter(p => (p.tags || []).includes(wikiTag)) : all;
+  const recent = wikiRecent.map(path => all.find(p => p.path === path)).filter(Boolean);
+  if (!sourcesOnly && !wikiTag && recent.length) {
+    nodes.push(el('div', 'wiki-group-title', 'recent'));
+    nodes.push(...recent.map(wikiRow));
+  }
   for (const [folder, group] of wikiGroups(pages)) {
     nodes.push(el('div', 'wiki-group-title', folder));
     group.sort((a, b) => String(a.title || a.path).localeCompare(String(b.title || b.path)));
     nodes.push(...group.map(wikiRow));
   }
+  const tagCounts = sourcesOnly ? [] : wikiTagCounts(all);
+  if (tagCounts.length) {
+    nodes.push(el('div', 'wiki-group-title', 'tags'));
+    nodes.push(...tagCounts.map(([tag, count]) => wikiTagRow(tag, count)));
+  }
   wikiListEl.replaceChildren(...nodes);
 }
 
-// The page text, with every [[link]] turned into a span that opens that page. Built as DOM
-// nodes from a split on the wikilink pattern — never innerHTML.
-function wikiTextNodes(text) {
-  const known = new Set((wikiPages || []).map(p => p.path));
-  return String(text).split(WIKI_LINK_RE).map((part, i) => {
-    if (i % 2 === 0) return document.createTextNode(part);
-    const target = part.trim();
-    const link = el('span', 'wiki-link', `[[${part}]]`);
-    if (!known.has(target)) { link.classList.add('missing'); link.title = 'no such page (yet)'; }
-    link.onclick = () => selectWikiPage(target);
-    return link;
+// ---- rendering: frontmatter strip + body (marked when present, plain text otherwise) ----
+
+function wikiSplitFrontmatter(text) {
+  text = String(text || '');
+  if (!text.startsWith('---')) return { fm: [], body: text };
+  const lines = text.split('\n');
+  const end = lines.findIndex((l, i) => i > 0 && l.trim() === '---');
+  if (end === -1) return { fm: [], body: text };
+  return { fm: lines.slice(1, end).filter(l => l.trim()), body: lines.slice(end + 1).join('\n') };
+}
+
+// `[[page|alias]]` → { target: 'page', label: 'alias' }; `[[page#h]]` → target 'page', label 'page#h'.
+function wikiLinkParts(inner, embed) {
+  const alias = inner.indexOf('|');
+  const label = alias === -1 ? inner : inner.slice(alias + 1);
+  const target = (alias === -1 ? inner : inner.slice(0, alias)).split('#')[0].trim();
+  return { target, label: label.trim() || target, embed: !!embed };
+}
+
+function wikiLinkSpan(link) {
+  const span = el('span', 'wiki-link', link.embed ? `![[${link.label}]]` : link.label);
+  span.dataset.target = link.target;
+  if (link.embed) span.classList.add('embed');
+  if (!wikiKnown(link.target)) {
+    span.classList.add('missing');
+    span.title = 'no such page (yet) — click to create it';
+    span.onclick = () => { if (confirm(`Create ${link.target}?`)) createWikiPage(link.target); };
+  } else {
+    span.onclick = () => selectWikiPage(link.target);
+  }
+  return span;
+}
+
+// Copy `node` out of the inert parsed document, keeping only whitelisted tags and attributes.
+function wikiImportSafe(node) {
+  if (node.nodeType === 3) return document.createTextNode(node.textContent);
+  if (node.nodeType !== 1) return null;
+  const tag = node.tagName.toLowerCase();
+  const out = WIKI_SAFE_TAGS.has(tag) ? document.createElement(tag) : document.createElement('span');
+  for (const name of WIKI_SAFE_ATTRS[tag] || []) {
+    const value = node.getAttribute(name);
+    if (value === null) continue;
+    if (name === 'href' && !/^(https?:|mailto:)/i.test(value.trim())) continue;
+    out.setAttribute(name, value);
+  }
+  if (tag === 'a') { out.setAttribute('target', '_blank'); out.setAttribute('rel', 'noopener'); }
+  for (const child of Array.from(node.childNodes)) {
+    const imported = wikiImportSafe(child);
+    if (imported) out.append(imported);
+  }
+  return out;
+}
+
+// Replace every placeholder text run inside `root` with its link span (recursively).
+function wikiSwapPlaceholders(root, links) {
+  const kids = Array.from(root.childNodes || root.children || []);
+  const next = [];
+  for (const kid of kids) {
+    if (kid.nodeType === 3) {
+      const parts = String(kid.textContent).split(WIKI_PLACEHOLDER_RE);
+      parts.forEach((part, i) => {
+        if (i % 2 === 0) { if (part) next.push(document.createTextNode(part)); }
+        else next.push(wikiLinkSpan(links[Number(part)]));
+      });
+    } else {
+      if (kid.childNodes || kid.children) wikiSwapPlaceholders(kid, links);
+      next.push(kid);
+    }
+  }
+  root.replaceChildren(...next);
+}
+
+function wikiBodyNodes(body) {
+  const links = [];
+  const marked = String(body).replace(WIKI_LINK_RE, (_, bang, inner) => {
+    links.push(wikiLinkParts(inner, bang));
+    return `${links.length - 1}`;
   });
+  let container;
+  if (typeof window.marked !== 'undefined' && typeof DOMParser !== 'undefined') {
+    const parsed = new DOMParser().parseFromString(window.marked.parse(marked), 'text/html');
+    container = el('div', 'wiki-rendered');
+    for (const child of Array.from(parsed.body.childNodes)) {
+      const imported = wikiImportSafe(child);
+      if (imported) container.append(imported);
+    }
+  } else {
+    container = el('pre', 'wiki-plain');
+    container.append(document.createTextNode(marked));
+  }
+  wikiSwapPlaceholders(container, links);
+  return container;
+}
+
+function wikiDirty() {
+  return wikiDraft !== null && !!wikiPage && wikiDraft !== wikiPage.text;
+}
+
+// Esc / navigating away with a dirty draft: ask, then drop it.
+function wikiDiscard() {
+  if (wikiDirty() && !confirm('Discard unsaved changes?')) return false;
+  wikiDraft = null;
+  wikiConflict = null;
+  return true;
+}
+
+// Preview keeps the draft (Save stays enabled); only Esc discards.
+function wikiSetMode(mode) {
+  wikiMode = mode;
+  renderWikiPage();
+  if (mode === 'edit') wikiEditorEl.focus();
+}
+
+function saveWikiPage(etag) {
+  if (!wikiPage || !wikiSelected || wikiIngestTimer) return;
+  const text = wikiDraft === null ? wikiPage.text : wikiDraft;
+  if (text === wikiPage.text && !etag) return;
+  setWikiError('');
+  sendAction({ action: 'wiki_save', path: wikiSelected, text, etag: etag || wikiPage.etag });
+}
+
+function wikiHeadButton(cls, label, onclick, disabled) {
+  const b = el('button', cls, label);
+  b.onclick = onclick;
+  b.disabled = !!disabled;
+  return b;
+}
+
+function renameWikiPage() {
+  const n = (wikiPage && wikiPage.backlinks || []).length;
+  const target = prompt(`Rename/move to (folder/name) — ${n} page${n === 1 ? '' : 's'} link here, links will be rewritten:`, wikiSelected);
+  if (!target || target.trim() === wikiSelected) return;
+  const from = wikiSelected;
+  wikiSelected = target.trim().replace(/\.md$/, '');
+  wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view';
+  setWikiError('');
+  sendAction({ action: 'wiki_rename', path: from, new_path: wikiSelected });
+  renderWikiPage();
+}
+
+function deleteWikiPage() {
+  const n = (wikiPage && wikiPage.backlinks || []).length;
+  if (!confirm(`Delete ${wikiSelected}? Links from ${n} page${n === 1 ? '' : 's'} will break.`)) return;
+  const path = wikiSelected;
+  wikiSelected = null; wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view';
+  setWikiError('');
+  sendAction({ action: 'wiki_delete', path });
+  renderWikiPage();
 }
 
 function renderWikiPage() {
   const meta = (wikiPages || []).find(p => p.path === wikiSelected);
-  const head = [];
   if (!wikiSelected) {
     wikiHeadEl.replaceChildren(el('div', 'wiki-muted', 'pick a page'));
     wikiTextEl.replaceChildren();
-    wikiTextEl.hidden = true;
-    wikiNoteEl.hidden = true;
+    wikiFmEl.hidden = wikiTextEl.hidden = wikiEditorEl.hidden = wikiConflictEl.hidden = true;
+    wikiBacklinksEl.hidden = wikiNoteEl.hidden = true;
     return;
   }
-  wikiTextEl.hidden = false;
-  wikiNoteEl.hidden = false;
-  head.push(el('div', 'wiki-title', (meta && meta.title) || wikiSelected));
+  const editing = wikiMode === 'edit';
+  const head = [];
+  const title = el('div', 'wiki-title-row');
+  title.append(el('div', 'wiki-title', (meta && meta.title) || wikiSelected));
+  const crumb = wikiSelected.includes('/') ? wikiSelected.split('/') : [wikiSelected];
+  title.append(el('span', 'wiki-crumb', crumb.join(' › ')));
+  head.push(title);
   const sub = el('div', 'wiki-sub');
   sub.append(el('span', 'wiki-path', wikiSelected));
   if (meta && meta.updated) sub.append(el('span', 'wiki-muted', `updated ${meta.updated}`));
+  if (wikiPage) {
+    sub.append(wikiHeadButton('wiki-edit', editing ? 'Preview' : 'Edit',
+      () => wikiSetMode(editing ? 'view' : 'edit')));
+    sub.append(wikiHeadButton('wiki-save', 'Save', () => saveWikiPage(), !wikiDirty() || !!wikiIngestTimer));
+  }
   if (wikiVault) {
     const a = el('a', 'wiki-obsidian', 'Open in Obsidian');
     a.href = `${vaultHref()}&file=${encodeURIComponent(wikiSelected)}`;
@@ -1394,9 +1634,39 @@ function renderWikiPage() {
     b.onclick = pull.run;
     sub.append(b);
   }
+  if (wikiPage && wikiPage.etag) {
+    const menu = el('span', 'wiki-menu');
+    const more = wikiHeadButton('wiki-more', '⋯', () => menu.classList.toggle('open'));
+    more.title = 'rename / delete';
+    menu.append(more,
+      wikiHeadButton('wiki-menu-item', 'Rename/move', renameWikiPage),
+      wikiHeadButton('wiki-menu-item', 'Delete', deleteWikiPage));
+    sub.append(menu);
+  }
   head.push(sub);
   wikiHeadEl.replaceChildren(...head);
-  wikiTextEl.replaceChildren(...(wikiPage ? wikiTextNodes(wikiPage.text || '') : [document.createTextNode('loading…')]));
+
+  const text = wikiDraft === null ? (wikiPage ? wikiPage.text : '') : wikiDraft;
+  const { fm, body } = wikiSplitFrontmatter(text);
+  wikiFmEl.hidden = editing || !fm.length;
+  wikiFmEl.replaceChildren(...fm.map(line => el('span', 'wiki-fm-item', line)));
+  wikiTextEl.hidden = editing;
+  wikiEditorEl.hidden = !editing;
+  if (editing) {
+    if (wikiEditorEl.value !== text) wikiEditorEl.value = text;
+    wikiTextEl.replaceChildren();
+  } else {
+    wikiTextEl.replaceChildren(wikiPage ? wikiBodyNodes(body) : document.createTextNode('loading…'));
+  }
+  wikiConflictEl.hidden = !wikiConflict;
+  const backlinks = (wikiPage && wikiPage.backlinks) || [];
+  wikiBacklinksEl.hidden = !backlinks.length;
+  wikiBacklinksEl.replaceChildren(el('div', 'wiki-group-title', 'backlinks'), ...backlinks.map(path => {
+    const row = el('div', 'wiki-backlink', path);
+    row.onclick = () => selectWikiPage(path);
+    return row;
+  }));
+  wikiNoteEl.hidden = editing;
 }
 
 // `obsidian://open?vault=<the vault folder's name>` — the same link the page head uses.
@@ -1419,10 +1689,15 @@ function setWiki(msg) {
   wikiLint = Array.isArray(msg.lint) ? msg.lint : [];
   wikiVault = msg.vault || wikiVault;
   wikiIngestDone();
-  // Keep the open page open across refreshes, and re-read it (an ingest may have changed it).
-  if (wikiSelected && wikiPages.some(p => p.path === wikiSelected)) selectWikiPage(wikiSelected);
-  else {
-    if (wikiSelected) { wikiSelected = null; wikiPage = null; }
+  if (wikiTag && !wikiPages.some(p => (p.tags || []).includes(wikiTag))) wikiTag = null;
+  // Keep the open page open across refreshes and re-read it (an ingest may have changed it) —
+  // unless it is being edited: the next save then reports the conflict instead.
+  if (wikiSelected && wikiPages.some(p => p.path === wikiSelected)) {
+    if (wikiDraft === null && wikiMode === 'view') sendAction({ action: 'read_wiki_page', path: wikiSelected });
+    renderWikiList();
+    renderWikiPage();
+  } else {
+    if (wikiSelected) { wikiSelected = null; wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view'; }
     renderWikiList();
     renderWikiPage();
   }
@@ -1433,8 +1708,85 @@ function setWiki(msg) {
 function setWikiPage(msg) {
   if (msg.path !== wikiSelected) return;   // a stale answer for a page we navigated away from
   wikiPage = msg;
+  // A fresh page after our own save: the draft is on disk now.
+  if (wikiDraft !== null && wikiConflict === null && msg.etag && wikiDraftSaved(msg)) { wikiDraft = null; wikiMode = 'view'; }
   renderWikiPage();
 }
+
+// The reply to a save carries our text (plus a bumped `updated:` line).
+function wikiDraftSaved(msg) {
+  const same = (a, b) => a.replace(/^updated:.*$/m, '') === b.replace(/^updated:.*$/m, '');
+  return same(String(msg.text || ''), String(wikiDraft || ''));
+}
+
+function setWikiConflict(msg) {
+  if (msg.path !== wikiSelected) return;
+  wikiConflict = { text: msg.text, etag: msg.etag };
+  wikiMode = 'edit';
+  renderWikiPage();
+}
+
+function setWikiSearch(msg) {
+  if (String(msg.query || '') !== wikiSearchInput.value.trim()) return;   // a stale answer
+  wikiSearch = Array.isArray(msg.hits) ? msg.hits : [];
+  renderWikiList();
+}
+
+wikiConflictReloadBtn.onclick = () => {
+  if (!wikiConflict) return;
+  wikiPage = { ...wikiPage, text: wikiConflict.text, etag: wikiConflict.etag };
+  wikiDraft = null;
+  wikiConflict = null;
+  renderWikiPage();
+};
+wikiConflictOverwriteBtn.onclick = () => {
+  if (!wikiConflict) return;
+  const etag = wikiConflict.etag;
+  wikiConflict = null;
+  wikiPage = { ...wikiPage, etag };
+  saveWikiPage(etag);
+  renderWikiPage();
+};
+
+wikiEditorEl.oninput = () => {
+  wikiDraft = wikiEditorEl.value;
+  const save = wikiHeadEl.querySelector('.wiki-save');
+  if (save) save.disabled = !wikiDirty() || !!wikiIngestTimer;
+};
+wikiEditorEl.onkeydown = (e) => {
+  e.stopPropagation();   // the global shortcuts stay out of the editor
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveWikiPage(); return; }
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    if (wikiDiscard()) { wikiMode = 'view'; renderWikiPage(); }
+    return;
+  }
+  if (e.key === 'Tab' && typeof wikiEditorEl.selectionStart === 'number') {
+    e.preventDefault();
+    const { selectionStart: s, selectionEnd: t, value } = wikiEditorEl;
+    wikiEditorEl.value = value.slice(0, s) + '  ' + value.slice(t);
+    wikiEditorEl.selectionStart = wikiEditorEl.selectionEnd = s + 2;
+    wikiEditorEl.oninput();
+  }
+};
+
+wikiSearchInput.oninput = () => {
+  const query = wikiSearchInput.value.trim();
+  if (!query) { wikiSearch = null; renderWikiList(); return; }
+  sendAction({ action: 'wiki_search', query });
+};
+wikiSearchInput.onkeydown = (e) => {
+  e.stopPropagation();
+  if (e.key === 'Escape') { wikiSearchInput.value = ''; wikiSearchInput.oninput(); }
+};
+
+function wikiToday() {
+  const d = new Date();
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `meetings/${iso}`;
+}
+wikiTodayBtn.onclick = () => { const p = wikiToday(); if (wikiKnown(p)) selectWikiPage(p); else createWikiPage(p); };
+wikiNewBtn.onclick = () => { const p = prompt('New page (folder/name):', 'notes/'); if (p) createWikiPage(p); };
 
 function wikiIngestDone() {
   if (wikiIngestTimer) { clearTimeout(wikiIngestTimer); wikiIngestTimer = null; }
@@ -1820,6 +2172,8 @@ function connect() {
     else if (msg.type === 'memory') setMemory(msg);
     else if (msg.type === 'wiki') setWiki(msg);
     else if (msg.type === 'wiki_page') setWikiPage(msg);
+    else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
+    else if (msg.type === 'wiki_search') setWikiSearch(msg);
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();

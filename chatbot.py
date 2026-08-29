@@ -139,8 +139,13 @@ def _wiki_msg() -> dict:
 
 
 def _wiki_page_msg(path: str) -> dict:
-    text = wiki.read_page(path)
-    return {"type": "wiki_page", "path": path, "text": text, "links": wiki.links_in(text)}
+    """One whole page for the pane/editor, with its etag (PRD 28) and backlinks."""
+    text = wiki.page_text(path)
+    if text is None:
+        return {"type": "wiki_page", "path": path, "text": f"no such page: {path}",
+                "links": [], "etag": "", "backlinks": []}
+    return {"type": "wiki_page", "path": path, "text": text, "links": wiki.links_in(text),
+            "etag": wiki.etag(text), "backlinks": wiki.backlinks(path)}
 
 
 def push_memory(with_wiki: bool = False) -> None:
@@ -678,6 +683,54 @@ async def _action_wiki_note(sess, msg, loop):
     await _send_wiki()
 
 
+async def _wiki_user_op(fn, *args, reply_path=None):
+    """One editor write (PRD 28): refresh the page (when `reply_path`) and the list, or `error`."""
+    result, reason = await asyncio.to_thread(fn, *args)
+    if reason:
+        await send({"type": "error", "text": reason})
+        return None
+    if reply_path is not None:
+        await send(await asyncio.to_thread(_wiki_page_msg, reply_path(result)))
+    await _send_wiki()
+    return result
+
+
+async def _action_wiki_save(sess, msg, loop):
+    """⌘S: `{path, text, etag}` → `wiki_page` (new etag) + `wiki`, or `wiki_conflict` on a stale etag."""
+    path = str(msg.get("path") or "")
+    result, reason = await asyncio.to_thread(wiki.save_page, path, msg.get("text"), msg.get("etag"))
+    if reason:
+        await send({"type": "error", "text": reason})
+    elif result.get("conflict"):
+        await send({"type": "wiki_conflict", "path": path, "text": result["text"], "etag": result["etag"]})
+    else:
+        await send(await asyncio.to_thread(_wiki_page_msg, path))
+        await _send_wiki()
+
+
+async def _action_wiki_create(sess, msg, loop):
+    """A missing link, "Today" or "New page": `{path}` → the new page + list."""
+    await _wiki_user_op(wiki.create_page, str(msg.get("path") or ""), reply_path=lambda p: p)
+
+
+async def _action_wiki_rename(sess, msg, loop):
+    """`{path, new_path}` → the moved page (links rewritten) + list."""
+    await _wiki_user_op(wiki.rename_page, str(msg.get("path") or ""), str(msg.get("new_path") or ""),
+                        reply_path=lambda r: r["path"])
+
+
+async def _action_wiki_delete(sess, msg, loop):
+    """`{path}` → the list without it (lint names the links that broke)."""
+    await _wiki_user_op(wiki.delete_page, str(msg.get("path") or ""))
+
+
+async def _action_wiki_search(sess, msg, loop):
+    """The list's search box: `{query}` → `{type: wiki_search, query, hits}` (BM25, same as the tool)."""
+    query = str(msg.get("query") or "")
+    hits = await asyncio.to_thread(wiki.search, query, 20) if query.strip() else []
+    await send({"type": "wiki_search", "query": query, "hits": hits})
+
+
 async def _action_wiki_ingest(sess, msg, loop):
     """"Re-ingest last session": run the memory save (which includes wiki ingest) on demand."""
     await asyncio.to_thread(_ingest_now)
@@ -729,6 +782,11 @@ ACTIONS = {
     "read_wiki_page": _action_read_wiki_page,
     "wiki_note": _action_wiki_note,
     "wiki_ingest": _action_wiki_ingest,
+    "wiki_save": _action_wiki_save,
+    "wiki_create": _action_wiki_create,
+    "wiki_rename": _action_wiki_rename,
+    "wiki_delete": _action_wiki_delete,
+    "wiki_search": _action_wiki_search,
     "archive_memory": _action_archive_memory,
     "pull_wiki": _action_pull_wiki,
     "shutdown": _action_shutdown,

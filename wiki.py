@@ -14,6 +14,7 @@ PRD 15: ops + validation, never a whole-file rewrite. ``git log`` inside the vau
 
 See docs/19-wiki-layer.md.
 """
+import hashlib
 import math
 import os
 import re
@@ -31,7 +32,8 @@ LOG_FILE = "log.md"
 SCHEMA_FILE = "schema.md"
 DECISIONS_FILE = "decisions.md"
 RECURRING_FILE = "recurring.md"          # where archived `recurring` profile entries land
-FOLDERS = ("people", "projects", "meetings", "sources")
+#: where the assistant may file pages; the user may also use any other single-level folder
+FOLDERS = ("people", "projects", "meetings", "sources", "notes")
 
 #: raw sources (PRD 20) live here: immutable originals, never pages, never indexed
 RAW_DIR = "raw"
@@ -144,10 +146,18 @@ def _path(*parts) -> str:
 
 
 def _write(rel: str, text: str) -> None:
+    """Atomic: the bytes land in a sibling temp file first, so a crash never leaves half a page."""
     full = _path(rel)
     os.makedirs(os.path.dirname(full), exist_ok=True)
-    with open(full, "w") as f:
+    tmp = full + ".tmp"
+    with open(tmp, "w") as f:
         f.write(text)
+    os.replace(tmp, full)
+
+
+def etag(text: str) -> str:
+    """The content hash the editor round-trips (PRD 28): mtime lies after git and our own writes."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def _read(rel: str) -> str:
@@ -276,11 +286,13 @@ def slugify(name: str) -> str:
     return slug or "untitled"
 
 
-def normalise_path(path) -> str | None:
+def normalise_path(path, user: bool = False) -> str | None:
     """``"people/Anna"`` -> ``"people/anna.md"``; ``None`` when the path is not vault-safe.
 
     Rejects anything absolute, anything with ``..``, anything deeper than ``folder/page.md``
     and any segment that is not a slug — the model proposes these paths, so they are untrusted.
+    Assistant ops may only file under `FOLDERS`; a `user=True` op (the editor, PRD 28) may use
+    any single-level folder except `raw/`.
     """
     raw = str(path or "").strip().replace("\\", "/").strip("/")
     if not raw or raw.startswith(".") or ":" in raw:
@@ -291,7 +303,7 @@ def normalise_path(path) -> str | None:
     if len(parts) > 2 or any(p in ("", ".", "..") for p in parts):
         return None
     parts = [p.lower() for p in parts]
-    if len(parts) == 2 and parts[0] not in FOLDERS:
+    if len(parts) == 2 and (parts[0] == RAW_DIR if user else parts[0] not in FOLDERS):
         return None
     if not all(_SLUG.match(p) for p in parts):
         return None
@@ -454,12 +466,15 @@ def new_page(op: dict, source: str) -> tuple:
     summary = str(op.get("summary") or "").strip()
     if len(summary) > MAX_NOTE_CHARS:
         return None, f"summary longer than {MAX_NOTE_CHARS} characters"
+    _write(rel, _fresh_page(page_type, name, summary, source))
+    return f"filed [[{wikilink(rel)}]] (source: {source})", None
+
+
+def _fresh_page(page_type: str, name: str, summary: str, source: str) -> str:
     today = memory._today_iso()
     fm = {"type": page_type, "name": name, "tags": [], "source": source,
           "updated": today, "seen": today}
-    body = f"# {name}\n\n## Summary\n{summary}\n\n## Notes\n\n## Related\n"
-    _write(rel, _page_text(fm, body))
-    return f"filed [[{wikilink(rel)}]] (source: {source})", None
+    return _page_text(fm, f"# {name}\n\n## Summary\n{summary}\n\n## Notes\n\n## Related\n")
 
 
 def append_note(op: dict, source: str) -> tuple:
@@ -563,10 +578,15 @@ def apply_page_ops(ops, source_default: str = "", commit: bool = True) -> tuple:
     `commit=False` skips only the commit: the caller (sources.ingest) is writing more files
     around this batch and wants one commit for the whole ingest.
     """
+    if not isinstance(ops, list) or not ops:
+        return [], []
+    with memory._LOCK:      # re-entrant: memory.save and sources.file_bytes already hold it
+        return _apply_page_ops(ops, source_default, commit)
+
+
+def _apply_page_ops(ops: list, source_default: str, commit: bool) -> tuple:
     global _applied_batches
     applied, rejected = [], []
-    if not isinstance(ops, list) or not ops:
-        return applied, rejected
     ensure_vault()
     source_default = source_default or f"session {memory._today_iso()}"
     entries = []
@@ -599,6 +619,146 @@ def apply_page_ops(ops, source_default: str = "", commit: bool = True) -> tuple:
     return applied, rejected
 
 
+# --- editor (PRD 28) ---------------------------------------------------------------
+# The user is the only whole-page writer. Every call takes `memory._LOCK` so an ingest and a
+# save never interleave, and ends in exactly one commit; git is the undo.
+
+USER_SOURCE = "user edit"
+_UPDATED_LINE = re.compile(r"^updated:.*$", re.M)
+_TYPES = {"people": "person", "projects": "project", "meetings": "meeting", "sources": "source"}
+
+
+def _bump_updated(text: str) -> str:
+    """The `updated:` line inside the frontmatter set to today; every other byte untouched."""
+    end = text.find("\n---", 3)
+    if not text.startswith("---") or end == -1:
+        return text
+    head = _UPDATED_LINE.sub(f"updated: {memory._today_iso()}", text[:end], count=1)
+    return head + text[end:]
+
+
+def _user_target(path, *, exists: bool, fixed: bool = True) -> tuple:
+    """A user-supplied path: ``(rel, None)`` or ``(None, reason)``; `fixed` also refuses the pages
+    the layer relies on (machinery + `decisions`)."""
+    rel = normalise_path(path, user=True)
+    if rel is None:
+        return None, f"bad path {path!r}"
+    if rel in RESERVED or (fixed and rel == DECISIONS_FILE):
+        return None, f"{wikilink(rel)} is not an editable page"
+    if exists and not page_exists(rel):
+        return None, f"no such page {wikilink(rel)}"
+    if not exists and page_exists(rel):
+        return None, f"{wikilink(rel)} already exists"
+    return rel, None
+
+
+def _user_commit(entry: str, message: str) -> None:
+    rebuild_index()
+    _log([entry])
+    _commit(message)
+
+
+def save_page(path: str, text: str, tag: str) -> tuple:
+    """Whole-page save; ``(result, None)`` or ``(None, reason)``.
+
+    `result` is ``{"etag": new}`` — or ``{"conflict": True, "text": current, "etag": current}``
+    when `tag` no longer matches the bytes on disk. The body is written byte-for-byte except
+    the `updated:` line; validation is the page contract (frontmatter keys, size).
+    """
+    with memory._LOCK:
+        rel, reason = _user_target(path, exists=True, fixed=False)
+        if reason:
+            return None, reason
+        current = _read(rel)
+        if etag(current) != str(tag or ""):
+            return {"conflict": True, "text": current, "etag": etag(current)}, None
+        text = str(text or "")
+        if len(text.encode()) > MAX_PAGE_BYTES:
+            return None, f"page larger than {MAX_PAGE_BYTES // 1024} kB"
+        fm, _ = parse_page(text)
+        missing = [key for key in FIELDS if key not in fm]
+        if missing:
+            return None, f"frontmatter missing {', '.join(missing)}"
+        if text == current:
+            return {"etag": etag(current)}, None
+        text = _bump_updated(text)
+        _write(rel, text)
+        _user_commit(f"edited [[{wikilink(rel)}]] (source: {USER_SOURCE})",
+                     f"wiki: edit {wikilink(rel)} ({USER_SOURCE})")
+        return {"etag": etag(text)}, None
+
+
+def create_page(path: str) -> tuple:
+    """A fresh page at a user path (any single-level folder); ``(path, None)`` or ``(None, reason)``."""
+    with memory._LOCK:
+        ensure_vault()
+        rel, reason = _user_target(path, exists=False)
+        if reason:
+            return None, reason
+        folder, base = os.path.split(rel)
+        _write(rel, _fresh_page(_TYPES.get(folder, "note"), base[:-3], "", USER_SOURCE))
+        _user_commit(f"created [[{wikilink(rel)}]] (source: {USER_SOURCE})",
+                     f"wiki: create {wikilink(rel)} ({USER_SOURCE})")
+        return wikilink(rel), None
+
+
+def _link_pattern(target: str) -> re.Pattern:
+    """`[[target]]`, `[[target|…]]`, `[[target#…]]` and `![[target…]]` — the exact path only."""
+    return re.compile(r"(!?\[\[)" + re.escape(target) + r"(?=[\]|#])")
+
+
+def rename_page(path: str, new_path: str) -> tuple:
+    """Move a page and rewrite the links to it; ``({path, links}, None)`` or ``(None, reason)``.
+
+    Rewritten: every page's exact-path links, plus the short form `[[<basename>…]]` when that
+    basename is unique in the vault. Touched pages get a fresh `updated:`.
+    """
+    with memory._LOCK:
+        rel, reason = _user_target(path, exists=True)
+        if reason:
+            return None, reason
+        new_rel, reason = _user_target(new_path, exists=False)
+        if reason:
+            return None, reason
+        old, new = wikilink(rel), wikilink(new_rel)
+        basename = os.path.basename(old)
+        unique = sum(os.path.basename(p)[:-3] == basename for p in page_paths()) == 1
+        patterns = [_link_pattern(old)]
+        if unique and basename != old:
+            patterns.append(_link_pattern(basename))
+        touched = 0
+        for other in page_paths():
+            if other == rel:
+                continue
+            text = _read(other)
+            rewritten = text
+            for pattern in patterns:
+                rewritten = pattern.sub(lambda m: m.group(1) + new, rewritten)
+            if rewritten != text:
+                _write(other, _bump_updated(rewritten))
+                touched += 1
+        moved = _bump_updated(_read(rel))
+        os.remove(_path(rel))
+        _write(new_rel, moved)
+        _user_commit(f"renamed [[{old}]] → [[{new}]] ({touched} links, source: {USER_SOURCE})",
+                     f"wiki: rename {old} → {new} ({touched} links)")
+        return {"path": new, "links": touched}, None
+
+
+def delete_page(path: str) -> tuple:
+    """Remove a page (one commit); ``(path, None)`` or ``(None, reason)``. Lint reports the broken links."""
+    with memory._LOCK:
+        rel, reason = _user_target(path, exists=True)
+        if reason:
+            return None, reason
+        _git("rm", "-q", "-f", "--", rel, quiet=True)
+        if os.path.exists(_path(rel)):
+            os.remove(_path(rel))
+        _user_commit(f"deleted [[{wikilink(rel)}]] (source: {USER_SOURCE})",
+                     f"wiki: delete {wikilink(rel)}")
+        return wikilink(rel), None
+
+
 # --- search ------------------------------------------------------------------------
 # BM25 over page bodies + frontmatter. Personal scale (≤ 200 pages), no embeddings, no new
 # dependency, and deterministic — which is what makes it testable.
@@ -617,15 +777,36 @@ def _signature() -> tuple:
 
 
 def _corpus() -> list:
-    """[(path, text, tokens)] — rebuilt only when a page's mtime changed (Obsidian edits count)."""
+    """[(path, text, tokens, links)] — rebuilt only when a page's mtime changed (Obsidian edits count)."""
     sig = _signature()
     if _index_cache["sig"] != sig:
         docs = []
         for rel, _ in sig:
             text = _read(rel)
-            docs.append((rel, text, _tokenise(text)))
+            docs.append((rel, text, _tokenise(text), links_in(text)))
         _index_cache["sig"], _index_cache["docs"] = sig, docs
     return _index_cache["docs"]
+
+
+def backlinks(path: str) -> list:
+    """The pages (suffix-less) whose wikilinks point at `path`; alias/heading forms count."""
+    rel = normalise_path(path, user=True)
+    if rel is None:
+        return []
+    target = wikilink(rel)
+    return [wikilink(r) for r, _, _, links in _corpus() if target in links and r != rel]
+
+
+_TAG = re.compile(r"(?<![\w/#&])#([A-Za-z][\w/-]*)")
+
+
+def tags(text: str) -> list:
+    """Frontmatter `tags:` merged with the body's `#tag`s, sorted, de-duplicated."""
+    fm, body = parse_page(text)
+    listed = fm.get("tags") or []
+    found = {str(t).strip().lstrip("#") for t in (listed if isinstance(listed, list) else [listed])}
+    found |= set(_TAG.findall(body))
+    return sorted(t for t in found if t)
 
 
 def _snippet(text: str, terms: set, width: int = 180) -> str:
@@ -647,10 +828,10 @@ def search(query: str, k: int = 5) -> list:
     if not docs or not terms:
         return []
     n = len(docs)
-    avgdl = sum(len(t) for _, _, t in docs) / n
-    df = Counter(term for _, _, tokens in docs for term in terms if term in tokens)
+    avgdl = sum(len(t) for _, _, t, _ in docs) / n
+    df = Counter(term for _, _, tokens, _ in docs for term in terms if term in tokens)
     scored = []
-    for rel, text, tokens in docs:
+    for rel, text, tokens, _ in docs:
         counts, dl, score = Counter(tokens), len(tokens) or 1, 0.0
         for term in terms:
             freq = counts.get(term, 0)
@@ -673,6 +854,14 @@ def read_page(path: str) -> str:
     if len(text.encode()) > MAX_READ_BYTES:
         return text.encode()[:MAX_READ_BYTES].decode(errors="ignore") + TRUNCATED
     return text
+
+
+def page_text(path: str) -> str | None:
+    """The whole page for the editor (no 4 kB cap); None for an unknown path."""
+    rel = normalise_path(path, user=True)
+    if rel is None or not page_exists(rel):
+        return None
+    return _read(rel)
 
 
 _LINK = re.compile(r"\[\[([^\]|#]+)")
@@ -720,12 +909,14 @@ def pages() -> list:
     """
     listing = []
     for rel in page_paths():
-        fm, _ = parse_page(_read(rel))
+        text = _read(rel)
+        fm, _ = parse_page(text)
         listing.append({
             "path": wikilink(rel),
             "title": str(fm.get("name") or os.path.basename(rel)[:-3]),
             "type": str(fm.get("type") or ""),
             "updated": str(fm.get("updated") or ""),
+            "tags": tags(text),
         })
     return listing
 

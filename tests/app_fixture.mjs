@@ -58,6 +58,7 @@ const appSrc = fs.readFileSync(path.join(ROOT, 'static/app.js'), 'utf8');
 class El {
   constructor(tag = 'div', id = '') {
     this.tagName = tag.toUpperCase();
+    this.nodeType = 1;
     this.id = id;
     this.children = [];
     this.parentNode = null;
@@ -264,7 +265,11 @@ const sandbox = {
   URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
   PIXI: PIXIStub,
   performance: { now: () => Date.now() },
+  // PRD 28 dialogs: confirm always agrees, prompt answers with `dialogs.answer` and both log.
+  confirm: (msg) => { dialogs.log.push(['confirm', msg]); return true; },
+  prompt: (msg, def) => { dialogs.log.push(['prompt', msg]); return dialogs.answer ?? def; },
 };
+const dialogs = { log: [], answer: null };
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 
@@ -294,6 +299,11 @@ globalThis.__t = {
   motionGroups: () => Object.keys(avatar.model.internalModel.motionManager.definitions),
   setState,
   showShutdownScreen,
+  // ---- wiki editor (PRD 28)
+  wikiList: wikiListEl, wikiHead: wikiHeadEl, wikiText: wikiTextEl, wikiEditor: wikiEditorEl,
+  wikiConflict: wikiConflictEl, wikiBacklinks: wikiBacklinksEl, wikiSearch: wikiSearchInput,
+  wikiToday: wikiTodayBtn, wikiNew: wikiNewBtn,
+  selectWikiPage,
 };
 `;
 
@@ -409,6 +419,83 @@ results.shutdown_cue = t.cue();
 socket.sent.length = 0;
 results.thumbs = t.thumbs();
 t.clickThumb(1);
-results.thumb_payload = socket.sent;
+results.thumb_payload = [...socket.sent];
+
+// ---------------------------------------------------------------- scenarios (PRD 28)
+// The list rows as the user sees them: group titles and row titles, in order.
+const listRows = () => t.wikiList.children.map(c =>
+  c.className.includes('wiki-group-title') ? `# ${c.textContent}` : c.querySelector('.wiki-row-title').textContent);
+const linkSpans = () => t.wikiText.querySelectorAll('.wiki-link').map(s =>
+  ({ text: s.textContent, cls: s.className, target: s.dataset.target }));
+const headButton = (cls) => t.wikiHead.querySelector('.' + cls);
+const actions = () => socket.sent.map(m => m.action);
+
+t.setView('wiki');
+t.recv({ type: 'wiki', vault: '/tmp/v', lint: [], pages: [
+  { path: 'people/anna', title: 'Anna', type: 'person', updated: '2026-08-29', tags: ['team'] },
+  { path: 'projects/atlas', title: 'Atlas', type: 'project', updated: '2026-08-29', tags: ['team', 'infra'] },
+  { path: 'notes/todo', title: 'todo', type: 'note', updated: '2026-08-29', tags: [] },
+] });
+// ---- scenario 7: folder groups + the virtual Tags group; clicking a tag filters
+results.wiki_list = listRows();
+t.wikiList.children.find(c => c.children[0] && c.children[0].textContent === '#infra').dispatch('click');
+results.wiki_list_infra = listRows();
+t.wikiList.children.find(c => c.children[0] && c.children[0].textContent === '#infra').dispatch('click');   // toggle off
+results.wiki_list_after = listRows();
+
+// ---- scenario 8: alias link renders its alias and navigates to the page; a red link creates
+socket.sent.length = 0;
+t.selectWikiPage('people/anna');
+const anna = '---\ntype: person\nname: Anna\ntags: [team]\nsource: s\nupdated: 2026-08-29\nseen: 2026-08-29\n---\n\n# Anna\n\nWorks on [[projects/atlas|Atlas project]] and [[projects/atlas#Summary]]; see [[people/missing]] and ![[notes/todo]].\n';
+t.recv({ type: 'wiki_page', path: 'people/anna', text: anna, links: [], etag: 'e1', backlinks: ['projects/atlas'] });
+results.wiki_links = linkSpans();
+results.wiki_backlinks = t.wikiBacklinks.children.slice(1).map(c => c.textContent);
+results.wiki_fm_hidden = doc.getElementById('wiki-fm').hidden;
+t.wikiText.querySelectorAll('.wiki-link')[0].dispatch('click');          // the alias link
+results.wiki_alias_nav = socket.sent.filter(m => m.action === 'read_wiki_page').map(m => m.path);
+t.selectWikiPage('people/anna');
+t.recv({ type: 'wiki_page', path: 'people/anna', text: anna, links: [], etag: 'e1', backlinks: ['projects/atlas'] });
+socket.sent.length = 0;
+t.wikiText.querySelectorAll('.wiki-link').find(s => s.className.includes('missing')).dispatch('click');  // the red link
+results.wiki_create_sent = [...socket.sent];
+results.wiki_create_confirm = dialogs.log.filter(d => d[0] === 'confirm').length;
+
+// ---- editor: Edit → type → ⌘S sends wiki_save with the etag; a conflict shows the dialog,
+//      overwrite re-sends with the server's etag; Esc discards
+t.selectWikiPage('people/anna');
+t.recv({ type: 'wiki_page', path: 'people/anna', text: anna, links: [], etag: 'e1', backlinks: [] });
+results.wiki_save_disabled_clean = headButton('wiki-save').disabled;
+headButton('wiki-edit').dispatch('click');
+results.wiki_editor_shown = !t.wikiEditor.hidden && t.wikiText.hidden;
+t.wikiEditor.value = anna + 'more\n';
+t.wikiEditor.dispatch('input');
+results.wiki_save_disabled_dirty = headButton('wiki-save').disabled;
+socket.sent.length = 0;
+t.wikiEditor.dispatch('keydown', { key: 's', metaKey: true });
+results.wiki_save_sent = [...socket.sent];
+t.recv({ type: 'wiki_conflict', path: 'people/anna', text: anna + 'theirs\n', etag: 'e2' });
+results.wiki_conflict_shown = !t.wikiConflict.hidden;
+socket.sent.length = 0;
+doc.getElementById('wiki-conflict-overwrite').dispatch('click');
+results.wiki_overwrite_sent = [...socket.sent];
+results.wiki_conflict_hidden_after = t.wikiConflict.hidden;
+t.recv({ type: 'wiki_page', path: 'people/anna', text: anna + 'more\n', links: [], etag: 'e3', backlinks: [] });
+results.wiki_mode_after_save = t.wikiEditor.hidden ? 'view' : 'edit';
+headButton('wiki-edit').dispatch('click');
+t.wikiEditor.value = anna + 'scratch\n';
+t.wikiEditor.dispatch('input');
+t.wikiEditor.dispatch('keydown', { key: 'Escape' });
+results.wiki_escape = { confirmed: dialogs.log.at(-1), editor_hidden: t.wikiEditor.hidden };
+
+// ---- Today / New page / search
+socket.sent.length = 0;
+t.wikiToday.dispatch('click');
+dialogs.answer = 'notes/scratch';
+t.wikiNew.dispatch('click');
+t.wikiSearch.value = 'atlas';
+t.wikiSearch.dispatch('input');
+results.wiki_tools_sent = [...socket.sent];
+t.recv({ type: 'wiki_search', query: 'atlas', hits: [{ path: 'projects/atlas', snippet: 'The rewrite.', score: 1 }] });
+results.wiki_search_rows = listRows();
 
 console.log(JSON.stringify(results, null, 1));

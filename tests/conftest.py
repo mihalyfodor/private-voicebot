@@ -162,7 +162,7 @@ class Panel:
     `send` waits for one reply, `send_many` for the `n` an action answers with.
     """
 
-    WANTED = ("memory", "memory_error", "wiki", "wiki_page", "error")
+    WANTED = ("memory", "memory_error", "wiki", "wiki_page", "wiki_conflict", "wiki_search", "error")
 
     def __init__(self, ws):
         self.ws = ws

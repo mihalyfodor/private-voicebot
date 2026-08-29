@@ -87,10 +87,25 @@
 
         <div id="view-wiki" class="view" hidden>
           <div id="wiki-body">
-            <div id="wiki-list"></div>
+            <div id="wiki-side">
+              <div id="wiki-tools">
+                <button id="wiki-today" class="chip" title="meetings/&lt;today&gt;">Today</button>
+                <button id="wiki-new" class="chip">New page</button>
+              </div>
+              <input id="wiki-search" placeholder="search…" spellcheck="false">
+              <div id="wiki-list"></div>
+            </div>
             <div id="wiki-page">
               <div id="wiki-page-head"></div>
-              <pre id="wiki-text" class="wiki-text"></pre>
+              <div id="wiki-fm" class="wiki-fm" hidden></div>
+              <div id="wiki-text" class="wiki-text"></div>
+              <textarea id="wiki-editor" class="wiki-editor" spellcheck="false" hidden></textarea>
+              <div id="wiki-conflict" hidden>
+                <span>changed on disk since you opened it</span>
+                <button id="wiki-conflict-reload">reload</button>
+                <button id="wiki-conflict-overwrite">overwrite</button>
+              </div>
+              <div id="wiki-backlinks" hidden></div>
               <div id="wiki-note">
                 <input id="wiki-note-input" placeholder="add a dated note…">
                 <button id="wiki-note-add">add note</button>
@@ -246,6 +261,7 @@
   <script src="/static/vendor/pixi.min.js"></script>
   <script src="/static/vendor/live2dcubismcore.min.js"></script>
   <script src="/static/vendor/cubism4.min.js"></script>
+  <script src="/static/vendor/marked.umd.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

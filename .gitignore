@@ -17,7 +17,9 @@ workflows/classification_learned_rules.json
 .pytest_cache/
 context.md
 
-static/vendor/
+static/vendor/*
+!static/vendor/marked.umd.js
+!static/vendor/LICENSE-marked.md
 static/models/
 settings.json
 static/backdrops/

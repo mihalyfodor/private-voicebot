@@ -561,8 +561,8 @@ def test_get_wiki_lists_pages_with_lint_and_vault(wiki_panel):
     assert msg["vault"] == wiki.WIKI_PATH
     assert msg["lint"] == []
     assert [p["path"] for p in msg["pages"]] == ["people/anna"]
-    assert msg["pages"][0] == {"path": "people/anna", "title": "Anna",
-                               "type": "person", "updated": memory._today_iso()}
+    assert msg["pages"][0] == {"path": "people/anna", "title": "Anna", "type": "person",
+                               "updated": memory._today_iso(), "tags": []}
 
 
 def test_read_wiki_page_returns_text_and_links(wiki_panel):
