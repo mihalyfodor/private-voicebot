@@ -1337,17 +1337,22 @@ function wikiKnown(path) {
   return (wikiPages || []).some(p => p.path === path);
 }
 
+// Make `path` (or nothing) the open page: whatever was loaded, typed or in conflict is gone.
+function wikiOpen(path) {
+  wikiSelected = path;
+  wikiPage = null;
+  wikiMode = 'view';
+  wikiDraft = null;
+  wikiConflict = null;
+}
+
 // Paths are suffix-less everywhere (`people/anna`) — in the page list, in wikilinks and in
 // every action sent back; the server is what normalises them onto files.
 function selectWikiPage(path) {
   path = String(path || '').trim();
   if (!path) return;
   if (path !== wikiSelected && wikiDraft !== null && !wikiDiscard()) return;
-  wikiSelected = path;
-  wikiPage = null;
-  wikiMode = 'view';
-  wikiDraft = null;
-  wikiConflict = null;
+  wikiOpen(path);
   const at = wikiRecent.indexOf(path);
   if (at !== -1) wikiRecent.splice(at, 1);
   wikiRecent.unshift(path);
@@ -1363,11 +1368,7 @@ function createWikiPage(path) {
   path = String(path || '').trim().replace(/\.md$/, '');
   if (!path) return;
   if (wikiDraft !== null && !wikiDiscard()) return;
-  wikiSelected = path;
-  wikiPage = null;
-  wikiMode = 'view';
-  wikiDraft = null;
-  wikiConflict = null;
+  wikiOpen(path);
   setWikiError('');
   sendAction({ action: 'wiki_create', path });
   renderWikiPage();
@@ -1581,8 +1582,7 @@ function renameWikiPage() {
   const target = prompt(`Rename/move to (folder/name) — ${n} page${n === 1 ? '' : 's'} link here, links will be rewritten:`, wikiSelected);
   if (!target || target.trim() === wikiSelected) return;
   const from = wikiSelected;
-  wikiSelected = target.trim().replace(/\.md$/, '');
-  wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view';
+  wikiOpen(target.trim().replace(/\.md$/, ''));
   setWikiError('');
   sendAction({ action: 'wiki_rename', path: from, new_path: wikiSelected });
   renderWikiPage();
@@ -1592,7 +1592,7 @@ function deleteWikiPage() {
   const n = (wikiPage && wikiPage.backlinks || []).length;
   if (!confirm(`Delete ${wikiSelected}? Links from ${n} page${n === 1 ? '' : 's'} will break.`)) return;
   const path = wikiSelected;
-  wikiSelected = null; wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view';
+  wikiOpen(null);
   setWikiError('');
   sendAction({ action: 'wiki_delete', path });
   renderWikiPage();
@@ -1692,15 +1692,12 @@ function setWiki(msg) {
   if (wikiTag && !wikiPages.some(p => (p.tags || []).includes(wikiTag))) wikiTag = null;
   // Keep the open page open across refreshes and re-read it (an ingest may have changed it) —
   // unless it is being edited: the next save then reports the conflict instead.
-  if (wikiSelected && wikiPages.some(p => p.path === wikiSelected)) {
-    if (wikiDraft === null && wikiMode === 'view') sendAction({ action: 'read_wiki_page', path: wikiSelected });
-    renderWikiList();
-    renderWikiPage();
-  } else {
-    if (wikiSelected) { wikiSelected = null; wikiPage = null; wikiDraft = null; wikiConflict = null; wikiMode = 'view'; }
-    renderWikiList();
-    renderWikiPage();
+  if (wikiSelected && !wikiKnown(wikiSelected)) wikiOpen(null);
+  else if (wikiSelected && wikiDraft === null && wikiMode === 'view') {
+    sendAction({ action: 'read_wiki_page', path: wikiSelected });
   }
+  renderWikiList();
+  renderWikiPage();
   renderWikiPanel();
   if (!intakeEl.hidden) intakeSyncPages();   // the popup's picker is fed by this list
 }

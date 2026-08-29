@@ -688,11 +688,10 @@ async def _wiki_user_op(fn, *args, reply_path=None):
     result, reason = await asyncio.to_thread(fn, *args)
     if reason:
         await send({"type": "error", "text": reason})
-        return None
+        return
     if reply_path is not None:
         await send(await asyncio.to_thread(_wiki_page_msg, reply_path(result)))
     await _send_wiki()
-    return result
 
 
 async def _action_wiki_save(sess, msg, loop):

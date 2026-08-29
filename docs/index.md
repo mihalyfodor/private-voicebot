@@ -118,7 +118,7 @@ voicebot/
     ├── 25-sources-inbox.md       # PRD: Sources view as inbox and provenance (exploration)
     ├── 26-identity-aliases.md    # PRD: identity.aliases, is_user everywhere, ASR name biasing (done)
     ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (done)
-    └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (refactoring)
+    └── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
 ```
 
 ## Active PRDs
@@ -148,7 +148,7 @@ voicebot/
 - [25-sources-inbox.md](25-sources-inbox.md) — Sources view as an inbox with provenance (exploration)
 - [26-identity-aliases.md](26-identity-aliases.md) — `identity.aliases`, `memory.is_user` for extraction/ingest, whisper name biasing (done)
 - [27-wanko-interactivity.md](27-wanko-interactivity.md) — Wanko motion groups, click-to-pet, listening/thinking/tool/greeting/shutdown cues, three new emotion tags (done)
-- [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (refactoring)
+- [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)
 
 ## Completed PRDs
 

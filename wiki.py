@@ -437,14 +437,15 @@ def _insert_into_section(body: str, heading: str, line: str) -> str:
 
 
 def _target(op: dict, key: str = "path", *, exists: bool | None = None,
-            reserved: bool = False) -> tuple:
+            reserved: bool = False, user: bool = False) -> tuple:
     """Validate an op's (untrusted) path: ``(rel, None)`` or ``(None, reason)``.
 
     `exists=True` demands the page is there, `exists=False` demands it is not; `reserved=True`
-    additionally refuses the machinery pages. Every op's path check goes through here, so the
-    rejection reasons the model sees are worded the same way everywhere.
+    additionally refuses the machinery pages; `user=True` applies the editor's folder rule.
+    Every path check goes through here, so the rejection reasons are worded the same way
+    everywhere.
     """
-    rel = normalise_path(op.get(key))
+    rel = normalise_path(op.get(key), user=user)
     if rel is None:
         return None, f"bad path {op.get(key)!r}"
     if reserved and rel in RESERVED:
@@ -641,15 +642,9 @@ def _user_target(path, *, exists: bool, fixed: bool = True) -> tuple:
     """A user-supplied path: ``(rel, None)`` or ``(None, reason)``; `fixed` also refuses the pages
     the layer relies on (machinery + `decisions`)."""
     rel = normalise_path(path, user=True)
-    if rel is None:
-        return None, f"bad path {path!r}"
-    if rel in RESERVED or (fixed and rel == DECISIONS_FILE):
+    if rel is not None and (rel in RESERVED or (fixed and rel == DECISIONS_FILE)):
         return None, f"{wikilink(rel)} is not an editable page"
-    if exists and not page_exists(rel):
-        return None, f"no such page {wikilink(rel)}"
-    if not exists and page_exists(rel):
-        return None, f"{wikilink(rel)} already exists"
-    return rel, None
+    return _target({"path": path}, exists=exists, user=True)
 
 
 def _user_commit(entry: str, message: str) -> None:
