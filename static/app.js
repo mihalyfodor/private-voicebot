@@ -335,6 +335,18 @@ function finishReply() {
 }
 
 // ---------- avatar ----------
+// Lerp each param of `target` from its current (motion-driven) value toward the target by
+// `weight`; the expression and cue blends both layer on the model this way. Returns whether
+// the blend is active at all (weight above the fade-out floor).
+function blendParams(core, target, weight) {
+  if (weight <= 0.01) return false;
+  for (const [id, v] of Object.entries(target)) {
+    const cur = core.getParameterValueById(id);
+    core.setParameterValueById(id, cur + (v - cur) * weight);
+  }
+  return true;
+}
+
 const avatar = {
   model: null,
   currentEmotion: 'neutral',
@@ -432,21 +444,12 @@ const avatar = {
       // parameter-based expression (blend toward target on top of the motion's values)
       const wantWeight = Object.keys(this.paramTarget).length ? CONFIG.expressionWeight : 0;
       this.paramWeight += (wantWeight - this.paramWeight) * CONFIG.expressionFade;
-      if (this.paramWeight > 0.01) {
-        for (const [id, v] of Object.entries(this.paramTarget)) {
-          const cur = core.getParameterValueById(id);
-          core.setParameterValueById(id, cur + (v - cur) * this.paramWeight);
-        }
-      }
+      blendParams(core, this.paramTarget, this.paramWeight);
       // cue blend (PRD 27): props no clip ever keys — lid, steam, sparkle, ears — so this
       // just lerps them toward the merged cue target and back to 0 when the cue ends.
-      const cueIds = Object.keys(this.cueTarget);
-      this.cueWeight += ((cueIds.length || this.cuePulse.length ? 1 : 0) - this.cueWeight) * CONFIG.cueFade;
-      if (this.cueWeight > 0.01) {
-        for (const [id, v] of Object.entries(this.cueTarget)) {
-          const cur = core.getParameterValueById(id);
-          core.setParameterValueById(id, cur + (v - cur) * this.cueWeight);
-        }
+      const cueOn = Object.keys(this.cueTarget).length || this.cuePulse.length ? 1 : 0;
+      this.cueWeight += (cueOn - this.cueWeight) * CONFIG.cueFade;
+      if (blendParams(core, this.cueTarget, this.cueWeight)) {
         const t = Date.now() / 1000 * CONFIG.steamHz * 2 * Math.PI;
         this.cuePulse.forEach((id, i) => {
           core.setParameterValueById(id, this.cueWeight * (Math.sin(t + i * Math.PI / 2) + 1) / 2);
@@ -507,7 +510,7 @@ const avatar = {
 
   // ---- cues: named parameter blends (+ an optional one-shot motion), merged per frame ----
   setCue(name, on) {
-    const def = (profile.cues || {})[name];
+    const def = profile.cues[name];
     if (!def) return;
     if (on && !this.activeCues.has(name)) {
       this.activeCues.add(name);
@@ -526,7 +529,7 @@ const avatar = {
   recomputeCue() {
     const target = {}, pulse = [];
     for (const name of this.activeCues) {
-      const def = (profile.cues || {})[name] || {};
+      const def = profile.cues[name] || {};
       Object.assign(target, def.params || {});
       for (const id of def.pulse || []) pulse.push(id);
     }

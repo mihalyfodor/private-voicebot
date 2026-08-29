@@ -101,7 +101,11 @@ main {
   background: rgba(10,10,10,0.35);
 }
 #companion.side > #avatar { flex: 0 0 40%; min-height: 180px; }
-#companion.side > #history { flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px; }
+#companion.side > #history {
+  flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px;
+  /* a faint floor under the last lines so they stay readable over a busy backdrop */
+  background: linear-gradient(to bottom, transparent 40%, rgba(10,10,10,0.55));
+}
 #companion.side > #composer { flex: none; padding: 6px 12px 12px; }
 
 /* ---- stage: the avatar area, model centered ---- */

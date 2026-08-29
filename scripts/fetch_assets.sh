@@ -49,10 +49,10 @@ WANKO_BASE=https://raw.githubusercontent.com/Live2D/CubismWebSamples/develop/Sam
 fetch_model "$WANKO" "$WANKO_BASE" Wanko.model3.json
 
 # The upstream model3 wires only 5 of the 12 clips; PRD 27 groups all of them, so fetch the rest.
+# The clip list lives in scripts/wanko_groups.py (MOTION_FILES) next to the groups it feeds.
 echo "→ all Wanko motions"
 mkdir -p "$WANKO/motions"
-for m in idle_01 idle_02 idle_03 idle_04 shake_01 shake_02 \
-         touch_01 touch_02 touch_03 touch_04 touch_05 touch_06; do
+for m in $(python3 -c 'import sys; sys.path.insert(0, "scripts"); from wanko_groups import MOTION_FILES; print(*MOTION_FILES)'); do
   curl -sSfL -o "$WANKO/motions/$m.motion3.json" "$WANKO_BASE/motions/$m.motion3.json"
   echo "    motions/$m.motion3.json"
 done

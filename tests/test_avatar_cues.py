@@ -62,8 +62,7 @@ def test_every_grouped_clip_is_one_of_the_twelve_fetched_motions():
     assert grouped <= set(wanko_groups.MOTION_FILES)
     assert set(wanko_groups.MOTION_FILES) - grouped == set()   # all 12 are used
     fetch = open(os.path.join(ROOT, "scripts", "fetch_assets.sh")).read()
-    for clip in wanko_groups.MOTION_FILES:
-        assert clip in fetch, clip
+    assert "from wanko_groups import MOTION_FILES" in fetch   # the clip list is not duplicated
     assert "scripts/wanko_groups.py" in fetch
 
 
