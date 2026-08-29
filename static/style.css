@@ -69,15 +69,42 @@ body {
 }
 #backdrop.on { opacity: 1; }
 
-/* ---- layout: avatar column + workspace (inside #shell, right of the rail) ---- */
+/* ---- layout: companion slice + workspace (inside #shell, right of the rail) ---- */
 main {
   position: relative; z-index: 0;
   flex: 1 1 auto; min-width: 0;
   display: flex; align-items: stretch;
 }
 
-/* ---- stage: avatar column, model centered ---- */
-#avatar { position: relative; flex: 0 0 25%; min-width: 0; }
+/* the shell's left slot: only laid out while it actually holds #companion (non-chat views) */
+#left-slot { flex: 0 0 25%; min-width: 280px; display: flex; z-index: 2; }
+#left-slot:empty { display: none; }
+
+/* ---- companion: avatar + history + composer, one element re-parented on setView (PRD 24) ---- */
+#companion { min-width: 0; min-height: 0; }
+/* Chat: the companion IS the workspace — avatar on the left, conversation on the right */
+#companion.chat {
+  flex: 1 1 auto;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  column-gap: 8px;
+}
+#companion.chat > #avatar { grid-row: 1 / span 2; }
+#companion.chat > #history { padding: 24px 24px 8px 4px; }
+#companion.chat > #composer { padding-right: 24px; padding-bottom: 20px; }
+/* Every other view: a narrow vertical slice, stacked */
+#companion.side {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+  border-right: 1px solid #1f1f1f;
+  background: rgba(10,10,10,0.35);
+}
+#companion.side > #avatar { flex: 0 0 40%; min-height: 180px; }
+#companion.side > #history { flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px; }
+#companion.side > #composer { flex: none; padding: 6px 12px 12px; }
+
+/* ---- stage: the avatar area, model centered ---- */
+#avatar { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 #stage { width: 100%; height: 100%; display: block; }
 #avatar-note {
   position: absolute; inset: 0;
@@ -86,6 +113,23 @@ main {
 }
 #avatar-note[hidden] { display: none; }
 #avatar-note code { color: #999; }
+
+/* backdrop thumbnails: bottom-left of the avatar area, Chat only, fade in on hover */
+#backdrop-thumbs {
+  position: absolute; left: 12px; bottom: 26px; z-index: 4;
+  display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 24px);
+  opacity: 0; transition: opacity 0.18s ease; pointer-events: none;
+}
+#avatar:hover #backdrop-thumbs, #backdrop-thumbs:focus-within { opacity: 1; pointer-events: auto; }
+#companion.side #backdrop-thumbs { display: none; }
+.bd-thumb {
+  width: 28px; height: 28px; flex: none; padding: 0; cursor: pointer;
+  border-radius: 7px; border: 1px solid #3a3a3a; background: rgba(20,20,22,0.9);
+  background-size: cover; background-position: center;
+}
+.bd-thumb:hover { border-color: #999; }
+.bd-thumb.active { border-color: #4a90d9; box-shadow: 0 0 0 2px rgba(74,144,217,0.35); }
+.bd-thumb.none { background-image: linear-gradient(135deg, #2a2a2e 0 50%, #1a1a1c 50% 100%); }
 
 /* ---- workspace: the views the rail switches between ---- */
 #workspace {
@@ -96,61 +140,79 @@ main {
 
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .view[hidden] { display: none; }
+#chat-slot { flex: 1 1 auto; min-height: 0; display: flex; }
+#chat-slot:empty { display: none; }
 
-/* ---- chat view: captions + control ---- */
-#panel {
-  position: relative; z-index: 2;
-  flex: 1 1 auto; min-height: 0;
-  display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-  gap: 14px;
-  padding: 0 24px 26px;
-  background: linear-gradient(to top, rgba(10,10,10,0.94) 0%, rgba(10,10,10,0.75) 55%, rgba(10,10,10,0) 100%);
-  pointer-events: none;
-}
-#panel > * { pointer-events: auto; }
-
-#transcript {
-  width: min(640px, 92%);
-  max-height: 22vh;
-  overflow-y: auto;
+/* ---- history: the one transcript, in either layout ---- */
+#history {
+  min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 10px;
-  text-align: center;
   scrollbar-width: none;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 28px);
 }
-#transcript::-webkit-scrollbar { display: none; }
+#history::-webkit-scrollbar { display: none; }
 
-.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.45; transition: opacity 0.4s; }
-.msg:nth-last-child(-n+2) { opacity: 0.7; }
+.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.55; transition: opacity 0.4s; }
+.msg:nth-last-child(-n+2) { opacity: 0.8; }
 .msg:last-child { opacity: 1; }
 .msg .role {
   font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
   text-transform: uppercase; color: #666;
+  display: flex; align-items: center; gap: 5px;
 }
 .msg.user .role { color: #4a90d9; }
-.msg .text { font-size: 16px; line-height: 1.45; color: #ececec; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
+.msg .text { font-size: 15px; line-height: 1.45; color: #ececec; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
 .msg.user .text { color: #bfc7d0; font-size: 14px; }
+/* typed turns carry a small keyboard glyph next to the role label */
+.msg .typed-glyph { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 1.6; }
+#companion.side .msg .text { font-size: 13px; }
+#companion.side .msg.user .text { font-size: 12px; }
 
-#btn {
-  width: 76px; height: 76px; border-radius: 50%;
-  border: 2px solid #555; background: rgba(26,26,26,0.85); color: #e0e0e0;
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
-  cursor: pointer; transition: all 0.15s ease; outline: none;
-  text-transform: uppercase; backdrop-filter: blur(6px);
+/* ---- composer: textarea + send, mic / mute / status ---- */
+#composer { display: flex; flex-direction: column; gap: 6px; padding: 8px 14px 14px; }
+#composer-row { display: flex; align-items: flex-end; gap: 8px; }
+#composer-input {
+  flex: 1 1 auto; min-width: 0; resize: none; overflow-y: auto;
+  font: inherit; font-size: 14px; line-height: 20px; color: #ececec;
+  padding: 9px 12px; max-height: 92px;   /* ~4 lines + padding */
+  background: rgba(20,20,22,0.75); border: 1px solid #333; border-radius: 12px; outline: none;
+  backdrop-filter: blur(6px);
 }
-#btn:hover { border-color: #999; }
-#btn.recording {
-  background: #3a0000; border-color: #cc2222; color: #ff6666;
-  box-shadow: 0 0 28px rgba(200, 0, 0, 0.45);
-  animation: pulse 1.2s ease-in-out infinite;
+#composer-input:focus { border-color: #4a90d9; }
+#composer-input::placeholder { color: #666; }
+
+.composer-btn {
+  flex: none; width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 1px solid #3a3a3a; background: rgba(20,20,22,0.75); color: #9a9a9a;
 }
-@keyframes pulse { 50% { box-shadow: 0 0 10px rgba(200,0,0,0.25); } }
-#btn.thinking, #btn.processing, #btn.speaking { border-color: #444; color: #777; cursor: default; }
+.composer-btn:hover { border-color: #777; color: #e6e6e6; }
+.composer-btn svg {
+  width: 17px; height: 17px; stroke: currentColor; fill: none;
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
+#send-btn svg { fill: currentColor; stroke: none; }
+#mic-btn.on { color: #7fe07f; border-color: #3fae3f; background: rgba(60,180,60,0.12); }
+#mic-btn.hearing { box-shadow: 0 0 14px rgba(60,180,60,0.35); }
+#mute-btn.muted { color: #e0a060; border-color: #6a4a20; background: rgba(200,140,60,0.12); }
+#mute-btn.speaking { color: #8fb4dd; border-color: #4a90d9; }
+/* the cross is only drawn while muted, the wave only while not */
+#mute-btn .cross { display: none; }
+#mute-btn.muted .wave { display: none; }
+#mute-btn.muted .cross { display: inline; }
+
+#composer-foot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#listening-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%; background: #333;
+}
+#listening-dot.on { background: #3fae3f; }
+#listening-dot.hearing { background: #7fe07f; animation: pulse-soft 1.2s ease-in-out infinite; }
 
 #status {
-  font-size: 11px; color: #666; letter-spacing: 0.1em;
-  text-transform: uppercase; height: 14px;
+  flex: 1 1 auto; min-width: 0;
+  font-size: 10px; color: #666; letter-spacing: 0.08em;
+  text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* lives inside the avatar column so it never collides with the workspace views */
@@ -176,11 +238,6 @@ main {
 #hands-free-toggle.active .switch { background: rgba(74,144,217,0.35); border-color: #4a90d9; }
 #hands-free-toggle.active .switch .knob { background: #4a90d9; transform: translateX(16px); }
 
-#btn.hearing {
-  background: #10240f; border-color: #3fae3f; color: #7fe07f;
-  box-shadow: 0 0 20px rgba(60, 180, 60, 0.30);
-  animation: pulse-soft 1.6s ease-in-out infinite;
-}
 @keyframes pulse-soft { 50% { box-shadow: 0 0 8px rgba(60, 180, 60, 0.14); } }
 
 .verbosity-control { padding: 0 4px; height: 48px; display: flex; flex-direction: column; justify-content: center; gap: 6px; }
@@ -546,9 +603,25 @@ a.chip { text-decoration: none; }
   .rail-dot { left: 50%; top: 2px; transform: translateX(-50%); width: 0; height: 3px; }
   .rail-item.active .rail-dot { width: 18px; height: 3px; }
 
+  /* avatar band on top, content below, composer docked above the tab bar */
   main { order: 2; flex-direction: column; min-height: 0; }
-  #avatar { flex: 0 0 30vh; }
+  #left-slot { flex: 0 0 auto; min-width: 0; width: 100%; }
   #workspace { flex: 1 1 auto; min-height: 0; }
+  #companion.chat {
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: 26vh minmax(0, 1fr) auto;
+  }
+  #companion.chat > #avatar { grid-row: auto; }
+  #companion.chat > #history { padding: 10px 14px 4px; }
+  #companion.chat > #composer { padding: 6px 12px 10px; }
+  #backdrop-thumbs { display: none; }              /* the switcher is a wide-screen affordance */
+  #companion.side > #avatar { flex: 0 0 22vh; min-height: 0; }
+  #companion.side > #history { display: none; }   /* the slice keeps the avatar + composer only */
+  #companion.side { border-right: none; border-bottom: 1px solid #1f1f1f; }
+  #composer {
+    position: fixed; left: 0; right: 0; bottom: var(--rail-w); z-index: 5;
+    background: rgba(12,12,14,0.94); border-top: 1px solid #1f1f1f;
+  }
+  #workspace { padding-bottom: 74px; }
 
   #memory-head, #memory-body, #memory-foot { padding-left: 12px; padding-right: 12px; }
   #wiki-body, #wiki-foot { padding-left: 12px; padding-right: 12px; }

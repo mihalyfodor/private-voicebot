@@ -20,19 +20,53 @@
     <nav id="rail" aria-label="Views"></nav>
 
     <main>
-      <section id="avatar">
-        <canvas id="stage"></canvas>
-        <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
-        <div id="credit"></div>
-      </section>
+      <!-- PRD 24: the companion column (avatar + history + composer) is ONE element, moved by
+           setView between #chat-slot (Chat: half the workspace) and #left-slot (every other
+           view: a 25% slice). It starts in the chat slot below. -->
+      <div id="left-slot"></div>
 
       <section id="workspace">
         <div id="view-chat" class="view">
-          <section id="panel">
-            <div id="transcript"></div>
-            <button id="btn">Speak</button>
-            <div id="status">connecting...</div>
-          </section>
+          <div id="chat-slot">
+            <section id="companion" class="chat">
+              <section id="avatar">
+                <canvas id="stage"></canvas>
+                <div id="avatar-note" hidden>avatar assets missing — run <code>scripts/fetch_assets.sh</code></div>
+                <!-- backdrop thumbnails: built in app.js, Chat view only -->
+                <div id="backdrop-thumbs" aria-label="Backdrop"></div>
+                <div id="credit"></div>
+              </section>
+
+              <div id="history"></div>
+
+              <div id="composer">
+                <div id="composer-row">
+                  <textarea id="composer-input" rows="1" placeholder="type a message…"
+                            aria-label="Message"></textarea>
+                  <button id="send-btn" class="composer-btn" title="Send (Enter)" aria-label="Send">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 9-14 9 3-9z"/></svg>
+                  </button>
+                </div>
+                <div id="composer-foot">
+                  <button id="mic-btn" class="composer-btn" title="Voice on/off" aria-label="Voice">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+                      <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path>
+                    </svg>
+                  </button>
+                  <button id="mute-btn" class="composer-btn" title="Mute replies (space)" aria-label="Mute">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M4 9h4l5-4v14l-5-4H4z"></path>
+                      <path class="wave" d="M16.5 9.5a4 4 0 0 1 0 5"></path>
+                      <path class="cross" d="M16.5 9.5l4 5m0-5l-4 5"></path>
+                    </svg>
+                  </button>
+                  <span id="listening-dot" aria-hidden="true"></span>
+                  <div id="status">connecting...</div>
+                </div>
+              </div>
+            </section>
+          </div>
         </div>
 
         <div id="view-memory" class="view" hidden>

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
-from tests.conftest import Blocker, fake_asr, untagged
+from tests.conftest import Blocker, fake_asr
 
 
 @pytest.fixture(autouse=True)
@@ -141,56 +141,19 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
     assert respond_calls == []
 
 
-def test_ptt_start_then_stop_transcribes_and_responds(monkeypatch):
-    monkeypatch.setattr(chatbot, "asr", fake_asr("ptt hello"))
+def test_text_turn_runs_while_hands_free_is_on(monkeypatch):
+    """PRD 24: typing works whatever the mic is doing — it is just another queued turn."""
+    monkeypatch.setattr(chatbot, "hands_free", True)
     respond_calls = []
     monkeypatch.setattr(chatbot, "respond",
-                        lambda sess, turn, text, send_sync: respond_calls.append(text))
+                        lambda sess, turn, text, send_sync, origin="user": respond_calls.append((text, origin)))
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         drain_initial(ws)
-
-        ws.send_json({"action": "ptt", "value": "start"})
-        assert untagged(ws.receive_json()) == {"type": "state", "value": "recording"}
-        assert chatbot.session.ptt_active is True
-
-        # Enough samples to clear the 0.3s-min-length discard.
-        ws.send_bytes(np.zeros(5000, dtype=np.int16).tobytes())
-
-        ws.send_json({"action": "ptt", "value": "stop"})
-        msg1 = ws.receive_json()
-        msg2 = ws.receive_json()
-        assert msg1 == {"type": "state", "value": "processing", "turn": 1}
-        assert msg2 == {"type": "transcript", "role": "user", "text": "ptt hello"}
-        assert chatbot.session.ptt_active is False
+        ws.send_json({"action": "text_turn", "text": "typed hello"})
+        ws.send_json({"action": "set_backdrop", "key": "none"})   # round trip
+        assert ws.receive_json()["type"] == "backdrop"
 
     chatbot.controller.join_idle(timeout=5)
-    assert respond_calls == ["ptt hello"]
-
-
-def test_ptt_start_ignored_while_a_turn_runs():
-    blocker = Blocker()
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        drain_initial(ws)
-        blocker.hold(chatbot.controller)
-        ws.send_json({"action": "ptt", "value": "start"})
-        ws.send_json({"action": "set_backdrop", "key": "none"})  # round trip
-        assert ws.receive_json()["type"] == "backdrop"  # no "recording" came first
-        assert chatbot.session.ptt_active is False
-        blocker.free(chatbot.controller)
-
-
-def test_stray_ptt_stop_while_busy_emits_nothing():
-    """Scenario 11: a stop with no active recording must not emit `state idle`."""
-    blocker = Blocker()
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        drain_initial(ws)
-        blocker.hold(chatbot.controller)
-        ws.send_json({"action": "ptt", "value": "stop"})
-        ws.send_json({"action": "set_backdrop", "key": "none"})  # round trip
-        assert ws.receive_json()["type"] == "backdrop"  # nothing between
-        assert chatbot.session.recorder is None
-        blocker.free(chatbot.controller)
+    assert respond_calls == [("typed hello", "typed")]

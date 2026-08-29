@@ -82,7 +82,7 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
     sent = []
     sess = Session(websocket=object())  # truthy socket → the playback wait is real
 
-    def fake_ask_events(user_text):
+    def fake_ask_events(user_text, origin="user"):
         llm._conversation.append({"role": "user", "content": user_text})
         reply = f"[happy] Answer to {user_text}."
         yield ("delta", reply)
@@ -150,32 +150,27 @@ def test_scenario_4_bad_character_cards_report_an_error(monkeypatch):
         assert ws.receive_json()["type"] == "backdrop"
 
 
-def test_scenario_5_second_connection_closes_the_first():
+def test_scenario_5_second_connection_closes_the_first(monkeypatch):
+    monkeypatch.setattr(chatbot, "hands_free", True)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws1:
         ws1.receive_json(); ws1.receive_json()
-        ws1.send_json({"action": "ptt", "value": "start"})
-        assert ws1.receive_json()["value"] == "recording"
         first = chatbot.session
-        assert first.ptt_active is True
+        first.hearing = True   # per-connection state that must not leak into the next socket
 
         with client.websocket_connect("/ws") as ws2:
             ws2.receive_json(); ws2.receive_json()
             second = chatbot.session
             assert second is not first
-            assert second.ptt_active is False and second.recorder is None
+            assert second.hearing is False and second.endpointer is None
 
             with pytest.raises(WebSocketDisconnect) as excinfo:
                 ws1.receive_json()
             assert excinfo.value.code == 4000
 
-            # The new connection drives PTT normally.
-            ws2.send_json({"action": "ptt", "value": "start"})
-            assert ws2.receive_json()["value"] == "recording"
-            assert chatbot.session.ptt_active is True
-            ws2.send_bytes(np.zeros(100, dtype=np.int16).tobytes())
-            ws2.send_json({"action": "ptt", "value": "stop"})  # too short → idle, no turn
-            assert ws2.receive_json()["value"] == "idle"
+            # The new connection drives turns normally.
+            ws2.send_json({"action": "set_backdrop", "key": "none"})
+            assert ws2.receive_json()["type"] == "backdrop"
 
 
 # ---------------------------------------------------------------- turn ids

@@ -46,7 +46,7 @@ python3 chatbot.py    # opens http://localhost:8010 automatically
 #   OPEN_BROWSER=0 (env or .env) starts the server without opening a tab
 ```
 
-Press **Space** or click the button to start/stop recording (push-to-talk), or enable **Hands-free** in the ☰ menu to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to pick a backdrop or to shut down cleanly.
+Type in the composer (**Enter** sends, **Shift+Enter** newline) or turn the mic on with the composer's mic button / the **Listening** switch in Settings to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. **Space** mutes the replies (they still arrive and are shown, they just aren't played). The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Hover the avatar in Chat for the backdrop thumbnails; the **Settings** view (rail, key 5) has every other control, including a clean shut down.
 
 Wanko is the only avatar; anything else in `AVATAR` or in `settings.json` (gitignored) quietly resolves back to her. Her persona lives in `characters/wanko.yaml`. `KOKORO_VOICE` / `KOKORO_SPEED` in `.env` override the current avatar's default voice/speed if set. Client-side avatar behaviour (model, framing, expression mapping) lives in `PROFILES` at the top of `static/app.js`; emotion→expression tuning is in the same file's `CONFIG`.
 

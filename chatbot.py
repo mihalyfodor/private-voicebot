@@ -170,7 +170,6 @@ controller = TurnController(on_turn_complete=_periodic_memory)
 
 greeted = False
 hands_free = bool(avatars.load_settings().get("hands_free", False))
-PTT_MIN_SAMPLES = int(0.3 * SAMPLERATE)
 
 #: message types that carry the turn id (assistant transcripts only)
 _TURN_TAGGED = {"state", "speech", "speech_end"}
@@ -253,11 +252,15 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
     send_sync({"type": "state", "value": "idle"})
 
 
-def respond(sess: Session, turn: int, user_text: str, send_sync):
-    """LLM → sentence-streamed TTS → wait for browser playback → idle."""
+def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
+    """LLM → sentence-streamed TTS → wait for browser playback → idle.
+
+    `origin` only tags the session log line ("user" for spoken, "typed" for the composer);
+    everything else — conversation, tools, memory — is identical either way.
+    """
     send_sync({"type": "state", "value": "thinking"})
     _arm_playback(sess, turn)
-    reply = speak_stream(llm.ask_events(user_text), send_sync)
+    reply = speak_stream(llm.ask_events(user_text, origin=origin), send_sync)
     print(f"Bot: {reply}")
     send_sync({"type": "transcript", "role": "assistant", "text": reply})
     _wait_for_playback_then_idle(sess, send_sync)
@@ -272,8 +275,26 @@ def say_canned(text: str, send_sync, tts=None):
     return reply
 
 
+def handle_text(sess: Session, turn: int, text: str, loop):
+    """One typed turn (PRD 24): the same path a final transcript takes, minus the ASR.
+
+    The browser already rendered the user's line, so no user transcript is echoed back.
+    """
+    send_sync = make_sender(loop, turn)
+    responded = False
+    try:
+        print(f"You (typed): {text}")
+        respond(sess, turn, text, send_sync, origin="typed")
+        responded = True
+    except Exception as e:
+        print(f"[Error] {e}")
+    finally:
+        if not responded:
+            send_sync({"type": "state", "value": "idle"})
+
+
 def handle_utterance(sess: Session, turn: int, audio, loop):
-    """Transcribe one captured utterance (hands-free or PTT) and respond.
+    """Transcribe one captured utterance (hands-free) and respond.
 
     Idle is always sent when no reply was produced (empty transcript or an exception).
     """
@@ -442,11 +463,7 @@ async def index():
 
 
 async def _handle_audio(sess: Session, data, loop):
-    """One binary PCM frame from the browser: PTT recorder or hands-free endpointer."""
-    if sess.ptt_active:
-        if sess.recorder is not None:
-            sess.recorder.feed(data)
-        return
+    """One binary PCM frame from the browser, fed to the hands-free endpointer."""
     if not hands_free:
         return
     if sess.endpointer is None:
@@ -462,23 +479,11 @@ async def _handle_audio(sess: Session, data, loop):
         submit_turn(handle_utterance, utt, loop)
 
 
-async def _action_ptt(sess, msg, loop):
-    value = msg.get("value")
-    if value == "start":
-        if not controller.busy:
-            sess.recorder = vad.Recorder()
-            sess.ptt_active = True
-            await send_state(sess, "recording")
-    elif value == "stop":
-        if not sess.ptt_active:
-            return  # stray stop (e.g. key-up after a refused start): no state change
-        sess.ptt_active = False
-        recorder, sess.recorder = sess.recorder, None
-        audio = recorder.stop() if recorder is not None else np.zeros(0, dtype=np.float32)
-        if audio.size < PTT_MIN_SAMPLES:
-            await send_state(sess, "idle")
-        else:
-            submit_turn(handle_utterance, audio, loop)
+async def _action_text_turn(sess, msg, loop):
+    """Composer input (PRD 24): queued exactly like a finished utterance."""
+    text = (msg.get("text") or "").strip()
+    if text:
+        submit_turn(handle_text, text, loop)
 
 
 async def _action_set_hands_free(sess, msg, loop):
@@ -709,7 +714,7 @@ async def _action_shutdown(sess, msg, loop):
 
 
 ACTIONS = {
-    "ptt": _action_ptt,
+    "text_turn": _action_text_turn,
     "set_hands_free": _action_set_hands_free,
     "playback_done": _action_playback_done,
     "playback_blocked": _action_playback_blocked,

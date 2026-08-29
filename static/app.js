@@ -32,13 +32,22 @@ let profile = PROFILES.wanko;
 let avatarName = 'Wanko';
 
 // ---------- DOM ----------
-const btn = document.getElementById('btn');
+// The companion column (avatar + history + composer) is one element; setView moves it
+// between the chat slot and the shell's left slot (PRD 24).
 const status = document.getElementById('status');
-const transcript = document.getElementById('transcript');
+const historyEl = document.getElementById('history');
 const avatarNote = document.getElementById('avatar-note');
+const companionEl = document.getElementById('companion');
+const chatSlot = document.getElementById('chat-slot');
+const leftSlot = document.getElementById('left-slot');
+const composerInput = document.getElementById('composer-input');
+const sendBtn = document.getElementById('send-btn');
+const micBtn = document.getElementById('mic-btn');
+const muteBtn = document.getElementById('mute-btn');
+const listeningDot = document.getElementById('listening-dot');
 let shutdownRequested = false;
 function showShutdownScreen() {
-  for (const id of ['avatar', 'workspace', 'rail']) {
+  for (const id of ['companion', 'workspace', 'rail']) {
     document.getElementById(id).classList.add('gone');
   }
   document.getElementById('shutdown-screen').hidden = false;
@@ -59,6 +68,7 @@ let backdropOptions = [];
 let currentBackdropKey = 'none';
 const backdropEl = document.getElementById('backdrop');
 const backdropList = document.getElementById('backdrop-list');
+const backdropThumbs = document.getElementById('backdrop-thumbs');
 
 function applyBackdrop(key) {
   currentBackdropKey = key;
@@ -73,13 +83,31 @@ function applyBackdrop(key) {
   credit.textContent = [profile.credit, b && b.credit].filter(Boolean).join('  ·  ');
 }
 
+function setBackdrop(key) {
+  ws.send(JSON.stringify({ action: 'set_backdrop', key }));
+}
+
 function renderBackdropList() {
   backdropList.replaceChildren(...backdropOptions.map(b => {
     const c = document.createElement('button');
     c.className = 'chip' + (b.key === currentBackdropKey ? ' active' : '');
     c.textContent = b.name;
-    c.onclick = () => ws.send(JSON.stringify({ action: 'set_backdrop', key: b.key }));
+    c.onclick = () => setBackdrop(b.key);
     return c;
+  }));
+  renderBackdropThumbs();
+}
+
+// The same picker as the Settings chips, as ~28px thumbs over the avatar (Chat view only).
+function renderBackdropThumbs() {
+  backdropThumbs.replaceChildren(...backdropOptions.map(b => {
+    const t = document.createElement('button');
+    t.className = 'bd-thumb' + (b.file ? '' : ' none') + (b.key === currentBackdropKey ? ' active' : '');
+    t.title = b.name;
+    t.setAttribute('aria-label', b.name);
+    if (b.file) t.style.backgroundImage = `url("${b.file}")`;
+    t.onclick = () => setBackdrop(b.key);
+    return t;
   }));
 }
 
@@ -101,19 +129,17 @@ verbositySlider.addEventListener('change', () => {
 });
 
 const statusText = {
-  idle: 'press space or click to speak',
-  recording: 'recording — press space or click to stop',
+  idle: 'type a message or talk',
+  recording: 'recording...',
   processing: 'processing...',
   thinking: 'thinking...',
   speaking: 'speaking...',
 };
-const btnText = { idle: 'Speak', recording: 'Stop', processing: '...', thinking: '...', speaking: '...' };
 
 let ws;
 let state = 'idle';
-let handsFree = false;   // mirrors the server-confirmed hands_free value
-let muted = false;       // hands-free only: user muted the mic
-let pttActive = false;   // push-to-talk only: between ptt start/stop
+let handsFree = false;   // mirrors the server-confirmed hands_free value (voice on/off)
+let muted = false;       // output mute: replies arrive and are shown, but not played
 let listening = 'idle';  // hands-free VAD activity: 'idle' | 'hearing'
 let currentTurn = 0;     // latest turn id seen on `state`/`speech`
 let audioBlocked = false;      // true while waiting on a user gesture to unlock audio
@@ -171,7 +197,7 @@ const mic = {
 };
 
 function updateSending() {
-  mic.sending = (handsFree && !muted) || pttActive;
+  mic.sending = handsFree;
 }
 
 const queue = [];           // pending {emotion, buffer}
@@ -195,6 +221,10 @@ function adoptTurn(turn) {
 }
 
 function enqueueSpeech(msg) {
+  // Muted (PRD 24): the reply still arrives and its transcript is shown, we just never
+  // decode or play it. `speech_end` still runs finishReply(), so the server's turn state
+  // advances on playback_done exactly as it does when the audio was heard.
+  if (muted) { adoptTurn(msg.turn); return; }
   if (adoptTurn(msg.turn)) {
     // A newer turn superseded whatever was queued (but not yet playing): drop it.
     while (queue.length && typeof queue[0].turn === 'number' && queue[0].turn < currentTurn) queue.shift();
@@ -475,10 +505,24 @@ function railItemFor(id) {
   return railItems.find(b => b.dataset.view === id);
 }
 
+// The companion lives in the chat slot on Chat and in the shell's left slot everywhere else;
+// PIXI only resizes on window events, so the canvas is resized and refitted after the move.
+function placeCompanion(name) {
+  const chat = name === 'chat';
+  const slot = chat ? chatSlot : leftSlot;
+  companionEl.className = chat ? 'chat' : 'side';
+  if (companionEl.parentNode !== slot) slot.appendChild(companionEl);
+  requestAnimationFrame(() => {
+    if (avatar.app) avatar.app.resize();
+    avatar.fit();
+  });
+}
+
 function setView(name) {
   const v = VIEW_BY_ID.get(name);
   if (!v) return;
   currentView = name;
+  placeCompanion(name);
   for (const other of VIEWS) document.getElementById(other.el).hidden = true;
   document.getElementById(v.el).hidden = false;
   railItems.forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -1566,7 +1610,7 @@ function connect() {
     else if (msg.type === 'listening') { listening = msg.value; render(); }
     else if (msg.type === 'hands_free') {
       handsFree = msg.value;
-      if (!handsFree) { muted = false; pttActive = false; listening = 'idle'; }
+      if (!handsFree) listening = 'idle';
       updateSending();
       renderHandsFreeToggle();
       render();
@@ -1617,90 +1661,122 @@ function renderHandsFreeToggle() {
   document.getElementById('hands-free-toggle').classList.toggle('active', handsFree);
 }
 
-// Recomputes the Speak button + status line from state/handsFree/muted/listening.
+// Recomputes the composer buttons + status line from state/handsFree/muted/listening.
 function render() {
   const busy = state === 'processing' || state === 'thinking' || state === 'speaking';
+  const hearing = handsFree && listening === 'hearing';
+
+  micBtn.className = 'composer-btn' + (handsFree ? ' on' : '') + (hearing ? ' hearing' : '');
+  micBtn.title = handsFree ? 'Voice on — click to stop listening' : 'Voice off — click to listen';
+  muteBtn.className = 'composer-btn' + (muted ? ' muted' : state === 'speaking' ? ' speaking' : '');
+  muteBtn.title = muted ? 'Replies are muted (space)' : 'Mute replies (space)';
+  listeningDot.className = hearing ? 'hearing' : handsFree && mic.started ? 'on' : '';
+
   if (handsFree && !busy) {
-    // Idle hands-free: the button is a mute switch, the status shows VAD activity.
-    const hearing = listening === 'hearing';
-    btn.className = !muted && hearing ? 'hearing' : '';
-    btn.textContent = muted ? 'MUTED' : 'MUTE';
-    status.textContent = muted ? 'muted'
-      : hearing ? 'hearing you…'
+    status.textContent = hearing ? 'hearing you…'
       : mic.started ? 'listening…'
       : 'click to start the microphone';
-    btn.disabled = false;
   } else {
-    btn.className = state === 'idle' ? '' : state;
-    btn.textContent = btnText[state] || '...';
     status.textContent = statusText[state] || '';
-    btn.disabled = !(state === 'idle' || state === 'recording');
   }
+  if (muted && !busy) status.textContent += status.textContent ? ' · muted' : 'muted';
   // Re-assert the audio-unlock hint last so other branches above don't clobber it
   // while we're still waiting on a user gesture to resume the AudioContext.
   if (audioBlocked) status.textContent = 'click anywhere to enable audio';
 }
 
-function addMessage(role, text) {
+const KEYBOARD_GLYPH = [['rect', { x: 2, y: 6, width: 20, height: 12, rx: 2 }],
+                        ['path', { d: 'M7 10h.01M11 10h.01M15 10h.01M8 14h8' }]];
+
+function addMessage(role, text, typed) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
-  const r = document.createElement('span'); r.className = 'role'; r.textContent = role === 'user' ? 'You' : avatarName;
+  const r = document.createElement('span'); r.className = 'role';
+  r.textContent = role === 'user' ? 'You' : avatarName;
+  if (typed) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', 'typed-glyph');
+    svg.setAttribute('aria-label', 'typed');
+    for (const [tag, attrs] of KEYBOARD_GLYPH) {
+      const node = document.createElementNS(SVG_NS, tag);
+      for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, String(v));
+      svg.append(node);
+    }
+    r.append(svg);
+  }
   const t = document.createElement('span'); t.className = 'text'; t.textContent = text;
   div.append(r, t);
-  transcript.appendChild(div);
-  transcript.scrollTop = transcript.scrollHeight;
+  historyEl.appendChild(div);
+  historyEl.scrollTop = historyEl.scrollHeight;
 }
 
-// Push-to-talk: Space/click starts capture on press, stops it on the next press.
-async function pttToggle() {
+// ---------- composer (PRD 24) ----------
+// Typed turns take the same server path as a final transcript; the server does not echo the
+// user line back (we render it here immediately), the reply arrives as `speech`/`transcript`.
+function sendText() {
+  const text = composerInput.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
   unlockAudio();
-  if (state === 'idle') {
-    const ok = await mic.start();
-    if (!ok) return;
-    pttActive = true;
-    updateSending();
-    ws.send(JSON.stringify({ action: 'ptt', value: 'start' }));
-  } else if (state === 'recording') {
-    pttActive = false;
-    updateSending();
-    ws.send(JSON.stringify({ action: 'ptt', value: 'stop' }));
-  }
+  addMessage('user', text, true);
+  ws.send(JSON.stringify({ action: 'text_turn', text }));
+  composerInput.value = '';
+  growComposer();
 }
 
-// Hands-free: Space/click mutes/unmutes the always-on stream.
-async function toggleMute() {
-  if (!(state === 'idle' || state === 'recording' || listening === 'hearing')) return;
-  if (muted) {
-    const ok = await mic.start();
-    if (!ok) return;
-    muted = false;
-  } else {
-    muted = true;
-  }
-  updateSending();
+const COMPOSER_MAX_LINES = 4;
+function growComposer() {
+  const cs = getComputedStyle(composerInput);
+  const line = parseFloat(cs.lineHeight) || 20;
+  const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + 2;
+  composerInput.style.height = 'auto';
+  composerInput.style.height = Math.min(composerInput.scrollHeight, line * COMPOSER_MAX_LINES + pad) + 'px';
+}
+
+composerInput.addEventListener('input', growComposer);
+composerInput.addEventListener('keydown', (e) => {
+  e.stopPropagation();                 // Space / digits are global shortcuts otherwise
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+});
+sendBtn.addEventListener('click', sendText);
+
+// Output mute: client-side only, so nothing about the turn/interrupt protocol changes.
+function toggleMute() {
+  muted = !muted;
   render();
 }
+muteBtn.addEventListener('click', toggleMute);
 
-function btnAction() {
-  if (handsFree) toggleMute();
-  else pttToggle();
+// The mic button is voice on/off — the same `set_hands_free` action the Settings switch sends.
+async function setHandsFree(desired) {
+  unlockAudio();
+  if (desired) {
+    const ok = await mic.start();
+    if (!ok) return; // permission denied: stays off, status already set by mic.start()
+  }
+  ws.send(JSON.stringify({ action: 'set_hands_free', value: desired }));
 }
-
-btn.addEventListener('click', btnAction);
+micBtn.addEventListener('click', () => setHandsFree(!handsFree));
 
 // ---------- keyboard ----------
-// The one keydown handler: Esc closes the intake popup, Space is push-to-talk and 1–5 switch
-// views. Everything below the typing guard is off while the keyboard is being used for typing
-// or the intake popup is up.
+// The one keydown handler: Esc closes the intake popup, Space toggles the output mute and
+// 1–5 switch views. Everything below the typing guard is off while the keyboard is being used
+// for typing or the intake popup is up.
 function isTyping(node) {
   return !!(node && node.closest && node.closest('input, textarea, [contenteditable=""], [contenteditable="true"]'));
 }
+function isInteractive(node) {
+  return !!(node && node.closest && node.closest('button, a, select, [role="button"]'));
+}
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !intakeEl.hidden) { closeIntake(); return; }
-  if (e.code === 'Space' && e.target === document.body) { e.preventDefault(); btnAction(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (isTyping(e.target) || isTyping(document.activeElement)) return;
   if (!intakeEl.hidden) return;
+  if (e.code === 'Space') {
+    if (isInteractive(e.target) || isInteractive(document.activeElement)) return;  // let the button take it
+    e.preventDefault(); toggleMute(); return;
+  }
   const v = VIEWS.find(x => x.key === e.key);
   if (v) { e.preventDefault(); setView(v.id); }
 });
@@ -1712,15 +1788,8 @@ document.addEventListener('click', () => {
   if (handsFree && !mic.started) mic.start();
 });
 
-document.getElementById('hands-free-toggle').onclick = async () => {
-  unlockAudio();
-  const desired = !handsFree;
-  if (desired) {
-    const ok = await mic.start();
-    if (!ok) return; // permission denied: toggle stays off, status already set by mic.start()
-  }
-  ws.send(JSON.stringify({ action: 'set_hands_free', value: desired }));
-};
+// The Settings "Listening" switch and the composer mic button drive the same state.
+document.getElementById('hands-free-toggle').onclick = () => setHandsFree(!handsFree);
 
 setView('chat');
 avatar.init();
