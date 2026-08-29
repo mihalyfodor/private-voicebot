@@ -43,6 +43,7 @@ cp .env.example .env   # set OMLX_MODEL to the id shown by: curl http://localhos
 ```bash
 source .venv/bin/activate
 python3 chatbot.py    # opens http://localhost:8010 automatically
+#   OPEN_BROWSER=0 (env or .env) starts the server without opening a tab
 ```
 
 Press **Space** or click the button to start/stop recording (push-to-talk), or enable **Hands-free** in the ☰ menu to just talk: a VAD detects when you stop speaking. The mic is gated while the assistant speaks, so it won't answer itself. The avatar's mouth follows the audio and its expression follows the `[emotion]` tag the LLM prefixes each reply with (`neutral`, `happy`, `thinking`, `surprised`, `apologetic`). Open the **☰** menu (top-left) to pick a backdrop or to shut down cleanly.

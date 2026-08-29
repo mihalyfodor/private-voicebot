@@ -349,17 +349,14 @@ SCREENSHOT_CMD = ".venv/bin/python scripts/screenshot.py /tmp/shot.png"
 @app.get("/api/config")
 async def api_config():
     """Everything the UI needs at boot: what to render, what is switched on, what to display."""
-    settings = avatars.load_settings()
     return {
         # who is on stage and what else can be picked
         "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
-        # session state the chat panel mirrors
+        # session state the UI mirrors
         "hands_free": hands_free,
         "verbosity": llm.current_verbosity(),
-        # layout preference persisted via `set_setting` (see SETTABLE)
-        "panel_pinned": bool(settings.get("panel_pinned", False)),
-        # read-only facts shown in the memory panel and the Settings view
+        # read-only facts shown in the Settings view
         "stale_days": dict(memory.STALE_DAYS),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
@@ -543,13 +540,15 @@ async def _action_set_verbosity(sess, msg, loop):
 
 #: Settings the UI may write straight to settings.json via `set_setting`, and the type each
 #: one must have. Deliberately tiny: everything with side effects keeps its own action.
-SETTABLE = {"panel_pinned": bool}
+# key -> expected type. Empty since PRD 22b removed `panel_pinned`; the action stays so the
+# next persisted UI preference is one line here instead of a new action.
+SETTABLE: dict[str, type] = {}
 
 
 async def _action_set_setting(sess, msg, loop):
     """Persist one whitelisted UI setting and echo it back; unknown keys and wrong types are refused.
 
-    The whole point is that a layout preference does not need an action of its own — anything
+    The whole point is that a stored UI preference does not need an action of its own — anything
     with a side effect (avatar, verbosity, hands-free) still gets a dedicated handler.
     """
     key = msg.get("key")
@@ -801,6 +800,15 @@ async def websocket_endpoint(websocket: WebSocket):
             session = None
 
 
+def env_flag(name: str, default: str = "1") -> bool:
+    """Env var as a boolean: `0`, `false`, `no` (any case) are off, everything else is on."""
+    return os.getenv(name, default).strip().lower() not in ("0", "false", "no")
+
+
+# Off with OPEN_BROWSER=0: a restart during development should not steal focus.
+OPEN_BROWSER = env_flag("OPEN_BROWSER")
+
+
 def open_browser():
     import time
     time.sleep(1)
@@ -812,6 +820,7 @@ if __name__ == "__main__":
     print("Loading Kokoro TTS...")
     kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
     print("Ready.\n")
-    threading.Thread(target=open_browser, daemon=True).start()
+    if OPEN_BROWSER:
+        threading.Thread(target=open_browser, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
     print("\nExiting...")
