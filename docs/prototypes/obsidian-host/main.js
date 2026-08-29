@@ -14,8 +14,8 @@ const VOICEBOT_URL = 'http://127.0.0.1:8010/';
 // Default settings point at this repo's own venv/python so the spike can be
 // run with zero configuration when the plugin folder is copied verbatim.
 const DEFAULT_SETTINGS = {
-  pythonPath: '/Users/fomi/projects/personal/anime-chatbot/.venv/bin/python',
-  repoPath: '/Users/fomi/projects/personal/anime-chatbot',
+  pythonPath: '/Users/fomi/projects/personal/private-voicebot/.venv/bin/python',
+  repoPath: '/Users/fomi/projects/personal/private-voicebot',
 };
 
 // ItemView hosting the iframe. Obsidian's <webview> tag is disabled in the
