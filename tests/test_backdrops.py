@@ -4,14 +4,6 @@ import pytest
 import avatars, backdrops
 
 
-@pytest.fixture(autouse=True)
-def isolated_settings(tmp_path, monkeypatch):
-    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setattr(avatars, "_current", None)
-    monkeypatch.delenv("AVATAR", raising=False)
-    yield
-
-
 def test_validate_and_listing():
     assert backdrops.validate("none") == "none"
     with pytest.raises(ValueError, match="none"):

@@ -9,7 +9,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import avatars
 import chatbot
+import llm
 import memory
 import wiki
 
@@ -25,6 +27,24 @@ def wiki_sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
     monkeypatch.setattr(wiki, "_index_cache", {"sig": None, "docs": []})
     return vault
+
+
+@pytest.fixture(autouse=True)
+def file_sandbox(monkeypatch, tmp_path):
+    """No test may touch the real settings.json, session.log or memory files.
+
+    Every module-level path is pointed at tmp_path; the avatar cache and AVATAR env are
+    reset so settings start from a clean slate. `memory_sandbox` below is the same thing
+    under the name the memory tests use.
+    """
+    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(avatars, "_current", None)
+    monkeypatch.delenv("AVATAR", raising=False)
+    monkeypatch.setattr(llm, "LOG_PATH", str(tmp_path / "session.log"))
+    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
+    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
+    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
+    return tmp_path
 
 
 @pytest.fixture(autouse=True)
@@ -116,12 +136,9 @@ class FakeClient:
 
 
 @pytest.fixture
-def memory_sandbox(monkeypatch, tmp_path):
-    """Point every memory file at tmp_path, so no test can touch the real memory.json."""
-    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
-    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
-    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
-    return tmp_path
+def memory_sandbox(file_sandbox):
+    """The tmp_path every memory file already points at (see `file_sandbox`)."""
+    return file_sandbox
 
 
 def empty_profile(**sections) -> dict:

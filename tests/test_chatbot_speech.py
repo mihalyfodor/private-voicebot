@@ -75,11 +75,7 @@ def test_speak_stream_sends_speech_end_and_reraises_on_tts_error():
     assert [m["type"] for m in sent] == ["state", "speech", "speech_end"]
 
 
-def test_apply_avatar_respects_env_override(monkeypatch, tmp_path):
-    import avatars
-    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setattr(avatars, "_current", None)
-    monkeypatch.delenv("AVATAR", raising=False)
+def test_apply_avatar_respects_env_override(monkeypatch):
     monkeypatch.setenv("KOKORO_VOICE", "af_bella")
     monkeypatch.delenv("KOKORO_SPEED", raising=False)
 

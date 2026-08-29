@@ -11,14 +11,6 @@ from tests.conftest import Blocker, fake_asr
 
 
 @pytest.fixture(autouse=True)
-def isolated_settings(tmp_path, monkeypatch):
-    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
-    monkeypatch.setattr(avatars, "_current", None)
-    monkeypatch.delenv("AVATAR", raising=False)
-    yield
-
-
-@pytest.fixture(autouse=True)
 def reset_capture_state(monkeypatch):
     """hands_free is a persisted app setting (module-level); the rest lives on the session."""
     monkeypatch.setattr(chatbot, "hands_free", False)
