@@ -175,6 +175,13 @@
               </span>
               <span class="set-ctl"><div id="decay-list"></div></span>
             </div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Calendar horizon</span>
+                <span class="desc">days ahead a dropped recurring invite is expanded into meeting stubs</span>
+              </span>
+              <span class="set-ctl"><input type="number" id="calendar-horizon" min="1" max="365" step="1"> <span class="set-value">days</span></span>
+            </div>
             <div class="set-head danger">Danger zone</div>
             <div class="set-row">
               <span class="set-label">
@@ -245,7 +252,7 @@
             <div id="intake-form">
               <label class="intake-field" id="intake-title-field">
                 <span class="intake-label">title</span>
-                <input id="intake-title" placeholder="title">
+                <input id="intake-title" placeholder="model picks a title">
               </label>
               <label class="intake-field">
                 <span class="intake-label">file under</span>

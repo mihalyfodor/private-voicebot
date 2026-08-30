@@ -413,6 +413,7 @@ async def api_config():
         "verbosity": llm.current_verbosity(),
         # read-only facts shown in the Settings view
         "stale_days": dict(memory.STALE_DAYS),
+        "calendar_horizon_days": sources.calendar_horizon_days(),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
     }
@@ -581,7 +582,8 @@ async def _action_set_verbosity(sess, msg, loop):
 #: one must have. Deliberately tiny: everything with side effects keeps its own action.
 # key -> expected type. Empty since PRD 22b removed `panel_pinned`; the action stays so the
 # next persisted UI preference is one line here instead of a new action.
-SETTABLE: dict[str, type] = {}
+#: `calendar_horizon_days` — how far a recurring invite is expanded into meeting stubs (PRD 31)
+SETTABLE: dict[str, type] = {"calendar_horizon_days": int}
 
 
 async def _action_set_setting(sess, msg, loop):

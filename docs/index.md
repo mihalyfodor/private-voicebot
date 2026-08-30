@@ -52,7 +52,7 @@ voicebot/
 ├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags
-├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, summary + page ops, POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
+├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling, transcript → meetings page, deterministic .ics stubs (PRD 31), summary + page ops, POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
 ├── scripts/
 │   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
@@ -61,7 +61,7 @@ voicebot/
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki editor / Sources / Settings), intake popup, command palette
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
-│   ├── app.js           # PROFILES/CONFIG/MOTIONS, Live2D model load, audio queue, lip-sync, expressions, motion groups + click-to-pet + state cues (PRD 27), rail (VIEWS table), setView (companion re-parenting), renderComposer (mic/mute/status), memory view, wiki editor (marked render + safe import, textarea ⌘S/Esc, etag conflict dialog, backlinks, search, Tags group, Today/New/Rename/Delete — PRD 28), settings view, drop-paste intake, ⌘K command palette (PALETTE_SOURCES registry, ranking — PRD 30), keyboard, websocket
+│   ├── app.js           # PROFILES/CONFIG/MOTIONS, Live2D model load, audio queue, lip-sync, expressions, motion groups + click-to-pet + state cues (PRD 27), rail (VIEWS table), setView (companion re-parenting), renderComposer (mic/mute/status), memory view, wiki editor (marked render + safe import, textarea ⌘S/Esc, etag conflict dialog, backlinks, search, Tags group, Today/New/Rename/Delete — PRD 28), settings view (incl. the calendar horizon field), drop-paste intake, ⌘K command palette (PALETTE_SOURCES registry, ranking — PRD 30), keyboard, websocket
 │   ├── style.css        # shell layout (--rail-w), rail, #companion chat-grid vs side slice, history/composer, views, settings rows, palette overlay, narrow-screen bottom tab bar
 │   ├── vendor/          # gitignored, fetched — except marked.umd.js + LICENSE-marked.md (MIT, committed; PRD 28)
 │   ├── models/           # gitignored, fetched (wanko/)
@@ -102,6 +102,7 @@ voicebot/
 │   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
 │   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
 │   ├── test_sources_inbox.py      # PRD 25: list_sources newest-first, reingest, forget (only matching notes), get_sources/reingest_source/forget_source actions
+│   ├── test_office_formats.py     # PRD 31: docx/pptx/xlsx/vtt/ics extraction (fixtures generated in-test), Teams detection, meeting pages + attendee notes, calendar stubs + horizon setting, unreadable files, 10 MB text sampling, model-titled pastes, client fixture assertions
 │   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 │   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
 │   ├── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag
@@ -110,9 +111,9 @@ voicebot/
 │   ├── test_wiki_editor.py        # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
 │   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
-│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py, test_palette.py), marker `e2e`
+│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop, test_palette.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
-│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette); its header
+│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake titles/horizon field); its header
 │                                   # documents the hooks and how to add a scenario
 ├── requirements.txt
 └── docs/
@@ -150,7 +151,8 @@ voicebot/
     ├── 27-wanko-interactivity.md # PRD: motion groups, click-to-pet, state cues, new emotions (done)
     ├── 28-wiki-editor.md         # PRD: wiki as a light Obsidian-compatible editor (done)
     ├── 29-e2e.md                 # PRD: Playwright end-to-end tests (done)
-    └── 30-command-palette.md     # PRD: ⌘K command palette (done)
+    ├── 30-command-palette.md     # PRD: ⌘K command palette (done)
+    └── 31-office-formats.md      # PRD: docx/pptx/xlsx/vtt/ics drops, meeting pages, calendar stubs, big-text sampling (refactoring)
 ```
 
 ## Active PRDs
@@ -181,6 +183,7 @@ voicebot/
 - [28-wiki-editor.md](28-wiki-editor.md) — wiki as a light, Obsidian-compatible editor: rendered pages, ⌘S save with etag conflicts, backlinks, search, tags, create/rename/delete (done)
 - [29-e2e.md](29-e2e.md) — Playwright e2e layer: spawned server, temp vault, wiki editor flows, one live turn; `SETTINGS_PATH`/`MEMORY_DIR` env overrides (done)
 - [30-command-palette.md](30-command-palette.md) — ⌘K command palette: views, wiki pages/Today/New, backdrop/reply length/voice/mute, file a source, re-ingest, shutdown; wiki-search fallback (done)
+- [31-office-formats.md](31-office-formats.md) — Word/PowerPoint/Excel/Teams transcript/.ics through the same drop: new kinds and chips, `meetings/` pages from transcripts, deterministic calendar stubs with the `calendar_horizon_days` setting, 10 MB text with head/middle/tail sampling, model-titled pastes with a topic tag (refactoring)
 
 ## Research
 

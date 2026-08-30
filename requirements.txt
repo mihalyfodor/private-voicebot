@@ -19,3 +19,7 @@ pypdf
 extract-msg
 python-multipart
 playwright
+python-docx
+python-pptx
+openpyxl
+icalendar

@@ -337,7 +337,7 @@ def test_a_huge_document_is_capped_with_a_marker(vault, fake):
     sources.ingest_upload(huge.encode(), "huge.txt")
 
     prompt = prompts(fake)[0]
-    assert sources.TRUNCATED.strip() in prompt
+    assert prompt.count("tokens skipped") == 2          # head … middle … tail (PRD 31)
     assert memory.tokens_est(prompt) <= sources.RAW_CHUNK_TOKENS + 200   # + the small header
 
 
@@ -479,7 +479,7 @@ def test_ingest_of_the_same_bytes_reports_already(http):
 
 def test_ingest_refuses_an_oversized_file(http):
     client, _ws = http
-    big = b"x" * (sources.MAX_FILE_BYTES + 1)
+    big = b"x" * (sources.MAX_TEXT_BYTES + 1)
     response = _post(client, files={"file": ("big.txt", big, "text/plain")})
 
     assert response.status_code == 413

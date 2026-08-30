@@ -54,6 +54,7 @@ def test_list_sources_is_newest_first_with_the_pages_fed(vault, monkeypatch):
     assert rows[1] == {
         "sha": _sha(first), "path": "sources/falcon-status", "raw": first["raw"], "kind": "md",
         "title": "Falcon status", "when": rows[1]["when"], "fed": ["projects/falcon"],
+        "meeting": "",
     }
     assert rows[1]["when"].startswith(memory._today_iso())
     assert rows[0]["kind"] == "txt" and rows[0]["fed"] == []

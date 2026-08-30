@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 31 — Office formats, calendar and transcripts through the same drop
 
@@ -40,6 +40,19 @@ Transcripts and `.ics` additionally land as `meetings/` pages, because that is w
   skip the LLM: the meeting stub is written deterministically (`type: meeting`, `time`, `attendees`, `source`).
 - Idempotency stays sha-based; re-dropping the same `.ics` is a no-op, an updated one creates only new stubs
   (existing `meetings/<date>-<slug>` pages get a dated `updated invite` note, never a rewrite).
+- The meeting page itself is written by `sources.py` the way the source page is (the `new_page` op cannot carry
+  `date`/`time`/`attendees` frontmatter or the meeting sections); the attendee/project notes go through the validated
+  ops. A transcript makes two completions (summary, meeting) — the meeting prompt replaces the generic page-ops
+  prompt for that kind and may name a `project`.
+- Calendar horizon: a one-off VEVENT always gets its stub (past or future — an exported calendar is history too);
+  only recurring events are expanded, from today to today + `calendar_horizon_days`.
+
+### Also: pasted text is not titled by its first line
+The intake pre-filled the title with the first line of a paste, so the source page was named after a header the
+model would have summarised better. Now `paste_text` — and a dropped file with a generic name (`note.txt`,
+`untitled`, `pasted text`) — leaves the title field empty with the placeholder "model picks a title"; the summary's
+`title` wins, "file under" stays "auto". The summary prompt asks for a short descriptive `title` (not a quote of the
+first line) and a `topic` tag (e.g. gaming, work/project, finance) that lands in the source page's `tags:`.
 
 ### Decisions
 - Deterministic stubs for `.ics`, LLM only for transcripts: invites are structured, transcripts are not.
@@ -70,8 +83,11 @@ Transcripts and `.ics` additionally land as `meetings/` pages, because that is w
 8. Sources view shows the new kind chips and the **Meeting** link (fixture render); e2e: drop a generated `.docx`
    via the existing synthetic-drop helper, see it in Sources (screenshot).
 9. A 3 MB `.txt` (generated) is accepted; the prompt gets head/middle/tail with skip markers; `shown_tokens` <
-   `total_tokens` on the page; a 3 MB `.png` is still rejected.
-10. Manual: drop a real Teams transcript and an Outlook `.ics`; check the meeting page and the "Today" note; drop a
+   `total_tokens` on the page; a `.png` over the unchanged 4 MB image cap (and a 3 MB `.pdf`) is still rejected.
+10. Paste a text whose first line is a long FAQ header → source page name = the (mocked) model's title, `tags:` carry
+    the topic; the intake fixture shows an empty title field for `paste_text` but keeps the filename-derived title
+    for a real file drop.
+11. Manual: drop a real Teams transcript and an Outlook `.ics`; check the meeting page and the "Today" note; drop a
     3 MB game FAQ `.txt` and check it is tagged as gaming.
 
 ## Out of scope

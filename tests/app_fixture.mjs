@@ -123,6 +123,7 @@ class El {
   }
   focus() { doc.activeElement = this; }
   blur() { if (doc.activeElement === this) doc.activeElement = doc.body; }
+  contains(node) { for (let n = node; n; n = n.parentNode) if (n === this) return true; return false; }
   matches(sel) {
     return sel.split(',').map(s => s.trim()).some(s =>
       (s.startsWith('.') && this._cls.has(s.slice(1))) ||
@@ -266,6 +267,12 @@ const sandbox = {
   WebSocket: WebSocketStub,
   FormData: class {},
   URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+  // PRD 31 intake: enough of Blob/File for size checks and the (unread) text preview.
+  Blob: class { constructor(parts) { this.size = (parts || []).join('').length; } },
+  File: class {
+    constructor(parts, name, opts) { this.size = (parts || []).join('').length; this.name = name; this.type = (opts || {}).type || ''; }
+    slice() { return { text: async () => '' }; }
+  },
   PIXI: PIXIStub,
   performance: { now: () => Date.now() },
   close() {},   // window.close(), called by the shutdown path
@@ -312,6 +319,10 @@ globalThis.__t = {
   palette, paletteInput, paletteList: paletteListEl,
   view: () => currentView,
   cmdK: () => document.dispatch('keydown', { key: 'k', metaKey: true }),
+  // ---- office formats (PRD 31)
+  intakeFromText, intakeFromFiles, closeIntake,
+  intakeTitle: intakeTitleEl, intake: intakeEl, intakeItems: intakeItemsEl,
+  calendarHorizon: calendarHorizonEl,
 };
 `;
 
@@ -574,5 +585,54 @@ t.setView('chat');
 t.cmdK();
 t.paletteList.children[1].dispatch('click');
 results.pal_click = { view: t.view(), hidden: palEl.hidden };
+
+// ---------------------------------------------------------------- scenarios (PRD 31)
+// ---- scenario 8: the Sources view shows the new kind chips and a Meeting button on a
+//      transcript/calendar source that names its meeting page
+t.setView('sources');
+t.recv({ type: 'sources', sources: [
+  { sha: 's1', path: 'sources/falcon-sync', raw: 'raw/inbox/2026-08-30-sync.vtt', kind: 'transcript', title: 'Falcon sync',
+    when: '2026-08-30 09:00:00', fed: ['meetings/2026-08-30-falcon-sync'], meeting: 'meetings/2026-08-30-falcon-sync' },
+  { sha: 's2', path: 'sources/deck', raw: 'raw/inbox/2026-08-30-deck.pptx', kind: 'pptx', title: 'Deck', when: '2026-08-30 09:01:00', fed: [], meeting: '' },
+  { sha: 's3', path: 'sources/plan', raw: 'raw/inbox/2026-08-30-plan.docx', kind: 'docx', title: 'Plan', when: '2026-08-30 09:02:00', fed: [], meeting: '' },
+  { sha: 's4', path: 'sources/week', raw: 'raw/inbox/2026-08-30-week.ics', kind: 'calendar', title: 'Week', when: '2026-08-30 09:03:00', fed: [], meeting: '' },
+  { sha: 's5', path: 'sources/sheet', raw: 'raw/inbox/2026-08-30-sheet.xlsx', kind: 'xlsx', title: 'Sheet', when: '2026-08-30 09:04:00', fed: [], meeting: '' },
+] });
+results.src_chips = t.wikiList.querySelectorAll('.chip').map(c => c.textContent);
+t.selectWikiPage('sources/falcon-sync');
+t.recv({ type: 'wiki_page', path: 'sources/falcon-sync', text: '---\ntype: source\n---\n\n# Falcon sync\n', links: [], etag: 'e9', backlinks: [] });
+results.src_meeting_button = !!headButton('source-meeting');
+t.selectWikiPage('sources/deck');
+t.recv({ type: 'wiki_page', path: 'sources/deck', text: '---\ntype: source\n---\n\n# Deck\n', links: [], etag: 'e9', backlinks: [] });
+results.src_meeting_button_plain = !!headButton('source-meeting');
+t.selectWikiPage('sources/falcon-sync');
+t.recv({ type: 'wiki_page', path: 'sources/falcon-sync', text: '---\ntype: source\n---\n\n# Falcon sync\n', links: [], etag: 'e9', backlinks: [] });
+socket.sent.length = 0;
+headButton('source-meeting').dispatch('click');
+results.src_meeting_click = { view: t.view(), sent: socket.sent.filter(m => m.action === 'read_wiki_page').map(m => m.path) };
+
+// ---- scenario 10: a paste leaves the title empty (the model picks one); a dropped file keeps
+//      its name; a generic file name (note.txt) is left empty too; the new kinds are accepted
+t.intakeFromText('Frequently Asked Questions about the Falcon rocket, version 3, last updated in August\nmore text here');
+results.intake_paste_title = { value: t.intakeTitle.value };
+t.closeIntake();
+t.intakeFromFiles([new sandbox.File(['x'], 'falcon-status.docx')]);
+results.intake_file_title = t.intakeTitle.value;
+results.intake_docx_ok = !t.intakeItems.children[0].className.includes('bad');
+t.closeIntake();
+t.intakeFromFiles([new sandbox.File(['x'], 'note.txt')]);
+results.intake_generic_title = t.intakeTitle.value;
+t.closeIntake();
+t.intakeFromFiles([new sandbox.File(['x'], 'legacy.doc')]);
+results.intake_doc_ok = !t.intakeItems.children[0].className.includes('bad');
+t.closeIntake();
+
+// ---- scenario 6: the calendar horizon field round-trips through set_setting
+t.recv({ type: 'setting', key: 'calendar_horizon_days', value: 28 });
+results.horizon_shown = t.calendarHorizon.value;
+socket.sent.length = 0;
+t.calendarHorizon.value = '21';
+t.calendarHorizon.dispatch('change');
+results.horizon_sent = [...socket.sent];
 
 console.log(JSON.stringify(results, null, 1));

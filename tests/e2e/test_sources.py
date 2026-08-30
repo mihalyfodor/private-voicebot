@@ -91,3 +91,62 @@ def test_rail_badge_counts_new_sources_until_the_view_is_opened(page, shot):
     shot("badge")
     page.click('.rail-item[data-view="sources"]')
     assert badge.is_hidden()
+
+
+# --------------------------------------------------------------------------- PRD 31: drop a .docx
+
+# Playwright's set_input_files only works on <input type=file>; the workspace is a drop zone, so
+# the file is rebuilt from base64 inside the page and dispatched as a DragEvent (same as
+# scripts/screenshot.py --drop-file).
+DROP_JS = """
+([name, mime, b64]) => {
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const dt = new DataTransfer();
+  dt.items.add(new File([buf], name, { type: mime }));
+  const target = document.getElementById('workspace');
+  for (const type of ['dragenter', 'dragover', 'drop']) {
+    target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
+  }
+}
+"""
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def drop_file(page, name: str, data: bytes, mime: str) -> None:
+    import base64
+    page.evaluate(DROP_JS, [name, mime, base64.b64encode(data).decode()])
+
+
+def test_a_dropped_docx_lands_in_sources_with_its_kind(page, shot, server):
+    """PRD 31 scenario 8: a generated .docx through the real drop → intake → /ingest → Sources.
+
+    No model is running behind the e2e server, so the page is filed as unreadable — the raw
+    file, the manifest line and the `docx` kind chip are what this checks.
+    """
+    from tests.test_office_formats import docx_bytes
+    _, vault = server
+    data = docx_bytes([("h1", "Falcon plan"), ("p", "Go-live is September 15."),
+                       ("table", [["Risk", "Owner"], ["load test", "Bob"]])])
+
+    drop_file(page, "falcon-plan.docx", data, DOCX_MIME)
+    page.wait_for_selector("#intake:not([hidden])")
+    assert page.input_value("#intake-title") == "falcon-plan"          # the file's own name
+    assert "falcon-plan.docx" in page.locator("#intake-items").inner_text()
+    shot("intake")
+    page.click("#intake-file")
+    page.wait_for_selector("#intake", state="hidden", timeout=60_000)   # the model call fails fast
+
+    open_sources(page)
+    row = page.locator(".source-row").first
+    assert row.locator(".source-kind").inner_text() == "docx"
+    assert "docx" in page.locator(".source-kinds .chip").all_inner_texts()
+    row.click()
+    page.wait_for_selector(".source-forget")
+    shot("docx-filed")
+    raw = [line for line in (vault / "raw/manifest.jsonl").read_text().splitlines() if line]
+    entry = json.loads(raw[-1])
+    assert entry["kind"] == "docx" and entry["path"].endswith("-falcon-plan.docx")
+    assert (vault / entry["path"]).read_bytes() == data
+    assert "kind: docx" in (vault / f"{entry['page']}.md").read_text()

@@ -379,6 +379,7 @@ const avatar = {
       currentVerbosity = verbosityLevels.includes(cfg.verbosity) ? cfg.verbosity : 'normal';
       wikiVault = cfg.vault || wikiVault;
       renderDecayWindows(cfg.stale_days);
+      renderCalendarHorizon(cfg.calendar_horizon_days);
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
@@ -680,6 +681,7 @@ const VIEW_BY_ID = new Map(VIEWS.map(v => [v.id, v]));
 
 const railEl = document.getElementById('rail');
 const decayListEl = document.getElementById('decay-list');
+const calendarHorizonEl = document.getElementById('calendar-horizon');
 
 let currentView = 'chat';
 let railItems = [];
@@ -747,6 +749,16 @@ function renderDecayWindows(staleDays) {
     return row;
   }));
 }
+
+// PRD 31: how far a dropped recurring invite is expanded into meeting stubs (settings.json).
+function renderCalendarHorizon(days) {
+  calendarHorizonEl.value = Number.isInteger(days) ? String(days) : '';
+}
+calendarHorizonEl.onchange = () => {
+  const days = parseInt(calendarHorizonEl.value, 10);
+  if (!Number.isInteger(days) || days < 1) { renderCalendarHorizon(parseInt(calendarHorizonEl.defaultValue, 10) || 14); return; }
+  sendAction({ action: 'set_setting', key: 'calendar_horizon_days', value: days });
+};
 
 buildRail();
 
@@ -1502,7 +1514,12 @@ function sourceHeadButtons(s) {
     if (!confirm(`Forget "${s.title}"? Its page, raw file and the notes it added are removed (one git commit).`)) return;
     sourceAction({ action: 'forget_source', sha: s.sha, confirm: true });
   }, sourcesBusy);
-  return [raw, reingest, forget];
+  const buttons = [raw, reingest, forget];
+  // A transcript / calendar drop names the meeting page it produced (PRD 31).
+  if (s.meeting) {
+    buttons.unshift(wikiHeadButton('source-meeting', 'Meeting', () => { setView('wiki'); selectWikiPage(s.meeting); }));
+  }
+  return buttons;
 }
 
 function renderWikiList() {
@@ -1927,9 +1944,13 @@ sourcesInputEl.onchange = () => {
 // drop (or a ⌘V with an image/text on the clipboard) opens the modal below, and only the File
 // button posts to /ingest. Esc/Cancel closes it and sends nothing.
 const INTAKE_MAX_IMAGE = 4 * 1024 * 1024;
-const INTAKE_MAX_FILE = 2 * 1024 * 1024;
+const INTAKE_MAX_FILE = 2 * 1024 * 1024;       // pdf/eml/msg/ics and pasted text
+const INTAKE_MAX_TEXT = 10 * 1024 * 1024;      // text kinds: the server only shows the model a sample (PRD 31)
 const INTAKE_IMAGE_EXT = ['png', 'jpg', 'jpeg'];
-const INTAKE_EXT = ['md', 'txt', 'pdf', 'eml', 'msg', ...INTAKE_IMAGE_EXT];
+const INTAKE_TEXT_EXT = ['md', 'txt', 'docx', 'pptx', 'xlsx', 'vtt'];
+const INTAKE_EXT = [...INTAKE_TEXT_EXT, 'pdf', 'eml', 'msg', 'ics', ...INTAKE_IMAGE_EXT];
+// Names that say nothing about the content: the title field stays empty and the model's title wins.
+const INTAKE_GENERIC = /^(note|untitled|pasted text|drop|document|new document)?[\s\d:._-]*$/;
 const INTAKE_MIN_TEXT = 20;
 const INTAKE_PREVIEW_LINES = 3;
 const INTAKE_TOAST_MS = 4000;
@@ -1970,7 +1991,8 @@ function intakeExt(name) {
 function intakeCheck(name, size) {
   const ext = intakeExt(name);
   if (!INTAKE_EXT.includes(ext)) return `unsupported (.${ext || '?'})`;
-  return tooLarge(size, INTAKE_IMAGE_EXT.includes(ext) ? INTAKE_MAX_IMAGE : INTAKE_MAX_FILE);
+  const cap = INTAKE_IMAGE_EXT.includes(ext) ? INTAKE_MAX_IMAGE : INTAKE_TEXT_EXT.includes(ext) ? INTAKE_MAX_TEXT : INTAKE_MAX_FILE;
+  return tooLarge(size, cap);
 }
 
 // '' when it fits — the one wording for the size refusal, on files, images and pasted text.
@@ -1992,6 +2014,12 @@ function intakeStamp() {
 
 function firstLines(text, n) {
   return String(text).split('\n').slice(0, n).join('\n');
+}
+
+// The default title of a single dropped file: its name, unless that name is generic.
+function intakeTitleFor(name) {
+  const stem = String(name || '').replace(/\.[A-Za-z0-9]+$/, '');
+  return INTAKE_GENERIC.test(stem.toLowerCase()) ? '' : stem;
 }
 
 // The picker lists "auto" plus every page the last `wiki` message named; the open wiki page is
@@ -2099,7 +2127,7 @@ function intakeFromFiles(files) {
     if (item.ok && INTAKE_IMAGE_EXT.includes(intakeExt(file.name))) item.url = URL.createObjectURL(file);
     return item;
   });
-  openIntake('file', items, list.length === 1 ? list[0].name : '');
+  openIntake('file', items, list.length === 1 ? intakeTitleFor(list[0].name) : '');
   // Text files get their first lines as a preview once they are read.
   for (const item of items) {
     if (!item.ok || !['md', 'txt'].includes(intakeExt(item.name))) continue;
@@ -2121,8 +2149,8 @@ function intakeFromImage(blob) {
 function intakeFromText(text) {
   const size = new Blob([text]).size;
   const reason = tooLarge(size, INTAKE_MAX_FILE);
-  openIntake('paste_text', [{ name: 'pasted text', size, text, ok: !reason, reason }],
-    firstLines(text, 1).slice(0, 80).trim() || `note ${intakeStamp()}`);
+  // No title from the first line: the summary's title names the page (PRD 31).
+  openIntake('paste_text', [{ name: 'pasted text', size, text, ok: !reason, reason }], '');
 }
 
 // ---- the one HTTP call in the app ----
@@ -2266,6 +2294,7 @@ function connect() {
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
     else if (msg.type === 'sources') setSources(msg);
+    else if (msg.type === 'setting') { if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value); }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();

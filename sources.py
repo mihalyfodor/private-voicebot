@@ -7,16 +7,23 @@ One ingest is always the same five steps, under `vault_lock.LOCK`, ending in one
 
 1. hash the bytes; a sha256 already in ``raw/manifest.jsonl`` means "already filed", stop.
 2. copy the original, untouched, under ``raw/`` — the provenance the pages point back at.
-3. extract text (md/txt as-is, pdf via pypdf, .eml via stdlib email, .msg via extract_msg) or,
-   for an image, a downscaled base64 data URL for the multimodal model.
-4. one summary completion -> ``{title, summary, entities, unreadable}`` -> ``sources/<slug>.md``.
+3. extract text (md/txt as-is, pdf via pypdf, .eml via stdlib email, .msg via extract_msg,
+   docx/pptx/xlsx via python-docx/python-pptx/openpyxl, .vtt via a small parser) or, for an
+   image, a downscaled base64 data URL for the multimodal model. Text over `RAW_CHUNK_TOKENS`
+   is sampled head/middle/tail (docs/31-office-formats.md).
+4. one summary completion -> ``{title, summary, entities, topic, unreadable}`` -> ``sources/<slug>.md``.
 5. one page-ops completion (PRD 19's op set, targets restricted to pages already in the index
    plus new people/projects pages), every op carrying ``source: raw/…``.
+
+Two kinds take a different step 5: a *transcript* (.vtt, or a Teams .docx export) gets a
+meeting completion -> ``meetings/<date>-<slug>`` plus notes on the attendees' pages; a
+*calendar* (.ics) skips the model entirely and writes one deterministic stub per event.
 
 Nothing here is ever triggered automatically: the popup, a tool call or the harness asks for it.
 """
 import base64
 import binascii
+import datetime as dt
 import email
 import email.policy
 import hashlib
@@ -26,17 +33,21 @@ import os
 import re
 import subprocess
 
+import avatars
 import memory
 import vault_lock
 import wiki
 
 # --- limits ------------------------------------------------------------------------
 
-#: how much extracted text the model is shown (the rest is dropped, no chunk-and-merge)
+#: how much extracted text the model is shown (the rest is sampled out, no chunk-and-merge)
 RAW_CHUNK_TOKENS = int(os.getenv("RAW_CHUNK_TOKENS", "6000"))
-TRUNCATED = "\n\n[truncated]"
+#: the head / middle / tail shares of a sampled document
+SAMPLE_SHARES = (0.60, 0.15, 0.25)
+SKIPPED = "[… %d tokens skipped …]"
 
-MAX_FILE_BYTES = 2 * 1024 * 1024        # md/txt/pdf/eml/msg
+MAX_FILE_BYTES = 2 * 1024 * 1024        # pdf/eml/msg/ics and pasted text
+MAX_TEXT_BYTES = 10 * 1024 * 1024       # md/txt/docx/pptx/xlsx/vtt (sampled, so size is cheap)
 MAX_IMAGE_BYTES = 4 * 1024 * 1024       # png/jpg
 IMAGE_LONG_EDGE = 1568                  # what the multimodal model wants to see
 #: below this, downscaling costs more than it saves (and keeps the tests off `sips`)
@@ -49,12 +60,27 @@ MANIFEST = "raw/manifest.jsonl"
 
 TEXT_EXTS = {".md": "md", ".markdown": "md", ".txt": "txt"}
 IMAGE_EXTS = {".png": "screenshot", ".jpg": "screenshot", ".jpeg": "screenshot"}
-DOC_EXTS = {".pdf": "pdf", ".eml": "email", ".msg": "email"}
+DOC_EXTS = {".pdf": "pdf", ".eml": "email", ".msg": "email", ".ics": "calendar"}
+OFFICE_EXTS = {".docx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".vtt": "transcript"}
 #: extension -> the `kind` that lands in the source page's frontmatter
-KINDS = {**TEXT_EXTS, **IMAGE_EXTS, **DOC_EXTS}
+KINDS = {**TEXT_EXTS, **IMAGE_EXTS, **DOC_EXTS, **OFFICE_EXTS}
+#: the kinds whose bytes are cheap to hold because the model only ever sees a sample
+LARGE_TEXT_EXTS = set(TEXT_EXTS) | set(OFFICE_EXTS)
 
 #: page folders an op may create in when the page is not in the index yet
 NEW_PAGE_FOLDERS = ("people", "projects")
+
+#: intake names that say nothing about the content — the model's title wins over them
+GENERIC_TITLES = ("note", "untitled", "pasted text", "drop", "document", "new document")
+
+#: xlsx cut: rows per sheet, sheets per book, characters per cell (the cut is stated in the text)
+XLSX_MAX_ROWS = 200
+XLSX_MAX_SHEETS = 20
+XLSX_MAX_CELL = 80
+
+#: a Teams .docx transcript: at least this many `Speaker   0:00` paragraphs
+TEAMS_MIN_TURNS = 3
+DEFAULT_HORIZON_DAYS = 14
 
 
 class IngestError(Exception):
@@ -71,12 +97,15 @@ class IngestError(Exception):
 SUMMARY_SYSTEM = """You are filing one document into the USER's personal wiki.
 
 Reply with a JSON object and nothing else:
-{"title": "short title", "summary": "3-6 sentences", "entities": [{"name": "Anna", "type": "person"}], "unreadable": false}
+{"title": "short title", "summary": "3-6 sentences", "entities": [{"name": "Anna", "type": "person"}], "topic": "work/project", "unreadable": false}
 
-- `title` names the document the way the user would refer to it.
+- `title` is a short descriptive name (3-8 words) the user would refer to the document by —
+  describe what it is, never quote its first line or heading.
 - `summary` is what the document says: facts, status, decisions, dates, numbers. No preamble.
 - `entities` are the people, projects and organisations the document is about; `type` is one of
   person, project, org, other. At most 8, most important first.
+- `topic` is one short lowercase tag for what the document is about, e.g. gaming, work/project,
+  finance, health, travel, family, home, admin.
 - Set `unreadable` to true (and leave the summary short) when the text is garbled, empty or
   clearly a failed extraction.
 - For an image: describe what it shows and transcribe any text visible in it.
@@ -100,6 +129,22 @@ Rules:
 - Prefer appending to an existing page over creating a near-duplicate.
 - %s
 - Nothing worth filing? Reply with exactly [].
+Today is %s."""
+
+MEETING_SYSTEM = """You are filing a meeting transcript into the USER's personal wiki.
+
+Reply with a JSON object and nothing else:
+{"title": "Falcon weekly sync", "date": "YYYY-MM-DD", "attendees": ["Anna Kovacs", "Bob"],
+ "project": "Falcon", "decisions": ["one sentence each"], "actions": ["who does what by when"],
+ "summary": "3-6 sentences"}
+
+- `title` names the meeting the way the user would; `date` is the meeting date if the transcript
+  says it, else today.
+- `attendees` are the people who spoke or were named as present, full names as spelled.
+- `project` is the one project the meeting was about, or "" when there is none.
+- `decisions` are things that were agreed; `actions` are commitments with an owner. Empty lists
+  are fine. At most 8 each, one sentence, at most 300 characters.
+- %s
 Today is %s."""
 
 
@@ -127,12 +172,30 @@ def _ask(client, model: str, system: str, content, max_tokens: int) -> str:
 # --- extraction --------------------------------------------------------------------
 
 
-def cap_text(text: str) -> str:
-    """`text` trimmed to `RAW_CHUNK_TOKENS` with a marker — the model never sees more."""
+def sample_text(text: str) -> tuple:
+    """``(shown, shown_tokens, total_tokens)`` — `text` sampled to `RAW_CHUNK_TOKENS`.
+
+    A document over the budget is shown as its head, a slice of its middle and its tail
+    (`SAMPLE_SHARES`), each gap marked `[… N tokens skipped …]`: tagging and summarising only
+    need the shape of the document, and one call is all it gets (no chunk-and-merge).
+    """
     text = text or ""
-    if memory.tokens_est(text) <= RAW_CHUNK_TOKENS:
-        return text
-    return text[: RAW_CHUNK_TOKENS * 4].rstrip() + TRUNCATED
+    total = memory.tokens_est(text)
+    if total <= RAW_CHUNK_TOKENS:
+        return text, total, total
+    budget = RAW_CHUNK_TOKENS * 4
+    head_n, mid_n, tail_n = (int(budget * share) for share in SAMPLE_SHARES)
+    mid_at = (len(text) - mid_n) // 2
+    head, mid, tail = text[:head_n], text[mid_at:mid_at + mid_n], text[len(text) - tail_n:]
+    gap1 = memory.tokens_est(text[head_n:mid_at])
+    gap2 = memory.tokens_est(text[mid_at + mid_n:len(text) - tail_n])
+    shown = "\n\n".join([head.rstrip(), SKIPPED % gap1, mid.strip(), SKIPPED % gap2, tail.lstrip()])
+    return shown, memory.tokens_est(head + mid + tail), total
+
+
+def cap_text(text: str) -> str:
+    """`text` as the model will see it — the sample alone, without the token counts."""
+    return sample_text(text)[0]
 
 
 def _decode(data: bytes) -> str:
@@ -228,23 +291,324 @@ def _image_part(full: str) -> dict:
     return {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}}
 
 
-def extract(raw_rel: str, data: bytes) -> tuple:
-    """``(text, image_part)`` for a stored raw file — exactly one of the two is set.
+# --- office formats (docs/31-office-formats.md) --------------------------------------
 
-    Text is already capped at `RAW_CHUNK_TOKENS`; "" means "nothing extractable" (unreadable).
+
+def _cell(value) -> str:
+    text = " ".join(str(value if value is not None else "").split()).replace("|", "\\|")
+    return text[:XLSX_MAX_CELL - 1] + "…" if len(text) > XLSX_MAX_CELL else text
+
+
+def _table_lines(rows: list) -> list:
+    """Markdown table lines from rows of cell strings; the first row is the header."""
+    if not rows:
+        return []
+    width = max(len(r) for r in rows)
+    rows = [r + [""] * (width - len(r)) for r in rows]
+    out = ["| " + " | ".join(rows[0]) + " |", "|" + " --- |" * width]
+    out += ["| " + " | ".join(r) + " |" for r in rows[1:]]
+    return out
+
+
+_HEADING = re.compile(r"heading\s*(\d)", re.I)
+_TEAMS_TURN = re.compile(r"^(.+?)\s{2,}(\d{1,2}:\d{2}(?::\d{2})?)\s*$")
+
+
+def docx_paragraphs(data: bytes) -> list:
+    """The body of a `.docx` in order: ``("p", text, level)``, ``("table", rows)`` and — a Teams
+    export's `Speaker   0:12` lines — ``("turn", speaker)`` items."""
+    import docx
+
+    doc = docx.Document(io.BytesIO(data))
+    items = []
+    for block in doc.iter_inner_content():
+        if hasattr(block, "rows"):
+            items.append(("table", [[_cell(c.text) for c in row.cells] for row in block.rows]))
+            continue
+        turn = _TEAMS_TURN.match(block.text.strip())
+        if turn:                                   # `Speaker   0:12` — before the spaces collapse
+            items.append(("turn", turn.group(1).strip()))
+            continue
+        text = " ".join(block.text.split())
+        if not text:
+            continue
+        match = _HEADING.search(getattr(block.style, "name", "") or "")
+        level = int(match.group(1)) if match else 0
+        if not level and (block.style.name or "").lower() == "title":
+            level = 1
+        items.append(("p", text, min(level, 6)))
+    return items
+
+
+def teams_turns(items: list) -> list:
+    """``[(speaker, text)]`` when the paragraphs are a Teams transcript export, else [].
+
+    Teams writes one `Speaker   0:12` paragraph per turn followed by what was said; anything
+    else (a normal document) does not have `TEAMS_MIN_TURNS` such lines and takes the generic path.
     """
+    turns, speaker = [], None
+    for item in items:
+        if item[0] == "turn":
+            speaker = item[1]
+        elif item[0] == "p" and speaker:
+            turns.append((speaker, item[1]))
+    return turns if len(turns) >= TEAMS_MIN_TURNS else []
+
+
+def merge_turns(turns: list) -> list:
+    """Consecutive turns of one speaker become one."""
+    merged = []
+    for speaker, text in turns:
+        if merged and merged[-1][0] == speaker:
+            merged[-1] = (speaker, f"{merged[-1][1]} {text}")
+        else:
+            merged.append((speaker, text))
+    return merged
+
+
+def transcript_text(turns: list, duration: str = "") -> str:
+    lines = [f"duration: {duration}"] if duration else []
+    lines += [f"**{speaker}:** {text}" for speaker, text in merge_turns(turns)]
+    return "\n\n".join(lines)
+
+
+def docx_text(data: bytes) -> tuple:
+    """``(markdown, kind)`` — `kind` is "transcript" for a Teams export, else "docx"."""
+    try:
+        items = docx_paragraphs(data)
+    except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
+        print(f"[Sources] docx extraction failed: {exc}")
+        return "", "docx"
+    turns = teams_turns(items)
+    if turns:
+        return transcript_text(turns), "transcript"
+    lines = []
+    for item in items:
+        if item[0] == "table":
+            lines += _table_lines(item[1]) + [""]
+        elif item[0] == "turn":
+            lines += [item[1], ""]
+        else:
+            _, text, level = item
+            lines += [("#" * level + " " + text) if level else text, ""]
+    return "\n".join(lines).strip(), "docx"
+
+
+def pptx_text(data: bytes) -> str:
+    """One `## Slide N — title` section per slide, its text then its notes."""
+    try:
+        import pptx
+
+        deck = pptx.Presentation(io.BytesIO(data))
+        sections = []
+        for n, slide in enumerate(deck.slides, start=1):
+            title = " ".join(slide.shapes.title.text.split()) if slide.shapes.title is not None else ""
+            body = []
+            for shape in slide.shapes:
+                if shape == slide.shapes.title or not shape.has_text_frame:
+                    continue
+                body += [" ".join(p.text.split()) for p in shape.text_frame.paragraphs if p.text.strip()]
+            lines = [f"## Slide {n}" + (f" — {title}" if title else "")] + body
+            if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
+                notes = " ".join(slide.notes_slide.notes_text_frame.text.split())
+                if notes:
+                    lines.append(f"Notes: {notes}")
+            sections.append("\n".join(lines))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sources] pptx extraction failed: {exc}")
+        return ""
+    return "\n\n".join(sections)
+
+
+def xlsx_text(data: bytes) -> str:
+    """Per sheet `## <name>` and a markdown table of the first `XLSX_MAX_ROWS` rows (cached values)."""
+    try:
+        import openpyxl
+
+        book = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        sections = []
+        for sheet in book.worksheets[:XLSX_MAX_SHEETS]:
+            rows, total = [], 0
+            for row in sheet.iter_rows(values_only=True):
+                total += 1
+                if total <= XLSX_MAX_ROWS:
+                    rows.append([_cell(v) for v in row])
+            lines = [f"## {sheet.title}"] + _table_lines(rows)
+            if total > XLSX_MAX_ROWS:
+                lines.append(f"({XLSX_MAX_ROWS} of {total} rows shown)")
+            sections.append("\n".join(lines))
+        if len(book.worksheets) > XLSX_MAX_SHEETS:
+            sections.append(f"({XLSX_MAX_SHEETS} of {len(book.worksheets)} sheets shown)")
+        book.close()
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sources] xlsx extraction failed: {exc}")
+        return ""
+    return "\n\n".join(sections)
+
+
+_VTT_TIMING = re.compile(r"^(\d{1,2}:)?\d{2}:\d{2}[.,]\d{3}\s+-->\s+((\d{1,2}:)?\d{2}:\d{2})[.,]\d{3}")
+_VTT_VOICE = re.compile(r"<v\s+([^>]+)>(.*?)(?:</v>|$)", re.S)
+_VTT_TAG = re.compile(r"<[^>]+>")
+_VTT_NAMED = re.compile(r"^([A-Za-z][\w .'-]{0,40}?):\s+(.*)$", re.S)
+
+
+def vtt_text(data: bytes) -> str:
+    """WebVTT -> `duration:` line plus `**Speaker:** text` turns, timestamps dropped.
+
+    Speakers come from `<v Name>` voice spans (what Teams writes) or a leading `Name:`; cues
+    without either are one "Speaker".
+    """
+    text = _decode(data)
+    if not text.lstrip().startswith("WEBVTT"):
+        return ""
+    turns, end = [], ""
+    for block in re.split(r"\n\s*\n", text.replace("\r", ""))[1:]:
+        lines = [line.strip() for line in block.splitlines()]
+        at = next((i for i, line in enumerate(lines) if _VTT_TIMING.match(line)), None)
+        if at is None:
+            continue
+        end = _VTT_TIMING.match(lines[at]).group(2)
+        body = " ".join(" ".join(lines[at + 1:]).split())
+        if not body:
+            continue
+        voice, named = _VTT_VOICE.search(body), _VTT_NAMED.match(body)
+        if voice:
+            turns.append((voice.group(1).strip(), _VTT_TAG.sub("", voice.group(2)).strip()))
+        elif named:
+            turns.append((named.group(1).strip(), _VTT_TAG.sub("", named.group(2)).strip()))
+        else:
+            turns.append(("Speaker", _VTT_TAG.sub("", body).strip()))
+    return transcript_text(turns, end) if turns else ""
+
+
+def _ics_person(value) -> str:
+    """An ATTENDEE/ORGANIZER -> its CN, else the mailbox."""
+    if value is None:
+        return ""
+    name = str(getattr(value, "params", {}).get("CN") or "").strip()
+    return name or str(value).replace("mailto:", "").strip()
+
+
+def _as_datetime(value) -> dt.datetime | None:
+    if isinstance(value, dt.datetime):
+        return value
+    if isinstance(value, dt.date):
+        return dt.datetime.combine(value, dt.time.min)
+    return None
+
+
+def calendar_horizon_days() -> int:
+    """`calendar_horizon_days` from settings.json (default `DEFAULT_HORIZON_DAYS`)."""
+    value = avatars.load_settings().get("calendar_horizon_days")
+    return int(value) if isinstance(value, int) and value > 0 else DEFAULT_HORIZON_DAYS
+
+
+def _occurrences(component, today: dt.date, horizon: int) -> list:
+    """Every start datetime of a VEVENT: the one it names, or — recurring — those from `today`
+    to `today + horizon` days."""
+    start = _as_datetime(component.decoded("DTSTART", None))
+    if start is None:
+        return []
+    rule = component.get("RRULE")
+    if rule is None:
+        return [start]
+    from dateutil import rrule as du
+
+    naive = start.replace(tzinfo=None)
+    lo, hi = dt.datetime.combine(today, dt.time.min), dt.datetime.combine(today + dt.timedelta(days=horizon), dt.time.max)
+    try:
+        rules = du.rrulestr(rule.to_ical().decode(), dtstart=naive, forceset=True)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sources] rrule skipped: {exc}")
+        return [start]
+    exdates = component.get("EXDATE")
+    exdates = exdates if isinstance(exdates, list) else [exdates] if exdates else []
+    skipped = {_as_datetime(x.dt).replace(tzinfo=None)
+               for ex in exdates for x in getattr(ex, "dts", [])}
+    return [o.replace(tzinfo=start.tzinfo) for o in rules.between(lo, hi, inc=True) if o not in skipped]
+
+
+def ics_events(data: bytes, today: dt.date | None = None, horizon: int | None = None) -> list:
+    """``[{title, date, time, attendees, organizer, description, uid}]`` per occurrence, sorted.
+
+    `attendees` are display names (CN or mailbox), the organizer first; nothing about the
+    wiki here — `_meeting_stub` decides what becomes a link.
+    """
+    today = today or dt.date.fromisoformat(memory._today_iso())
+    horizon = calendar_horizon_days() if horizon is None else horizon
+    try:
+        import icalendar
+
+        cal = icalendar.Calendar.from_ical(data)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sources] ics parse failed: {exc}")
+        return []
+    events = []
+    for component in cal.walk("VEVENT"):
+        title = " ".join(str(component.get("SUMMARY") or "").split()) or "Untitled event"
+        organizer = _ics_person(component.get("ORGANIZER"))
+        raw_attendees = component.get("ATTENDEE") or []
+        attendees = [_ics_person(a) for a in (raw_attendees if isinstance(raw_attendees, list) else [raw_attendees])]
+        attendees = [organizer] * bool(organizer) + [a for a in attendees if a and a != organizer]
+        description = " ".join(str(component.get("DESCRIPTION") or "").split())
+        start0 = _as_datetime(component.decoded("DTSTART", None))
+        end0 = _as_datetime(component.decoded("DTEND", None))
+        length = (end0 - start0) if start0 and end0 else None
+        all_day = not isinstance(component.decoded("DTSTART", None), dt.datetime)
+        for start in _occurrences(component, today, horizon):
+            time = ""
+            if not all_day:
+                time = start.strftime("%H:%M")
+                if length:
+                    time += "–" + (start + length).strftime("%H:%M")
+            events.append({"title": title, "date": start.date().isoformat(), "time": time,
+                           "attendees": attendees, "organizer": organizer,
+                           "description": description, "uid": str(component.get("UID") or "")})
+    return sorted(events, key=lambda e: (e["date"], e["time"], e["title"]))
+
+
+class Extracted:
+    """What `extract` found: the sampled text *or* an image part, plus the kind it decided on
+    (a Teams `.docx` becomes a transcript) and the token counts the source page records."""
+
+    def __init__(self, text: str = "", image_part=None, kind: str = "", shown: int = 0,
+                 total: int = 0, events=()):
+        self.text, self.image_part, self.kind = text, image_part, kind
+        self.shown_tokens, self.total_tokens = shown, total
+        self.events = list(events)      # a calendar's VEVENT occurrences (`ics_events`)
+
+
+def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
+    """The text (or image part) of a stored raw file — "" means "nothing extractable"."""
     ext = os.path.splitext(raw_rel)[1].lower()
     full = wiki._path(raw_rel)
+    kind = kind or KINDS.get(ext, "txt")
     if ext in IMAGE_EXTS:
         _downscale(full)
-        return "", _image_part(full)
+        return Extracted("", _image_part(full), kind)
     if ext == ".pdf":
-        return cap_text(pdf_text(data)), None
-    if ext == ".eml":
-        return cap_text(eml_text(data)), None
-    if ext == ".msg":
-        return cap_text(msg_text(full)), None
-    return cap_text(_decode(data)), None
+        text = pdf_text(data)
+    elif ext == ".eml":
+        text = eml_text(data)
+    elif ext == ".msg":
+        text = msg_text(full)
+    elif ext == ".docx":
+        text, kind = docx_text(data)
+    elif ext == ".pptx":
+        text = pptx_text(data)
+    elif ext == ".xlsx":
+        text = xlsx_text(data)
+    elif ext == ".vtt":
+        text = vtt_text(data)
+    elif ext == ".ics":
+        events = ics_events(data)
+        text = "\n".join(f"{e['date']} {e['time']} {e['title']} — {', '.join(e['attendees'])}"
+                         for e in events)
+        return Extracted(text, None, kind, memory.tokens_est(text), memory.tokens_est(text), events)
+    else:
+        text = _decode(data)
+    shown, shown_tokens, total_tokens = sample_text(text)
+    return Extracted(shown, None, kind, shown_tokens, total_tokens)
 
 
 # --- manifest ----------------------------------------------------------------------
@@ -323,12 +687,152 @@ def _source_body(title: str, summary: str, entities: list, fed: list, user_names
 
 def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest: str,
                        summary: str, entities: list, fed: list, source: str,
-                       user_names=()) -> None:
+                       user_names=(), tags=(), extra: dict | None = None) -> None:
     today = memory._today_iso()
-    fm = {"type": "source", "name": title, "tags": [], "source": source,
+    fm = {"type": "source", "name": title, "tags": list(tags), "source": source,
           "updated": today, "seen": today,
-          "kind": kind, "raw": raw_rel, "sha256": digest}
+          "kind": kind, "raw": raw_rel, "sha256": digest, **(extra or {})}
     wiki._write(rel, wiki._page_text(fm, _source_body(title, summary, entities, fed, user_names)))
+
+
+# --- meetings (docs/31-office-formats.md) --------------------------------------------
+
+
+def _attendee_link(name: str, user_names=()) -> str:
+    """`people/<slug>` for a colleague, the literal "the user" for the profile owner."""
+    return "the user" if memory.is_user(name, user_names) else f"people/{wiki.slugify(name)}"
+
+
+def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees: list,
+                        source_rel: str, raw_rel: str, summary: str, decisions=(), actions=(),
+                        user_names=()) -> None:
+    """A `meetings/<date>-<slug>` page: meeting frontmatter and the four fixed sections.
+
+    Written here, not through the `new_page` op, because the op cannot carry `date` / `time` /
+    `attendees` or the Decisions/Actions sections — the same arrangement the source page has.
+    """
+    today = memory._today_iso()
+    links = []
+    for name in attendees:
+        link = _attendee_link(name, user_names)
+        if link not in links:
+            links.append(link)
+    fm = {"type": "meeting", "name": title, "tags": [], "source": raw_rel,
+          "updated": today, "seen": today, "date": date, "time": time,
+          "attendees": f"[{', '.join(links)}]"}
+    lines = [f"# {title}", "", "## Summary", summary.strip() or "(no summary)",
+             f"Source: [[{wiki.wikilink(source_rel)}]]", "", "## Decisions"]
+    lines += [f"- {d}" for d in decisions]
+    lines += ["", "## Actions"] + [f"- {a}" for a in actions]
+    lines += ["", "## Notes", ""]
+    wiki._write(rel, wiki._page_text(fm, "\n".join(lines)))
+
+
+def meeting_from_transcript(client, model: str, text: str, title: str, user_names=()) -> dict | None:
+    """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
+    summary}``, tidied; None when the model cannot be reached or parsed."""
+    try:
+        system = MEETING_SYSTEM % (memory.user_note(user_names), memory._today_iso())
+        raw = _ask(client, model, system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Sources] meeting completion failed: {exc}")
+        return None
+    data = memory._extract_json(raw, "{", "}")
+    if not isinstance(data, dict):
+        print("[Sources] could not parse the meeting; filing the transcript only")
+        return None
+
+    def strings(key, limit=8):
+        values = data.get(key) if isinstance(data.get(key), list) else []
+        return [" ".join(str(v).split())[:300] for v in values if str(v).strip()][:limit]
+
+    date = str(data.get("date") or "").strip()
+    if not _DROP_DATE.fullmatch(date):
+        date = memory._today_iso()
+    return {
+        "title": " ".join(str(data.get("title") or title or "Meeting").split())[:120],
+        "date": date,
+        "attendees": strings("attendees", 20),
+        "project": " ".join(str(data.get("project") or "").split())[:80],
+        "decisions": strings("decisions"),
+        "actions": strings("actions"),
+        "summary": " ".join(str(data.get("summary") or "").split()),
+    }
+
+
+def _attendee_ops(meeting: dict, meeting_rel: str, user_names=()) -> list:
+    """`new_page` (when missing) + `append_note` for every attendee and the project page.
+
+    Proposed exactly like the model's ops would be, so `restrict_ops` and the wiki validate
+    them the same way — including "the user never gets a people page".
+    """
+    link = f"[[{wiki.wikilink(meeting_rel)}]]"
+    when = f"{meeting['title']}, {meeting['date']}"
+    ops = []
+    for name in meeting["attendees"]:
+        if memory.is_user(name, user_names):
+            continue
+        path = f"people/{wiki.slugify(name)}"
+        if not wiki.page_exists(f"{path}.md"):
+            ops.append({"op": "new_page", "path": path, "type": "person", "name": name,
+                        "summary": f"Met in {when}."})
+        ops.append({"op": "append_note", "path": path, "text": f"Attended {link} ({when})."})
+    if meeting["project"]:
+        path = f"projects/{wiki.slugify(meeting['project'])}"
+        what = meeting["decisions"][0] if meeting["decisions"] else meeting["summary"].split(". ")[0]
+        if not wiki.page_exists(f"{path}.md"):
+            ops.append({"op": "new_page", "path": path, "type": "project",
+                        "name": meeting["project"], "summary": f"Discussed in {when}."})
+        ops.append({"op": "append_note", "path": path,
+                    "text": f"{link} ({meeting['date']}): {what}"[:MAX_NOTE]})
+    return ops
+
+
+MAX_NOTE = wiki.MAX_NOTE_CHARS
+
+
+def _file_meeting(client, model: str, extracted, *, raw_rel: str, source_rel: str, title: str,
+                  names) -> tuple:
+    """A transcript's step 5: the meeting page plus the attendee/project ops. ``(meeting, ops)``."""
+    meeting = meeting_from_transcript(client, model, extracted.text, title, names)
+    if meeting is None:
+        return "", []
+    rel = _free_path("meetings", f"{meeting['date']}-{wiki.slugify(meeting['title'])}", ".md")
+    _write_meeting_page(rel, title=meeting["title"], date=meeting["date"], time="",
+                        attendees=meeting["attendees"], source_rel=source_rel, raw_rel=raw_rel,
+                        summary=meeting["summary"], decisions=meeting["decisions"],
+                        actions=meeting["actions"], user_names=names)
+    return wiki.wikilink(rel), _attendee_ops(meeting, rel, names)
+
+
+def _file_calendar(events: list, *, raw_rel: str, source_rel: str, names) -> tuple:
+    """A calendar's step 5, no model involved: one stub per event, an `updated invite` note on
+    a stub that already exists. ``(stubs written, ops for the existing ones)``."""
+    written, ops = [], []
+    for event in events:
+        rel = f"meetings/{event['date']}-{wiki.slugify(event['title'])}.md"
+        if wiki.wikilink(rel) in written:
+            continue
+        if wiki.page_exists(rel):
+            ops.append({"op": "append_note", "path": wiki.wikilink(rel),
+                        "text": (f"updated invite: {event['time'] or 'all day'}, "
+                                 f"{len(event['attendees'])} attendees ([[{wiki.wikilink(source_rel)}]])")})
+            continue
+        _write_meeting_page(rel, title=event["title"], date=event["date"], time=event["time"],
+                            attendees=event["attendees"], source_rel=source_rel, raw_rel=raw_rel,
+                            summary=event["description"], user_names=names)
+        written.append(wiki.wikilink(rel))
+    return written, ops
+
+
+def _calendar_summary(events: list, title: str) -> dict:
+    """The deterministic stand-in for the summary completion: what the .ics holds."""
+    if not events:
+        return {"title": title, "summary": "unreadable — no events could be read from this file.",
+                "entities": [], "unreadable": True}
+    lines = [f"{e['date']} {e['time']} {e['title']}".strip() for e in events]
+    return {"title": title, "summary": f"{len(events)} meeting(s): " + "; ".join(lines),
+            "entities": [], "unreadable": False}
 
 
 # --- ops ---------------------------------------------------------------------------
@@ -375,12 +879,13 @@ def _target_allowed(path) -> str | None:
 
 def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str,
               user_names=()) -> dict:
-    """One completion -> ``{title, summary, entities, unreadable}``; never raises.
+    """One completion -> ``{title, summary, entities, topic, unreadable}``; never raises.
 
     An empty extraction skips the call entirely: there is nothing to summarise, and the page is
     still worth creating (it carries the link to the raw file — PRD's "unreadable" risk).
     """
-    fallback = {"title": title or "Untitled", "summary": "", "entities": [], "unreadable": True}
+    fallback = {"title": title or "Untitled", "summary": "", "entities": [], "topic": "",
+                "unreadable": True}
     if not text.strip() and image_part is None:
         fallback["summary"] = "unreadable — no text could be extracted from this file."
         return fallback
@@ -412,6 +917,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
         "title": " ".join(str(data.get("title") or title or "Untitled").split())[:120],
         "summary": summary,
         "entities": entities,
+        "topic": "-".join(str(data.get("topic") or "").lower().split())[:40],
         "unreadable": bool(data.get("unreadable")) or not summary,
     }
 
@@ -449,34 +955,65 @@ def _store(raw_rel: str, data: bytes) -> None:
         f.write(data)
 
 
+def is_generic_title(title: str) -> bool:
+    """A name that says nothing about the content (`note`, `untitled`, a stamped `note 2026-…`)."""
+    words = " ".join(str(title or "").lower().replace("_", " ").replace("-", " ").split())
+    words = _DROP_DATE.sub("", words).strip(" -:0123456789")
+    return not words or words in GENERIC_TITLES
+
+
 def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
-                   title: str, names) -> dict:
-    """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest."""
-    text, image_part = extract(raw_rel, data)
+                   title: str, names) -> tuple:
+    """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest.
+
+    ``(summary, extracted)``: the kind the extraction settled on (`extracted.kind`) is the one
+    that lands on the page. A calendar never reaches the model.
+    """
+    extracted = extract(raw_rel, data, kind)
     stem = os.path.splitext(os.path.basename(raw_rel))[0]
-    return summarise(client, model, kind, text, image_part, hint, title or stem, names)
+    label = title or ("" if is_generic_title(stem) else stem)
+    if extracted.kind == "calendar":
+        return _calendar_summary(extracted.events, title or stem), extracted
+    return summarise(client, model, extracted.kind, extracted.text, extracted.image_part,
+                     hint, label, names), extracted
 
 
-def _file_page(client, model: str, summary: dict, *, raw_rel: str, kind: str, source_rel: str,
+def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, source_rel: str,
                digest: str, page_title: str, hint: str, page: str, source: str, names) -> list:
     """Write the source page and apply the proposed ops — step 5. Returns the pages fed.
 
     Shared by the first filing and a re-ingest; runs under the lock, commits nothing, so the
     caller owns the manifest line and the single commit.
     """
+    kind = extracted.kind
+    extra = {}
+    if extracted.total_tokens > extracted.shown_tokens:
+        extra = {"shown_tokens": extracted.shown_tokens, "total_tokens": extracted.total_tokens}
 
-    def write_page(fed: list) -> None:
+    def write_page(fed: list, meeting: str = "") -> None:
         """The source page, written once before the ops and once after (now with `## Fed`)."""
         _write_source_page(source_rel, title=page_title, kind=kind, raw_rel=raw_rel,
                            digest=digest, summary=summary.get("summary", ""),
                            entities=summary.get("entities", []), fed=fed,
-                           source=source, user_names=names)
+                           source=source, user_names=names,
+                           tags=[summary["topic"]] if summary.get("topic") else [],
+                           extra={**extra, **({"meeting": meeting} if meeting else {})})
 
     write_page([])
 
-    applied = []
-    if not summary.get("unreadable"):
+    applied, stubs, meeting = [], [], ""
+    if kind == "calendar":
+        stubs, ops = _file_calendar(extracted.events, raw_rel=raw_rel, source_rel=source_rel,
+                                    names=names)
+        meeting = stubs[0] if stubs else ""
+    elif kind == "transcript" and not summary.get("unreadable"):
+        meeting, ops = _file_meeting(client, model, extracted, raw_rel=raw_rel,
+                                     source_rel=source_rel, title=page_title, names=names)
+    elif not summary.get("unreadable"):
         ops = propose_page_ops(client, model, source_rel, summary, hint, page, names)
+    else:
+        ops = []
+    if ops:
         kept, rejected = restrict_ops(ops, raw_rel, names)
         for bad in rejected:
             print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
@@ -486,8 +1023,9 @@ def _file_page(client, model: str, summary: dict, *, raw_rel: str, kind: str, so
 
     fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
                   for op in applied if op.get("path")}
-                 | {"decisions" for op in applied if op["op"] == "add_decision"})
-    write_page(fed)     # rewritten now that the ops are in, listing what it actually fed
+                 | {"decisions" for op in applied if op["op"] == "add_decision"}
+                 | set(stubs) | ({meeting} if meeting else set()))
+    write_page(fed, meeting)     # rewritten now that the ops are in, listing what it actually fed
     return fed
 
 
@@ -513,10 +1051,11 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         raw_rel = _free_path(folder, stem, ext)
         _store(raw_rel, data)
 
-        summary = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names)
+        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names)
+        kind = extracted.kind
         page_title = title or summary.get("title") or stem
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
-        fed = _file_page(client, model, summary, raw_rel=raw_rel, kind=kind,
+        fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint=hint, page=page, source=f"user drop {memory._today_iso()}",
                          names=names)
@@ -555,6 +1094,7 @@ def _source_meta(entry: dict) -> dict:
         "title": str(fm.get("name") or os.path.basename(entry.get("page", ""))),
         "when": " ".join(part for part in (date, str(entry.get("ingested_at") or "")) if part),
         "fed": list(entry.get("pages_touched") or []),
+        "meeting": str(fm.get("meeting") or ""),
     }
 
 
@@ -589,9 +1129,9 @@ def reingest(digest: str, *, client=None, model: str = "") -> dict:
         names = memory.user_names()
         kind = str(entry.get("kind") or KINDS.get(os.path.splitext(raw_rel)[1].lower()) or "txt")
         old_fm = wiki.parse_page(wiki._read(source_rel))[0]
-        summary = _summarise_raw(client, model, raw_rel, data, kind, "", "", names)
+        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, "", "", names)
         page_title = str(old_fm.get("name") or summary.get("title") or "")
-        fed = _file_page(client, model, summary, raw_rel=raw_rel, kind=kind,
+        fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint="", page="",
                          source=str(old_fm.get("source") or f"user drop {memory._today_iso()}"),
@@ -664,7 +1204,8 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
     kind = KINDS.get(ext)
     if kind is None:
         raise IngestError(415, f"unsupported file type {ext or filename!r}")
-    limit = MAX_IMAGE_BYTES if ext in IMAGE_EXTS else MAX_FILE_BYTES
+    limit = (MAX_IMAGE_BYTES if ext in IMAGE_EXTS
+             else MAX_TEXT_BYTES if ext in LARGE_TEXT_EXTS else MAX_FILE_BYTES)
     if size > limit:
         raise IngestError(413, f"{filename} is larger than {limit // (1024 * 1024)} MB")
     return ext, kind
@@ -675,6 +1216,8 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
     ext, kind = check_upload(filename, len(data), kind_hint)
     stem = title or os.path.splitext(os.path.basename(filename or ""))[0] or "drop"
+    if is_generic_title(title):
+        title = ""          # `note.txt`, `untitled`…: the summary's title names the page
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
@@ -696,6 +1239,8 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
     """Pasted or spoken free text -> `raw/inbox/<date>-<slug>.md`."""
     body = check_note(text)
     stem = title or "note"
+    if is_generic_title(title):
+        title = ""
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
     return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
                       client=client, model=model)
