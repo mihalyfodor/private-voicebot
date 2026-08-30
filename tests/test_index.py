@@ -8,7 +8,8 @@ import pytest
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 INDEX = open(os.path.join(ROOT, "docs", "index.md")).read()
 PRDS = sorted(f for f in os.listdir(os.path.join(ROOT, "docs")) if re.match(r"\d\d[a-z]?-.*\.md$", f))
-TESTS = sorted(f for f in os.listdir(os.path.dirname(__file__)) if re.match(r"test_.*\.py$", f))
+TESTS = sorted(f for _dir, _sub, files in os.walk(os.path.dirname(__file__)) for f in files
+              if re.match(r"test_.*\.py$", f))
 
 
 @pytest.mark.parametrize("name", TESTS)

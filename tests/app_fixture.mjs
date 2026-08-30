@@ -3,7 +3,7 @@
 //
 //   node tests/app_fixture.mjs      → prints ONE JSON object of results on stdout
 //
-// The python side (tests/test_text_input.py) runs that command once per module and asserts
+// The python side (tests/session/test_text_input.py) runs that command once per module and asserts
 // on the parsed JSON; a non-zero exit (any uncaught error in app.js) fails the test.
 //
 // ---------------------------------------------------------------------------- what it is

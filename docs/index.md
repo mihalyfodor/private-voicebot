@@ -19,15 +19,15 @@ python3 -m pytest tests/
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/
 # the PRD 32 live recall check alone (files the two real guides from ~/llm-wiki-dev into a temp vault, prints the Q/A pairs)
-python3 -m pytest -m live tests/test_source_recall.py -s
+python3 -m pytest -m live tests/sources/test_source_recall.py -s
 # the PRD 34 live grounding check (three real guides in a temp vault; prints each Q/A pair and its "yes" follow-up)
-python3 -m pytest -m live tests/test_grounded_answers.py -s
+python3 -m pytest -m live tests/sources/test_grounded_answers.py -s
 # the PRD 37 live routing calibration (28 questions, two real guides when ~/llm-wiki-dev has them; prints the confusion table; real Wikipedia calls)
-python3 -m pytest -m live tests/test_wikipedia_routing.py -s
+python3 -m pytest -m live tests/llm/test_wikipedia_routing.py -s
 # the PRD 38 live focus check in the browser (a real guide from ~/llm-wiki-dev filed as a source; "summarise this" with it open, "go back to that page" from Chat; prints both replies)
 python3 -m pytest -m "e2e and live" tests/e2e/test_focus.py -s
 # the PRD 33 live injection eval (six canned documents through a recall turn, a save and "did that document try to tell you something?"; prints the table)
-python3 -m pytest -m live tests/test_untrusted_text.py -s
+python3 -m pytest -m live tests/sources/test_untrusted_text.py -s
 # browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
 # prerequisites: `playwright install chromium`, scripts/fetch_assets.sh (pixi + Wanko model), Kokoro model files;
 # tests/e2e/conftest.py fails early with "run scripts/fetch_assets.sh" when the assets are missing. E2E_KEEP=1 keeps the temp dir.
@@ -94,55 +94,60 @@ voicebot/
 │   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
 │   └── classification_rules.example.py
 ├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/
-├── tests/
-│   ├── test_splitter.py         # SentenceSplitter / split_stream / strip_tag
-│   ├── test_llm_unit.py          # llm.py with a mocked OpenAI client, no oMLX needed
-│   ├── test_llm.py                # llm.py against a live oMLX server
-│   ├── test_llm_robustness.py     # LLM tool-trigger robustness, needs live oMLX
-│   ├── test_tools.py              # tool schemas/behaviour, needs live oMLX for some cases
+├── tests/                # one folder per module; shared fixtures live in conftest.py (see the DX note in process.md)
+│   ├── conftest.py              # sandboxes (wiki/settings/memory paths, chatbot session), fake clients (FakeClient, StreamClient,
+│   │                            # RawStreamClient), vault helpers (vault, seeded_vault, commits, read, write_page), turn helpers
+│   │                            # (fake_tts, run_turn, typed, spoken), Panel, send_setting, and the node client fixture run once per session
+│   ├── app_fixture.mjs          # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON of results
+│   │                            # (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake
+│   │                            # titles/horizon field, intake batch, context meter, error scopes); its header documents the hooks
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
-│   ├── test_chatbot_speech.py     # speak_stream: mocked Kokoro + WS, wav framing
-│   ├── test_avatars.py            # avatars.current()/AVATAR env handling
-│   ├── test_characters.py         # character card loader, persona builder and caps
-│   ├── test_context.py            # PRD 11: context budget, history trimming
-│   ├── test_context_meter.py      # PRD 39: `context` after a turn, TOOLS_TOKENS, trim count, 90 % crossing once per crossing, recall/focus stripping, `new_thread` fold-first + summary + fallback, the new-topic triggers, reconnect replay, client fixture assertions
-│   ├── test_verbosity.py          # PRD 11: verbosity levels, max_tokens derivation, set_verbosity action
-│   ├── test_fillers.py            # tool-intent fillers: pick() no immediate repeats
-│   ├── test_greetings.py          # canned greetings: greet() turn shape, turn ids, no LLM call
-│   ├── test_streaming.py          # PRD 13: streamed first call, tool-call detection mid-stream
-│   ├── test_turns.py              # PRD 12: Session/TurnController, turn ids, origin check, periodic memory hook, dead sockets, static caching
-│   ├── test_memory_eval.py        # PRD 14: eval harness scripts, Sandbox isolation, scoring
-│   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys, `set_avatar` action is gone
-│   ├── test_backdrops.py          # backdrops.validate()/listing()
-│   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + Recorder
-│   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing
-│   ├── test_hands_free.py         # WS hands-free actions, binary audio frames, text_turn while listening
-│   ├── test_memory.py             # memory v2: ops, caps, render budget, reflection, identity aliases
-│   ├── test_wiki.py               # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
-│   ├── test_sources.py            # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
-│   ├── test_sources_inbox.py      # PRD 25: list_sources newest-first, reingest, forget (only matching notes), get_sources/reingest_source/forget_source actions
-│   ├── test_office_formats.py     # PRD 31: docx/pptx/xlsx/vtt/ics extraction (fixtures generated in-test), Teams detection, meeting pages + attendee notes, calendar stubs + horizon setting, unreadable files, 10 MB text sampling, model-titled pastes, client fixture assertions, epub, book authors are not people pages + the summary retry
-│   ├── test_memory_editor.py      # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
-│   ├── test_memory_decay.py       # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
-│   ├── test_settings_action.py    # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag, PRD 35 location + reverse geocode (one `live` Nominatim test)
-│   ├── test_text_input.py         # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
-│   ├── test_avatar_cues.py        # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
-│   ├── test_wiki_editor.py        # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
-│   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
-│   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
-│   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
-│   ├── test_untrusted_text.py     # PRD 33: `untrusted()` + every read tool / recall block wraps, memory-op attribution and `source` stamps, editor snapshot + forget, the six-document injection eval (mocked + `live`), the read-only tool policy
-│   ├── test_error_scopes.py       # scoped `error` messages: one server refusal per scope through the Panel fixture (which asserts a scope on every error), the client routes on `scope` not on the open view
-│   ├── test_protocol_doc.py       # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else
-│   ├── test_intake_progress.py    # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
-│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`
-│   ├── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
-│   ├── test_grounded_answers.py   # PRD 34: recall precision (matched terms + proper nouns), look-up-first prompt block, one-turn "dig deeper" offer (neighbour chunks, long for that completion only), Settings note, dig_deeper filler
-│   ├── test_focus_context.py      # PRD 38: `set_focus` → the page block on typed and spoken turns, head + matching section cap, Chat drops focus / "go back", find/open + no-match notes, a focused source feeds the offer, injected page text wrapped, client fixture assertions
-│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`
-│   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
-│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake titles/horizon field, intake batch); its header
-│                                   # documents the hooks and how to add a scenario
+│   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
+│   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else
+│   ├── llm/
+│   │   ├── test_llm_unit.py         # llm.py with a mocked OpenAI client: ask/ask_events, PRD 13 streamed first call, tool-call detection mid-stream
+│   │   ├── test_context.py          # PRD 11: context budget, history trimming
+│   │   ├── test_verbosity.py        # PRD 11: verbosity levels, max_tokens derivation, set_verbosity action
+│   │   ├── test_fillers.py          # tool-intent fillers: pick() no immediate repeats
+│   │   ├── test_tools.py            # tool schemas/behaviour, needs live oMLX for some cases
+│   │   ├── test_llm_robustness.py   # LLM tool-trigger robustness (single phrases + variants), needs live oMLX
+│   │   └── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
+│   ├── memory/
+│   │   ├── test_memory.py           # memory v2: ops, caps, render budget, reflection, identity aliases
+│   │   ├── test_memory_decay.py     # seen/stale decay, CONFIRM, memory_ops batches, harness edit/clock turns
+│   │   ├── test_memory_editor.py    # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
+│   │   └── test_memory_eval.py      # PRD 14: eval harness scripts, Sandbox isolation, scoring
+│   ├── wiki/
+│   │   ├── test_wiki.py             # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
+│   │   ├── test_wiki_editor.py      # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
+│   │   └── test_focus_context.py    # PRD 38: `set_focus` → the page block on typed and spoken turns, head + matching section cap, Chat drops focus / "go back", find/open + no-match notes, a focused source feeds the offer, injected page text wrapped, client fixture assertions
+│   ├── sources/
+│   │   ├── test_sources.py          # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
+│   │   ├── test_sources_inbox.py    # PRD 25: list_sources newest-first, reingest, forget (only matching notes), get_sources/reingest_source/forget_source actions
+│   │   ├── test_office_formats.py   # PRD 31: docx/pptx/xlsx/vtt/ics extraction (fixtures generated in-test), Teams detection, meeting pages + attendee notes, calendar stubs + horizon setting, unreadable files, 10 MB text sampling, model-titled pastes, client fixture assertions, epub, book authors are not people pages + the summary retry
+│   │   ├── test_source_recall.py    # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
+│   │   ├── test_grounded_answers.py # PRD 34: recall precision (matched terms + proper nouns), look-up-first prompt block, one-turn "dig deeper" offer (neighbour chunks, long for that completion only), Settings note, the lookup fillers
+│   │   ├── test_untrusted_text.py   # PRD 33: `untrusted()` + every read tool / recall block wraps, memory-op attribution and `source` stamps, editor snapshot + forget, the six-document injection eval (mocked + `live`), the read-only tool policy
+│   │   └── test_intake_progress.py  # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
+│   ├── session/
+│   │   ├── test_turns.py            # PRD 12: Session/TurnController, turn ids, origin check, periodic memory hook, dead sockets, static caching
+│   │   ├── test_context_meter.py    # PRD 39: `context` after a turn, TOOLS_TOKENS, trim count, 90 % crossing once per crossing, recall/focus stripping, `new_thread` fold-first + summary + fallback, the new-topic triggers, reconnect replay, client fixture assertions
+│   │   ├── test_hands_free.py       # WS hands-free actions, binary audio frames, text_turn while listening
+│   │   ├── test_greetings.py        # canned greetings: greet() turn shape, turn ids, no LLM call
+│   │   ├── test_chatbot_speech.py   # speak_stream: mocked Kokoro + WS, wav framing
+│   │   ├── test_text_input.py       # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
+│   │   ├── test_error_scopes.py     # scoped `error` messages: one server refusal per scope through the Panel fixture (which asserts a scope on every error), the client routes on `scope` not on the open view
+│   │   └── test_settings_action.py  # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag, PRD 35 location + reverse geocode (one `live` Nominatim test)
+│   ├── ui/
+│   │   ├── test_avatars.py          # avatars.current()/AVATAR env handling, set_current()/settings.json persistence, retired keys, backdrops.validate()/listing() + set_backdrop
+│   │   ├── test_avatar_cues.py      # PRD 27: generated motion groups, click-to-pet, state cues, new emotion tags
+│   │   ├── test_characters.py       # character card loader, persona builder and caps
+│   │   └── test_palette.py          # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
+│   ├── audio/
+│   │   ├── test_asr.py              # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing
+│   │   ├── test_vad.py              # Endpointer state machine (fake prob_fn) + Recorder
+│   │   └── test_splitter.py         # SentenceSplitter / split_stream / strip_tag, every emotion tag round-trips
+│   └── e2e/                     # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`
 ├── requirements.txt
 └── docs/
     ├── index.md               # this file

@@ -107,7 +107,7 @@ def fake_asr(reply="", prompts=None) -> SimpleNamespace:
 
 
 # --------------------------------------------------------------------------- memory helpers
-# Shared by tests/test_memory.py (PRD 15) and tests/test_memory_editor.py (PRD 16).
+# Shared by tests/memory/test_memory.py (PRD 15) and tests/memory/test_memory_editor.py (PRD 16).
 
 
 class FakeClient:
@@ -177,7 +177,7 @@ def on_disk() -> dict:
 class Panel:
     """A websocket client that only cares about the memory / wiki replies.
 
-    Shared by tests/test_memory_editor.py, tests/test_memory_decay.py and tests/test_wiki.py:
+    Shared by tests/memory/test_memory_editor.py, tests/memory/test_memory_decay.py and tests/wiki/test_wiki.py:
     `send` waits for one reply, `send_many` for the `n` an action answers with.
     """
 
@@ -195,7 +195,7 @@ class Panel:
         while len(got) < count:
             reply = self.ws.receive_json()
             if reply.get("type") == "error":
-                # every refusal names the slot it belongs to (tests/test_error_scopes.py)
+                # every refusal names the slot it belongs to (tests/session/test_error_scopes.py)
                 assert reply.get("scope") in chatbot.ERROR_SCOPES, reply
             if reply.get("type") in self.WANTED:
                 got.append(reply)
