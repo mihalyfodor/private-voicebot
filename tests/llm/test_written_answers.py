@@ -153,12 +153,7 @@ def test_write_it_up_after_a_grounded_answer_makes_a_card(fallout):
     assert llm._session_turns[-2:] == [{"role": "user", "content": "write it up"},
                                        {"role": "assistant", "content": "wrote up: The Compound Key at Covenant"}]
     assert llm._conversation[-1]["role"] == "assistant" and CARD_MD.strip() in llm._conversation[-1]["content"]
-    assert llm.card_in(llm._conversation[-1]["content"]) is card_or_none(card["id"])
-    assert llm.last_card["id"] == "card1"
-
-
-def card_or_none(card_id):
-    return llm._cards.get(card_id)
+    assert llm.card_in(llm._conversation[-1]["content"]) is llm._cards[card["id"]] is llm.last_card
 
 
 def test_the_card_completion_reuses_the_last_answers_context(fallout):

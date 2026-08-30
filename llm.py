@@ -71,6 +71,11 @@ def _effective_max_tokens() -> int:
     return VERBOSITY_MAX_TOKENS.get(_verbosity, 400)
 
 
+def _budget(long: bool) -> int:
+    """The completion's max_tokens: the `long` budget on a deeper / lookup / written turn."""
+    return VERBOSITY_MAX_TOKENS["long"] if long else _effective_max_tokens()
+
+
 def model_context_len() -> int | None:
     """Lazily query /v1/models for OMLX_MODEL's max_model_len. Returns None on any failure."""
     global _model_context_len_cache, _model_context_len_warned
@@ -903,7 +908,6 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     trim_history()
 
     long = bool(deeper or lookup or written)
-    max_tokens = VERBOSITY_MAX_TOKENS["long"] if long else _effective_max_tokens()
     tool_texts: list = []
 
     try:
@@ -914,7 +918,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         # for the model to name the topic, and get_wikipedia runs either way.
         first = client().chat.completions.create(
             model=OMLX_MODEL, messages=_messages(long, written), tools=TOOLS, stream=True,
-            max_tokens=max_tokens,
+            max_tokens=_budget(long),
         )
         parts: list[str] = []
         pending: dict = {}
@@ -959,14 +963,14 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             print(f"[llm] fallback lookup for {user_text[:60]!r}")
             getattr(first, "close", lambda: None)()             # stop the abandoned generation
             yield ("tool_calls", ["search_wiki"])
-            if typed_content:
-                written, long, max_tokens = True, True, VERBOSITY_MAX_TOKENS["long"]
+            if typed_content:                                   # grounded after all: the policy applies
+                written = long = True
                 retry = written_note(retry)
             user_msg["content"] += retry
             _note_documents(retry)
             parts = []
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=_budget(long),
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -981,9 +985,9 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
             tool_texts = _tool_round(tool_calls)
             if typed_content and any(tc["name"] in GROUNDING_TOOLS for tc in tool_calls):
-                written, long, max_tokens = True, True, VERBOSITY_MAX_TOKENS["long"]
+                written = long = True
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=_budget(long),
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
