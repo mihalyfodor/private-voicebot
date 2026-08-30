@@ -147,6 +147,7 @@ Apply to all projects unless a PRD explicitly overrides.
 - **Secrets:** Never paste secrets/keys/tokens into prompts or code. Use `.env` + `.gitignore`. Sanitize logs before sharing.
 - **Error handling:** Fail fast with clear messages. No silent swallows.
 - **Test split:** Pure logic → unit tests. API/service boundaries → integration tests. User-critical flows → E2E. Aim for more unit/integration than E2E.
+- **Test layout:** `tests/<module>/test_<feature>.py`, one folder per app module (llm, memory, wiki, sources, session, ui, audio). A new PRD adds tests to the existing file for that module before it adds a file. Fakes, sandboxes and helpers live in `tests/conftest.py` — never copy one into a test file, and never import a fixture from another test file. Assert on the messages a scenario is about (filter by type), not on the exact full frame list, unless wire order is the contract.
 - **Storage:** Define where state lives in the PRD (local file, memory, external service, etc.)
 
 ## Conventions
