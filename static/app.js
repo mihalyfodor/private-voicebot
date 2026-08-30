@@ -380,6 +380,7 @@ const avatar = {
       wikiVault = cfg.vault || wikiVault;
       renderDecayWindows(cfg.stale_days);
       renderCalendarHorizon(cfg.calendar_horizon_days);
+      renderRecallMinScore(cfg.recall_min_score);
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
@@ -682,6 +683,7 @@ const VIEW_BY_ID = new Map(VIEWS.map(v => [v.id, v]));
 const railEl = document.getElementById('rail');
 const decayListEl = document.getElementById('decay-list');
 const calendarHorizonEl = document.getElementById('calendar-horizon');
+const recallMinScoreEl = document.getElementById('recall-min-score');
 
 let currentView = 'chat';
 let railItems = [];
@@ -760,6 +762,18 @@ calendarHorizonEl.onchange = () => {
   const days = parseInt(calendarHorizonEl.value, 10);
   if (!Number.isInteger(days) || days < 1) { renderCalendarHorizon(); return; }   // revert a bad entry
   sendAction({ action: 'set_setting', key: 'calendar_horizon_days', value: days });
+};
+
+// PRD 32: the BM25-per-word floor a source passage must clear to be quoted into a turn.
+let recallMinScore = 4.5;
+function renderRecallMinScore(score) {
+  if (typeof score === 'number' && Number.isFinite(score) && score >= 0) recallMinScore = score;
+  recallMinScoreEl.value = String(recallMinScore);
+}
+recallMinScoreEl.onchange = () => {
+  const score = parseFloat(recallMinScoreEl.value);
+  if (!Number.isFinite(score) || score < 0) { renderRecallMinScore(); return; }   // revert a bad entry
+  sendAction({ action: 'set_setting', key: 'recall_min_score', value: score });
 };
 
 buildRail();
@@ -2316,7 +2330,10 @@ function connect() {
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
     else if (msg.type === 'sources') setSources(msg);
-    else if (msg.type === 'setting') { if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value); }
+    else if (msg.type === 'setting') {
+      if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value);
+      else if (msg.key === 'recall_min_score') renderRecallMinScore(msg.value);
+    }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
       status.textContent = msg.text.toLowerCase();

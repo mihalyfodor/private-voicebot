@@ -15,6 +15,7 @@ PRD 15: ops + validation, never a whole-file rewrite. ``git log`` inside the vau
 See docs/19-wiki-layer.md.
 """
 import hashlib
+import json
 import math
 import os
 import re
@@ -36,9 +37,12 @@ RECURRING_FILE = "recurring.md"          # where archived `recurring` profile en
 #: where the assistant may file pages; the user may also use any other single-level folder
 FOLDERS = ("people", "projects", "meetings", "sources", "notes")
 
-#: raw sources (PRD 20) live here: immutable originals, never pages, never indexed
+#: raw sources (PRD 20) live here: immutable originals, never pages; text-kind ones are
+#: chunk-indexed for recall (PRD 32), never ingested as pages
 RAW_DIR = "raw"
 RAW_SUBDIRS = ("inbox", "screens", "email", "news")
+#: per-sha chunk cache for search inside sources (PRD 32); gitignored, rebuilt on demand
+RAW_INDEX_DIR = "raw/.index"
 
 #: pages that are machinery, not knowledge — never listed, never searched, never ingested about
 RESERVED = (INDEX_FILE, LOG_FILE, SCHEMA_FILE)
@@ -197,8 +201,9 @@ def ensure_vault() -> str:
              "updated": memory._today_iso(), "seen": memory._today_iso()},
             "# Decisions\n",
         ))
-    if not os.path.exists(_path(".gitignore")):
-        _write(".gitignore", ".obsidian/\n.trash/\n")
+    ignore = _read(".gitignore")
+    if f"{RAW_INDEX_DIR}/" not in ignore.splitlines():
+        _write(".gitignore", (ignore or ".obsidian/\n.trash/\n").rstrip("\n") + f"\n{RAW_INDEX_DIR}/\n")
     if not os.path.exists(_path(INDEX_FILE)):
         rebuild_index()
     if not os.path.isdir(_path(".git")):
@@ -763,8 +768,19 @@ _K1, _B = 1.5, 0.75
 _index_cache: dict = {"sig": None, "docs": []}
 
 
+def _stem(word: str) -> str:
+    """A light stem so "lockpick" finds "lockpicking" and "turret" "turrets" — no dependency."""
+    if len(word) > 5 and word.endswith("ing"):
+        word = word[:-3]
+    elif len(word) > 4 and word.endswith("ed"):
+        word = word[:-2]
+    elif len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        word = word[:-1]
+    return word
+
+
 def _tokenise(text: str) -> list:
-    return re.findall(r"[a-z0-9]+", str(text).lower())
+    return [_stem(w) for w in re.findall(r"[a-z0-9]+", str(text).lower())]
 
 
 def _signature() -> tuple:
@@ -813,32 +829,284 @@ def _snippet(text: str, terms: set, width: int = 180) -> str:
     return ("…" if start else "") + body[start:start + width] + ("…" if len(body) > start + width else "")
 
 
-def search(query: str, k: int = 5) -> list:
-    """Top-`k` pages for `query` as ``[{path, snippet, score}]`` (BM25, best first).
-
-    `path` is the suffix-less form the model sees everywhere else (`people/anna`), so a hit can
-    be handed straight to :func:`read_page`.
-    """
-    docs = _corpus()
-    terms = set(_tokenise(query))
-    if not docs or not terms:
-        return []
+def _bm25(docs: list, terms: set, weights: dict | None = None) -> list:
+    """BM25 score of `terms` against each token list in `docs` (0.0 where nothing matched);
+    `weights` scales a term's contribution (default 1.0)."""
     n = len(docs)
-    avgdl = sum(len(t) for _, _, t, _ in docs) / n
-    df = Counter(term for _, _, tokens, _ in docs for term in terms if term in tokens)
-    scored = []
-    for rel, text, tokens, _ in docs:
+    weights = weights or {}
+    avgdl = sum(len(t) for t in docs) / n
+    df = Counter(term for tokens in docs for term in terms if term in tokens)
+    scores = []
+    for tokens in docs:
         counts, dl, score = Counter(tokens), len(tokens) or 1, 0.0
         for term in terms:
             freq = counts.get(term, 0)
             if not freq:
                 continue
             idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-            score += idf * freq * (_K1 + 1) / (freq + _K1 * (1 - _B + _B * dl / avgdl))
-        if score > 0:
-            scored.append({"path": wikilink(rel), "snippet": _snippet(text, terms),
-                           "score": round(score, 3)})
+            score += (weights.get(term, 1.0) * idf * freq * (_K1 + 1)
+                      / (freq + _K1 * (1 - _B + _B * dl / avgdl)))
+        scores.append(score)
+    return scores
+
+
+def search(query: str, k: int = 5) -> list:
+    """Top-`k` pages for `query` as ``[{path, snippet, score}]`` (BM25, best first).
+
+    `path` is the suffix-less form the model sees everywhere else (`people/anna`), so a hit can
+    be handed straight to :func:`read_page`. Raw sources are a separate index: :func:`search_chunks`.
+    """
+    docs = _corpus()
+    terms = set(_tokenise(query))
+    if not docs or not terms:
+        return []
+    scores = _bm25([tokens for _, _, tokens, _ in docs], terms)
+    scored = [{"path": wikilink(rel), "snippet": _snippet(text, terms), "score": round(score, 3)}
+              for (rel, text, _, _), score in zip(docs, scores) if score > 0]
     return sorted(scored, key=lambda d: (-d["score"], d["path"]))[:k]
+
+
+# --- search inside sources (docs/32-source-recall.md) -------------------------------
+# Text-kind raw files are split into ~800-token chunks, cached per sha in raw/.index/, and
+# searched with the same BM25 as the pages. Pages and chunks are ranked separately.
+
+CHUNK_TOKENS = 800
+CHUNK_OVERLAP = 80
+SNIPPET_CHARS = 600
+MAX_SOURCE_READ = 3000
+#: `recall_min_score` default — BM25 per content word, calibrated in tests/test_source_recall.py
+RECALL_MIN_SCORE = 4.5
+#: query words that carry no topic; dropped before scoring so "the" cannot dilute a match
+STOPWORDS = frozenset("""a an the and or but if so of to in on at by for from with about into over
+after before as is are am was were be been being do does did have has had i me my mine we us our you
+your he she it its they them their this that these those what which who whom how when where why
+there here can could should would will shall may might must not no yes im ive dont cant lets s m t
+re ll d ve keep keeps get got just really very some any all one""".split())
+#: a query word the sources write Title-case ("Covenant", "Whiterun") names a place, a person
+#: or a quest; it counts up to this much more than a plain word ("cook", "weather"), which is
+#: what separates "I'm at Covenant" from "what should we cook" when each matches one rare word
+PROPER_BOOST = 2.0
+_chunk_cache: dict = {"sig": None, "docs": [], "proper": {}}
+_WORD = re.compile(r"[A-Za-z0-9]+")
+
+
+def _read_bytes(rel: str) -> bytes:
+    with open(_path(rel), "rb") as f:
+        return f.read()
+
+
+_PARA = re.compile(r"(?:[^\n]*\S[^\n]*(?:\n|\Z))+")
+
+
+def _blocks(text: str) -> list:
+    """``[(start, block)]`` — runs of non-blank lines (paragraphs, headings), offsets into `text`."""
+    return [(m.start(), m.group()) for m in _PARA.finditer(text)]
+
+
+def _split_long(start: int, block: str, limit: int) -> list:
+    """A block over `limit` chars is cut at line boundaries (or hard, for one endless line)."""
+    parts, buf, buf_at, at = [], "", start, start
+    for line in block.splitlines(keepends=True):
+        if buf and len(buf) + len(line) > limit:
+            parts.append((buf_at, buf))
+            buf = ""
+        while len(line) > limit:
+            parts.append((at, line[:limit]))
+            line, at = line[limit:], at + limit
+        if not buf:
+            buf_at = at
+        buf += line
+        at += len(line)
+    if buf:
+        parts.append((buf_at, buf))
+    return parts
+
+
+def _carry_from(buf_at: int, buf: str, tail: int) -> int:
+    """Where the overlap carried into the next chunk starts: the last `tail` chars of the
+    chunk, moved forward to a line start (or a word start when the tail is one long line)."""
+    body = buf.rstrip()
+    if not tail or not body:
+        return buf_at + len(buf)
+    at = max(0, len(body) - tail)
+    cut = body.find("\n", at)
+    if 0 <= cut < len(body) - 1:
+        return buf_at + cut + 1
+    space = body.find(" ", at)
+    return buf_at + (space + 1 if 0 <= space < len(body) - 1 else at)
+
+
+def chunk_text(text: str, tokens: int = CHUNK_TOKENS, overlap: int = CHUNK_OVERLAP) -> list:
+    """``[{n, start, text}]`` — ~`tokens`-token chunks on paragraph boundaries with `overlap`
+    tokens of tail carried into the next chunk. Deterministic: same text, same chunks."""
+    limit, tail = tokens * 4, overlap * 4
+    pieces = [p for start, block in _blocks(text) for p in _split_long(start, block, limit)]
+    chunks, buf, buf_at = [], "", 0
+    for start, piece in pieces:
+        if buf and start + len(piece) - buf_at > limit:
+            chunks.append({"n": len(chunks) + 1, "start": buf_at, "text": buf.rstrip()})
+            buf_at = _carry_from(buf_at, buf, tail)
+            buf = text[buf_at:start]
+        if not buf.strip():
+            buf_at = start
+        buf = text[buf_at:start + len(piece)]      # a slice of `text`, so offsets stay honest
+    if buf.strip():
+        chunks.append({"n": len(chunks) + 1, "start": buf_at, "text": buf.rstrip()})
+    return chunks
+
+
+def _chunkable(entry: dict) -> bool:
+    ext = os.path.splitext(str(entry.get("path") or ""))[1].lower()
+    return bool(ext) and ext not in (".png", ".jpg", ".jpeg", ".ics")
+
+
+def _source_title(source: str, raw_rel: str) -> str:
+    fm = parse_page(_read(f"{source}.md"))[0] if source else {}
+    return str(fm.get("name") or os.path.splitext(os.path.basename(raw_rel))[0])
+
+
+def _cache_rel(sha: str) -> str:
+    return f"{RAW_INDEX_DIR}/{sha}.json"
+
+
+def raw_chunks(raw_rel: str) -> dict:
+    """The chunk record of one raw file: ``{sha, raw, source, title, chunks}``.
+
+    Cached in `raw/.index/<sha>.json`; a cache hit reads no raw bytes. `raw_rel` may be the
+    raw path or the source page path; a file that is not in the manifest raises KeyError.
+    """
+    import sources
+
+    entry = next((e for e in sources.manifest_entries()
+                  if raw_rel in (e.get("path"), e.get("page"))), None)
+    if entry is None:
+        raise KeyError(f"no such source: {raw_rel}")
+    sha, raw_rel, source = entry["sha256"], entry["path"], entry.get("page", "")
+    cached = _read(_cache_rel(sha))
+    if cached:
+        try:
+            record = json.loads(cached)
+            if record.get("sha") == sha and record.get("raw") == raw_rel:
+                return record
+        except ValueError:
+            pass
+    text = sources.raw_text(raw_rel, _read_bytes(raw_rel)) if _chunkable(entry) else ""
+    record = {"sha": sha, "raw": raw_rel, "source": source,
+              "title": _source_title(source, raw_rel),
+              "chunks": chunk_text(text, CHUNK_TOKENS, CHUNK_OVERLAP)}
+    _write(_cache_rel(sha), json.dumps(record, ensure_ascii=False))
+    return record
+
+
+def drop_raw_chunks(sha: str) -> None:
+    """Remove a forgotten source's cache file (nothing to do when it was never built)."""
+    full = _path(_cache_rel(sha))
+    if os.path.exists(full):
+        os.remove(full)
+
+
+def _chunk_corpus() -> list:
+    """Every chunk of every text-kind source: ``[(source, raw, title, n, N, text, tokens)]``.
+
+    Rebuilt when the manifest's set of shas changes; the per-file work is cached on disk.
+    """
+    import sources
+
+    entries = [e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)]
+    sig = (WIKI_PATH, tuple(sorted((e["sha256"], e["path"]) for e in entries)))
+    if _chunk_cache["sig"] != sig:
+        docs = []
+        for entry in entries:
+            record = raw_chunks(entry["path"])
+            total = len(record["chunks"])
+            docs += [(record["source"], record["raw"], record["title"], c["n"], total,
+                      c["text"], _tokenise(c["text"])) for c in record["chunks"]]
+        _chunk_cache["proper"] = _proper_ratios(text for *_, text, _ in docs)
+        _chunk_cache["sig"], _chunk_cache["docs"] = sig, docs
+    return _chunk_cache["docs"]
+
+
+def _proper_noun(text: str, m) -> bool:
+    """Title-case and mid-sentence ("of Covenant", not "Today you") — a name, not a sentence start."""
+    word = m.group()
+    if not (word[:1].isupper() and word[1:].islower()):
+        return False
+    prev = text[:m.start()].rstrip()[-1:]
+    return prev.isalnum() or prev in ",;:"
+
+
+def _proper_ratios(texts) -> dict:
+    """stem -> share of its occurrences that are proper nouns, over every chunk text."""
+    seen, titled = Counter(), Counter()
+    for text in texts:
+        for m in _WORD.finditer(text):
+            stem = _stem(m.group().lower())
+            seen[stem] += 1
+            if _proper_noun(text, m):
+                titled[stem] += 1
+    return {w: titled[w] / seen[w] for w in titled}
+
+
+def _term_weights(terms: set) -> dict:
+    """1 + PROPER_BOOST × (share of the word's occurrences written Title-case)."""
+    proper = _chunk_cache["proper"]
+    return {t: 1.0 + PROPER_BOOST * proper.get(t, 0.0) for t in terms}
+
+
+def content_terms(query: str) -> set:
+    """The query's tokens minus stopwords — what a match is scored and normalised on."""
+    return {t for t in _tokenise(query) if t not in STOPWORDS}
+
+
+def search_chunks(query: str, k: int = 3) -> list:
+    """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score}]``.
+
+    `score` is BM25 divided by the number of content words, so a threshold means the same
+    for a three-word and a twelve-word question (see :func:`recall_min_score`).
+    """
+    docs = _chunk_corpus()
+    terms = content_terms(query)
+    if not docs or not terms:
+        return []
+    scores = _bm25([tokens for *_, tokens in docs], terms, _term_weights(terms))
+    hits = [{"source": source, "raw": raw, "title": title, "n": n, "total": total, "text": text,
+             "score": round(score / len(terms), 3)}
+            for (source, raw, title, n, total, text, _), score in zip(docs, scores) if score > 0]
+    return sorted(hits, key=lambda h: (-h["score"], h["raw"], h["n"]))[:k]
+
+
+def read_source(path: str, part) -> str:
+    """Chunk `part` of a source with a neighbour either side, ≤ `MAX_SOURCE_READ` chars.
+
+    `path` is the source page (`sources/guide`) or the raw path; a bad path or part number
+    comes back as a plain error string the model can read.
+    """
+    rel = normalise_path(path, user=True)
+    try:
+        record = raw_chunks(wikilink(rel) if rel else str(path or ""))
+    except KeyError:
+        return f"no such source: {path}"
+    chunks, total = record["chunks"], len(record["chunks"])
+    try:
+        n = int(part)
+    except (TypeError, ValueError):
+        n = 0
+    if not 1 <= n <= total:
+        return f"no part {part} in {path} (parts 1-{total})"
+    middle = chunks[n - 1]["text"][:MAX_SOURCE_READ]
+    room = (MAX_SOURCE_READ - len(middle)) // 2
+    before = chunks[n - 2]["text"][-room:] if n > 1 and room else ""
+    after = chunks[n]["text"][:room] if n < total and room else ""
+    text = "\n".join(p for p in (before, middle, after) if p)[:MAX_SOURCE_READ]
+    return f'{record["title"]} · part {n}/{total}\n{text}'
+
+
+def recall_min_score() -> float:
+    """`recall_min_score` from settings.json (default `RECALL_MIN_SCORE`)."""
+    import avatars
+
+    value = avatars.load_settings().get("recall_min_score")
+    return float(value) if isinstance(value, (int, float)) and value >= 0 else RECALL_MIN_SCORE
 
 
 def read_page(path: str) -> str:
@@ -875,7 +1143,7 @@ def links_in(text: str) -> list:
 
 #: the recall tools tools/wiki.py registers — the prompt may only advertise them when they
 #: are actually offered to the model this run (see :func:`tools_registered`).
-RECALL_TOOLS = ("search_wiki", "read_page")
+RECALL_TOOLS = ("search_wiki", "read_page", "read_source")
 
 
 def tools_registered() -> bool:

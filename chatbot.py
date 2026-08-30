@@ -415,6 +415,7 @@ async def api_config():
         # read-only facts shown in the Settings view
         "stale_days": dict(memory.STALE_DAYS),
         "calendar_horizon_days": sources.calendar_horizon_days(),
+        "recall_min_score": wiki.recall_min_score(),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
     }
@@ -589,7 +590,8 @@ async def _action_set_verbosity(sess, msg, loop):
 # key -> expected type. Empty since PRD 22b removed `panel_pinned`; the action stays so the
 # next persisted UI preference is one line here instead of a new action.
 #: `calendar_horizon_days` — how far a recurring invite is expanded into meeting stubs (PRD 31)
-SETTABLE: dict[str, type] = {"calendar_horizon_days": int}
+#: `recall_min_score` — the BM25-per-word floor a source passage must clear to be quoted (PRD 32)
+SETTABLE: dict[str, type] = {"calendar_horizon_days": int, "recall_min_score": float}
 
 
 async def _action_set_setting(sess, msg, loop):
@@ -604,9 +606,11 @@ async def _action_set_setting(sess, msg, loop):
     if kind is None:
         await send({"type": "error", "text": f"Unknown setting {key!r}"})
         return
-    if not isinstance(value, kind):
+    ok = isinstance(value, kind) or (kind is float and isinstance(value, int) and not isinstance(value, bool))
+    if not ok:
         await send({"type": "error", "text": f"{key} needs a {kind.__name__}"})
         return
+    value = kind(value)
     avatars.save_setting(key, value)
     await send({"type": "setting", "key": key, "value": value})
 

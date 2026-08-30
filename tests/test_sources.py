@@ -73,7 +73,7 @@ def raw_files() -> list:
     for base, _dirs, files in os.walk(root):
         for name in files:
             rel = os.path.relpath(os.path.join(base, name), wiki.WIKI_PATH).replace(os.sep, "/")
-            if not name.startswith(".") and rel != sources.MANIFEST:
+            if not name.startswith(".") and rel != sources.MANIFEST and "/.index/" not in rel:
                 found.append(rel)
     return sorted(found)
 

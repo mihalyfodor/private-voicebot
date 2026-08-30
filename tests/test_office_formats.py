@@ -440,7 +440,7 @@ def test_a_generic_file_name_defers_to_the_model_too(vault, monkeypatch):
     monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
     filed = sources.ingest_upload(b"Q: How do I land? A: Slowly.", "note.txt", title="untitled")
     assert filed["path"] == "sources/falcon-rocket-faq"
-    assert filed["raw"].endswith("-untitled.txt")
+    assert filed["raw"].endswith("-falcon-rocket-faq.txt")     # PRD 32: renamed after the title
 
 
 def test_a_real_file_name_still_wins(vault, fake):

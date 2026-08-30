@@ -26,6 +26,7 @@ def wiki_sandbox(monkeypatch, tmp_path):
     vault = tmp_path / "wiki"
     monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
     monkeypatch.setattr(wiki, "_index_cache", {"sig": None, "docs": []})
+    monkeypatch.setattr(wiki, "_chunk_cache", {"sig": None, "docs": [], "proper": {}})
     return vault
 
 
