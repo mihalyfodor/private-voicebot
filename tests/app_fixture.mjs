@@ -667,7 +667,7 @@ results.horizon_sent = [...socket.sent];
 if (socket.onopen) socket.onopen();                       // the stub never fires it on its own
 results.location_sent = socket.sent.filter(m => m.action === 'set_location');
 socket.sent.length = 0;
-t.recv({ type: 'setting', key: 'location', value: { lat: 46.771, lon: 23.624, tz: 'Europe/Bucharest', source: 'browser', name: '' } });
+t.recv({ type: 'setting', key: 'location', value: { lat: 46.771, lon: 23.624, tz: 'Europe/Bucharest', source: 'browser', name: 'Cluj-Napoca, Romania' } });
 results.location_shown = doc.getElementById('settings-location').textContent;
 
 // ---- PRD 32: the recall threshold field round-trips through set_setting

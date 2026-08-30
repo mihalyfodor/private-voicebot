@@ -316,6 +316,7 @@ def test_every_tool_module_declares_fixed_hosts_and_no_free_url():
     for module in modules:
         assert isinstance(module.HOSTS, tuple), module.__name__
         assert set(module.HOSTS) <= ALLOWED_HOSTS, module.__name__
+    assert "nominatim.openstreetmap.org" in ALLOWED_HOSTS          # PRD 35 addendum: one reverse geocode
     for tool in TOOLS:
         name = tool["function"]["name"]
         params = tool["function"]["parameters"]["properties"]

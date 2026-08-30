@@ -2,6 +2,7 @@ import json
 import os
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterator
 
 from openai import OpenAI
@@ -11,6 +12,7 @@ import avatars
 import wiki
 from splitter import EMOTIONS
 from tools import TOOLS, run_tool
+from tools import weather as _weather
 from untrusted import DOCUMENT_RULE, documents_in, untrusted
 
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
@@ -180,6 +182,19 @@ def wikipedia_registered() -> bool:
     return any((t.get("function") or {}).get("name") == "get_wikipedia" for t in TOOLS if isinstance(t, dict))
 
 
+def location_line() -> str:
+    """`The user is in <name> (timezone <tz>, local time HH:MM). ` — empty when no place name is known
+    (the built-in default is a weather fallback, not where the user is)."""
+    where = _weather.location()
+    if not where.get("name") or where["source"] == "default":
+        return ""
+    try:
+        local = datetime.now(ZoneInfo(where["tz"])).strftime("%H:%M")
+    except (ZoneInfoNotFoundError, ValueError, KeyError):
+        local = datetime.now().strftime("%H:%M")
+    return f"The user is in {where['name']} (timezone {where['tz']}, local time {local}). "
+
+
 def build_system_prompt(avatar: dict) -> str:
     global _verbosity
     verbosity = resolve_verbosity(avatar)
@@ -199,6 +214,7 @@ def _prompt_text(avatar: dict, verbosity: str) -> str:
     f"Begin every reply with exactly one emotion tag from this list, then a space: "
     f"{' '.join(f'[{e}]' for e in EMOTIONS)}. "
     f"Today's date is {datetime.now().strftime('%A, %B %d %Y')}. "
+    f"{location_line()}"
     f"Use the get_time tool when asked for the current time. "
     f"Use the get_weather tool when asked about the weather — when reporting weather, give a "
     f"summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind. "

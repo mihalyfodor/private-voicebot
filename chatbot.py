@@ -640,8 +640,14 @@ async def _action_set_location(sess, msg, loop):
     if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not tz:
         await _error("settings", "location out of range or missing tz")
         return
-    value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser"}
+    saved = avatars.load_settings().get("location")
+    if weather_tool.needs_geocode(saved, lat, lon):
+        name = await asyncio.to_thread(weather_tool.reverse_geocode, lat, lon)   # "" when Nominatim fails
+    else:
+        name = saved["name"]
+    value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser", "name": name}
     avatars.save_setting("location", value)
+    await asyncio.to_thread(llm.refresh_context)   # the next turn knows the place
     await send({"type": "setting", "key": "location", "value": weather_tool.location()})
 
 

@@ -3,8 +3,11 @@ import requests
 
 import avatars
 
-#: the only host this tool talks to (docs/33-untrusted-text.md read-only policy)
-HOSTS = ("api.open-meteo.com",)
+#: the hosts this tool talks to (docs/33-untrusted-text.md read-only policy): the forecast, and Nominatim
+#: for one reverse-geocode per new position (PRD 35 addendum) — a fixed endpoint, never a free URL
+HOSTS = ("api.open-meteo.com", "nominatim.openstreetmap.org")
+#: a saved position within this distance (degrees, ~1 km) keeps its name instead of asking Nominatim again
+GEOCODE_MOVE_THRESHOLD = 0.01
 
 #: the built-in fallback when neither the browser (settings.json) nor `.env` says where the user is
 DEFAULT_LOCATION = {"name": "Seychelles", "lat": -4.6796, "lon": 55.4920, "tz": "Indian/Mahe", "source": "default"}
@@ -15,13 +18,49 @@ def location() -> dict:
     env → the built-in default. Always `{name?, lat, lon, tz, source}`."""
     saved = avatars.load_settings().get("location")
     if isinstance(saved, dict) and "lat" in saved and "lon" in saved:
-        return {"name": os.getenv("LOCATION_NAME", ""), "lat": float(saved["lat"]), "lon": float(saved["lon"]),
+        return {"name": os.getenv("LOCATION_NAME", "") or str(saved.get("name") or ""),
+                "lat": float(saved["lat"]), "lon": float(saved["lon"]),
                 "tz": str(saved.get("tz") or os.getenv("LOCATION_TIMEZONE") or "auto"), "source": "browser"}
     if os.getenv("LOCATION_LAT") and os.getenv("LOCATION_LON"):
         return {"name": os.getenv("LOCATION_NAME", ""), "lat": float(os.getenv("LOCATION_LAT")),
                 "lon": float(os.getenv("LOCATION_LON")),
                 "tz": os.getenv("LOCATION_TIMEZONE", "auto"), "source": "env"}
     return dict(DEFAULT_LOCATION)
+
+
+def _user_agent() -> str:
+    ua = "voicebot/1.0 (personal assistant"
+    contact = os.getenv("WIKIPEDIA_CONTACT", "").strip()
+    return ua + (f"; {contact}" if contact else "") + ")"
+
+
+def reverse_geocode(lat: float, lon: float) -> str:
+    """`"City, Country"` for a position from Nominatim, or `""` on any failure (never raises)."""
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params={"format": "jsonv2", "zoom": 10, "lat": lat, "lon": lon},
+            headers={"User-Agent": _user_agent(), "Accept": "application/json"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        address = resp.json().get("address") or {}
+    except Exception as exc:                       # noqa: BLE001 — a missing name is never the user's problem
+        print(f"[Location] reverse geocode failed: {exc}")
+        return ""
+    place = next((address[k] for k in ("city", "town", "village", "municipality", "county") if address.get(k)), "")
+    return ", ".join(p for p in (place, address.get("country", "")) if p)
+
+
+def needs_geocode(saved, lat: float, lon: float) -> bool:
+    """True when no name is stored or the position moved by more than `GEOCODE_MOVE_THRESHOLD`."""
+    if not isinstance(saved, dict) or not saved.get("name"):
+        return True
+    try:
+        return (abs(float(saved["lat"]) - lat) > GEOCODE_MOVE_THRESHOLD
+                or abs(float(saved["lon"]) - lon) > GEOCODE_MOVE_THRESHOLD)
+    except (KeyError, TypeError, ValueError):
+        return True
 
 WMO_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
