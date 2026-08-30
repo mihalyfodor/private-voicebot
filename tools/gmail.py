@@ -1,3 +1,5 @@
+import os
+
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
@@ -9,8 +11,11 @@ from untrusted import untrusted
 HOSTS = ("gmail.googleapis.com", "oauth2.googleapis.com", "accounts.google.com")
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-GMAIL_CREDENTIALS_PATH = "credentials.json"
-GMAIL_TOKEN_PATH = "token.json"
+# GMAIL_DIR env: where credentials.json / token.json live (default: the working directory;
+# the Docker prod mounts them at /data/secrets — docs/40-docker-prod.md)
+GMAIL_DIR = os.getenv("GMAIL_DIR") or "."
+GMAIL_CREDENTIALS_PATH = os.path.join(GMAIL_DIR, "credentials.json")
+GMAIL_TOKEN_PATH = os.path.join(GMAIL_DIR, "token.json")
 
 DEFINITION = {
     "type": "function",
@@ -94,7 +99,6 @@ def fetch_message(msg_id: str) -> str:
 
 def _get_service():
     creds = None
-    import os
     if os.path.exists(GMAIL_TOKEN_PATH):
         creds = Credentials.from_authorized_user_file(GMAIL_TOKEN_PATH, GMAIL_SCOPES)
     if not creds or not creds.valid:
@@ -109,7 +113,6 @@ def _get_service():
 
 
 def is_configured() -> bool:
-    import os
     return os.path.exists(GMAIL_CREDENTIALS_PATH) or os.path.exists(GMAIL_TOKEN_PATH)
 
 

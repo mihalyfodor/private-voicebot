@@ -607,3 +607,40 @@ def test_an_already_filed_drop_pushes_no_progress(http):
 
     ws.send_json({"action": "get_sources"})        # the next frame is this reply, nothing in between
     assert ws.receive_json()["type"] == "sources"
+
+
+# --------------------------------------------------------------------------- PRD 40 scenario 4: Pillow downscale
+
+
+def test_downscale_shrinks_a_large_png_with_pillow(tmp_path, monkeypatch):
+    import numpy as np
+    from PIL import Image
+    path = str(tmp_path / "big.png")
+    rng = np.random.default_rng(0)
+    Image.fromarray(rng.integers(0, 256, (1800, 2400, 3), dtype=np.uint8), "RGB").save(path)
+    assert os.path.getsize(path) > sources.DOWNSCALE_ABOVE_BYTES
+
+    def no_sips(*a, **k):
+        raise AssertionError("sips must not be called")
+    monkeypatch.setattr(sources.subprocess, "run", no_sips)
+
+    sources._downscale(path)
+    with Image.open(path) as im:
+        assert max(im.size) == sources.IMAGE_LONG_EDGE
+        assert im.size[0] == sources.IMAGE_LONG_EDGE
+        assert abs(im.size[1] - round(1800 * sources.IMAGE_LONG_EDGE / 2400)) <= 1
+
+
+def test_downscale_leaves_small_images_alone(tmp_path, monkeypatch):
+    from PIL import Image
+    path = str(tmp_path / "small.png")
+    Image.new("RGB", (2000, 1000), "red").save(path)      # solid colour: tiny file, big pixels
+    assert os.path.getsize(path) <= sources.DOWNSCALE_ABOVE_BYTES
+
+    def no_sips(*a, **k):
+        raise AssertionError("sips must not be called")
+    monkeypatch.setattr(sources.subprocess, "run", no_sips)
+
+    before = open(path, "rb").read()
+    sources._downscale(path)
+    assert open(path, "rb").read() == before

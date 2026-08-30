@@ -88,7 +88,8 @@ def server():
     (tmp / "memory").mkdir()
     port = free_port()
     env = {**os.environ, "WIKI_PATH": str(vault), "SETTINGS_PATH": str(tmp / "settings.json"),
-           "MEMORY_DIR": str(tmp / "memory"), "PORT": str(port), "OPEN_BROWSER": "0", "PYTHONUNBUFFERED": "1"}
+           "MEMORY_DIR": str(tmp / "memory"), "SESSION_LOG": str(tmp / "session.log"), "GMAIL_DIR": str(tmp),
+           "PORT": str(port), "OPEN_BROWSER": "0", "PYTHONUNBUFFERED": "1"}
     log = open(tmp / "server.log", "w")
     proc = subprocess.Popen([sys.executable, "chatbot.py"], cwd=ROOT, env=env,
                             stdout=log, stderr=subprocess.STDOUT)

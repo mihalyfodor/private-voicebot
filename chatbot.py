@@ -1070,11 +1070,19 @@ async def _on_connect(sess: Session, loop):
         await send_state(sess, "idle")
 
 
+def _allowed_origins() -> set:
+    """Our own loopback:PORT pair plus `ALLOWED_ORIGINS` (comma list) — the Docker prod publishes
+    the container's PORT on a host port the app cannot see (docs/40-docker-prod.md)."""
+    extra = os.getenv("ALLOWED_ORIGINS", "")
+    return {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"} | {
+        o.strip().rstrip("/") for o in extra.split(",") if o.strip()}
+
+
 def _origin_allowed(origin: str | None) -> bool:
-    """Non-browser clients send no Origin; browsers must be on our own loopback port."""
+    """Non-browser clients send no Origin; browsers must be on an allowed origin."""
     if origin is None:
         return True
-    return origin in {f"http://localhost:{PORT}", f"http://127.0.0.1:{PORT}"}
+    return origin.rstrip("/") in _allowed_origins()
 
 
 @app.websocket("/ws")

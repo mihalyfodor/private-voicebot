@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 40 — Docker as the prod environment, one data folder
 
@@ -43,12 +43,14 @@ Models stay outside: `~/models/kokoro` mounted read-only at `/models/kokoro`. No
   `SETTINGS_PATH=/data/settings.json`, `GMAIL_DIR=/data/secrets`, `SESSION_LOG=/data/logs/session.log`,
   `KOKORO_MODEL=/models/kokoro/kokoro-v1.0.onnx`, `KOKORO_VOICES=/models/kokoro/voices-v1.0.bin`,
   `OMLX_BASE_URL=http://host.docker.internal:8000/v1`, `ASR_BACKEND=remote`, `ASR_URL=http://host.docker.internal:8020`),
-  `ports: 127.0.0.1:8010:8010`, volumes `${DATA}:/data`, `~/models/kokoro:/models/kokoro:ro`, `extra_hosts:
-  host.docker.internal:host-gateway`, `read_only: true` + `tmpfs: /tmp`, `user: "1000:1000"`, `security_opt:
-  no-new-privileges`, memory 4g / cpus 4, healthcheck GET `/` (start_period 90 s), `restart: unless-stopped`.
-- **`scripts/prod.sh`**: `build` (tag from `git describe --always`), `up`, `down`, `logs`, `status`, `migrate`
-  (one-time: `mv ~/llm-wiki`, memory files, settings.json, .env, secrets into `$DATA`, then symlink-free — prints what
-  moved and refuses if targets exist), `backup` (`git bundle --all` of the vault + `tar czf` of `$DATA` excluding
+  `ALLOWED_ORIGINS` for the published port), `ports: 127.0.0.1:${PROD_PORT:-8010}:8010`, volumes `${DATA}:/data`,
+  `~/models/kokoro:/models/kokoro:ro`, `extra_hosts: host.docker.internal:host-gateway`, `read_only: true` +
+  `tmpfs: /tmp:exec` (espeak-ng, Kokoro's phonemizer, dlopens a library it extracts there), `user: "1000:1000"`,
+  `security_opt: no-new-privileges`, memory 4g / cpus 4, healthcheck GET `/` (start_period 90 s),
+  `restart: unless-stopped`. `PROD_PORT` / `PROJECT` / `TAG` let tests and `restore` run throwaway copies.
+- **`scripts/prod.sh`**: `build` (tag from `git describe --always`, also `latest`), `up`, `down`, `logs`, `status`,
+  `migrate` (one-time: `mv ~/llm-wiki`, memory files, settings.json, secrets, session.log into `$DATA` — `.env` is
+  *copied* so the dev checkout keeps its config — then symlink-free; prints what moved and refuses if `$DATA` exists), `backup` (`git bundle --all` of the vault + `tar czf` of `$DATA` excluding
   `raw/.index`), `restore <archive> <bundle> <dir>` (untar, `git bundle verify`, start a throwaway container on 8012
   against it and curl `/api/config`).
 - Dev unchanged: `.venv`, `PORT=8011 WIKI_PATH=~/llm-wiki-dev` from the checkout (host MLX ASR in-process).
@@ -60,8 +62,9 @@ Models stay outside: `~/models/kokoro` mounted read-only at `/models/kokoro`. No
 - Vault keeps its name `llm-wiki` inside the data folder (Obsidian registration stays valid).
 - Straight migration script over by-hand moves (user decision); refuses to overwrite.
 - Loopback-only publish; no egress proxy; oMLX not containerised.
-- Assume colima exposes `host.docker.internal` via `host-gateway`; if not, fall back to the colima VM gateway IP
-  documented in deploy.md.
+- Assume colima exposes `host.docker.internal` via `host-gateway` (verified: 192.168.5.2 reaches host loopback);
+  if not, fall back to the colima VM gateway IP documented in deploy.md.
+- `DATA` must live under `$HOME`: colima maps bind-mount ownership only there, so uid 1000 can write to it.
 
 ## Test scenarios
 1. With `MEMORY_DIR`, `SETTINGS_PATH`, `SESSION_LOG`, `GMAIL_DIR`, `WIKI_PATH` pointing at a temp data dir, a turn +
@@ -69,7 +72,8 @@ Models stay outside: `~/models/kokoro` mounted read-only at `/models/kokoro`. No
 2. `_origin_allowed`: `ALLOWED_ORIGINS=http://localhost:8011` accepted, `http://evil:8010` rejected, loopback:PORT
    still accepted with the variable unset.
 3. `asr_server` (TestClient): a fixture wav → `{text, segments}`; `ASR_BACKEND=remote` in `asr.transcribe` posts the
-   bytes and returns the same shape; server down → error string, no exception, the turn path reports "didn't catch".
+   bytes and returns the same shape; server down → error string (printed as `[ASR] …`), no exception, the turn path
+   takes the "nothing heard" route (processing → idle, no transcript, no error message).
 4. `_downscale` shrinks a > threshold PNG with Pillow on any platform (no `sips` needed).
 5. `prod.sh migrate` in a temp HOME: moves vault/memory/settings/.env/secrets into `$DATA`, prints the moves,
    refuses to run twice; `bash -n` on the script; `docker compose config` validates the compose file.

@@ -1,0 +1,48 @@
+# Prod (docs/40-docker-prod.md). Driven by scripts/prod.sh, which exports DATA, TAG and PROD_PORT.
+#   DATA      the one state folder (default ~/docker-data/voicebot)
+#   TAG       image tag from `prod.sh build` (default latest)
+#   PROD_PORT host port on loopback (default 8010; the app inside always listens on 8010)
+services:
+  voicebot:
+    image: voicebot:${TAG:-latest}
+    env_file: ${DATA:?set DATA to the data folder}/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8010"
+      OPEN_BROWSER: "0"
+      ALLOWED_ORIGINS: http://localhost:${PROD_PORT:-8010},http://127.0.0.1:${PROD_PORT:-8010}
+      WIKI_PATH: /data/llm-wiki
+      MEMORY_DIR: /data/memory
+      SETTINGS_PATH: /data/settings.json
+      GMAIL_DIR: /data/secrets
+      SESSION_LOG: /data/logs/session.log
+      KOKORO_MODEL: /models/kokoro/kokoro-v1.0.onnx
+      KOKORO_VOICES: /models/kokoro/voices-v1.0.bin
+      OMLX_BASE_URL: http://host.docker.internal:8000/v1
+      ASR_BACKEND: remote
+      ASR_URL: http://host.docker.internal:8020
+    ports:
+      - "127.0.0.1:${PROD_PORT:-8010}:8010"
+    volumes:
+      - ${DATA}:/data
+      - ${HOME}/models/kokoro:/models/kokoro:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs:
+      - /tmp:exec,mode=1777      # exec: espeak-ng (Kokoro's phonemizer) dlopens a library it extracts here
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "4"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8010/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    restart: unless-stopped

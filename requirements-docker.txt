@@ -1,0 +1,25 @@
+# requirements.txt minus mlx-whisper (Apple only; the host ASR service has it), playwright and pytest.
+# torch (pulled in by silero-vad) comes from the CPU index — see the Dockerfile.
+kokoro-onnx
+soundfile
+openai
+python-dotenv
+requests
+numpy
+fastapi
+uvicorn
+websockets
+google-auth
+google-auth-oauthlib
+google-api-python-client
+pyyaml
+silero-vad
+onnxruntime
+pypdf
+extract-msg
+python-multipart
+python-docx
+python-pptx
+openpyxl
+icalendar
+pillow

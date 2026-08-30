@@ -15,6 +15,9 @@ import chatbot
 import llm
 import memory
 import wiki
+from tools import gmail as gmail_tool
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 @pytest.fixture(autouse=True)
@@ -46,7 +49,18 @@ def file_sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
     monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
     monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
+    monkeypatch.setattr(gmail_tool, "GMAIL_CREDENTIALS_PATH", str(tmp_path / "credentials.json"))
+    monkeypatch.setattr(gmail_tool, "GMAIL_TOKEN_PATH", str(tmp_path / "token.json"))
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def repo_root_guard():
+    """Nothing is written next to the code (PRD 40): the repo root listing must not grow."""
+    before = set(os.listdir(ROOT))
+    yield
+    new = set(os.listdir(ROOT)) - before - {".pytest_cache", "__pycache__"}   # pytest's own, not the app's
+    assert not new, f"test wrote into the repo root: {sorted(new)}"
 
 
 @pytest.fixture(autouse=True)

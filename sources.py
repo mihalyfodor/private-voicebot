@@ -287,17 +287,29 @@ def _headers_block(headers: dict, body: str) -> str:
 
 
 def _downscale(full: str) -> None:
-    """Shrink an image in place to `IMAGE_LONG_EDGE` using macOS `sips`; failures are ignored.
+    """Shrink an image in place to `IMAGE_LONG_EDGE`: Pillow, or macOS `sips` when Pillow is
+    missing (PRD 40 made Pillow a dependency so this works in the container); failures are ignored.
 
-    Pillow is not a dependency of this app, and the cap (4 MB) already bounds the upload; small
-    images are left alone so a test never shells out.
+    The cap (4 MB) already bounds the upload; small images are left alone so a test never pays.
     """
     if os.path.getsize(full) <= DOWNSCALE_ABOVE_BYTES:
         return
     try:
-        subprocess.run(["sips", "-Z", str(IMAGE_LONG_EDGE), full],
-                       capture_output=True, timeout=20)
-    except (OSError, subprocess.SubprocessError) as exc:
+        from PIL import Image
+    except ImportError:
+        try:
+            subprocess.run(["sips", "-Z", str(IMAGE_LONG_EDGE), full],
+                           capture_output=True, timeout=20)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print(f"[Sources] downscale skipped: {exc}")
+        return
+    try:
+        with Image.open(full) as im:
+            if max(im.size) <= IMAGE_LONG_EDGE:
+                return
+            im.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
+            im.save(full)
+    except Exception as exc:
         print(f"[Sources] downscale skipped: {exc}")
 
 

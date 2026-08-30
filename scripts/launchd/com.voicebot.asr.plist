@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Host ASR service for the Docker prod (docs/40-docker-prod.md, docs/deploy.md).
+     Install: cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/
+              launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
+     Edit the two /Users/fomi/... paths if the checkout lives elsewhere.
+     oMLX is started the same way (its own LaunchAgent on :8000); the container reaches both
+     through host.docker.internal. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.voicebot.asr</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/fomi/projects/personal/private-voicebot/.venv/bin/python</string>
+    <string>scripts/asr_server.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/fomi/projects/personal/private-voicebot</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ASR_HOST</key><string>127.0.0.1</string>
+    <key>ASR_PORT</key><string>8020</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/voicebot-asr.log</string>
+  <key>StandardErrorPath</key><string>/tmp/voicebot-asr.log</string>
+</dict>
+</plist>

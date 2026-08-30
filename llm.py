@@ -18,7 +18,8 @@ from untrusted import DOCUMENT_RULE, documents_in, untrusted
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
 OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
 OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
-LOG_PATH = os.path.join(os.path.dirname(__file__), "session.log")
+# SESSION_LOG env: the Docker prod logs under /data/logs (docs/40-docker-prod.md)
+LOG_PATH = os.getenv("SESSION_LOG") or os.path.join(os.path.dirname(__file__), "session.log")
 
 CONTEXT_BUDGET = int(os.getenv("CONTEXT_BUDGET", "16000"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "0"))  # 0 = derive from verbosity
@@ -817,6 +818,7 @@ def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user"):
     tools_str = ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"{timestamp} | {origin}: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}\n"
+    os.makedirs(os.path.dirname(LOG_PATH) or ".", exist_ok=True)
     with open(LOG_PATH, "a") as f:
         f.write(line)
 

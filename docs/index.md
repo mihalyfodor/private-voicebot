@@ -8,14 +8,28 @@ source .venv/bin/activate
 python3 chatbot.py    # opens http://localhost:8010 automatically
 ```
 
+## How to run — prod (docker)
+
+```bash
+# one-time: host ASR service (launchd), then move the state into ~/docker-data/voicebot — see docs/deploy.md
+cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
+scripts/prod.sh migrate
+# every release
+scripts/prod.sh build && scripts/prod.sh up     # http://localhost:8010, read-only container, state under /data
+scripts/prod.sh status | logs | down | backup | restore <tgz> <bundle> <dir>
+```
+
 ## How to run tests
 
 ```bash
 source .venv/bin/activate
 # everything: node --check static/app.js, node DOM fixture, unit suite (no oMLX needed)
 scripts/check.sh
-# or just the unit suite — pytest.ini excludes the `live` and `e2e` markers by default
+# or just the unit suite — pytest.ini excludes the `live`, `e2e` and `docker` markers by default
 python3 -m pytest tests/
+# the PRD 40 docker scenarios (builds voicebot:test-<sha> once — minutes —, boots it on :8013 against a temp data dir under
+# ~/.cache, needs oMLX on :8000 and starts the host ASR service on :8020 if nothing answers there; skips without a daemon)
+python3 -m pytest -m docker tests/prod/test_docker.py -s
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/
 # the PRD 32 live recall check alone (files the two real guides from ~/llm-wiki-dev into a temp vault, prints the Q/A pairs)
@@ -45,8 +59,8 @@ message types with their fields and the app.js code that consumes them. Enforced
 ## Logs
 
 The server prints to stdout (`[Memory]`, `[WS]`, `[Turn error]` lines); started as
-`nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look. `session.log` (repo root,
-gitignored) gets one line per turn: origin, tools used, reply length. The e2e run writes screenshots to
+`nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look; in prod `scripts/prod.sh logs`.
+`session.log` (repo root, gitignored; `SESSION_LOG` env — `/data/logs/session.log` in prod) gets one line per turn: origin, tools used, reply length. The e2e run writes screenshots to
 `/tmp/e2e/<test>-<name>.png` and the spawned server's output to `server.log` in its temp dir (kept with `E2E_KEEP=1`).
 
 ## Folder tree
@@ -73,7 +87,10 @@ voicebot/
 │   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
-│   └── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
+│   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
+│   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
+│   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT)
+│   └── launchd/com.voicebot.asr.plist   # LaunchAgent for asr_server.py
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki editor / Sources / Settings), intake popup, command palette
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
@@ -144,11 +161,17 @@ voicebot/
 │   │   ├── test_characters.py       # character card loader, persona builder and caps
 │   │   └── test_palette.py          # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
 │   ├── audio/
-│   │   ├── test_asr.py              # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing
+│   │   ├── test_asr.py              # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing, PRD 40 host ASR service + remote backend
 │   │   ├── test_vad.py              # Endpointer state machine (fake prob_fn) + Recorder
 │   │   └── test_splitter.py         # SentenceSplitter / split_stream / strip_tag, every emotion tag round-trips
+│   ├── prod/                    # PRD 40: Docker prod
+│   │   ├── test_data_paths.py       # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
+│   │   ├── test_prod_script.py      # prod.sh migrate moves state into DATA (refuses twice), bash -n, docker compose config
+│   │   └── test_docker.py           # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`)
 │   └── e2e/                     # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`
 ├── requirements.txt
+├── requirements-docker.txt   # PRD 40: requirements minus mlx-whisper/playwright/pytest (torch from the CPU index)
+├── Dockerfile / docker-compose.yml / .dockerignore   # PRD 40: python:3.12-slim image with the assets baked in; read-only, non-root, loopback-only service
 └── docs/
     ├── index.md               # this file
     ├── process.md              # development process
@@ -233,7 +256,7 @@ voicebot/
 - [37-wikipedia-routing.md](37-wikipedia-routing.md) — Wikipedia search/summary tool with fixed hosts and an offer-then-fetch flow reusing the PRD 34 offer state; routing rules and a 28-question calibration set (done)
 - [38-focus-context.md](38-focus-context.md) — focus context: `set_focus` from the UI, the open page attached to each turn as a capped document block (head + best-matching section), deterministic find/open with `wiki_open`, last-page memory for "go back" (done)
 - [39-context-meter.md](39-context-meter.md) — context meter (`context` message, rail dot, 90 % spoken nudge), recall blocks stripped after their turn, explicit `new_topic` that folds memory first and restarts with a visible `<earlier>` summary divider (done)
-- [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/docker-data/voicebot` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore (implementation)
+- [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/docker-data/voicebot` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore; runbook in [deploy.md](deploy.md) (refactoring)
 
 ## Research
 
