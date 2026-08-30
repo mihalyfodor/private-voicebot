@@ -773,8 +773,9 @@ function focusTitle() {
 function sendFocus() {
   composerInput.placeholder = focusPath() ? `ask about ${focusTitle()}…` : COMPOSER_PLACEHOLDER;
   if (focusSent === null) return;
-  const key = JSON.stringify(focusPayload());
-  if (key !== focusSent) { focusSent = key; sendAction(focusPayload()); }
+  const payload = focusPayload();
+  const key = JSON.stringify(payload);
+  if (key !== focusSent) { focusSent = key; sendAction(payload); }
 }
 
 // `wiki_open` from the server (a "find / open / go back" turn): select the page in the view it

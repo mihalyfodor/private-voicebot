@@ -1168,15 +1168,22 @@ def split_sections(body: str) -> tuple:
     return head, [body[a:b].strip() for a, b in zip(starts, ends)]
 
 
+def _best_match(texts: list, question: str) -> int | None:
+    """Index of the text that scores best for the question's content words (BM25, earliest on
+    a tie); None when there is nothing to score or no word occurs in any of them."""
+    terms = content_terms(question)
+    if not texts or not terms:
+        return None
+    scores = _bm25([_tokenise(t) for t in texts], terms)
+    best = max(range(len(texts)), key=lambda i: (scores[i], -i))
+    return best if scores[best] > 0 else None
+
+
 def best_section(sections: list, question: str) -> str | None:
     """The section that scores best for `question`; None with fewer than two sections or
     when no content word of the question occurs in any of them."""
-    terms = content_terms(question)
-    if len(sections) < 2 or not terms:
-        return None
-    scores = _bm25([_tokenise(s) for s in sections], terms)
-    best = max(range(len(sections)), key=lambda i: (scores[i], -i))
-    return sections[best] if scores[best] > 0 else None
+    at = _best_match(sections, question) if len(sections) > 1 else None
+    return None if at is None else sections[at]
 
 
 def best_chunk(path: str, question: str) -> dict | None:
@@ -1186,15 +1193,11 @@ def best_chunk(path: str, question: str) -> dict | None:
         record = raw_chunks(path)
     except KeyError:
         return None
-    chunks, terms = record["chunks"], content_terms(question)
-    if not chunks or not terms:
+    chunks = record["chunks"]
+    at = _best_match([c["text"] for c in chunks], question)
+    if at is None:
         return None
-    scores = _bm25([_tokenise(c["text"]) for c in chunks], terms)
-    best = max(range(len(chunks)), key=lambda i: (scores[i], -i))
-    if scores[best] <= 0:
-        return None
-    return {"title": record["title"], "n": chunks[best]["n"], "total": len(chunks),
-            "text": chunks[best]["text"]}
+    return {"title": record["title"], "n": chunks[at]["n"], "total": len(chunks), "text": chunks[at]["text"]}
 
 
 _LINK = re.compile(r"\[\[([^\]|#]+)")

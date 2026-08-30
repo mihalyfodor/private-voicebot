@@ -624,7 +624,7 @@ async def _action_text_turn(sess, msg, loop):
 
 async def _action_set_focus(sess, msg, loop):
     """`{view, path?}` from the client whenever the view or the open page changes (PRD 38)."""
-    llm.set_focus(str(msg.get("view") or "chat"), msg.get("path"))
+    llm.set_focus(msg.get("view"), msg.get("path"))
 
 
 async def _action_set_hands_free(sess, msg, loop):

@@ -425,9 +425,8 @@ def focus_block(question: str) -> str:
     text = wiki.page_text(path)
     if text is None:
         return ""
-    fm, body = wiki.parse_page(text)
-    title = str(fm.get("name") or path.rsplit("/", 1)[-1])
-    head, sections = wiki.split_sections(body)
+    title = wiki.page_title(path)
+    head, sections = wiki.split_sections(wiki.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     if summary:
