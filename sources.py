@@ -74,6 +74,15 @@ LARGE_TEXT_EXTS = set(TEXT_EXTS) | set(OFFICE_EXTS)
 
 #: page folders an op may create in when the page is not in the index yet
 NEW_PAGE_FOLDERS = ("people", "projects")
+#: Kinds that are published works: their authors, editors and cited experts are not people the
+#: user works with, so an ingest may only open/append a `people/` page for someone already in
+#: the profile (PRD 31 addendum, 2026-08-30). A Teams .docx is a `transcript`, not in the set.
+PUBLISHED_KINDS = {"epub", "pdf", "docx"}
+PUBLISHED_NOTE = ("This document is a published work: its authors, editors and cited experts are "
+                  "NOT people pages — only people the user actually works with are. Do not create "
+                  "a `people/` page for anyone who merely wrote or is quoted in it.")
+#: How many times the summary completion is asked before the raw file name is used as the title.
+SUMMARY_ATTEMPTS = 2
 
 #: intake names that say nothing about the content — the model's title wins over them
 GENERIC_TITLES = ("note", "untitled", "pasted text", "drop", "document", "new document")
@@ -937,8 +946,14 @@ def _calendar_summary(events: list, title: str) -> dict:
 # --- ops ---------------------------------------------------------------------------
 
 
-def restrict_ops(ops, raw_rel: str, user_names=()) -> tuple:
+def restrict_ops(ops, raw_rel: str, user_names=(), kind: str = "", people=None) -> tuple:
     """``(kept, rejected)``: only index pages and new people/projects pages may be touched.
+
+    For a published work (`kind` in PUBLISHED_KINDS) a new `people/` page — or a note to a
+    people page that does not exist yet — is refused unless the name matches someone in the
+    user's profile (`people`, default `memory.people_names()`): a book's author is not a
+    colleague. Matching is `memory.is_user` against those names, so a mangled spelling of a
+    real colleague still lands on their page.
 
     The model proposes these, so they are untrusted twice over — once for the path (wiki does
     that) and once for the *target*: an ingest may not invent a `meetings/` or `sources/` page.
@@ -949,20 +964,41 @@ def restrict_ops(ops, raw_rel: str, user_names=()) -> tuple:
     grow a `people/` page about them.
     """
     candidates, rejected = wiki.reject_user_pages(ops, user_names)
+    if kind in PUBLISHED_KINDS and people is None:
+        people = memory.people_names()
     kept = []
     for raw in candidates:
         op = raw if isinstance(raw, dict) else {}
-        kind = str(op.get("op") or "").strip().lower()
-        if kind == "add_decision":
+        op_kind = str(op.get("op") or "").strip().lower()
+        if op_kind == "add_decision":
             kept.append({**op, "source": raw_rel})
             continue
         checked = [op.get(key) for key in ("path", "target") if key in op] or [None]
         reason = next((r for r in (_target_allowed(p) for p in checked) if r), None)
+        if not reason and kind in PUBLISHED_KINDS:
+            reason = _author_page_reason(op, people or [])
         if reason:
             rejected.append({"op": raw, "reason": reason})
         else:
             kept.append({**op, "source": raw_rel})
     return kept, rejected
+
+
+def _author_page_reason(op: dict, people: list) -> str | None:
+    """Why a published work may not touch this people page: a `new_page people/*`, or an
+    `append_note` to a people page not yet in the wiki, about someone not in the profile."""
+    op_kind = str(op.get("op") or "").strip().lower()
+    if op_kind not in ("new_page", "append_note"):
+        return None
+    rel = wiki.normalise_path(op.get("path"))
+    if rel is None or not rel.startswith("people/") or wiki.page_exists(rel):
+        return None
+    slug_name = os.path.basename(rel)[:-3].replace("-", " ")
+    names = [" ".join(str(v or "").split()) for v in (op.get("name"), slug_name)]
+    if any(name and memory.is_user(name, people) for name in names):
+        return None
+    return (f"{names[0] or slug_name} is not in the user's profile; a published work's "
+            "authors and cited experts are not people pages")
 
 
 def _target_allowed(path) -> str | None:
@@ -998,14 +1034,22 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
         content = [{"type": "text", "text": f"{header}\n\nSummarise this image."}, image_part]
     else:
         content = f"{header}\n\nDocument:\n{text}"
-    try:
-        system = SUMMARY_SYSTEM % (memory.user_note(user_names), memory._today_iso())
-        raw = _ask(client, model, system, content, 700)
-    except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] summary failed: {exc}")
-        fallback["summary"] = "the summary model could not be reached; the raw file is filed."
-        return fallback
-    data = memory._extract_json(raw, "{", "}")
+    system = SUMMARY_SYSTEM % (memory.user_note(user_names), memory._today_iso())
+    data = None
+    for attempt in range(1, SUMMARY_ATTEMPTS + 1):
+        try:
+            raw = _ask(client, model, system, content, 700)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[Sources] summary failed: {exc}")
+            fallback["summary"] = "the summary model could not be reached; the raw file is filed."
+            return fallback
+        parsed = memory._extract_json(raw, "{", "}")
+        if isinstance(parsed, dict):
+            data = parsed
+            if str(data.get("title") or "").strip():
+                break
+        if attempt < SUMMARY_ATTEMPTS:      # a garbled or untitled reply earns one more try
+            print("[Sources] summary came back without a title; asking once more")
     if not isinstance(data, dict):
         print("[Sources] could not parse the summary; filing the raw file only")
         fallback["summary"] = "the summary could not be parsed; the raw file is filed."
@@ -1022,8 +1066,12 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
 
 
 def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: str,
-                     hint_page: str = "", user_names=()) -> list:
-    """Ask for page ops about a just-filed source; [] on anything unparseable."""
+                     hint_page: str = "", user_names=(), kind: str = "") -> list:
+    """Ask for page ops about a just-filed source; [] on anything unparseable.
+
+    For a published work (`kind` in PUBLISHED_KINDS) the prompt adds that authors and cited
+    experts are not people pages.
+    """
     index = wiki.index_text(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
     parts = [f"Index:\n{index}", f"Source page: {wiki.wikilink(source_rel)}",
@@ -1035,7 +1083,10 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     if hint_page:
         parts.append(f"The user filed this under: {hint_page}")
     try:
-        system = OPS_SYSTEM % (memory.user_note(user_names), memory._today_iso())
+        rules = memory.user_note(user_names)
+        if kind in PUBLISHED_KINDS:
+            rules += "\n- " + PUBLISHED_NOTE
+        system = OPS_SYSTEM % (rules, memory._today_iso())
         raw = _ask(client, model, system, "\n\n".join(parts), 800)
     except Exception as exc:  # noqa: BLE001
         print(f"[Sources] page ops failed: {exc}")
@@ -1127,11 +1178,11 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
         meeting, ops = _file_meeting(client, model, extracted, raw_rel=raw_rel,
                                      source_rel=source_rel, title=page_title, names=names)
     elif not summary.get("unreadable"):
-        ops = propose_page_ops(client, model, source_rel, summary, hint, page, names)
+        ops = propose_page_ops(client, model, source_rel, summary, hint, page, names, kind)
     else:
         ops = []
     if ops:
-        kept, rejected = restrict_ops(ops, raw_rel, names)
+        kept, rejected = restrict_ops(ops, raw_rel, names, kind)
         for bad in rejected:
             print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
         applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)

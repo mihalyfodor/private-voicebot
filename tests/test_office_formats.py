@@ -543,3 +543,117 @@ def test_epub_extracts_chapters_in_spine_order_with_headings():
 def test_broken_epub_is_unreadable_not_a_crash():
     assert sources.epub_text(b"not a zip") == ""
     assert sources.epub_text(_epub([])) == ""
+
+
+# --- authors are not people (PRD 31 addendum, 2026-08-30) -------------------------------
+
+
+BOOK_SUMMARY = json.dumps({
+    "title": "Domain-Driven Design",
+    "summary": "Eric Evans explains bounded contexts; Anna Kovacs is thanked for the review.",
+    "entities": [{"name": "Eric Evans", "type": "person"}, {"name": "Anna Kovacs", "type": "person"}],
+    "topic": "work/architecture", "unreadable": False,
+})
+
+BOOK_OPS = json.dumps([
+    {"op": "new_page", "path": "people/eric-evans", "type": "person", "name": "Eric Evans",
+     "summary": "Author/Expert in domain-driven design."},
+    {"op": "append_note", "path": "people/anna-kovacs", "text": "Reviewed the DDD book."},
+    {"op": "new_page", "path": "people/martin-fowler", "type": "person", "name": "Martin Fowler",
+     "summary": "Wrote the foreword."},
+])
+
+
+def _colleague_anna():
+    memory._write_profile(memory._normalise(
+        {"identity": {"name": "Mihaly Fodor", "nickname": "Misi"},
+         "people": [{"name": "Anna Kovacs", "rel": "colleague", "note": "tech lead"}]}))
+    wiki.apply_page_ops([{"op": "new_page", "path": "people/anna-kovacs", "type": "person",
+                          "name": "Anna Kovacs", "summary": "Tech lead."}], "seed")
+
+
+def test_an_epub_author_gets_no_people_page_but_a_colleague_gets_the_note(vault, monkeypatch, capsys):
+    _colleague_anna()
+    client = FakeClient(BOOK_SUMMARY, BOOK_OPS)
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    data = _epub([("Preface", "By Eric Evans. Thanks to Anna Kovacs for the review."),
+                  ("Chapter One", "Bounded contexts keep models apart.")])
+
+    filed = sources.ingest_upload(data, "ddd.epub")
+
+    assert not wiki.page_exists("people/eric-evans.md")
+    assert not wiki.page_exists("people/martin-fowler.md")
+    assert "Reviewed the DDD book." in read("people/anna-kovacs.md")
+    assert "kind: epub" in read(filed["path"] + ".md")
+    assert sources.manifest_entries()[0]["pages_touched"] == ["people/anna-kovacs"]
+    out = capsys.readouterr().out
+    assert "Eric Evans is not in the user's profile" in out
+    ops_system = client.calls[1]["messages"][0]["content"]
+    assert "authors, editors and cited experts are NOT people pages" in ops_system
+    assert "authors" not in client.calls[0]["messages"][0]["content"]     # summary prompt untouched
+
+
+def test_restrict_ops_lets_a_published_work_touch_only_known_people(vault):
+    wiki.apply_page_ops([{"op": "new_page", "path": "people/bob-nagy", "type": "person",
+                          "name": "Bob Nagy", "summary": "Ops."}], "seed")
+    ops = [
+        {"op": "new_page", "path": "people/eric-evans", "type": "person", "name": "Eric Evans"},
+        {"op": "new_page", "path": "people/ana-kovacs", "type": "person", "name": "Ana Kovacs"},
+        {"op": "append_note", "path": "people/bob-nagy", "text": "existing page: fine"},
+        {"op": "append_note", "path": "people/martin-fowler", "text": "no page yet: refused"},
+        {"op": "new_page", "path": "projects/ddd", "type": "project", "name": "DDD"},
+    ]
+    people = ["Anna Kovacs"]
+
+    kept, rejected = sources.restrict_ops(ops, "raw/inbox/ddd.epub", (), "epub", people)
+    assert [op["path"] for op in kept] == ["people/ana-kovacs", "people/bob-nagy", "projects/ddd"]
+    assert [bad["op"]["path"] for bad in rejected] == ["people/eric-evans", "people/martin-fowler"]
+    assert all("authors and cited experts" in bad["reason"] for bad in rejected)
+
+    # a plain markdown drop or a transcript is not a published work: nothing extra is refused
+    for kind in ("md", "transcript", ""):
+        kept, rejected = sources.restrict_ops(ops, "raw/inbox/ddd.md", (), kind, people)
+        assert len(kept) == 5 and rejected == []
+
+
+def test_a_teams_docx_transcript_still_files_the_attendees_as_people(vault, monkeypatch):
+    be_the_user()
+    client = FakeClient(SUMMARY, MEETING)
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+
+    sources.ingest_upload(docx_bytes(TEAMS), "teams-export.docx")
+
+    assert wiki.page_exists("people/anna-kovacs.md") and wiki.page_exists("people/bob-nagy.md")
+    assert not wiki.page_exists("people/mihaly-fodor.md")
+    assert "NOT people pages" not in client.calls[1]["messages"][0]["content"]
+
+
+def test_a_docx_report_tells_the_model_its_authors_are_not_people(vault, monkeypatch):
+    client = FakeClient(SUMMARY, "[]")
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    sources.ingest_upload(docx_bytes([("h1", "Report"), ("p", "Findings by Eric Evans.")]),
+                          "report.docx")
+    assert "NOT people pages" in client.calls[1]["messages"][0]["content"]
+
+
+def test_a_summary_without_a_title_is_asked_once_more(vault, monkeypatch, capsys):
+    client = FakeClient("{{garbled", FAQ_SUMMARY, "[]")
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+
+    filed = sources.ingest_note("Q: How do I land? A: Slowly.")
+
+    assert filed["path"] == "sources/falcon-rocket-faq"
+    assert len(client.calls) == 3                          # summary, retry, page ops
+    assert client.calls[0]["messages"] == client.calls[1]["messages"]
+    assert "asking once more" in capsys.readouterr().out
+
+
+def test_a_summary_garbled_twice_falls_back_to_the_stem(vault, monkeypatch):
+    client = FakeClient("{{garbled", "still {{garbled")
+    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+
+    filed = sources.ingest_upload(b"Q: How do I land? A: Slowly.", "landing-guide.txt")
+
+    assert filed["path"].endswith("-landing-guide")        # named from the raw stem
+    assert len(client.calls) == 2                          # unreadable: no page ops asked
+    assert "could not be parsed" in read(filed["path"] + ".md")

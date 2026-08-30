@@ -422,6 +422,15 @@ def user_names(profile: dict | None = None) -> list:
                        *alias_list(identity.get(ALIAS_KEY))])
 
 
+def people_names(profile: dict | None = None) -> list:
+    """The names of the people in the profile (live entries only) — who the user actually knows.
+
+    The source ingest uses it to tell a colleague from a book's author (PRD 31 addendum).
+    """
+    entries = _live((load_profile() if profile is None else profile).get("people") or [])
+    return alias_list([entry.get("name") or "" for entry in entries])
+
+
 def _fold(text) -> str:
     """Lowercased, diacritic-free, punctuation-free — "Mihály" and "mihaly" are one string.
 
