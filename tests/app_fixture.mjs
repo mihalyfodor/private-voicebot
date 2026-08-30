@@ -102,6 +102,11 @@ class El {
     }
   }
   appendChild(n) { this.append(n); return n; }
+  prepend(...nodes) {
+    for (const n of nodes) if (n && typeof n === 'object' && n.parentNode) n.parentNode.children = n.parentNode.children.filter(c => c !== n);
+    for (const n of nodes) if (n && typeof n === 'object') n.parentNode = this;
+    this.children = [...nodes, ...this.children];
+  }
   replaceChildren(...nodes) {
     for (const c of this.children) if (c && c.parentNode === this) c.parentNode = null;
     this.children = [];
@@ -336,6 +341,8 @@ globalThis.__t = {
   calendarHorizon: calendarHorizonEl,
   // ---- source recall (PRD 32)
   recallMinScore: recallMinScoreEl,
+  // ---- memory provenance (PRD 33)
+  memSections: memSectionsEl,
 };
 `;
 
@@ -715,5 +722,17 @@ posts[3].resolve(200, { filed: [{ path: 'sources/good', raw: 'raw/inbox/good.md'
 await batch2;
 results.batch_error = { rows: rowStates(), status: t.intakeStatus.textContent, open: !t.intake.hidden };
 t.intakeCancel.dispatch('click');
+
+// ---------------------------------------------------------------- scenarios (PRD 33)
+// ---- scenario 3: memory entries carry a `source` tag; `identity.sources` renders the same
+// tag on the scalar row instead of a `sources` fact row, and never as an editable field.
+t.recv({ type: 'memory', profile: {
+  identity: { name: 'Misi', sources: { name: 'Falcon plan' } },
+  preferences: {},
+  people: [{ name: 'Anna', rel: 'colleague', note: '', seen: '2026-08-30', stale: false, stale_after: 90, source: 'Falcon plan' }],
+  projects: [], recurring: [], episodic: [],
+}, rendered: '', count: 2 });
+results.memory_source_tags = t.memSections.querySelectorAll('.mem-source').map(n => n.textContent);
+results.memory_scalar_keys = t.memSections.querySelectorAll('.mem-key').map(n => n.textContent);
 
 console.log(JSON.stringify(results, null, 1));

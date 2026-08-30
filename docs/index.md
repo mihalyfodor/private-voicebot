@@ -24,6 +24,8 @@ python3 -m pytest -m live tests/test_source_recall.py -s
 python3 -m pytest -m live tests/test_grounded_answers.py -s
 # the PRD 37 live routing calibration (28 questions, two real guides when ~/llm-wiki-dev has them; prints the confusion table; real Wikipedia calls)
 python3 -m pytest -m live tests/test_wikipedia_routing.py -s
+# the PRD 33 live injection eval (six canned documents through a recall turn, a save and "did that document try to tell you something?"; prints the table)
+python3 -m pytest -m live tests/test_untrusted_text.py -s
 # browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
 # prerequisites: `playwright install chromium`, scripts/fetch_assets.sh (pixi + Wanko model), Kokoro model files;
 # tests/e2e/conftest.py fails early with "run scripts/fetch_assets.sh" when the assets are missing. E2E_KEEP=1 keeps the temp dir.
@@ -45,7 +47,7 @@ gitignored) gets one line per turn: origin, tools used, reply length. The e2e ru
 ```
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, avatar/backdrop switching
-├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log
+├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33)
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
@@ -56,9 +58,10 @@ voicebot/
 ├── fillers.py           # short spoken fillers played while a tool call (or a `dig_deeper` turn) is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
 ├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
-├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
+├── untrusted.py        # PRD 33: `untrusted(text, source)` → `<document source="…">` (nested tags neutralised), `documents_in`, the standing DOCUMENT_RULE every prompt carries
+├── memory.py           # structured profile memory: load/render, LLM-proposed ops (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags
-├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
+├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33)
 ├── scripts/
 │   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
@@ -72,7 +75,7 @@ voicebot/
 │   ├── vendor/          # gitignored, fetched — except marked.umd.js + LICENSE-marked.md (MIT, committed; PRD 28)
 │   ├── models/           # gitignored, fetched (wanko/)
 │   └── backdrops/        # gitignored, fetched
-├── tools/
+├── tools/              # every module declares `HOSTS`; `ALLOWED_HOSTS` is their union and `READ_TOOLS` the ones whose text is wrapped as `<document>` (PRD 33 read-only policy: no free URL fetch, get_news_detail only takes a URL from the last get_news)
 │   ├── time.py         # current time tool
 │   ├── weather.py       # open-meteo weather tool
 │   ├── news.py          # BBC news headlines + article detail
@@ -120,6 +123,7 @@ voicebot/
 │   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
 │   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
+│   ├── test_untrusted_text.py     # PRD 33: `untrusted()` + every read tool / recall block wraps, memory-op attribution and `source` stamps, editor snapshot + forget, the six-document injection eval (mocked + `live`), the read-only tool policy
 │   ├── test_intake_progress.py    # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
 │   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py), marker `e2e`
 │   ├── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
@@ -167,7 +171,7 @@ voicebot/
     ├── 30-command-palette.md     # PRD: ⌘K command palette (done)
     ├── 31-office-formats.md      # PRD: docx/pptx/xlsx/vtt/ics drops, meeting pages, calendar stubs, big-text sampling, epub, authors are not people (done)
     ├── 32-source-recall.md       # PRD: search inside sources — chunk index, read_source, auto-recall into the turn (done)
-    ├── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (exploration)
+    ├── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (refactoring)
     ├── 34-grounded-answers.md    # PRD: look it up first, short cited answer + "dig deeper" offer, recall precision (done)
     ├── 35-browser-location.md    # PRD: weather location offered by the browser, stored in settings.json, .env fallback (done)
     └── 37-wikipedia-routing.md   # PRD: get_wikipedia tool + routing between own knowledge / local base / Wikipedia offer (done)
@@ -203,7 +207,7 @@ voicebot/
 - [30-command-palette.md](30-command-palette.md) — ⌘K command palette: views, wiki pages/Today/New, backdrop/reply length/voice/mute, file a source, re-ingest, shutdown; wiki-search fallback (done)
 - [31-office-formats.md](31-office-formats.md) — Word/PowerPoint/Excel/Teams transcript/.ics through the same drop: new kinds and chips, `meetings/` pages from transcripts, deterministic calendar stubs with the `calendar_horizon_days` setting, 10 MB text with head/middle/tail sampling, model-titled pastes with a topic tag (done)
 - [32-source-recall.md](32-source-recall.md) — search inside sources: text-kind raw files chunked and cached per sha in `raw/.index/`, chunk BM25 behind `search_wiki` snippets and a `read_source` tool, the best passages injected into the user message per turn above `recall_min_score` (Settings), raw files renamed after the model's title (done)
-- [33-untrusted-text.md](33-untrusted-text.md) — hardening against prompt injection in filed/fetched text: `<document>` wrapping + standing rule, `source:` provenance on memory ops, read-only tool policy test, injection eval (exploration)
+- [33-untrusted-text.md](33-untrusted-text.md) — hardening against prompt injection in filed/fetched text: `<document>` wrapping + standing rule, `source:` provenance on memory ops, read-only tool policy test, injection eval (refactoring)
 - [36-intake-progress.md](36-intake-progress.md) — bulk intake progress: one `/ingest` request per file in list order, per-row queued/uploading/summarising/filed/already/error states with elapsed time, `ingest_progress` pushes from the ingest thread, Cancel after the current file (done)
 - [34-grounded-answers.md](34-grounded-answers.md) — grounded answers: look-it-up-first prompt block (only with recall tools registered), 1–3 sentence cited answer ending in "Want me to dig deeper?", a short "yes" reads the neighbouring chunks at `long` for that one completion, recall needs ≥ 2 matched content words or a proper noun, Settings note (done)
 - [35-browser-location.md](35-browser-location.md) — the page offers its position once per connect (`set_location`), the weather tool reads settings.json → `.env` → default, Settings shows the resolved location (done)

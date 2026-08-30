@@ -6,6 +6,9 @@ and hands the bytes to sources.py, which stores them under `raw/` and files a so
 """
 import sources
 
+#: the vault only; the email / news bodies come from the tools that read them
+HOSTS = ()
+
 DEFINITION = {
     "type": "function",
     "function": {

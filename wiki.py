@@ -24,6 +24,7 @@ from collections import Counter
 
 import memory
 import vault_lock
+from untrusted import DOCUMENT_RULE
 
 # --- vault -------------------------------------------------------------------------
 
@@ -1260,6 +1261,7 @@ Rules:
 - Never file everyday trivia: meals, weather, moods, small talk, chores, commutes.
 - Append to an existing page from the index instead of creating a near-duplicate.
 - A note is one sentence, at most 600 characters.
+- """ + DOCUMENT_RULE + """
 - Nothing worth filing? Reply with exactly [].
 Today is %s."""
 

@@ -1,6 +1,13 @@
 import requests
 import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
+import urllib.parse
+
+from untrusted import untrusted
+
+#: the BBC feed and article hosts (docs/33-untrusted-text.md read-only policy)
+HOSTS = ("feeds.bbci.co.uk", "www.bbc.com", "www.bbc.co.uk", "bbc.com", "bbc.co.uk")
+FEED_URL = "http://feeds.bbci.co.uk/news/world/rss.xml"
 
 
 class _TextExtractor(HTMLParser):
@@ -81,7 +88,7 @@ def article_text(url: str) -> str:
 
 def run_get_news(args):
     resp = requests.get(
-        "http://feeds.bbci.co.uk/news/world/rss.xml",
+        FEED_URL,
         headers={"User-Agent": "Mozilla/5.0"},
         timeout=5,
     )
@@ -90,13 +97,25 @@ def run_get_news(args):
     entries = [(item.findtext("title", "").strip(), item.findtext("link", "").strip()) for item in items]
     LAST_RESULTS[:] = entries
     lines = " | ".join(f"{i+1}. {t} (URL: {u})" for i, (t, u) in enumerate(entries))
-    return "Read out these top 5 BBC world news headlines naturally, without mentioning the URLs: " + lines
+    return ("Read out these top 5 BBC world news headlines naturally, without mentioning the URLs: "
+            + untrusted(lines, "BBC headlines"))
+
+
+def allowed_url(url: str) -> bool:
+    """Only a URL the last `get_news` returned, on a BBC host, may be fetched — the model never
+    gets a free URL fetch (docs/33-untrusted-text.md)."""
+    return (urllib.parse.urlsplit(url).hostname in HOSTS
+            and any(url == u for _, u in LAST_RESULTS))
 
 
 def run_get_news_detail(args):
-    url = args.get("url", "")
+    url = str(args.get("url", "") or "").strip()
+    if not allowed_url(url):
+        return ("That is not one of the headlines from the last get_news result; call get_news first "
+                "and use one of its URLs.")
     resp = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
     parser = _TextExtractor()
     parser.feed(resp.text)
     text = parser.get_text()[:4000]
-    return f"Give a detailed spoken summary of this BBC article for a voice listener — cover the key facts, context, and any notable quotes, in around 150 to 200 words: {text}"
+    return ("Give a detailed spoken summary of this BBC article for a voice listener — cover the key facts, "
+            "context, and any notable quotes, in around 150 to 200 words: " + untrusted(text, url))

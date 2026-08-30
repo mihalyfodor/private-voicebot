@@ -1,5 +1,9 @@
 """Wiki recall tools: the model's only way into the vault (docs/19-wiki-layer.md)."""
 import wiki
+from untrusted import untrusted
+
+#: the vault only (docs/33-untrusted-text.md read-only policy)
+HOSTS = ()
 
 DEFINITION_SEARCH = {
     "type": "function",
@@ -63,13 +67,14 @@ DEFINITION_READ_SOURCE = {
 
 
 def snippet_lines(chunks: list) -> list:
-    """`<title> · part n/N (path): <text>` for each chunk hit, text capped at SNIPPET_CHARS."""
+    """`<title> · part n/N (path): <text>` for each chunk hit, text capped at SNIPPET_CHARS,
+    each one its own document block."""
     lines = []
     for c in chunks:
         text = " ".join(c["text"].split())
         if len(text) > wiki.SNIPPET_CHARS:
             text = text[:wiki.SNIPPET_CHARS].rstrip() + "…"
-        lines.append(f"{c['title']} · part {c['n']}/{c['total']} ({c['source']}): {text}")
+        lines.append(untrusted(f"{c['title']} · part {c['n']}/{c['total']} ({c['source']}): {text}", c["title"]))
     return lines
 
 
@@ -81,13 +86,19 @@ def run_search(args):
     chunks = wiki.search_chunks(query, k=3)
     if not hits and not chunks:
         return "no matching wiki pages"
-    return "\n".join([f"{h['path']}: {h['snippet']}" for h in hits] + snippet_lines(chunks))
+    pages = [untrusted("\n".join(f"{h['path']}: {h['snippet']}" for h in hits), "wiki pages")] if hits else []
+    return "\n".join(pages + snippet_lines(chunks))
 
 
 def run_read(args):
-    return wiki.read_page(str((args or {}).get("path") or ""))
+    path = str((args or {}).get("path") or "")
+    text = wiki.read_page(path)
+    return text if text.startswith("no such page") else untrusted(text, path)
 
 
 def run_read_source(args):
     args = args or {}
-    return wiki.read_source(str(args.get("path") or ""), args.get("part"))
+    text = wiki.read_source(str(args.get("path") or ""), args.get("part"))
+    if text.startswith(("no such source", "no part ")):
+        return text
+    return untrusted(text, text.split(" · part ", 1)[0])

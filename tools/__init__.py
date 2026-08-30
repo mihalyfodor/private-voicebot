@@ -6,6 +6,12 @@ from tools import wiki as _wiki
 from tools import sources as _sources
 from tools import wikipedia as _wikipedia
 
+#: every host any tool may talk to — the read-only policy test checks each module against it
+ALLOWED_HOSTS = frozenset(_wikipedia.HOSTS + _weather.HOSTS + _news.HOSTS + _gmail.HOSTS)
+#: the tools whose result is free text somebody else wrote; each wraps it in document tags
+READ_TOOLS = ("search_wiki", "read_page", "read_source", "get_emails", "get_news", "get_news_detail",
+              "get_wikipedia", "read_wikipedia")
+
 TOOLS = [
     _time.DEFINITION,
     _news.DEFINITION_NEWS,

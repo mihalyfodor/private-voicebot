@@ -3,6 +3,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
+from untrusted import untrusted
+
+#: the Google endpoints the client library talks to (docs/33-untrusted-text.md read-only policy)
+HOSTS = ("gmail.googleapis.com", "oauth2.googleapis.com", "accounts.google.com")
+
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 GMAIL_CREDENTIALS_PATH = "credentials.json"
 GMAIL_TOKEN_PATH = "token.json"
@@ -133,4 +138,4 @@ def run(args):
         snippet = msg.get("snippet", "")[:100]
         LAST_RESULTS[m["id"]] = {"from": sender, "subject": subject, "snippet": snippet}
         lines.append(f"From {sender}: {subject}. {snippet}")
-    return "Read out these emails naturally: " + " | ".join(lines)
+    return "Read out these emails naturally: " + untrusted(" | ".join(lines), "Gmail inbox")

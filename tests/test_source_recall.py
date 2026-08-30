@@ -243,25 +243,25 @@ def test_page_search_is_unchanged(fallout):
 def test_search_wiki_lists_pages_then_snippets(fallout):
     text = run_tool("search_wiki", {"query": "anna covenant"})
     lines = text.splitlines()
-    assert lines[0].startswith("people/anna:")
+    assert lines[0] == '<document source="wiki pages">' and lines[1].startswith("people/anna:")
     snippets = [line for line in lines if "· part " in line]
     assert 1 <= len(snippets) <= 3
     assert snippets[0].startswith("Fallout 4 guide · part ")
     assert f"({fallout['path']})" in snippets[0]
     assert all(len(line) <= wiki.SNIPPET_CHARS + 80 for line in snippets)
-    assert snippets == lines[-len(snippets):]                     # pages first, snippets last
+    assert lines.index(snippets[0]) > lines.index("</document>")  # pages first, snippets last (PRD 33 wraps each)
     assert run_tool("search_wiki", {"query": "submarine"}) == "no matching wiki pages"
 
 
 def test_read_source_returns_the_part_with_its_neighbours(fallout):
     hit = wiki.search_chunks("covenant compound")[0]
     text = run_tool("read_source", {"path": fallout["path"], "part": hit["n"]})
-    assert text.startswith(f"Fallout 4 guide · part {hit['n']}/{hit['total']}\n")
-    assert len(text) <= wiki.MAX_SOURCE_READ + 60
+    assert text.startswith(f'<document source="Fallout 4 guide">\nFallout 4 guide · part {hit["n"]}/{hit["total"]}\n')
+    assert len(text) <= wiki.MAX_SOURCE_READ + 120
     record = wiki.raw_chunks(fallout["raw"])
     before, after = record["chunks"][hit["n"] - 2]["text"], record["chunks"][hit["n"]]["text"]
     assert before[-100:] in text and after[:100] in text
-    assert run_tool("read_source", {"path": fallout["raw"], "part": 1}).startswith("Fallout 4 guide")
+    assert "Fallout 4 guide · part 1/" in run_tool("read_source", {"path": fallout["raw"], "part": 1})
     assert run_tool("read_source", {"path": "sources/nope", "part": 1}) == "no such source: sources/nope"
     assert run_tool("read_source", {"path": fallout["path"], "part": 0}).startswith("no part 0 in")
     assert run_tool("read_source", {"path": fallout["path"], "part": "x"}).startswith("no part x in")

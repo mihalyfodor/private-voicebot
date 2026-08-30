@@ -40,6 +40,7 @@ import subprocess
 
 import avatars
 import memory
+from untrusted import DOCUMENT_RULE, untrusted
 import vault_lock
 import wiki
 
@@ -124,6 +125,7 @@ Reply with a JSON object and nothing else:
   clearly a failed extraction.
 - For an image: describe what it shows and transcribe any text visible in it.
 - %s Never list the user as an entity of type person.
+- """ + DOCUMENT_RULE + """
 Today is %s."""
 
 OPS_SYSTEM = """You maintain the USER's markdown wiki. A new document has just been filed as a
@@ -142,6 +144,7 @@ Rules:
 - A note is one sentence, at most 600 characters, and states a fact from the document.
 - Prefer appending to an existing page over creating a near-duplicate.
 - %s
+- """ + DOCUMENT_RULE + """
 - Nothing worth filing? Reply with exactly [].
 Today is %s."""
 
@@ -1033,7 +1036,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     if image_part is not None:
         content = [{"type": "text", "text": f"{header}\n\nSummarise this image."}, image_part]
     else:
-        content = f"{header}\n\nDocument:\n{text}"
+        content = f"{header}\n\nDocument:\n{untrusted(text, title or kind)}"
     system = SUMMARY_SYSTEM % (memory.user_note(user_names), memory._today_iso())
     data = None
     for attempt in range(1, SUMMARY_ATTEMPTS + 1):
@@ -1075,7 +1078,8 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     index = wiki.index_text(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
     parts = [f"Index:\n{index}", f"Source page: {wiki.wikilink(source_rel)}",
-             f"Title: {summary.get('title')}", f"Summary:\n{summary.get('summary')}"]
+             f"Title: {summary.get('title')}",
+             f"Summary:\n{untrusted(summary.get('summary'), summary.get('title'))}"]
     if entities:
         parts.append(f"Entities: {entities}")
     if hint:
@@ -1353,10 +1357,12 @@ def _without_source_notes(body: str, raw_rel: str) -> str:
 
 
 def forget(digest: str) -> dict:
-    """Delete the source page and raw file, drop the manifest line and the notes it fed; one commit."""
+    """Delete the source page and raw file, drop the manifest line, the notes it fed and the
+    memory entries learned from it (docs/33-untrusted-text.md); one commit."""
     with vault_lock.LOCK:
         entry = _entry_or_raise(digest)
         raw_rel, page = entry["path"], entry["page"]
+        title = _source_meta(entry)["title"]
         cleaned = []
         for fed in entry.get("pages_touched") or []:
             rel = wiki.normalise_path(fed)
@@ -1377,7 +1383,8 @@ def forget(digest: str) -> dict:
         wiki._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])
         wiki._commit(f"wiki: forgot {raw_rel}")
-        return {"path": page, "raw": raw_rel, "cleaned": cleaned}
+        forgotten = memory.forget_source(title)
+        return {"path": page, "raw": raw_rel, "cleaned": cleaned, "memory": forgotten}
 
 
 def _dated(slug: str) -> str:

@@ -1,5 +1,8 @@
 from datetime import datetime
 
+#: no network at all (docs/33-untrusted-text.md read-only policy)
+HOSTS = ()
+
 DEFINITION = {
     "type": "function",
     "function": {

@@ -109,7 +109,7 @@ def test_forget_removes_page_raw_manifest_line_and_only_its_notes(vault, monkeyp
     result = sources.forget(sha)
 
     assert result == {"path": "sources/falcon-status", "raw": filed["raw"],
-                      "cleaned": ["projects/falcon"]}
+                      "cleaned": ["projects/falcon"], "memory": 0}
     assert not wiki.page_exists("sources/falcon-status.md")
     assert not os.path.exists(wiki._path(filed["raw"]))
     assert sources.manifest_entries() == []

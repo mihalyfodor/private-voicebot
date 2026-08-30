@@ -98,7 +98,8 @@ def canned(monkeypatch):
 
 def test_search_then_summary_from_canned_responses(canned):
     out = run_tool("get_wikipedia", {"query": "Ada Lovelace notes"})
-    assert out.startswith('Wikipedia article "Ada Lovelace" (https://en.wikipedia.org/wiki/Ada_Lovelace): Augusta')
+    assert out.startswith('<document source="Wikipedia: Ada Lovelace">\nWikipedia article "Ada Lovelace" '
+                          '(https://en.wikipedia.org/wiki/Ada_Lovelace): Augusta')
     assert "Other matches: Analytical Engine, Charles Babbage." in out and "per Wikipedia" in out
     assert len(out.split("): ", 1)[1].split("\n")[0]) <= wikipedia.SUMMARY_CHARS
     assert [c["params"].get("list") for c in canned.calls] == ["search", None]
@@ -158,7 +159,7 @@ def test_a_rate_limit_is_retried_once_then_reported(monkeypatch):
     monkeypatch.setattr(wikipedia, "MIN_INTERVAL", 0.0)
     fake = Canned(limited=1)
     monkeypatch.setattr(wikipedia.requests, "get", fake)
-    assert run_tool("get_wikipedia", {"query": "Ada"}).startswith('Wikipedia article "Ada Lovelace"')
+    assert 'Wikipedia article "Ada Lovelace"' in run_tool("get_wikipedia", {"query": "Ada"})
     assert len(fake.calls) == 3 and slept == [wikipedia.RETRY_AFTER]
     wikipedia._cache.clear()
     monkeypatch.setattr(wikipedia.requests, "get", Canned(limited=2))
@@ -167,7 +168,8 @@ def test_a_rate_limit_is_retried_once_then_reported(monkeypatch):
 
 def test_read_wikipedia_returns_the_named_section_only(canned):
     out = run_tool("read_wikipedia", {"title": "Ada Lovelace", "section": "Notes"})
-    assert out.startswith('Wikipedia article "Ada Lovelace", section "Notes": In 1843 she published the notes  with Note G.')
+    assert out.startswith('<document source="Wikipedia: Ada Lovelace">\nWikipedia article "Ada Lovelace", '
+                          'section "Notes": In 1843 she published the notes  with Note G.')
     assert "[[" not in out and "{{" not in out and "<ref" not in out
     assert canned.calls[-1]["params"]["section"] == "2"
     missing = run_tool("read_wikipedia", {"title": "Ada Lovelace", "section": "Legacy"})
@@ -177,7 +179,7 @@ def test_read_wikipedia_returns_the_named_section_only(canned):
 def test_the_section_is_capped(canned):
     with patch.dict(WIKITEXT["parse"]["wikitext"], {"*": "y" * 5000}):
         out = run_tool("read_wikipedia", {"title": "Ada Lovelace", "section": "Notes"})
-    assert out.split("\n")[0].count("y") == wikipedia.SECTION_CHARS
+    assert out.split("\n")[1].count("y") == wikipedia.SECTION_CHARS
 
 
 # --------------------------------------------------------------- 2. the prompt rules

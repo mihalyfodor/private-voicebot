@@ -423,7 +423,7 @@ def test_shutdown_hook_saves_memory(monkeypatch):
 def test_save_memory_is_idempotent(monkeypatch):
     import llm
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, client, model: (saved.append(list(turns)), [])[1])
+    monkeypatch.setattr(memory, "save", lambda turns, client, model, **kw: (saved.append(list(turns)), [])[1])
     monkeypatch.setattr(llm, "client", lambda: object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
@@ -433,7 +433,7 @@ def test_save_memory_is_idempotent(monkeypatch):
 
 def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
     import llm
-    monkeypatch.setattr(memory, "save", lambda turns, client, model: None)
+    monkeypatch.setattr(memory, "save", lambda turns, client, model, **kw: None)
     monkeypatch.setattr(llm, "client", lambda: object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
@@ -445,7 +445,7 @@ def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
 def test_save_memory_keeps_the_turns_when_the_save_raises(monkeypatch):
     import llm
 
-    def boom(turns, client, model):
+    def boom(turns, client, model, **kw):
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(memory, "save", boom)

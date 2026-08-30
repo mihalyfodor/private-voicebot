@@ -1114,11 +1114,18 @@ function memRow(path) {
 
 // `identity.aliases` is the one list-valued scalar key: shown (and edited) as a comma-separated
 // string, which the server normalises back into a list. See docs/26-identity-aliases.md.
-function scalarRow(section, key, value, superseded) {
+function scalarRow(section, key, value, superseded, sources) {
   const path = `${section}.${key}`;
   const { row, err } = memRow(path);
   const shown = Array.isArray(value) ? value.join(', ') : value;
-  row.prepend(el('span', 'mem-key', key), editable(shown, '(empty)', v => sendMemoryOp('UPDATE', path, v)), deleteButton(path));
+  const prepend = [el('span', 'mem-key', key), editable(shown, '(empty)', v => sendMemoryOp('UPDATE', path, v))];
+  if (sources && sources[key]) {
+    const tag = el('span', 'mem-tag mem-source', 'from: ' + sources[key]);
+    tag.title = 'learned from "' + sources[key] + '"';
+    prepend.push(tag);
+  }
+  prepend.push(deleteButton(path));
+  row.prepend(...prepend);
   const old = superseded && superseded[key];
   if (Array.isArray(old) && old.length) {
     const prev = old[old.length - 1];
@@ -1141,6 +1148,11 @@ function listRow(spec, entry, index, stale) {
       sendMemoryOp('UPDATE', `${path}.${field}`, MEMORY_NUMERIC.has(field) ? Number(v) : v);
     }));
   });
+  if (typeof entry.source === 'string' && entry.source) {
+    const tag = el('span', 'mem-tag mem-source', 'from: ' + entry.source);
+    tag.title = 'learned from "' + entry.source + '"';
+    parts.push(tag);
+  }
   if (entry.expired) {
     row.classList.add('expired');
     parts.push(el('span', 'mem-tag', 'expired'));
@@ -1225,9 +1237,10 @@ function memorySection(spec) {
   let stale = [];
   if (spec.kind === 'scalar') {
     const superseded = data.superseded || null;
+    const sources = data.sources || null;
     rows = Object.keys(data)
-      .filter(k => k !== 'superseded')
-      .map(k => scalarRow(spec.section, k, data[k], superseded));
+      .filter(k => k !== 'superseded' && k !== 'sources')
+      .map(k => scalarRow(spec.section, k, data[k], superseded, sources));
   } else {
     // the title accepts an episodic row (promote) or one of its own stale rows (restore)
     memDropZone(title, `${spec.section}/section`, false);

@@ -10,6 +10,8 @@ import urllib.parse
 
 import requests
 
+from untrusted import untrusted
+
 #: the only hosts this module ever talks to (the PRD 33 read-only policy test checks this list)
 HOSTS = ("en.wikipedia.org",)
 API_URL = "https://en.wikipedia.org/w/api.php"
@@ -159,8 +161,9 @@ def run_get_wikipedia(args) -> str:
     except (requests.RequestException, ValueError) as e:
         return f"Wikipedia lookup failed: {e}"
     others = ", ".join(titles[1:])
-    return (f"Wikipedia article \"{page['title']}\" ({page['url']}): {page['extract']}"
-            + (f"\nOther matches: {others}." if others else "")
+    body = (f"Wikipedia article \"{page['title']}\" ({page['url']}): {page['extract']}"
+            + (f"\nOther matches: {others}." if others else ""))
+    return (untrusted(body, f"Wikipedia: {page['title']}")
             + "\nAnswer the question from this and say once, in passing, that it is per Wikipedia.")
 
 
@@ -178,5 +181,5 @@ def run_read_wikipedia(args) -> str:
         text = _section_text(title, match)
     except (requests.RequestException, ValueError) as e:
         return f"Wikipedia lookup failed: {e}"
-    return (f"Wikipedia article \"{title}\", section \"{match['line']}\": {text}"
-            "\nAnswer from this and say once, in passing, that it is per Wikipedia.")
+    return (untrusted(f"Wikipedia article \"{title}\", section \"{match['line']}\": {text}", f"Wikipedia: {title}")
+            + "\nAnswer from this and say once, in passing, that it is per Wikipedia.")

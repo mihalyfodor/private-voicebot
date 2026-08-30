@@ -3,6 +3,9 @@ import requests
 
 import avatars
 
+#: the only host this tool talks to (docs/33-untrusted-text.md read-only policy)
+HOSTS = ("api.open-meteo.com",)
+
 #: the built-in fallback when neither the browser (settings.json) nor `.env` says where the user is
 DEFAULT_LOCATION = {"name": "Seychelles", "lat": -4.6796, "lon": 55.4920, "tz": "Indian/Mahe", "source": "default"}
 

@@ -330,6 +330,10 @@ main {
   font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase;
   color: #c08a3e; border: 1px solid #4a3a20; border-radius: 999px; padding: 1px 6px;
 }
+.mem-source {
+  color: #7f9bb8; border-color: #2f3f52; text-transform: none;
+  max-width: 14em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 /* every button inside a row is a bare glyph/word, not a chrome button */
 .mem-del, .mem-move, .mem-restore, .mem-menu button {
   background: none; border: none; font: inherit; cursor: pointer;

@@ -11,6 +11,7 @@ import avatars
 import wiki
 from splitter import EMOTIONS
 from tools import TOOLS, run_tool
+from untrusted import DOCUMENT_RULE, documents_in, untrusted
 
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
 OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
@@ -211,7 +212,8 @@ def _prompt_text(avatar: dict, verbosity: str) -> str:
     f"looking outside\"), news or current events (\"what's going on in the world\"), or email and "
     f"messages (\"did I get anything today\"), you must call the matching tool BEFORE answering. "
     f"Never invent conditions, times, headlines, senders or message contents — not even in character, "
-    f"{avatar['name']} included. Stay in character only in how you phrase the tool's result."
+    f"{avatar['name']} included. Stay in character only in how you phrase the tool's result.\n\n"
+    f"{DOCUMENT_RULE}"
     )
 
 
@@ -226,6 +228,10 @@ _last_tool_calls: list = []
 _deeper_offer: dict | None = None
 #: (source, title, part) of every passage this turn used: recall hits, search_wiki snippets, read_source
 _turn_sources: list = []
+#: the `source` names of every document block this session has read (recall, deeper, tool
+#: results) since the last successful memory save — the memory proposal is asked to attribute
+#: its ops against this list (docs/33-untrusted-text.md)
+_sources_seen: list = []
 
 
 def client() -> OpenAI:
@@ -236,12 +242,20 @@ def client() -> OpenAI:
 
 
 def reset():
-    global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources
+    global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources, _sources_seen
     _conversation = [{"role": "system", "content": memory.load(SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
     _deeper_offer = None
     _turn_sources = []
+    _sources_seen = []
+
+
+def _note_documents(text: str) -> None:
+    """Record the document blocks in a sent message or tool result for memory attribution."""
+    for name in documents_in(text):
+        if name not in _sources_seen:
+            _sources_seen.append(name)
 
 
 def _tool_round(tool_calls: list[dict], content: str = "") -> None:
@@ -271,6 +285,7 @@ def _tool_round(tool_calls: list[dict], content: str = "") -> None:
         result = run_tool(name, args)
         print(f"[Tool] {name}() → {result}")
         _note_tool_sources(name, args, str(result))
+        _note_documents(str(result))
         _conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
 
 
@@ -394,7 +409,7 @@ def _note_tool_sources(name: str, args: dict, result: str) -> None:
             part = int(args.get("part"))
         except (TypeError, ValueError):
             return
-        title = result.split(" · part ")[0] if " · part " in result else ""
+        title = next((line.split(" · part ")[0] for line in result.splitlines() if " · part " in line), "")
         _turn_sources.append((str(args.get("path") or ""), title, part))
     elif name == "search_wiki":
         for m in _SNIPPET_PART.finditer(result):
@@ -436,7 +451,8 @@ def deeper_block(offer: dict) -> str:
     quotes = _fit(lines, DEEPER_MAX_TOKENS, note)
     if not quotes:
         return ""
-    return f'\n\n<source title="{title}">\n' + "\n\n".join(quotes) + f"\n{note}\n</source>"
+    return (f'\n\n<source title="{title}">\n' + "\n\n".join(untrusted(q, title) for q in quotes)
+            + f"\n{note}\n</source>")
 
 
 def _messages(deeper: bool) -> list:
@@ -472,7 +488,8 @@ def recall_for(user_text: str) -> str:
     hits = hits[:len(quotes)]
     _turn_sources.extend((h["source"], h["title"], h["n"]) for h in hits)
     note = RECALL_NOTE.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(h["title"] for h in hits)))
-    return "\n\n<recall>\n" + "\n\n".join(quotes) + f"\n{note}\n</recall>"
+    blocks = [untrusted(q, h["title"]) for q, h in zip(quotes, hits)]
+    return "\n\n<recall>\n" + "\n\n".join(blocks) + f"\n{note}\n</recall>"
 
 
 def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, object]]:
@@ -494,6 +511,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
     extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else recall_for(user_text))
+    _note_documents(extra)
     _conversation.append({"role": "user", "content": user_text + extra})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
@@ -588,17 +606,24 @@ def save_memory():
     When the save could not reach the model (memory.save returns None, or raises) the turns go
     back in front of anything said meanwhile, so the next save — or the shutdown one — retries.
     """
-    global _session_turns
+    global _session_turns, _sources_seen
     if not _session_turns:
         return
     turns, _session_turns = _session_turns, []
+    sources, _sources_seen = _sources_seen, []
     try:
-        applied = memory.save(turns, client(), OMLX_MODEL)
+        applied = memory.save(turns, client(), OMLX_MODEL, sources=sources)
     except Exception:
         _session_turns = turns + _session_turns
+        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
         raise
     if applied is None:
         _session_turns = turns + _session_turns
+        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
+
+
+def get_sources_seen() -> list:
+    return _sources_seen
 
 
 def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user"):
