@@ -651,4 +651,5 @@ t.recallMinScore.value = '1.5';
 t.recallMinScore.dispatch('change');
 results.recall_sent = [...socket.sent];
 
+results.verbosity_note = (html.match(/id="verbosity-desc"[^>]*>([^<]*)</) || [])[1] || '';
 console.log(JSON.stringify(results, null, 1));

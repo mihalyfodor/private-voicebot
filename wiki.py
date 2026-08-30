@@ -886,6 +886,9 @@ re ll d ve keep keeps get got just really very some any all one""".split())
 #: or a quest; it counts up to this much more than a plain word ("cook", "weather"), which is
 #: what separates "I'm at Covenant" from "what should we cook" when each matches one rare word
 PROPER_BOOST = 2.0
+#: a query word written Title-case at least this often in the sources is a proper noun for the
+#: recall precision rule (PRD 34): one such match may carry a chunk, one plain word may not
+PROPER_RATIO_MIN = 0.5
 _chunk_cache: dict = {"sig": None, "docs": [], "proper": {}}
 _WORD = re.compile(r"[A-Za-z0-9]+")
 
@@ -1058,11 +1061,19 @@ def content_terms(query: str) -> set:
     return {t for t in _tokenise(query) if t not in STOPWORDS}
 
 
+def proper_terms(terms: set) -> set:
+    """The query terms the sources write Title-case at least `PROPER_RATIO_MIN` of the time."""
+    _chunk_corpus()                                   # the ratios are built with the corpus
+    proper = _chunk_cache["proper"]
+    return {t for t in terms if proper.get(t, 0.0) >= PROPER_RATIO_MIN}
+
+
 def search_chunks(query: str, k: int = 3) -> list:
-    """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score}]``.
+    """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score, matched}]``.
 
     `score` is BM25 divided by the number of content words, so a threshold means the same
-    for a three-word and a twelve-word question (see :func:`recall_min_score`).
+    for a three-word and a twelve-word question (see :func:`recall_min_score`); `matched`
+    lists the distinct content words found in the chunk (the PRD 34 precision rule).
     """
     docs = _chunk_corpus()
     terms = content_terms(query)
@@ -1070,8 +1081,8 @@ def search_chunks(query: str, k: int = 3) -> list:
         return []
     scores = _bm25([tokens for *_, tokens in docs], terms, _term_weights(terms))
     hits = [{"source": source, "raw": raw, "title": title, "n": n, "total": total, "text": text,
-             "score": round(score / len(terms), 3)}
-            for (source, raw, title, n, total, text, _), score in zip(docs, scores) if score > 0]
+             "score": round(score / len(terms), 3), "matched": sorted(terms & set(tokens))}
+            for (source, raw, title, n, total, text, tokens), score in zip(docs, scores) if score > 0]
     return sorted(hits, key=lambda h: (-h["score"], h["raw"], h["n"]))[:k]
 
 

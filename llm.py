@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime
 from typing import Iterator
 
@@ -127,10 +128,38 @@ def trim_history() -> None:
         print(f"[llm] trimmed conversation history to fit context budget ({budget} tokens)")
 
 
+#: the fixed offer phrases a grounded answer may end with (docs/34-grounded-answers.md); the
+#: model is asked for exactly one of them so `_deeper_offer` can be detected on its output
+DEEPER_OFFERS = ("Want me to dig deeper?", "Shall I dig deeper?", "Want me to read on?")
+GROUNDING_RULES = (
+    "\n\nLook it up first. When the wiki index or a recall block in the message names a source or page on the "
+    "topic, use search_wiki or read_source (or the recall text) before answering from your own "
+    "knowledge, and name the source once, by title, in a short natural clause woven into a "
+    "sentence (\"per the Skyrim guide\", \"the Fallout 4 walkthrough says\") — vary the wording, "
+    "never a separate closing sentence like \"This information comes from\". Whenever the "
+    "answer comes from a document passage (a recall block, a search_wiki passage or read_source), "
+    "keep it to one to three sentences and make the very last sentence of the reply exactly: "
+    f"{DEEPER_OFFERS[0]} — the document always has more around that passage. "
+    "If the recall text is off-topic, ignore it silently. Live facts — the weather, the time or "
+    "date, the news, emails — always come from the matching tool (get_weather, get_time, get_news, "
+    "get_emails): never state a temperature, a time or a headline from memory, and if the tool "
+    "fails, say that it failed."
+)
+
+
+def grounding_rules() -> str:
+    """The look-up-first block, or "" when the recall tools are not registered (eval harness)."""
+    return GROUNDING_RULES if wiki.tools_registered() else ""
+
+
 def build_system_prompt(avatar: dict) -> str:
     global _verbosity
     verbosity = resolve_verbosity(avatar)
     _verbosity = verbosity
+    return _prompt_text(avatar, verbosity) + grounding_rules()
+
+
+def _prompt_text(avatar: dict, verbosity: str) -> str:
     return (
     f"{avatar['persona']} "
     f"You have memory of past conversations. "
@@ -165,6 +194,10 @@ _client: OpenAI | None = None
 _conversation: list = []
 _session_turns: list = []
 _last_tool_calls: list = []
+#: {"source", "title", "parts"} while the last reply ended with a DEEPER_OFFERS phrase, else None
+_deeper_offer: dict | None = None
+#: (source, title, part) of every passage this turn used: recall hits, search_wiki snippets, read_source
+_turn_sources: list = []
 
 
 def client() -> OpenAI:
@@ -175,10 +208,12 @@ def client() -> OpenAI:
 
 
 def reset():
-    global _conversation, _session_turns, _last_tool_calls
+    global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources
     _conversation = [{"role": "system", "content": memory.load(SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
+    _deeper_offer = None
+    _turn_sources = []
 
 
 def _tool_round(tool_calls: list[dict], content: str = "") -> None:
@@ -207,6 +242,7 @@ def _tool_round(tool_calls: list[dict], content: str = "") -> None:
         _last_tool_calls.append({"name": name, "args": args})
         result = run_tool(name, args)
         print(f"[Tool] {name}() → {result}")
+        _note_tool_sources(name, args, str(result))
         _conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
 
 
@@ -268,8 +304,104 @@ RECALL_MAX_TOKENS = 1500
 #: never a question for a filed document
 COMMAND_WORDS = frozenset("""time clock date day today weather temperature forecast rain outside
 news headlines headline email emails mail inbox messages message""".split())
-RECALL_NOTE = ("If this answers the question, answer from it and say in your reply that it comes "
-               "from {titles} — always name the source you used; otherwise ignore it.")
+RECALL_NOTE = ("If this answers the question, answer from it in one to three sentences, name {titles} "
+               "once in a short natural clause inside a sentence (never as a separate closing sentence), "
+               "and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " Otherwise ignore it.")
+
+DEEPER_MAX_CHUNKS = 3
+DEEPER_MAX_TOKENS = 2500
+DEEPER_NOTE = ("The user said yes to digging deeper. Give the full answer now from this text (the "
+               "passage you cited and the parts around it): walk through what it says step by step in "
+               "several sentences, at least twice as long as your previous reply, including the extra "
+               "details, names and places the surrounding parts add. Name {title} once in passing. "
+               "Do not offer to dig deeper again.")
+_AFFIRMATIVE_WORDS = (
+    "yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|certainly|go|on|ahead|do|it|"
+    "dig|deeper|dive|in|read|more|tell|me|why|not|thanks|thank|you|that|would|be|great|good|"
+    "i|d|like|lets|let|s|so")
+#: a short "yes" to the deeper offer: an affirmative lead, then only affirmative/filler words
+_AFFIRMATIVE = re.compile(
+    r"^(?:yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|certainly|go|dig|deeper|"
+    rf"dive|read|tell|more|why|do|that|i|lets|let)(?:\s+(?:{_AFFIRMATIVE_WORDS}))*$")
+AFFIRMATIVE_MAX_WORDS = 6
+_SNIPPET_PART = re.compile(r"^(.+?) · part (\d+)/\d+ \(([^)]+)\)", re.M)
+
+
+def is_affirmative(text: str) -> bool:
+    """"yes", "yes please", "go on", "dig deeper", "sure, do it" — ≤ 6 words, nothing else in it."""
+    words = re.findall(r"[a-z]+", text.lower())
+    if not words or len(words) > AFFIRMATIVE_MAX_WORDS:
+        return False
+    return bool(_AFFIRMATIVE.match(" ".join(words)))
+
+
+def ends_with_offer(reply: str) -> bool:
+    tail = reply.strip().rstrip("\"'”’ ").lower()
+    return any(tail.endswith(o.lower()) for o in DEEPER_OFFERS)
+
+
+def _note_tool_sources(name: str, args: dict, result: str) -> None:
+    """Remember which source parts a tool call surfaced, for the deeper offer."""
+    if name == "read_source":
+        try:
+            part = int(args.get("part"))
+        except (TypeError, ValueError):
+            return
+        title = result.split(" · part ")[0] if " · part " in result else ""
+        _turn_sources.append((str(args.get("path") or ""), title, part))
+    elif name == "search_wiki":
+        for m in _SNIPPET_PART.finditer(result):
+            _turn_sources.append((m.group(3), m.group(1), int(m.group(2))))
+
+
+def _offer_from_turn(reply: str) -> dict | None:
+    """The `_deeper_offer` this reply leaves behind: the first source used, all its parts."""
+    if not _turn_sources or not ends_with_offer(reply):
+        return None
+    source, title, _ = _turn_sources[0]
+    parts = sorted({p for s, _, p in _turn_sources if s == source})
+    return {"source": source, "title": title, "parts": parts}
+
+
+def deeper_parts(parts: list, total: int) -> list:
+    """The offered parts ± 1 neighbour, at most DEEPER_MAX_CHUNKS, offered ones first."""
+    wanted = [p for p in parts if 1 <= p <= total]
+    for p in list(wanted):
+        for q in (p - 1, p + 1):
+            if 1 <= q <= total and q not in wanted:
+                wanted.append(q)
+    return sorted(wanted[:DEEPER_MAX_CHUNKS])
+
+
+def deeper_block(offer: dict) -> str:
+    """The `<source>` block for a "yes" turn: the offered chunks and their neighbours, capped."""
+    try:
+        record = wiki.raw_chunks(offer["source"])
+    except KeyError:
+        return ""
+    chunks, title = record["chunks"], record["title"]
+    parts = deeper_parts(offer["parts"], len(chunks))
+    note = DEEPER_NOTE.format(title=f'"{title}"')
+    used = memory.tokens_est(note) + 40
+    quotes = []
+    for n in parts:
+        line = f"Part {n}/{len(chunks)}: {chunks[n - 1]['text']}"
+        room = (DEEPER_MAX_TOKENS - used) * 4
+        if room <= 0:
+            break
+        quotes.append(line[:room])
+        used += memory.tokens_est(quotes[-1])
+    if not quotes:
+        return ""
+    return f'\n\n<source title="{title}">\n' + "\n\n".join(quotes) + f"\n{note}\n</source>"
+
+
+def _messages(deeper: bool) -> list:
+    """The conversation as sent: on a deeper turn the system rule reads `long` for this completion."""
+    if not deeper or not _conversation:
+        return _conversation
+    system = _conversation[0]["content"].replace(VERBOSITY_RULES[_verbosity], VERBOSITY_RULES["long"], 1)
+    return [{"role": "system", "content": system}] + _conversation[1:]
 
 
 def recall_for(user_text: str) -> str:
@@ -285,9 +417,13 @@ def recall_for(user_text: str) -> str:
     floor = wiki.recall_min_score()
     quotes, titles = [], []
     used = memory.tokens_est(RECALL_NOTE) + 40                  # the note and the tags count
+    proper = wiki.proper_terms(terms)
     for hit in wiki.search_chunks(user_text, k=RECALL_MAX_CHUNKS):
         if hit["score"] < floor:
             break
+        if len(hit["matched"]) < 2 and not proper.intersection(hit["matched"]):
+            continue                                            # one common word is no match
+        _turn_sources.append((hit["source"], hit["title"], hit["n"]))
         line = f'From "{hit["title"]}" (part {hit["n"]}/{hit["total"]}): {hit["text"]}'
         room = (RECALL_MAX_TOKENS - used) * 4
         if room <= 0:
@@ -308,23 +444,31 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
     `origin` only reaches the session log line; the conversation and memory see typed
     and spoken input identically (PRD 24).
     """
-    global _last_tool_calls
+    global _last_tool_calls, _deeper_offer, _turn_sources
 
     conv_len = len(_conversation)
     turns_len = len(_session_turns)
-    # The recall block rides on this turn's user message only; the session turns (what memory
-    # and the wiki ingest see) keep the user's own words.
-    _conversation.append({"role": "user", "content": user_text + recall_for(user_text)})
+    # An offer lives exactly one turn: a short "yes" takes it, anything else drops it.
+    offer, _deeper_offer = _deeper_offer, None
+    deeper = deeper_block(offer) if offer and is_affirmative(user_text) else ""
+    _turn_sources = [(offer["source"], offer["title"], p) for p in offer["parts"]] if deeper else []
+    # The recall / source block rides on this turn's user message only; the session turns (what
+    # memory and the wiki ingest see) keep the user's own words.
+    extra = deeper or recall_for(user_text)
+    _conversation.append({"role": "user", "content": user_text + extra})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
     trim_history()
 
-    max_tokens = _effective_max_tokens()
+    max_tokens = VERBOSITY_MAX_TOKENS["long"] if deeper else _effective_max_tokens()
 
     try:
+        if deeper:
+            yield ("tool_calls", ["dig_deeper"])               # a filler while the long answer starts
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_conversation, tools=TOOLS, stream=True, max_tokens=max_tokens,
+            model=OMLX_MODEL, messages=_messages(bool(deeper)), tools=TOOLS, stream=True,
+            max_tokens=max_tokens,
         )
         parts: list[str] = []
         pending: dict = {}
@@ -348,7 +492,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
             _tool_round(tool_calls)
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_conversation, stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(bool(deeper)), stream=True, max_tokens=max_tokens,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -363,6 +507,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
 
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
+    _deeper_offer = _offer_from_turn(reply)
     _log(user_text, _last_tool_calls, reply, origin)
 
 

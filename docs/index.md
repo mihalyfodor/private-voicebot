@@ -20,6 +20,8 @@ python3 -m pytest tests/
 python3 -m pytest -m live tests/
 # the PRD 32 live recall check alone (files the two real guides from ~/llm-wiki-dev into a temp vault, prints the Q/A pairs)
 python3 -m pytest -m live tests/test_source_recall.py -s
+# the PRD 34 live grounding check (three real guides in a temp vault; prints each Q/A pair and its "yes" follow-up)
+python3 -m pytest -m live tests/test_grounded_answers.py -s
 # browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
 # prerequisites: `playwright install chromium`, scripts/fetch_assets.sh (pixi + Wanko model), Kokoro model files;
 # tests/e2e/conftest.py fails early with "run scripts/fetch_assets.sh" when the assets are missing. E2E_KEEP=1 keeps the temp dir.
@@ -41,7 +43,7 @@ gitignored) gets one line per turn: origin, tools used, reply length. The e2e ru
 ```
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, avatar/backdrop switching
-├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32), memory + session log
+├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), memory + session log
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
@@ -49,11 +51,11 @@ voicebot/
 ├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing
 ├── avatars.py          # avatar profile (Wanko only since PRD 23: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
-├── fillers.py           # short spoken fillers played while a tool call is in flight, no immediate repeats
+├── fillers.py           # short spoken fillers played while a tool call (or a `dig_deeper` turn) is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
 ├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops, seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
-├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search / read_source / recall threshold (PRD 32), ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags
+├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary + page ops, POST /ingest core; inbox: list_sources/reingest/forget (PRD 25)
 ├── scripts/
 │   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
@@ -114,6 +116,7 @@ voicebot/
 │   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
 │   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
+│   ├── test_grounded_answers.py   # PRD 34: recall precision (matched terms + proper nouns), look-up-first prompt block, one-turn "dig deeper" offer (neighbour chunks, long for that completion only), Settings note, dig_deeper filler
 │   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop, test_palette.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
 │                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake titles/horizon field); its header
@@ -157,7 +160,8 @@ voicebot/
     ├── 30-command-palette.md     # PRD: ⌘K command palette (done)
     ├── 31-office-formats.md      # PRD: docx/pptx/xlsx/vtt/ics drops, meeting pages, calendar stubs, big-text sampling (done)
     ├── 32-source-recall.md       # PRD: search inside sources — chunk index, read_source, auto-recall into the turn (done)
-    └── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (exploration)
+    ├── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (exploration)
+    └── 34-grounded-answers.md    # PRD: look it up first, short cited answer + "dig deeper" offer, recall precision (refactoring)
 ```
 
 ## Active PRDs
@@ -191,6 +195,7 @@ voicebot/
 - [31-office-formats.md](31-office-formats.md) — Word/PowerPoint/Excel/Teams transcript/.ics through the same drop: new kinds and chips, `meetings/` pages from transcripts, deterministic calendar stubs with the `calendar_horizon_days` setting, 10 MB text with head/middle/tail sampling, model-titled pastes with a topic tag (done)
 - [32-source-recall.md](32-source-recall.md) — search inside sources: text-kind raw files chunked and cached per sha in `raw/.index/`, chunk BM25 behind `search_wiki` snippets and a `read_source` tool, the best passages injected into the user message per turn above `recall_min_score` (Settings), raw files renamed after the model's title (done)
 - [33-untrusted-text.md](33-untrusted-text.md) — hardening against prompt injection in filed/fetched text: `<document>` wrapping + standing rule, `source:` provenance on memory ops, read-only tool policy test, injection eval (exploration)
+- [34-grounded-answers.md](34-grounded-answers.md) — grounded answers: look-it-up-first prompt block (only with recall tools registered), 1–3 sentence cited answer ending in "Want me to dig deeper?", a short "yes" reads the neighbouring chunks at `long` for that one completion, recall needs ≥ 2 matched content words or a proper noun, Settings note (refactoring)
 
 ## Research
 
