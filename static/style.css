@@ -91,7 +91,11 @@ main {
   column-gap: 8px;
 }
 #companion.chat > #avatar { grid-row: 1 / span 2; }
-#companion.chat > #history { padding: 24px 24px 8px 4px; }
+#companion.chat > #history {
+  padding: 24px 24px 8px 4px;
+  /* dark floor so the transcript stays readable over bright backdrops */
+  background: linear-gradient(to bottom, transparent 25%, rgba(10,10,10,0.7));
+}
 #companion.chat > #composer { padding-right: 24px; padding-bottom: 20px; }
 /* Every other view: a narrow vertical slice, stacked */
 #companion.side {
@@ -104,7 +108,7 @@ main {
 #companion.side > #history {
   flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px;
   /* a faint floor under the last lines so they stay readable over a busy backdrop */
-  background: linear-gradient(to bottom, transparent 40%, rgba(10,10,10,0.55));
+  background: linear-gradient(to bottom, transparent 30%, rgba(10,10,10,0.7));
 }
 #companion.side > #composer { flex: none; padding: 6px 12px 12px; }
 
@@ -158,17 +162,18 @@ main {
 }
 #history::-webkit-scrollbar { display: none; }
 
-.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.55; transition: opacity 0.4s; }
-.msg:nth-last-child(-n+2) { opacity: 0.8; }
+.msg { display: flex; flex-direction: column; gap: 2px; opacity: 0.7; transition: opacity 0.4s; }
+.msg:nth-last-child(-n+2) { opacity: 0.88; }
 .msg:last-child { opacity: 1; }
 .msg .role {
   font-size: 10px; font-weight: 600; letter-spacing: 0.12em;
-  text-transform: uppercase; color: #666;
+  text-transform: uppercase; color: #c9c9c9;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.9);
   display: flex; align-items: center; gap: 5px;
 }
-.msg.user .role { color: #4a90d9; }
-.msg .text { font-size: 15px; line-height: 1.45; color: #ececec; text-shadow: 0 1px 8px rgba(0,0,0,0.8); }
-.msg.user .text { color: #bfc7d0; font-size: 14px; }
+.msg.user .role { color: #8dc0f5; }
+.msg .text { font-size: 15px; line-height: 1.45; color: #f2f2f2; text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 1px 10px rgba(0,0,0,0.8); }
+.msg.user .text { color: #d4dbe3; font-size: 14px; }
 /* typed turns carry a small keyboard glyph next to the role label */
 .msg .typed-glyph { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 1.6; }
 #companion.side .msg .text { font-size: 13px; }
