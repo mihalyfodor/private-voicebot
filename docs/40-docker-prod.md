@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 40 — Docker as the prod environment, one data folder
 
