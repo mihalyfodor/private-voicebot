@@ -22,6 +22,8 @@ python3 -m pytest -m live tests/
 python3 -m pytest -m live tests/test_source_recall.py -s
 # the PRD 34 live grounding check (three real guides in a temp vault; prints each Q/A pair and its "yes" follow-up)
 python3 -m pytest -m live tests/test_grounded_answers.py -s
+# the PRD 37 live routing calibration (28 questions, two real guides when ~/llm-wiki-dev has them; prints the confusion table; real Wikipedia calls)
+python3 -m pytest -m live tests/test_wikipedia_routing.py -s
 # browser e2e (Playwright + Chromium; spawns chatbot.py on a free port with a temp vault) — screenshots in /tmp/e2e/
 # prerequisites: `playwright install chromium`, scripts/fetch_assets.sh (pixi + Wanko model), Kokoro model files;
 # tests/e2e/conftest.py fails early with "run scripts/fetch_assets.sh" when the assets are missing. E2E_KEEP=1 keeps the temp dir.
@@ -43,7 +45,7 @@ gitignored) gets one line per turn: origin, tools used, reply length. The e2e ru
 ```
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, avatar/backdrop switching
-├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), memory + session log
+├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
@@ -76,7 +78,8 @@ voicebot/
 │   ├── news.py          # BBC news headlines + article detail
 │   ├── gmail.py         # Gmail read/search via OAuth
 │   ├── wiki.py          # search_wiki (pages + document passages) / read_page / read_source — the model's way into the vault
-│   └── sources.py       # file_source(email|news|note) — voice ingestion of the last email/headline/a note
+│   ├── sources.py       # file_source(email|news|note) — voice ingestion of the last email/headline/a note
+│   └── wikipedia.py     # get_wikipedia (search + summary) / read_wikipedia (one section): en.wikipedia.org only, 5 s timeouts, 1 req/s, per-title cache, error strings never exceptions
 ├── workflows/
 │   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
 │   └── classification_rules.example.py
@@ -87,6 +90,7 @@ voicebot/
 │   ├── test_llm.py                # llm.py against a live oMLX server
 │   ├── test_llm_robustness.py     # LLM tool-trigger robustness, needs live oMLX
 │   ├── test_tools.py              # tool schemas/behaviour, needs live oMLX for some cases
+│   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
 │   ├── test_chatbot_speech.py     # speak_stream: mocked Kokoro + WS, wav framing
 │   ├── test_avatars.py            # avatars.current()/AVATAR env handling
 │   ├── test_characters.py         # character card loader, persona builder and caps
@@ -118,6 +122,7 @@ voicebot/
 │   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
 │   ├── test_intake_progress.py    # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
 │   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py), marker `e2e`
+│   ├── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
 │   ├── test_grounded_answers.py   # PRD 34: recall precision (matched terms + proper nouns), look-up-first prompt block, one-turn "dig deeper" offer (neighbour chunks, long for that completion only), Settings note, dig_deeper filler
 │   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop, test_palette.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
@@ -165,7 +170,7 @@ voicebot/
     ├── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (exploration)
     ├── 34-grounded-answers.md    # PRD: look it up first, short cited answer + "dig deeper" offer, recall precision (done)
     ├── 35-browser-location.md    # PRD: weather location offered by the browser, stored in settings.json, .env fallback (done)
-    └── 37-wikipedia-routing.md   # PRD: get_wikipedia tool + routing between own knowledge / local base / Wikipedia offer (implementation)
+    └── 37-wikipedia-routing.md   # PRD: get_wikipedia tool + routing between own knowledge / local base / Wikipedia offer (refactoring)
 ```
 
 ## Active PRDs
@@ -202,7 +207,7 @@ voicebot/
 - [36-intake-progress.md](36-intake-progress.md) — bulk intake progress: one `/ingest` request per file in list order, per-row queued/uploading/summarising/filed/already/error states with elapsed time, `ingest_progress` pushes from the ingest thread, Cancel after the current file (done)
 - [34-grounded-answers.md](34-grounded-answers.md) — grounded answers: look-it-up-first prompt block (only with recall tools registered), 1–3 sentence cited answer ending in "Want me to dig deeper?", a short "yes" reads the neighbouring chunks at `long` for that one completion, recall needs ≥ 2 matched content words or a proper noun, Settings note (done)
 - [35-browser-location.md](35-browser-location.md) — the page offers its position once per connect (`set_location`), the weather tool reads settings.json → `.env` → default, Settings shows the resolved location (done)
-- [37-wikipedia-routing.md](37-wikipedia-routing.md) — Wikipedia search/summary tool with fixed hosts and an offer-then-fetch flow reusing the PRD 34 offer state; routing rules and a 28-question calibration set (implementation)
+- [37-wikipedia-routing.md](37-wikipedia-routing.md) — Wikipedia search/summary tool with fixed hosts and an offer-then-fetch flow reusing the PRD 34 offer state; routing rules and a 28-question calibration set (refactoring)
 
 ## Research
 

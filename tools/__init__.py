@@ -4,6 +4,7 @@ from tools import gmail as _gmail
 from tools import news as _news
 from tools import wiki as _wiki
 from tools import sources as _sources
+from tools import wikipedia as _wikipedia
 
 TOOLS = [
     _time.DEFINITION,
@@ -15,6 +16,8 @@ TOOLS = [
     _wiki.DEFINITION_READ,
     _wiki.DEFINITION_READ_SOURCE,
     _sources.DEFINITION,
+    _wikipedia.DEFINITION_GET,
+    _wikipedia.DEFINITION_READ,
 ]
 
 _DISPATCH = {
@@ -27,6 +30,8 @@ _DISPATCH = {
     "read_page":       _wiki.run_read,
     "read_source":     _wiki.run_read_source,
     "file_source":     _sources.run,
+    "get_wikipedia":   _wikipedia.run_get_wikipedia,
+    "read_wikipedia":  _wikipedia.run_read_wikipedia,
 }
 
 

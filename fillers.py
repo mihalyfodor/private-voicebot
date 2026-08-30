@@ -11,6 +11,8 @@ FILLERS = {
     "read_page": ["Let me open that page.", "One sec, reading it up.", "Pulling up the notes."],
     "dig_deeper": ["Let me read a bit further.", "One sec, going deeper into it.", "Let me pull up the rest."],
     "file_source": ["Filing that away.", "One sec, writing it down.", "Let me put that in the wiki."],
+    "get_wikipedia": ["Let me check Wikipedia.", "One sec, looking it up on Wikipedia.", "Checking Wikipedia now."],
+    "read_wikipedia": ["Let me read that section.", "One sec, reading further on Wikipedia."],
     "default": ["One moment.", "Let me check.", "Just a second."],
 }
 

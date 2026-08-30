@@ -1,0 +1,33 @@
+[
+  {"expect": "direct", "question": "who was Ada Lovelace"},
+  {"expect": "direct", "question": "what is photosynthesis"},
+  {"expect": "direct", "question": "why is the sky blue"},
+  {"expect": "direct", "question": "what is the capital of France"},
+  {"expect": "direct", "question": "who wrote Pride and Prejudice"},
+  {"expect": "direct", "question": "what does DNA stand for"},
+  {"expect": "direct", "question": "what is the difference between a crocodile and an alligator"},
+  {"expect": "direct", "question": "how does a refrigerator keep things cold"},
+
+  {"expect": "local", "question": "I'm at Covenant and Honest Dan keeps attacking me, what now"},
+  {"expect": "local", "question": "how do I pass the SAFE test in Covenant"},
+  {"expect": "local", "question": "where do I find the Silver Shroud costume at Hubris Comics"},
+  {"expect": "local", "question": "how do I get into Vault 81 and meet Overseer Gwen"},
+  {"expect": "local", "question": "how do I join the Thieves Guild in Riften"},
+  {"expect": "local", "question": "where do I learn Unrelenting Force from the Greybeards at High Hrothgar"},
+  {"expect": "local", "question": "what do I do about the Draugr in Bleak Falls Barrow"},
+  {"expect": "local", "question": "how do I get into the College of Winterhold"},
+
+  {"expect": "wikipedia", "question": "what year exactly did Ada Lovelace publish her notes on the Analytical Engine"},
+  {"expect": "wikipedia", "question": "how tall is Mount Kilimanjaro in metres exactly"},
+  {"expect": "wikipedia", "question": "what is the exact population of Reykjavik"},
+  {"expect": "wikipedia", "question": "on what date exactly was the Eiffel Tower opened"},
+  {"expect": "wikipedia", "question": "who won the Nobel Prize in Literature in 2025"},
+  {"expect": "wikipedia", "question": "what is the atomic mass of tungsten to two decimals"},
+  {"expect": "wikipedia", "question": "what exactly is the Kessler syndrome"},
+  {"expect": "wikipedia", "question": "what year did Voyager 2 fly past Neptune"},
+
+  {"expect": "personal", "question": "what did we decide on Falcon"},
+  {"expect": "personal", "question": "what did Anna say in the meeting last week"},
+  {"expect": "personal", "question": "when is my dentist appointment"},
+  {"expect": "personal", "question": "what did I file yesterday"}
+]

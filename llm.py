@@ -147,9 +147,36 @@ GROUNDING_RULES = (
 )
 
 
+#: the fixed Wikipedia offer (docs/37-wikipedia-routing.md); a short "yes" runs get_wikipedia
+WIKIPEDIA_OFFER = "Want me to check Wikipedia?"
+ROUTING_RULES = (
+    "\n\nWhere an answer comes from, in this order. First, if the wiki index or a recall block names a "
+    "source or page on the topic, that is the answer: local first, never Wikipedia. Second, general "
+    "knowledge — who someone was, what a thing is or does, how or why something works, everyday facts "
+    "like capitals and authors — you answer directly from your own knowledge and stop: no source "
+    "named, no offer, and a recall block about something else is ignored, not mentioned. Third, offer "
+    "Wikipedia only when the question itself asks for an exact figure (a specific year or date, a "
+    "count, a measurement, the precise definition of a named term — \"what exactly is X\"), or is about "
+    "the last few years, or "
+    "when you truly do not know: give your best short answer in one or two sentences and make the very "
+    f"last sentence of the reply exactly: {WIKIPEDIA_OFFER} A confident general answer never gets that "
+    "offer. Never call get_wikipedia on your own; call it only after that yes, and then "
+    "say once, in passing, that the answer is per Wikipedia. Fourth, never offer or call Wikipedia "
+    "for anything personal — the user's own plans, people, meetings, decisions, files, or anything in "
+    "the user profile or the wiki; if you have nothing on it, say so."
+)
+
+
 def grounding_rules() -> str:
-    """The look-up-first block, or "" when the recall tools are not registered (eval harness)."""
-    return GROUNDING_RULES if wiki.tools_registered() else ""
+    """The look-up-first block plus the routing rules, or "" when the recall tools are not
+    registered (eval harness); the routing rules only while get_wikipedia is registered too."""
+    if not wiki.tools_registered():
+        return ""
+    return GROUNDING_RULES + (ROUTING_RULES if wikipedia_registered() else "")
+
+
+def wikipedia_registered() -> bool:
+    return any((t.get("function") or {}).get("name") == "get_wikipedia" for t in TOOLS if isinstance(t, dict))
 
 
 def build_system_prompt(avatar: dict) -> str:
@@ -194,7 +221,8 @@ _client: OpenAI | None = None
 _conversation: list = []
 _session_turns: list = []
 _last_tool_calls: list = []
-#: {"source", "title", "parts"} while the last reply ended with a DEEPER_OFFERS phrase, else None
+#: {"source", "title", "parts"} while the last reply ended with a DEEPER_OFFERS phrase,
+#: {"wikipedia": question} while it ended with WIKIPEDIA_OFFER, else None
 _deeper_offer: dict | None = None
 #: (source, title, part) of every passage this turn used: recall hits, search_wiki snippets, read_source
 _turn_sources: list = []
@@ -310,6 +338,10 @@ RECALL_NOTE = ("If this answers the question, answer from it in one to three sen
 
 DEEPER_MAX_CHUNKS = 3
 DEEPER_MAX_TOKENS = 2500
+WIKIPEDIA_NOTE = ("The user said yes to checking Wikipedia. Call get_wikipedia now with the topic of the "
+                  "question as the query (the article name, like \"Ada Lovelace\", not the whole question), "
+                  "then answer the question fully from the result, in several sentences, and say once, in "
+                  "passing, that it is per Wikipedia. Do not offer to check Wikipedia again.")
 DEEPER_NOTE = ("The user said yes to digging deeper. Give the full answer now from this text (the "
                "passage you cited and the parts around it): walk through what it says step by step in "
                "several sentences, at least twice as long as your previous reply, including the extra "
@@ -317,10 +349,10 @@ DEEPER_NOTE = ("The user said yes to digging deeper. Give the full answer now fr
                "Do not offer to dig deeper again.")
 #: a short "yes" to the deeper offer: one of these words first ...
 _AFFIRMATIVE_LEADS = frozenset("""yes yeah yep yup sure ok okay please absolutely definitely certainly
-go dig deeper dive read tell more why do that i lets let""".split())
+go dig deeper dive read tell more why do that i lets let check look""".split())
 #: ... and nothing but these after it, at most AFFIRMATIVE_MAX_WORDS in all
 _AFFIRMATIVE_WORDS = _AFFIRMATIVE_LEADS | frozenset("""on ahead it in me not thanks thank you would be
-great good d like s so""".split())
+great good d like s so up wikipedia""".split())
 AFFIRMATIVE_MAX_WORDS = 6
 _SNIPPET_PART = re.compile(r"^(.+?) · part (\d+)/\d+ \(([^)]+)\)", re.M)
 
@@ -346,9 +378,13 @@ def _fit(lines: list, budget: int, note: str) -> list:
     return kept
 
 
-def ends_with_offer(reply: str) -> bool:
+def ends_with_offer(reply: str, phrases: tuple = DEEPER_OFFERS) -> bool:
     tail = reply.strip().rstrip("\"'”’ ").lower()
-    return any(tail.endswith(o.lower()) for o in DEEPER_OFFERS)
+    return any(tail.endswith(o.lower()) for o in phrases)
+
+
+def ends_with_wikipedia_offer(reply: str) -> bool:
+    return ends_with_offer(reply, (WIKIPEDIA_OFFER,))
 
 
 def _note_tool_sources(name: str, args: dict, result: str) -> None:
@@ -365,8 +401,11 @@ def _note_tool_sources(name: str, args: dict, result: str) -> None:
             _turn_sources.append((m.group(3), m.group(1), int(m.group(2))))
 
 
-def _offer_from_turn(reply: str) -> dict | None:
-    """The `_deeper_offer` this reply leaves behind: the first source used, all its parts."""
+def _offer_from_turn(reply: str, question: str = "") -> dict | None:
+    """The `_deeper_offer` this reply leaves behind: the question when the reply ended with the
+    Wikipedia offer, else the first source used, all its parts."""
+    if ends_with_wikipedia_offer(reply):
+        return {"wikipedia": question}
     if not _turn_sources or not ends_with_offer(reply):
         return None
     source, title, _ = _turn_sources[0]
@@ -448,24 +487,29 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
     turns_len = len(_session_turns)
     # An offer lives exactly one turn: a short "yes" takes it, anything else drops it.
     offer, _deeper_offer = _deeper_offer, None
-    deeper = deeper_block(offer) if offer and is_affirmative(user_text) else ""
+    yes = bool(offer) and is_affirmative(user_text)
+    lookup = offer.get("wikipedia") if yes else None            # the question to look up (PRD 37)
+    deeper = deeper_block(offer) if yes and not lookup else ""
     _turn_sources = [(offer["source"], offer["title"], p) for p in offer["parts"]] if deeper else []
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
-    extra = deeper or recall_for(user_text)
+    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else recall_for(user_text))
     _conversation.append({"role": "user", "content": user_text + extra})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
     trim_history()
 
-    max_tokens = VERBOSITY_MAX_TOKENS["long"] if deeper else _effective_max_tokens()
+    long = bool(deeper or lookup)
+    max_tokens = VERBOSITY_MAX_TOKENS["long"] if long else _effective_max_tokens()
 
     try:
         if deeper:
             yield ("tool_calls", ["dig_deeper"])               # a filler while the long answer starts
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
+        # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
+        # for the model to name the topic, and get_wikipedia runs either way.
         first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_messages(bool(deeper)), tools=TOOLS, stream=True,
+            model=OMLX_MODEL, messages=_messages(long), tools=TOOLS, stream=True,
             max_tokens=max_tokens,
         )
         parts: list[str] = []
@@ -477,11 +521,16 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
             text = getattr(delta, "content", None)
             if text:
                 parts.append(text)
-                yield ("delta", text)
+                if not lookup:
+                    yield ("delta", text)
             fragments = getattr(delta, "tool_calls", None)
             if fragments:
                 _accumulate_tool_calls(pending, fragments)
 
+        if lookup and not any(tc["name"] == "get_wikipedia" for tc in pending.values()):
+            pending = {0: {"id": "wikipedia_offer", "name": "get_wikipedia",
+                           "arguments": json.dumps({"query": lookup})}}
+            parts = []                                          # held back, never spoken
         if pending:
             tool_calls = [pending[i] for i in sorted(pending)]
             if parts:
@@ -490,7 +539,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
             _tool_round(tool_calls)
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(bool(deeper)), stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(long), stream=True, max_tokens=max_tokens,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -505,7 +554,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
 
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
-    _deeper_offer = _offer_from_turn(reply)
+    _deeper_offer = _offer_from_turn(reply, user_text)
     _log(user_text, _last_tool_calls, reply, origin)
 
 

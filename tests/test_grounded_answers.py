@@ -94,7 +94,7 @@ AVATAR = {"name": "Test", "persona": "You are Test.", "verbosity": None}
 def test_the_system_prompt_asks_to_look_it_up_first_and_offer_more():
     prompt = llm.build_system_prompt(AVATAR)
     assert "Look it up first" in prompt and llm.DEEPER_OFFERS[0] in prompt
-    assert prompt.endswith(llm.GROUNDING_RULES)
+    assert prompt.endswith(llm.GROUNDING_RULES + llm.ROUTING_RULES)
 
 
 def test_a_weather_question_goes_through_the_tool_never_memory():
