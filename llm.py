@@ -220,6 +220,16 @@ def _rebuild_system_prompt(note: str = "") -> None:
         _conversation.append(system)
 
 
+def refresh_context() -> None:
+    """Re-read the profile and wiki index into the system prompt, keeping the conversation.
+
+    Called after anything that changes the vault mid-session (a drop, an edit, an ingest), so
+    a page filed a minute ago is visible to the very next turn instead of the next restart.
+    """
+    if _conversation:
+        _rebuild_system_prompt()
+
+
 def set_avatar():
     """Swap the persona in place, keeping the conversation history."""
     a = avatars.current()

@@ -637,3 +637,19 @@ def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault):
     client = FakeClient("[]")
     wiki.ingest(TURNS, client, "m")
     assert memory.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]
+
+
+def test_a_page_filed_mid_session_reaches_the_next_turn(vault, memory_sandbox):
+    """The system prompt is built at session start; `llm.refresh_context` re-reads the index so a
+    source dropped a minute ago is not invisible until the next restart."""
+    import llm
+
+    llm.reset()
+    llm._conversation.append({"role": "user", "content": "hi"})
+    assert "[[people/anna]]" not in llm._conversation[0]["content"]
+
+    wiki.apply_page_ops([a_page()], "s")
+    llm.refresh_context()
+
+    assert "[[people/anna]]" in llm._conversation[0]["content"]
+    assert llm._conversation[1] == {"role": "user", "content": "hi"}   # history kept

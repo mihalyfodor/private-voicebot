@@ -670,6 +670,7 @@ async def _send_wiki() -> None:
     A `sources` message follows: every path that changes the wiki may have filed a source, and
     the rail badge counts what arrived while the user was elsewhere.
     """
+    await asyncio.to_thread(llm.refresh_context)   # the next turn sees the new/changed pages
     await send(await asyncio.to_thread(_wiki_msg))
     await send(await asyncio.to_thread(_sources_msg))
 
