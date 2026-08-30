@@ -345,6 +345,45 @@ def page_command(text: str):
     return None
 
 
+_NEW_TOPIC = re.compile(r"^(?:new\s+topic|/new)[\s?.!]*$", re.I)
+
+
+def new_topic_command(text: str) -> bool:
+    """True for the exact phrase "new topic" (spoken or typed) or the typed `/new` (PRD 39)."""
+    return bool(_NEW_TOPIC.match(" ".join(str(text or "").split())))
+
+
+def context_msg() -> dict:
+    return {"type": "context", **llm.context_usage()}
+
+
+def _with_context_notice(events):
+    """The turn's events, then the 90 % crossing sentence as one more spoken delta (PRD 39)."""
+    yield from events
+    notice = llm.context_notice()
+    if notice:
+        yield ("delta", " " + notice)
+
+
+def new_topic(sess: Session, turn: int, send_sync):
+    """Fold memory, restart on a summary, tell the page (`thread`), speak the ack, idle."""
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        summary = llm.new_thread()
+        send_sync({"type": "thread", "text": summary})
+        say_canned(llm.NEW_TOPIC_ACK, send_sync)
+        send_sync(context_msg())
+        _wait_for_playback_then_idle(sess, send_sync)
+    except Exception as e:
+        print(f"[Error] {e}")
+        send_sync({"type": "state", "value": "idle"})
+
+
+def new_topic_turn(sess: Session, turn: int, loop):
+    new_topic(sess, turn, make_sender(loop, turn))
+
+
 def open_page_for(text: str, send_sync) -> str:
     """Open the page a find/open/go-back turn asks for and return the one-turn note for the model.
 
@@ -374,14 +413,21 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
     tags the session log line ("user" spoken, "typed" from the composer); the conversation,
     tools and memory see them identically. Always ends in the idle state, errors included.
     A find/open/go-back turn first opens the page (PRD 38), then reaches the model with a note.
+    "new topic" / `/new` never reaches the model: it is the new-topic turn (PRD 39). Every
+    completed turn ends with a `context` message; the 90 % crossing adds one spoken sentence.
     """
+    if new_topic_command(user_text):
+        new_topic(sess, turn, send_sync)
+        return
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
         note = open_page_for(user_text, send_sync)
-        reply = speak_stream(llm.ask_events(user_text, origin=origin, note=note), send_sync)
+        events = _with_context_notice(llm.ask_events(user_text, origin=origin, note=note))
+        reply = speak_stream(events, send_sync)
         print(f"Bot: {reply}")
         send_sync({"type": "transcript", "role": "assistant", "text": reply})
+        send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
         print(f"[Error] {e}")
@@ -948,6 +994,11 @@ async def _action_pull_wiki(sess, msg, loop):
     await _bridge(memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
 
 
+async def _action_new_topic(sess, msg, loop):
+    """The palette's "New topic": queued like a turn (PRD 39)."""
+    submit_turn(new_topic_turn, loop)
+
+
 async def _action_shutdown(sess, msg, loop):
     print("\nShutdown requested from UI...")
     os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
@@ -983,16 +1034,37 @@ ACTIONS = {
     "forget_source": _action_forget_source,
     "archive_memory": _action_archive_memory,
     "pull_wiki": _action_pull_wiki,
+    "new_topic": _action_new_topic,
     "shutdown": _action_shutdown,
 }
+
+
+_EARLIER = re.compile(r"^<earlier>(.*)</earlier>$", re.S)
+
+
+def replay_messages() -> list:
+    """The `transcript` / `thread` messages that rebuild the history on a (re)connect: the
+    user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`."""
+    out = []
+    for m in llm._conversation[1:]:
+        content = m.get("content") or ""
+        if m.get("role") not in ("user", "assistant") or not content:
+            continue                                            # tool rounds carry no line
+        earlier = _EARLIER.match(content) if m["role"] == "user" else None
+        if earlier:
+            out.append({"type": "thread", "text": earlier.group(1)})
+        else:
+            out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(content)})
+    return out
 
 
 async def _on_connect(sess: Session, loop):
     """Bring a freshly connected page up to date, and greet on the very first one."""
     global greeted
-    # Replay what has been said so a reloaded page shows the conversation so far.
-    for turn in llm.get_session_turns():
-        await send({"type": "transcript", "role": turn["role"], "text": splitter.strip_tag(turn["content"])})
+    # Replay what the model actually holds (the stripped conversation, PRD 39), so a reloaded
+    # page matches its memory even after a periodic fold or a trim.
+    for msg in replay_messages():
+        await send(msg)
     await send({"type": "hands_free", "value": hands_free})
     if not greeted:
         greeted = True

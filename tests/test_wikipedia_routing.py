@@ -328,7 +328,7 @@ def test_calibration_mocked(both):
         fake = FakeClient([iter(r) for r in replies])
         with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="Wikipedia article ..."):
             reply = llm.ask(question)
-        recalled = "<recall>" in llm._conversation[1]["content"]
+        recalled = "<recall>" in fake.calls[0]["messages"][1]["content"]
         observed = observed_route(reply, llm.get_last_tool_calls(), recalled)
         rows.append((expect, observed, observed in ACCEPTS[expect]))
     table = confusion(rows)
@@ -391,8 +391,10 @@ def test_live_calibration(vault, capsys):
     for q in QUESTIONS:
         llm.reset()
         expect, question = q["expect"], q["question"]
-        reply = llm.ask(question)
-        recalled = "<recall>" in llm._conversation[1]["content"]
+        recalls = []
+        with patch.object(llm, "recall_for", lambda text, _r=llm.recall_for: recalls.append(_r(text)) or recalls[-1]):
+            reply = llm.ask(question)
+        recalled = "<recall>" in recalls[0]
         observed = observed_route(reply, llm.get_last_tool_calls(), recalled)
         ok = observed in ACCEPTS[expect]
         rows.append((expect, observed, ok))

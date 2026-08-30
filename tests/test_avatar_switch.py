@@ -43,6 +43,8 @@ def test_set_avatar_action_no_longer_exists():
 def test_unknown_action_is_ignored_and_the_socket_stays_open():
     from fastapi.testclient import TestClient
     import chatbot
+    import llm
+    llm.reset()                                                  # nothing to replay on connect
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["type"] == "hands_free"

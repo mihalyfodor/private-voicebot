@@ -1,5 +1,6 @@
 """Tests for context budget, history trimming, and max_tokens (scenarios 1, 2, 3, 6)."""
 import sys, os
+import copy
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -30,7 +31,7 @@ class FakeClient:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kw):
-        self.calls.append(kw)
+        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
         return self._responses.pop(0)
 
 

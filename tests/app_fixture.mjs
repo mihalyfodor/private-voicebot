@@ -345,6 +345,8 @@ globalThis.__t = {
   memSections: memSectionsEl,
   // ---- scoped errors
   status, memError: memErrorEl, wikiError: wikiErrorEl,
+  // ---- context meter (PRD 39)
+  chatDot: () => railItems.find(b => b.dataset.view === 'chat').querySelector('.rail-dot').className,
 };
 `;
 
@@ -777,5 +779,22 @@ results.focus_wiki_open = {
   placeholder: t.input.placeholder,
 };
 t.setView('chat');
+
+// ---------------------------------------------------------------- scenarios (PRD 39)
+// ---- scenario 2: `context` → "ctx N %" on the status line, the Chat rail dot amber ≥ 75 / red ≥ 90,
+// "forgot n old turns" when trimmed; scenario 5: `thread` inserts a divider with the summary and
+// the palette's "New topic" sends the action.
+t.setState('idle');
+t.recv({ type: 'context', used: 9920, budget: 16000, pct: 62, trimmed: 0 });
+results.ctx_62 = { status: t.status.textContent, dot: t.chatDot() };
+t.recv({ type: 'context', used: 12000, budget: 16000, pct: 75, trimmed: 0 });
+results.ctx_75 = { status: t.status.textContent, dot: t.chatDot() };
+t.recv({ type: 'context', used: 14400, budget: 16000, pct: 90, trimmed: 3 });
+results.ctx_90 = { status: t.status.textContent, dot: t.chatDot() };
+t.recv({ type: 'context', used: 3000, budget: 16000, pct: 19, trimmed: 0 });
+results.ctx_19 = { status: t.status.textContent, dot: t.chatDot() };
+t.recv({ type: 'thread', text: 'We planned the Falcon sync; open: the budget.' });
+results.thread_divider = t.historyLines().at(-1);
+results.pal_new_topic = runLabel('New topic');
 
 console.log(JSON.stringify(results, null, 1));

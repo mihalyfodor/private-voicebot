@@ -184,6 +184,9 @@ const statusText = {
 
 let ws;
 let state = 'idle';
+// The context meter (PRD 39): the last `context` message, shown as a status suffix + the
+// Chat rail dot's colour; null until the first completed turn.
+let ctx = null;
 let handsFree = false;   // mirrors the server-confirmed hands_free value (voice on/off)
 let memorySaving = false;  // a background memory save is running (server `memory_saving`)
 let muted = false;       // output mute: replies arrive and are shown, but not played
@@ -2552,6 +2555,8 @@ function connect() {
       setState(msg.value);
     }
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
+    else if (msg.type === 'context') setContext(msg);
+    else if (msg.type === 'thread') addDivider(msg.text);
     else if (msg.type === 'speech') enqueueSpeech(msg);
     else if (msg.type === 'speech_end') { replyEnded = true; playNext(); }
     else if (msg.type === 'backdrop') { applyBackdrop(msg.key); renderBackdropList(); }
@@ -2653,6 +2658,10 @@ function renderComposer() {
   }
   if (muted && !busy) status.textContent += status.textContent ? ' · muted' : 'muted';
   if (memorySaving && !busy) status.textContent += status.textContent ? ' · saving memory…' : 'saving memory…';
+  if (ctx && !busy) {
+    status.textContent += (status.textContent ? ' · ' : '') + `ctx ${ctx.pct} %`;
+    if (ctx.trimmed > 0) status.textContent += ` · forgot ${ctx.trimmed} old turn${ctx.trimmed === 1 ? '' : 's'}`;
+  }
   // Re-assert the audio-unlock hint last so other branches above don't clobber it
   // while we're still waiting on a user gesture to resume the AudioContext.
   if (audioBlocked) status.textContent = 'click anywhere to enable audio';
@@ -2672,6 +2681,28 @@ function addMessage(role, text, { typed = false } = {}) {
   div.append(r, t);
   historyEl.appendChild(div);
   historyEl.scrollTop = historyEl.scrollHeight;
+}
+
+// A "new topic" divider (PRD 39): the summary the model carried over, readable in the history.
+function addDivider(text) {
+  const div = document.createElement('div');
+  div.className = 'msg divider';
+  const r = document.createElement('span'); r.className = 'role'; r.textContent = 'New topic';
+  const t = document.createElement('span'); t.className = 'text'; t.textContent = text;
+  div.append(r, t);
+  historyEl.appendChild(div);
+  historyEl.scrollTop = historyEl.scrollHeight;
+}
+
+// The context meter: status suffix (renderComposer) and the Chat rail dot, amber from 75 %, red from 90 %.
+function setContext(msg) {
+  ctx = { pct: Number(msg.pct) || 0, trimmed: Number(msg.trimmed) || 0 };
+  const dot = railItems.find(b => b.dataset.view === 'chat')?.querySelector('.rail-dot');
+  if (dot) {
+    dot.classList.toggle('ctx-red', ctx.pct >= 90);
+    dot.classList.toggle('ctx-amber', ctx.pct >= 75 && ctx.pct < 90);
+  }
+  renderComposer();
 }
 
 // ---------- composer (PRD 24) ----------
@@ -2763,6 +2794,8 @@ PALETTE_SOURCES.push(() => [
     run: () => { setView('sources'); sourcesInputEl.click(); } },
 ]);
 PALETTE_SOURCES.push(() => [
+  { id: 'app:new-topic', label: 'New topic', group: 'app', keywords: ['thread', 'fresh', 'context', 'reset', 'new'],
+    run: () => ws.send(JSON.stringify({ action: 'new_topic' })) },
   { id: 'app:ingest', label: 'Re-ingest last session', group: 'app', keywords: ['wiki', 'session', 'memory'],
     run: () => { setView('wiki'); wikiIngestBtn.onclick(); } },
   { id: 'app:shutdown', label: 'Shut down', group: 'app', keywords: ['quit', 'exit', 'stop', 'server'],

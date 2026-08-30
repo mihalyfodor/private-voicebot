@@ -127,8 +127,9 @@ def test_a_tool_free_run_gets_neither_rule(monkeypatch):
 
 
 def test_an_offer_after_a_recall_turn_is_remembered_with_its_parts(fallout):
-    _offer_turn()
-    parts = [int(m) for m in re.findall(r"\(part (\d+)/\d+\)", llm._conversation[1]["content"])]
+    fake = _offer_turn()
+    sent_user = fake.calls[0]["messages"][1]["content"]           # the block is stripped afterwards (PRD 39)
+    parts = [int(m) for m in re.findall(r"\(part (\d+)/\d+\)", sent_user)]
     assert parts and set(parts) <= {h["n"] for h in wiki.search_chunks(QUESTION, k=llm.RECALL_MAX_CHUNKS)}
     assert llm._deeper_offer == {"source": fallout["path"], "title": "Fallout 4 guide",
                                  "parts": sorted(parts)}

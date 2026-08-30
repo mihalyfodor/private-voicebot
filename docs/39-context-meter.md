@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 39 — Context meter, recall stripping and "new topic"
 

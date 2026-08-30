@@ -49,6 +49,13 @@ body {
   width: 3px; height: 0; border-radius: 2px; background: #4a90d9; transition: height 0.15s;
 }
 .rail-item.active .rail-dot { height: 20px; }
+/* the context meter (PRD 39): the Chat dot shows even off-view once the budget runs low */
+.rail-dot.ctx-amber { background: #d9a441; height: 8px; }
+.rail-dot.ctx-red { background: #d9534f; height: 8px; }
+.rail-item.active .rail-dot.ctx-amber, .rail-item.active .rail-dot.ctx-red { height: 20px; }
+.msg.divider { margin: 10px 0; padding: 6px 10px; border-top: 1px solid #333; border-bottom: 1px solid #333; }
+.msg.divider .role { color: #d9a441; }
+.msg.divider .text { color: #9a9a9a; font-style: italic; }
 /* the rail items double as cross-view drop targets (archive / pull) */
 .rail-item.drop-ok { color: #cfe2f7; border-color: #4a90d9; background: rgba(74,144,217,0.30); }
 

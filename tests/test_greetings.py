@@ -126,8 +126,8 @@ def test_reload_characters_ws_action(monkeypatch):
 
 def test_reconnect_replays_transcript():
     llm.reset()
-    llm._session_turns[:] = [{"role": "assistant", "content": "[happy] Hi there."},
-                             {"role": "user", "content": "hello"}]
+    llm._conversation += [{"role": "assistant", "content": "[happy] Hi there."},
+                          {"role": "user", "content": "hello"}]                 # what the model holds (PRD 39)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json() == {"type": "transcript", "role": "assistant", "text": "Hi there."}

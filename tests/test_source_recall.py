@@ -6,6 +6,7 @@ filed with a mocked model; a second generated FAQ covers the cross-source checks
 (`live`) files the two real guides from ~/llm-wiki-dev into the temp vault and talks to oMLX.
 """
 import sys, os
+import copy
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
@@ -145,7 +146,7 @@ class StreamClient:
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, **kw):
-        self.calls.append(kw)
+        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
         return _stream(self.replies.pop(0))
 
 
@@ -362,7 +363,7 @@ def test_the_recall_block_rides_on_the_user_message_only(fallout):
     user = sent[1]
     assert user["role"] == "user" and user["content"].startswith(question + "\n\n<recall>")
     assert llm._session_turns[0] == {"role": "user", "content": question}
-    assert llm._conversation[1] == user                            # kept as-is in the history
+    assert llm._conversation[1] == {"role": "user", "content": question}   # bare once the turn is done (PRD 39)
     assert llm.estimate_tokens([user]) <= memory.tokens_est(question) + llm.RECALL_MAX_TOKENS + 60
 
     # the next turn carries its own (empty) recall; nothing from the last one leaks
@@ -380,8 +381,9 @@ def test_a_typed_turn_gets_the_same_recall_as_a_spoken_one(fallout):
     with patch.object(llm, "_client", fake):
         list(llm.ask_events(question, origin="typed"))
         list(llm.ask_events(question, origin="user"))
-    typed, spoken = llm._conversation[1], llm._conversation[3]
+    typed, spoken = fake.calls[0]["messages"][1], fake.calls[1]["messages"][3]
     assert "<recall>" in typed["content"] and typed["content"] == spoken["content"]
+    assert llm._conversation[1]["content"] == llm._conversation[3]["content"] == question
 
 
 def test_the_threshold_setting_round_trips(fallout, file_sandbox):

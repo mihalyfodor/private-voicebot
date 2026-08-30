@@ -16,7 +16,7 @@ FIXED = ["Go to Chat", "Go to Memory", "Go to Wiki", "Go to Sources", "Go to Set
          "Today's note", "New page…", "Voice: turn on", "Mute replies",
          "Reply length: short", "Reply length: normal", "Reply length: long",
          "Backdrop: None", "Backdrop: Home office", "Reload characters",
-         "File a source…", "Re-ingest last session", "Shut down"]
+         "File a source…", "New topic", "Re-ingest last session", "Shut down"]
 PAGES = ["Anna", "Atlas", "todo"]
 
 

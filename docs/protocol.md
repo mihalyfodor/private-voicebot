@@ -45,13 +45,14 @@ action name, plus `action`).
 | `forget_source` | `sha`, `confirm: true` | `wiki` + `sources`, or `error` (sources) without the confirm / for an unknown sha |
 | `archive_memory` | `section`, `index` | `memory` + `wiki` + `sources`, or `memory_error` |
 | `pull_wiki` | `path`, `section` | `memory` + `wiki` + `sources`, or `memory_error` |
+| `new_topic` | — | a new-topic turn (PRD 39): `state` thinking, `thread` (the summary), the spoken ack as `speech`…/`speech_end`/`transcript`, `context`, `state` idle; typed `/new` and the exact phrase "new topic" (typed or spoken) take the same path through `text_turn` / the mic |
 | `shutdown` | — | none — the process gets SIGTERM; the page shows its shutdown screen when the socket closes |
 
 ## Server → client (`{"type": ...}`)
 
 `state`, `speech` and `speech_end` (and the assistant `transcript`) carry `turn`; the client adopts the
-turn id from `state` and answers `playback_done` with it. On connect the server replays the session's
-`transcript`s, sends `hands_free` and either greets (a turn) or sends `state` idle.
+turn id from `state` and answers `playback_done` with it. On connect the server replays what the model
+holds: the conversation's `transcript`s (bare user text, PRD 39) and any `thread` divider, then sends `hands_free` and either greets (a turn) or sends `state` idle.
 
 | type | fields | consumed by (app.js) |
 |---|---|---|
@@ -75,4 +76,6 @@ turn id from `state` and answers `playback_done` with it. On connect the server 
 | `wiki_search` | `query`, `hits` | `setWikiSearch` |
 | `sources` | `sources` | `setSources` — the inbox rows, the rail badge, clears `sourcesBusy` |
 | `ingest_progress` | `filename`, `stage`, `i`, `n` | `setIntakeStage` — the intake popup rows |
+| `context` | `used`, `budget`, `pct`, `trimmed` | `setContext` — after every completed turn and after a new topic: the `ctx N %` status suffix, the Chat rail dot amber ≥ 75 / red ≥ 90, "forgot n old turns" when trimmed |
+| `thread` | `text` | `addDivider` — the "New topic" divider showing the summary carried over (also replayed on connect for an earlier new topic) |
 | `error` | `scope` wiki/memory/sources/turn/settings/intake, `text`, `action?` | `showError` — routes on `scope`: wiki/intake → wiki status slot (intake also re-enables the ingest button), memory → memory error line, sources → wiki slot + `sourcesBusy` cleared, turn/settings → the composer status line |

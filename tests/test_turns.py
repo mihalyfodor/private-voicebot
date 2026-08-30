@@ -127,6 +127,7 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
 
 
 def test_scenario_3_malformed_text_frame_keeps_the_socket_open():
+    llm.reset()                                                  # nothing to replay on connect
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         ws.receive_json(); ws.receive_json()
@@ -137,6 +138,7 @@ def test_scenario_3_malformed_text_frame_keeps_the_socket_open():
 
 
 def test_scenario_4_bad_character_cards_report_an_error(monkeypatch):
+    llm.reset()
     def boom():
         raise ValueError("bad YAML in characters/wanko.yaml")
 
@@ -152,6 +154,7 @@ def test_scenario_4_bad_character_cards_report_an_error(monkeypatch):
 
 
 def test_scenario_5_second_connection_closes_the_first(monkeypatch):
+    llm.reset()
     monkeypatch.setattr(chatbot, "hands_free", True)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws1:
