@@ -1051,12 +1051,11 @@ def _stamp_source(profile: dict, target: tuple, kind: str, value, source: str) -
         return
     section = target[1]
     entries = profile.get(section, [])
-    key_field = LIST_KEY[section]
-    if target[0] in ("entry", "entry_field") and not (isinstance(value, dict) and value.get(key_field)):
-        index = target[2] if 0 <= target[2] < len(entries) else -1
-    else:
-        index = _find(entries, key_field, (value or {}).get(key_field)) if isinstance(value, dict) else -1
-    if index != -1:
+    key = value.get(LIST_KEY[section]) if isinstance(value, dict) else None
+    # a value carrying the identifying key names the entry (how the model addresses lists);
+    # otherwise the path's index does (people[2], people[2].note)
+    index = _find(entries, LIST_KEY[section], key) if key else (target[2] if len(target) > 2 else -1)
+    if 0 <= index < len(entries):
         entries[index][SOURCE_FIELD] = source
 
 

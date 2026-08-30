@@ -611,15 +611,19 @@ def save_memory():
         return
     turns, _session_turns = _session_turns, []
     sources, _sources_seen = _sources_seen, []
+
+    def restore():
+        global _session_turns, _sources_seen
+        _session_turns = turns + _session_turns
+        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
+
     try:
         applied = memory.save(turns, client(), OMLX_MODEL, sources=sources)
     except Exception:
-        _session_turns = turns + _session_turns
-        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
+        restore()
         raise
     if applied is None:
-        _session_turns = turns + _session_turns
-        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
+        restore()
 
 
 def get_sources_seen() -> list:

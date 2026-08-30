@@ -27,4 +27,4 @@ def untrusted(text, source) -> str:
 
 def documents_in(text) -> list:
     """The `source` names of the document blocks in `text`, in order, without repeats."""
-    return list(dict.fromkeys(m.group(1).replace("&quot;", "'") for m in _DOC.finditer(str(text or ""))))
+    return list(dict.fromkeys(m.group(1) for m in _DOC.finditer(str(text or ""))))
