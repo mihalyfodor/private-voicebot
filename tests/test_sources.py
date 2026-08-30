@@ -576,3 +576,14 @@ def test_restrict_ops_rejects_pages_about_the_user(vault):
     assert [op["path"] for op in kept] == ["people/elena"]
     assert len(rejected) == 3
     assert all("is the user" in bad["reason"] for bad in rejected)
+
+
+def test_a_big_paste_gets_past_the_form_parser(http):
+    """Pasted text is a plain form field; the framework's 1 MB per-part default must not refuse it."""
+    client, _ws = http
+    text = "Fallout 4 FAQ\n" + ("Q: Where is Dogmeat?\nA: Red Rocket.\n" * 60000)   # ~2 MB
+    assert len(text.encode()) > 1024 * 1024
+    response = _post(client, kind="paste_text", text=text)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["filed"]

@@ -20,7 +20,8 @@ import avatars
 import backdrops
 import numpy as np
 import soundfile as sf
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from starlette.datastructures import UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -445,22 +446,27 @@ def _ingest_all(items: list) -> dict:
     return {"filed": filed, "errors": errors}
 
 
+#: pasted text travels as a plain form field; Starlette caps those at 1 MB unless told otherwise
+INGEST_MAX_PART = sources.MAX_TEXT_BYTES + 64 * 1024
+
+
 @app.post("/ingest")
-async def ingest(request: Request,
-                 confirm: str = Form(""),
-                 kind: str = Form("file"),
-                 title: str = Form(""),
-                 hint: str = Form(""),
-                 page: str = Form(""),
-                 text: str = Form(""),
-                 file: list[UploadFile] = File(default=[])):
+async def ingest(request: Request):
     """The intake popup's File button — the only HTTP write path (docs/20-raw-ingestion.md).
 
     Nothing is filed without `confirm=true`: the popup is the only sender, and the guard is what
     keeps a future "helpful" auto-path from writing to the vault behind the user's back.
+    The form is parsed by hand so a big pasted text is not refused by the framework's 1 MB
+    per-part default before `sources` gets to apply its own cap.
     """
     if not _origin_allowed(request.headers.get("origin")):
         raise HTTPException(status_code=403, detail="bad origin")
+    form = await request.form(max_part_size=INGEST_MAX_PART)
+    confirm = str(form.get("confirm") or "")
+    kind = str(form.get("kind") or "file")
+    title, hint, page = (str(form.get(k) or "") for k in ("title", "hint", "page"))
+    text = str(form.get("text") or "")
+    file = [f for f in form.getlist("file") if isinstance(f, UploadFile)]
     if str(confirm).lower() != "true":
         raise HTTPException(status_code=400, detail="ingest needs an explicit confirm=true")
     if kind not in INGEST_KINDS:

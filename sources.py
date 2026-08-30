@@ -1246,8 +1246,8 @@ def check_note(text: str) -> str:
     body = (text or "").strip()
     if not body:
         raise IngestError(400, "nothing to file: the text is empty")
-    if len(body.encode()) > MAX_FILE_BYTES:
-        raise IngestError(413, f"the text is larger than {MAX_FILE_BYTES // (1024 * 1024)} MB")
+    if len(body.encode()) > MAX_TEXT_BYTES:      # pasted text is sampled like any text kind (PRD 31)
+        raise IngestError(413, f"the text is larger than {MAX_TEXT_BYTES // (1024 * 1024)} MB")
     return body
 
 

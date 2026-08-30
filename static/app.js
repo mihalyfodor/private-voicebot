@@ -1946,7 +1946,7 @@ sourcesInputEl.onchange = () => {
 // drop (or a ⌘V with an image/text on the clipboard) opens the modal below, and only the File
 // button posts to /ingest. Esc/Cancel closes it and sends nothing.
 const INTAKE_MAX_IMAGE = 4 * 1024 * 1024;
-const INTAKE_MAX_FILE = 2 * 1024 * 1024;       // pdf/eml/msg/ics and pasted text
+const INTAKE_MAX_FILE = 2 * 1024 * 1024;       // pdf/eml/msg/ics
 const INTAKE_MAX_TEXT = 10 * 1024 * 1024;      // text kinds: the server only shows the model a sample (PRD 31)
 const INTAKE_IMAGE_EXT = ['png', 'jpg', 'jpeg'];
 const INTAKE_TEXT_EXT = ['md', 'txt', 'docx', 'pptx', 'xlsx', 'vtt'];
@@ -2150,7 +2150,7 @@ function intakeFromImage(blob) {
 
 function intakeFromText(text) {
   const size = new Blob([text]).size;
-  const reason = tooLarge(size, INTAKE_MAX_FILE);
+  const reason = tooLarge(size, INTAKE_MAX_TEXT);   // pasted text is sampled server-side (PRD 31)
   // No title from the first line: the summary's title names the page (PRD 31).
   openIntake('paste_text', [{ name: 'pasted text', size, text, ok: !reason, reason }], '');
 }
