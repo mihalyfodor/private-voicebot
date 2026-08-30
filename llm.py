@@ -157,8 +157,8 @@ ROUTING_RULES = (
     "named, no offer, and a recall block about something else is ignored, not mentioned. Third, offer "
     "Wikipedia only when the question itself asks for an exact figure (a specific year or date, a "
     "count, a measurement, the precise definition of a named term — \"what exactly is X\"), or is about "
-    "the last few years, or "
-    "when you truly do not know: give your best short answer in one or two sentences and make the very "
+    "the last few years, or when you truly do not know: give your best short answer in one or two "
+    "sentences and make the very "
     f"last sentence of the reply exactly: {WIKIPEDIA_OFFER} A confident general answer never gets that "
     "offer. Never call get_wikipedia on your own; call it only after that yes, and then "
     "say once, in passing, that the answer is per Wikipedia. Fourth, never offer or call Wikipedia "
@@ -533,7 +533,7 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
             parts = []                                          # held back, never spoken
         if pending:
             tool_calls = [pending[i] for i in sorted(pending)]
-            if parts:
+            if parts and not lookup:
                 print("[llm] warning: text before tool call was spoken")
                 parts = []  # already spoken; don't record it as the reply
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
