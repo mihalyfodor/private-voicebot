@@ -199,7 +199,10 @@ ROUTING_RULES = (
     "the last few years, or when you truly do not know: give your best short answer in one or two "
     "sentences and make the very "
     f"last sentence of the reply exactly: {WIKIPEDIA_OFFER} A confident general answer never gets that "
-    "offer. Never call get_wikipedia on your own; call it only after that yes, and then "
+    "offer, and advice or opinion questions — should I, is X a good fit, what would you do — never get "
+    "the offer either: answer them. The news tool is for today's headlines only: a past event of the "
+    "last few years gets the Wikipedia offer, not get_news, unless the question asks for the news. "
+    "Never call get_wikipedia on your own; call it only after that yes, and then "
     "say once, in passing, that the answer is per Wikipedia. Fourth, never offer or call Wikipedia "
     "for anything personal — the user's own plans, people, meetings, decisions, files, or anything in "
     "the user profile or the wiki; if you have nothing on it, say so."
@@ -254,7 +257,7 @@ def _prompt_text(avatar: dict, verbosity: str) -> str:
     f"Use the get_time tool when asked for the current time. "
     f"Use the get_weather tool when asked about the weather — when reporting weather, give a "
     f"summary covering current conditions, feels-like temp, today's min/max, precipitation, and wind. "
-    f"Use the get_news tool when asked about the news or current events. "
+    f"Use the get_news tool when asked for the news or today's headlines. "
     f"When the user asks for more details on a headline, use the get_news_detail tool with the URL "
     f"from the previous get_news result — never say you cannot look it up. "
     f"Use the get_emails tool when asked to check email, read emails, or see the inbox. "
@@ -404,7 +407,32 @@ COMMAND_WORDS = frozenset("""time clock date day today weather temperature forec
 news headlines headline email emails mail inbox messages message""".split())
 RECALL_NOTE = ("If this answers the question, answer from it in one to three sentences, name {titles} "
                "once in a short natural clause inside a sentence (never as a separate closing sentence), "
-               "and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " Otherwise ignore it.")
+               "and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " Otherwise ignore it "
+               "completely: answer as you normally would and never mention the document or what it lacks.")
+# --- recall precision 2 (docs/42-recall-precision-2.md) --------------------------------
+#: a question shorter than RECALL_MIN_WORDS still recalls with this many words and a proper term
+RECALL_MIN_PROPER_WORDS = 2
+#: chunk candidates fetched per turn; RECALL_MAX_CHUNKS of them are kept, never two neighbours
+RECALL_CANDIDATES = 4
+#: the wiki page that joins the recall block (head + Summary + best section)
+RECALL_PAGE_TOKENS = 400
+#: the reply text held back before the fallback decision; the lookup block's budget
+FALLBACK_HOLD_CHARS = 240
+FALLBACK_MAX_TOKENS = 1500
+#: a reply that claims the filed documents do not cover the question (fallback trigger)
+NOT_COVERED = re.compile(
+    r"(?:do(?:es)? not|don'?t|doesn'?t|did not|didn'?t) (?:mention|cover|contain|include|say|discuss|address|"
+    r"appear|have any|have information|have details|have record|have notes?|have anything)"
+    r"|not covered|not (?:mentioned|included|found|in) (?:in |among )?(?:my |the |your |these |those )?"
+    r"(?:files|documents|notes|sources|guides?|snippets?|passages?|recall|text|provided)"
+    r"|no (?:information|mention|details?|record|notes?|entry|data) (?:on|about|of|regarding|for|in)"
+    r"|nothing (?:on|about|filed|in my|in the)|(?:can'?t|cannot|couldn'?t) find"
+    r"|only contains? the (?:cover|introduction|contents)", re.I)
+FALLBACK_NOTE = ("A search of the filed documents found these passages. If they cover the question, answer "
+                 "from them in one to three sentences, name {titles} once in a short natural clause inside "
+                 "a sentence, and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " If they do "
+                 "not cover it, ignore them completely: answer the question as you normally would (your own "
+                 "knowledge, the usual rules) and never mention documents, files or what you could not find.")
 
 DEEPER_MAX_CHUNKS = 3
 DEEPER_MAX_TOKENS = 2500
@@ -416,6 +444,7 @@ DEEPER_NOTE = ("The user said yes to digging deeper. Give the full answer now fr
                "passage you cited and the parts around it): walk through what it says step by step in "
                "several sentences, at least twice as long as your previous reply, including the extra "
                "details, names and places the surrounding parts add. Name {title} once in passing. "
+               "Only what the passage says; do not add locations or names from memory. "
                "Do not offer to dig deeper again.")
 #: a short "yes" to the deeper offer: one of these words first ...
 _AFFIRMATIVE_LEADS = frozenset("""yes yeah yep yup sure ok okay please absolutely definitely certainly
@@ -432,7 +461,8 @@ FOCUS_HEAD_TOKENS = 500
 FOCUS_SECTION_TOKENS = 700
 FOCUS_MAX_TOKENS = 1200
 FOCUS_NOTE = ("The user has «{title}» open; 'this / it / the page' means that page. Answer from it; "
-              "if the answer is not in it, say so.")
+              "if the answer is not in it, say so. Only what the passage says; do not add locations or "
+              "names from memory.")
 MEMORY_FOCUS_NOTE = "The user is in the Memory editor."
 OPENED_NOTE = ("You just opened «{title}» for the user; add one short remark about it (one sentence), "
                "then stop.")
@@ -471,12 +501,14 @@ def focus_block(question: str) -> str:
     if summary:
         head, sections = head + "\n\n" + summary, [s for s in sections if s is not summary]
     parts = _fit([head], FOCUS_HEAD_TOKENS, "")
-    chunk = wiki.best_chunk(path, question) if view == "sources" else None
+    # "summarise this" names no topic: the head + Summary is the answer, not a random chunk (PRD 42)
+    topical = bool(wiki.topic_terms(question))
+    chunk = wiki.best_chunk(path, question) if view == "sources" and topical else None
     if chunk:
         _turn_sources.append((path, chunk["title"], chunk["n"]))
         section = f'Part {chunk["n"]}/{chunk["total"]}: {chunk["text"]}'
     else:
-        section = wiki.best_section(sections, question)
+        section = wiki.best_section(sections, question) if topical else None
     if section:
         parts += _fit([section], FOCUS_SECTION_TOKENS, "")
     note = FOCUS_NOTE.format(title=title)
@@ -585,25 +617,99 @@ def recall_for(user_text: str) -> str:
     `recall_min_score` are quoted, at most RECALL_MAX_CHUNKS of them within RECALL_MAX_TOKENS.
     """
     terms = wiki.content_terms(user_text)
-    if len(user_text.split()) < RECALL_MIN_WORDS or terms <= COMMAND_WORDS:
+    if terms <= COMMAND_WORDS:
         return ""
-    floor = wiki.recall_min_score()
     proper = wiki.proper_terms(terms)
-    hits = []
-    for hit in wiki.search_chunks(user_text, k=RECALL_MAX_CHUNKS):
-        if hit["score"] < floor:
-            break
-        if len(hit["matched"]) >= 2 or proper.intersection(hit["matched"]):
-            hits.append(hit)                                    # one common word is no match
-    lines = [f'From "{h["title"]}" (part {h["n"]}/{h["total"]}): {h["text"]}' for h in hits]
-    quotes = _fit(lines, RECALL_MAX_TOKENS, RECALL_NOTE)
+    words = len(user_text.split())
+    if words < RECALL_MIN_WORDS and not (words >= RECALL_MIN_PROPER_WORDS and proper):
+        return ""
+    page = _page_recall(user_text, terms)
+    hits = _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES)
+    return _quote_block("recall", page, hits, RECALL_MAX_TOKENS, RECALL_NOTE)
+
+
+def _recall_hits(question: str, proper: set, floor: float, k: int, exclude: set = frozenset()) -> list:
+    """Up to RECALL_MAX_CHUNKS chunk hits for `question` scoring ≥ `floor`, in rank order, under
+    the precision rules: two matched topic words or a proper term whose bigram the chunk holds
+    whole (PRD 34 / 42); never a neighbour of a kept chunk, never a (source, part) in `exclude`.
+    A source the question names by title is quoted regardless of `floor` (naming it settles
+    relevance, which is all the threshold decides)."""
+    pairs = wiki.proper_phrases(question)
+    kept = []
+    for hit in wiki.search_chunks(question, k=k + len(exclude)):
+        if len(kept) >= RECALL_MAX_CHUNKS or (hit["score"] < floor and not hit.get("named")):
+            break                                               # a named source has no threshold
+        if (hit["source"], hit["n"]) in exclude:
+            continue
+        if any(h["source"] == hit["source"] and abs(h["n"] - hit["n"]) == 1 for h in kept):
+            continue                                            # overlaps a kept chunk
+        if len(hit["matched"]) >= 2 or wiki.proper_match(hit, proper, pairs):
+            kept.append(hit)                                    # one common word is no match
+    return kept
+
+
+def _page_recall(question: str, terms: set) -> dict | None:
+    """The top wiki page for `question` as ``{line, path, title}`` when the question names it
+    (every token of the page's name among the terms, no tool-command word), else None; the line
+    is the head + Summary + best-matching section within RECALL_PAGE_TOKENS (PRD 42 §3)."""
+    if terms & COMMAND_WORDS:
+        return None
+    hits = [h for h in wiki.search(question, 2) if not h["path"].startswith("sources/")]
+    if not hits:
+        return None
+    path = hits[0]["path"]
+    text = wiki.page_text(path)
+    if text is None:
+        return None
+    title = wiki.page_title(path)
+    name_terms = wiki.content_terms(title) or wiki.content_terms(path.rsplit("/", 1)[-1])
+    if not name_terms or not name_terms <= terms:
+        return None
+    head, sections = wiki.split_sections(wiki.parse_page(text)[1])
+    summary = next((s for s in sections if s.startswith("## Summary")), None)
+    section = wiki.best_section([s for s in sections if s is not summary], question)
+    body = "\n\n".join(p for p in (head, summary, section) if p)
+    kept = _fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
+    return {"line": kept[0], "path": path, "title": title} if kept else None
+
+
+def _quote_block(tag: str, page: dict | None, hits: list, budget: int, note_text: str) -> str:
+    """`<tag>` block of the page line and the chunk quotes within `budget`, or ""; the chunks
+    quoted are recorded in `_turn_sources` for the deeper offer."""
+    lines = ([page["line"]] if page else []) + [
+        f'From "{h["title"]}" (part {h["n"]}/{h["total"]}): {h["text"]}' for h in hits]
+    titles = ([page["title"]] if page else []) + [h["title"] for h in hits]
+    quotes = _fit(lines, budget, note_text)
     if not quotes:
         return ""
-    hits = hits[:len(quotes)]
+    titles = titles[:len(quotes)]
+    hits = hits[:len(quotes) - (1 if page else 0)]
     _turn_sources.extend((h["source"], h["title"], h["n"]) for h in hits)
-    note = RECALL_NOTE.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(h["title"] for h in hits)))
-    blocks = [untrusted(q, h["title"]) for q, h in zip(quotes, hits)]
-    return "\n\n<recall>\n" + "\n\n".join(blocks) + f"\n{note}\n</recall>"
+    note = note_text.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(titles)))
+    blocks = [untrusted(q, t) for q, t in zip(quotes, titles)]
+    return f"\n\n<{tag}>\n" + "\n\n".join(blocks) + f"\n{note}\n</{tag}>"
+
+
+def lookup_worthy(question: str) -> bool:
+    """A question the filed documents could answer: at least RECALL_MIN_PROPER_WORDS words with a
+    content word that is not a tool command ("hi" and "time?" stream untouched)."""
+    terms = wiki.content_terms(question)
+    return len(question.split()) >= RECALL_MIN_PROPER_WORDS and bool(terms) and not terms <= COMMAND_WORDS
+
+
+def fallback_block(question: str, reply_start: str) -> str:
+    """The `<lookup>` block for a re-ask when `reply_start` claims the documents do not cover
+    the question: the search_wiki equivalent run server-side (top page + chunks below the
+    threshold, minus the parts this turn already quoted), or "" (PRD 42 §2)."""
+    if not NOT_COVERED.search(reply_start):
+        return ""
+    if not lookup_worthy(question):
+        return ""
+    terms = wiki.content_terms(question)
+    used = {(s, n) for s, _, n in _turn_sources}
+    page = _page_recall(question, terms)
+    hits = _recall_hits(question, wiki.proper_terms(terms), 0.0, RECALL_CANDIDATES, used)
+    return _quote_block("lookup", page, hits, FALLBACK_MAX_TOKENS, FALLBACK_NOTE)
 
 
 def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator[tuple[str, object]]:
@@ -626,7 +732,11 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
     # A page open in the UI takes the place of recall (PRD 38); Chat and Memory recall as before.
-    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focus_block(user_text) or recall_for(user_text))
+    focused = "" if deeper or lookup else focus_block(user_text)
+    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focused or recall_for(user_text))
+    # A plain Chat turn may be re-asked once with a server-side lookup when the reply starts by
+    # claiming the documents do not cover the question (PRD 42): its first characters are held.
+    holding = not (deeper or lookup or focused) and lookup_worthy(user_text)
     if focus["view"] == "memory" and not (deeper or lookup):
         extra += "\n\n" + MEMORY_FOCUS_NOTE
     if note:
@@ -653,6 +763,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         )
         parts: list[str] = []
         pending: dict = {}
+        held: list[str] = []                                    # text not yet yielded (fallback hold)
+        retry = ""
         for chunk in first:
             if not chunk.choices:
                 continue
@@ -660,21 +772,54 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             text = getattr(delta, "content", None)
             if text:
                 parts.append(text)
-                if not lookup:
+                if lookup:
+                    pass
+                elif holding:
+                    held.append(text)
+                    if len("".join(held)) >= FALLBACK_HOLD_CHARS:
+                        holding, retry = False, fallback_block(user_text, "".join(held))
+                        if retry:
+                            break
+                        for t in held:
+                            yield ("delta", t)
+                        held = []
+                else:
                     yield ("delta", text)
             fragments = getattr(delta, "tool_calls", None)
             if fragments:
                 _accumulate_tool_calls(pending, fragments)
+        if holding and not pending:                             # a short reply: decide on all of it
+            retry = fallback_block(user_text, "".join(held))
+            if not retry:
+                for t in held:
+                    yield ("delta", t)
+                held = []
 
         if lookup and not any(tc["name"] == "get_wikipedia" for tc in pending.values()):
             pending = {0: {"id": "wikipedia_offer", "name": "get_wikipedia",
                            "arguments": json.dumps({"query": lookup})}}
             parts = []                                          # held back, never spoken
-        if pending:
+        if retry:
+            # The held reply is dropped unspoken; the turn is asked once more with the lookup.
+            print(f"[llm] fallback lookup for {user_text[:60]!r}")
+            getattr(first, "close", lambda: None)()             # stop the abandoned generation
+            yield ("tool_calls", ["search_wiki"])
+            user_msg["content"] += retry
+            _note_documents(retry)
+            parts = []
+            stream = client().chat.completions.create(
+                model=OMLX_MODEL, messages=_messages(long), stream=True, max_tokens=max_tokens,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content if chunk.choices else None
+                if delta:
+                    parts.append(delta)
+                    yield ("delta", delta)
+        elif pending:
             tool_calls = [pending[i] for i in sorted(pending)]
-            if parts and not lookup:
+            if parts and not lookup and not held:
                 print("[llm] warning: text before tool call was spoken")
-                parts = []  # already spoken; don't record it as the reply
+            parts = []  # spoken or held back; never the reply
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
             _tool_round(tool_calls)
             stream = client().chat.completions.create(

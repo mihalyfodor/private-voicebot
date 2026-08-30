@@ -304,9 +304,11 @@ def test_calibration_in_guide_questions_hit_their_section(both):
         assert hits >= 8, (key, hits)
 
 
-def test_calibration_off_topic_questions_inject_nothing(both):
-    injected = [q for q in OFF_TOPIC if llm.recall_for(q)]
+def test_calibration_off_topic_questions_inject_no_chunk(both):
+    """No guide chunk for any of them; the Anna page joining a question about Anna is PRD 42 §3."""
+    injected = [q for q in OFF_TOPIC if 'From "' in llm.recall_for(q)]
     assert injected == []
+    assert 'From page "Anna" (people/anna)' in llm.recall_for("remind me what Anna said in the meeting")
 
 
 def test_calibration_keeps_the_guides_apart(both):

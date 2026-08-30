@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 42 — Recall precision 2: the stress-test defects
 
@@ -36,7 +36,11 @@ spoken twice. Everything else is a different (better) answer to the same turn.
   When topic terms remain, only they are scored and normalised (`score / len(topic terms)`, `matched` lists topic
   terms). When the question names a source — ≥ 2 of one title's tokens in the question, or one token that no other
   title has and is not a stopword-like generic (`guide`, `note`, `book`…) — the hits are restricted to the named
-  sources. A question made only of title words ("what is the Morrowind guide about") is scored as before.
+  sources, and a named source is quoted without the `recall_min_score` threshold — naming the document settles
+  relevance, which is all the threshold decides (the precision rule still applies). Question filler ("does", "up",
+  "off", "per", "according") joins the stopwords and the generic words ("say", "describe"…) are not normalised on,
+  so "what does the book say about X" is scored on X. A question made only of title words ("what is the Morrowind
+  guide about") is scored as before.
 - `llm.recall_for` asks for `k = 4` candidates and keeps at most `RECALL_MAX_CHUNKS = 2`, skipping a candidate that
   is the neighbour (`n ± 1`, same source) of one already kept — neighbours share their overlap text and the deeper
   turn reads them anyway.
@@ -50,7 +54,9 @@ spoken twice. Everything else is a different (better) answer to the same turn.
   With at least one hit, the held reply is discarded (never appended, never spoken), a `<lookup>` block
   (≤ `FALLBACK_MAX_TOKENS = 1500`, wrapped as untrusted text) with the note `FALLBACK_NOTE` ("a search of the
   filed documents found these passages; answer from them if they cover the question, name the source once, end
-  with the deeper offer; otherwise say the documents do not cover it") is appended to the user message and the
+  with the deeper offer; otherwise ignore them completely and answer as you normally would, never mentioning
+  documents or what you could not find" — the first battery run showed "the documents do not cover a modular
+  monolith" on a general-knowledge follow-up when the note asked for that sentence) is appended to the user message and the
   turn is asked once more; the second reply is streamed as the turn's reply. Without hits the held text is
   flushed and streaming continues. One retry per turn, never after a tool round.
 - A question with no recall at all and a proper term is covered by the same path: the model's "I don't have
@@ -116,7 +122,8 @@ spoken twice. Everything else is a different (better) answer to the same turn.
    turrets")` scores `covenant turret` only, restricts to the Fallout guide, and its top hit is a Covenant chunk;
    `recall_for` with the question naming the guide quotes a Covenant chunk, never the contents page (part 1).
    `search_chunks("what is the Fallout 4 guide about")` still returns hits. Observable: hit `matched` lists no
-   title tokens; part 1 absent.
+   title tokens; part 1 absent. With the threshold at 999, a question naming the guide still quotes it
+   (`named` hits ignore the floor) while the same question without the title injects nothing.
 2. Neighbour dedupe: with the threshold at 0 and k = 4 candidates, `recall_for` never quotes two chunks `n` and
    `n + 1` of the same source and still quotes up to 2. Observable: the part numbers in the block differ by ≥ 2.
 3. Fallback: a mocked first reply "[sad] The provided documents do not mention Covenant turrets." to a Covenant
@@ -138,8 +145,8 @@ spoken twice. Everything else is a different (better) answer to the same turn.
 8. Routing wording: the system prompt contains "today's headlines only" and "never get the offer" for opinions;
    `FOCUS_NOTE` and `DEEPER_NOTE` contain "do not add locations or names from memory". The mocked routing
    calibration stays ≥ 24/28 with every `local` question local.
-9. `chatbot.page_command("open the window please")` == ("open", "the window"); "open Anna, please" == ("open",
-   "Anna"); "please open Anna" unchanged.
+9. `chatbot.page_command("open the window please")` == ("open", "window") (the leading article was always
+   dropped, PRD 38); "open Anna, please" == ("open", "Anna"); "please open Anna" unchanged.
 10. `sources.ingest_upload(b"...", "2026-08-30-note.md")` files `raw/inbox/<today>-note.md`; a name without a
     date is unchanged.
 11. Regression: PRD 32/34/37/38 unit suites pass unchanged except the OFF_TOPIC calibration, which now asserts no
@@ -156,4 +163,45 @@ spoken twice. Everything else is a different (better) answer to the same turn.
 
 ## Results
 
-Filled in at the end of Phase 2 from the battery run (scenario 12).
+Battery: `tests/qa/stress.py`, same 40 turns and vault recipe as the 2026-08-30 review (three guides, three EPUBs,
+`people/anna`, `projects/falcon`), gemma-4-26B via oMLX, chatbot.py on :8014 with a throwaway vault under /tmp/qa.
+Graded by hand against the raw files with the review's rubric. Two runs after the change: run 1 with the first
+`FALLBACK_NOTE` wording ("if they do not cover it, say the documents do not cover it"), run 2 after the one
+iteration (the note now says to ignore the passages completely and answer as usual, never mentioning documents).
+
+| section | turns | before (review) c / p / w | run 1 c / p / w | run 2 c / p / w |
+|---|---|---|---|---|
+| A documents | 14 | 11 / 0 / 3 | 12 / 1 / 1 | 12 / 1 / 1 |
+| B Wikipedia | 6 | 2 / 1 / 3 | 4 / 1 / 1 | 5 / 1 / 0 |
+| C topic switching | 7 | 6 / 0 / 1 | 7 / 0 / 0 | 7 / 0 / 0 |
+| D UI instructions | 8 | 6 / 2 / 0 | 7 / 1 / 0 | 6 / 2 / 0 |
+| E robustness | 5 | 4 / 1 / 0 | 3 / 2 / 0 | 4 / 1 / 0 |
+| **total** | **40** | **29 / 4 / 7** | **33 / 5 / 2** | **34 / 5 / 1** |
+
+Run 2 is one correct short of the 35 target; the seven wrong answers of the review are down to one (A11). Fixed
+outright: A8 (Unarmored trainers, part 34), A10 (database per service, via the fallback), C3 (saga pattern),
+B6 (Falcon decision from the page), B5 (Vivec from the guide), B1 (Ada Lovelace direct, no robot Ada, no offer),
+E2 (opinion answered, no Wikipedia offer). Timing run 2 (39 timed turns): median 6.2 s, mean 6.6 s, p90 11.3 s,
+max 13.9 s (run 1: 6.3 / 6.5 / 9.7 / 16.7; review: 6.8 / 7.4 / 11.6 / 19.3). Max context 36 %, never trimmed,
+zero `[Error]`/traceback lines both runs. The fallback fired 4 times in run 1 (A10, A13, A14, B4) and 3 in run 2
+(A10, A14, D8). The seeded manifest carried a single date per raw name (defect 9).
+
+Still not correct after run 2 (trimmed):
+- **A11** wrong: *"Per Crafting Great APIs with Domain-Driven Design, the bounded contexts are located around
+  the domain events found during the workshop."* — the book says "a change in role … or a change in aggregate";
+  recall quoted parts 182 and 20 (workshop logistics), not the passage.
+- **A14** partial: *"I don't have any information regarding the Dawnguard vampire lord perk tree. Want me to
+  check Wikipedia?"* — right refusal, but a filed-document question got the Wikipedia offer.
+- **B4** partial: *"I don't have specific details on the events of the 2024 Paris Olympics opening ceremony in my
+  current files. Since it occurred a while ago, would you like me to check Wikipedia for a summary?"* — no
+  `get_news` any more (defect 6 fixed), but a free-form offer instead of the fixed phrase, so a "yes" would not
+  run the tool.
+- **D2** partial: page reopened correctly (`projects/falcon`), remark *"I have the Decisions page pulled up for
+  you. It appears to be empty at the moment."* is wrong.
+- **D4** partial: *"…directions to Balmora, where you are instructed to ask at the South Wall Cornerclub."* — the
+  guide never places Caius there (unchanged from the review despite the "no names from memory" note).
+- **E3** partial: second reply *"The provided document does not contain information about a modular monolith. It
+  focuses on the concept of scalability within microservices instead."* — "modular monolith" now recalls a
+  monolith chunk (two matched words) and the model reported the mismatch instead of ignoring the block. New
+  since the review. After run 2 `RECALL_NOTE` was given the same "ignore it completely, never mention the
+  document" wording as `FALLBACK_NOTE`; not re-run live.

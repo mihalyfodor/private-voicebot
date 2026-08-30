@@ -882,7 +882,7 @@ STOPWORDS = frozenset("""a an the and or but if so of to in on at by for from wi
 after before as is are am was were be been being do does did have has had i me my mine we us our you
 your he she it its they them their this that these those what which who whom how when where why
 there here can could should would will shall may might must not no yes im ive dont cant lets s m t
-re ll d ve keep keeps get got just really very some any all one""".split())
+re ll d ve keep keeps get got just really very some any all one doe up off per accord exactly thi thes""".split())   # thi/thes: this/these stemmed
 #: a query word the sources write Title-case ("Covenant", "Whiterun") names a place, a person
 #: or a quest; it counts up to this much more than a plain word ("cook", "weather"), which is
 #: what separates "I'm at Covenant" from "what should we cook" when each matches one rare word
@@ -1040,7 +1040,9 @@ def _proper_noun(text: str, m) -> bool:
 
 
 def _proper_ratios(texts) -> dict:
-    """stem -> share of its occurrences that are proper nouns, over every chunk text."""
+    """stem -> share of its occurrences that are proper nouns, over every chunk text; every
+    stem the sources contain has an entry (0.0 when never Title-case), so the dict doubles as
+    the corpus vocabulary (:func:`proper_phrases`)."""
     seen, titled = Counter(), Counter()
     for text in texts:
         for m in _WORD.finditer(text):
@@ -1048,7 +1050,7 @@ def _proper_ratios(texts) -> dict:
             seen[stem] += 1
             if _proper_noun(text, m):
                 titled[stem] += 1
-    return {w: titled[w] / seen[w] for w in titled}
+    return {w: titled[w] / seen[w] for w in seen}
 
 
 def _term_weights(terms: set) -> dict:
@@ -1069,22 +1071,106 @@ def proper_terms(terms: set) -> set:
     return {t for t in terms if proper.get(t, 0.0) >= PROPER_RATIO_MIN}
 
 
-def search_chunks(query: str, k: int = 3) -> list:
-    """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score, matched}]``.
+#: words that make a question but name no topic ("summarise this", "what does it say"): a
+#: question with nothing else in it gets a page's head, not a chunk (docs/42-recall-precision-2.md)
+GENERIC_WORDS = frozenset("""summarise summarize summary sum recap explain describe overview gist
+tl dr tell page document source say said says talk about mean thing things content contents""".split())
+#: title words that name no source on their own ("the guide", "this book")
+GENERIC_TITLE_WORDS = frozenset("""guide guides book books note notes walkthrough faq manual
+edition volume part game year new complete official""".split())
 
-    `score` is BM25 divided by the number of content words, so a threshold means the same
-    for a three-word and a twelve-word question (see :func:`recall_min_score`); `matched`
-    lists the distinct content words found in the chunk (the PRD 34 precision rule).
+
+def topic_terms(query: str) -> set:
+    """Content terms minus GENERIC_WORDS: what the question is actually about, or nothing."""
+    return content_terms(query) - GENERIC_WORDS
+
+
+def _title_terms() -> dict:
+    """source page -> the content tokens of its title, over the chunk corpus."""
+    return {source: content_terms(title) for source, _, title, *_ in _chunk_corpus()}
+
+
+def split_title_terms(terms: set) -> tuple:
+    """``(topic, named)`` for the query's content terms: the terms left after dropping every
+    filed source's title tokens (all of them when nothing would be left), and the sources the
+    question names — two of a title's tokens, or one that no other title has and is not a
+    GENERIC_TITLE_WORDS one (docs/42-recall-precision-2.md §1)."""
+    titles = _title_terms()
+    title_tokens = set().union(*titles.values()) if titles else set()
+    topic = terms - title_tokens or terms
+    named = set()
+    for source, tokens in titles.items():
+        matched = terms & tokens
+        unique = {t for t in matched if t not in GENERIC_TITLE_WORDS
+                  and not any(t in other for s, other in titles.items() if s != source)}
+        if len(matched) >= 2 or unique:
+            named.add(source)
+    return topic, named
+
+
+def proper_phrases(query: str) -> list:
+    """The proper-noun bigrams in `query` as ``[(a, b)]`` — consecutive tokens where one is a
+    proper term and the other is a proper term, a word the sources never use ("Lovelace"),
+    or both are written Title-case ("Ada Lovelace"). A chunk must contain the pair whole for
+    the proper term to count (docs/42-recall-precision-2.md §5)."""
+    _chunk_corpus()
+    vocab = _chunk_cache["proper"]
+    words = re.findall(r"[A-Za-z0-9]+", str(query))
+    pairs = []
+    for first, second in zip(words, words[1:]):
+        a, b = _stem(first.lower()), _stem(second.lower())
+        if a in STOPWORDS or b in STOPWORDS:
+            continue
+        proper = {t for t in (a, b) if vocab.get(t, 0.0) >= PROPER_RATIO_MIN}
+        if not proper:
+            continue
+        titled = first[:1].isupper() and second[:1].isupper()
+        unseen = a not in vocab or b not in vocab
+        if len(proper) == 2 or unseen or titled:
+            pairs.append((a, b))
+    return pairs
+
+
+def _phrases_in(tokens: list, pairs: list) -> list:
+    """The `pairs` that occur adjacent in `tokens`."""
+    if not pairs:
+        return []
+    adjacent = set(zip(tokens, tokens[1:]))
+    return [p for p in pairs if p in adjacent]
+
+
+def search_chunks(query: str, k: int = 3) -> list:
+    """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score, matched, phrases}]``.
+
+    The query's title words never score a chunk (:func:`split_title_terms`): they only pick the
+    sources searched. `score` is BM25 divided by the number of topic words, so a threshold means
+    the same for a three-word and a twelve-word question (see :func:`recall_min_score`); `matched`
+    lists the distinct topic words found in the chunk (the PRD 34 precision rule), `phrases`
+    the query's proper bigrams the chunk holds whole, `named` whether the question named the
+    chunk's source by title.
     """
     docs = _chunk_corpus()
     terms = content_terms(query)
     if not docs or not terms:
         return []
+    terms, named = split_title_terms(terms)
+    terms = terms - GENERIC_WORDS or terms                  # "what does it say about X": X scores
+    if named:
+        docs = [d for d in docs if d[0] in named] or docs
+    pairs = proper_phrases(query)
     scores = _bm25([tokens for *_, tokens in docs], terms, _term_weights(terms))
     hits = [{"source": source, "raw": raw, "title": title, "n": n, "total": total, "text": text,
-             "score": round(score / len(terms), 3), "matched": sorted(terms & set(tokens))}
+             "score": round(score / len(terms), 3), "matched": sorted(terms & set(tokens)),
+             "phrases": _phrases_in(tokens, pairs), "named": source in named}
             for (source, raw, title, n, total, text, tokens), score in zip(docs, scores) if score > 0]
     return sorted(hits, key=lambda h: (-h["score"], h["raw"], h["n"]))[:k]
+
+
+def proper_match(hit: dict, proper: set, pairs: list) -> set:
+    """The hit's matched proper terms that may carry it alone: a term inside a proper bigram the
+    chunk does not hold whole is demoted to a common word (docs/42-recall-precision-2.md §5)."""
+    partial = {t for a, b in pairs if (a, b) not in hit.get("phrases", []) for t in (a, b)}
+    return (proper & set(hit["matched"])) - partial
 
 
 def read_source(path: str, part) -> str:

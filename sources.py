@@ -1393,6 +1393,8 @@ def forget(digest: str) -> dict:
 
 
 def _dated(slug: str) -> str:
+    """`<today>-<slug>`; a slug that already starts with a date loses it (no double date)."""
+    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)
     return f"{memory._today_iso()}-{wiki.slugify(slug)}"
 
 

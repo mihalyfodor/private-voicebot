@@ -299,7 +299,8 @@ def test_calibration_mocked(both):
         elif expect == "wikipedia":
             replies = [stream_chunks(OFFER_REPLY)]
         elif expect == "personal":
-            replies = [stream_chunks("[sad] I don't have anything on that.")]
+            # "I don't have anything" may trigger the PRD 42 lookup re-ask against the FAQ filler
+            replies = [stream_chunks("[sad] I don't have anything on that.")] * 2
         elif expect == "local":
             replies = [stream_chunks("[happy] Talk to Jacob, says the guide. " + llm.DEEPER_OFFERS[0])]
         else:

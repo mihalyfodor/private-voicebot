@@ -342,7 +342,7 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
 # Deterministic, not NLU: two phrasings, matched on the whole turn, typed or spoken.
 _OPEN_PAGE = re.compile(
     r"^(?:please\s+)?(?:find|open|show(?:\s+me)?)\s+(?:the\s+|a\s+)?(?:(?:wiki\s+)?(?:page|note|source)\s+)?"
-    r"(?:(?:about|on|for)\s+)?(?P<query>.+?)[\s?.!]*$", re.I)
+    r"(?:(?:about|on|for)\s+)?(?P<query>.+?)(?:,?\s+please)?[\s?.!]*$", re.I)
 _BACK_TO_PAGE = re.compile(
     r"^(?:(?:go|take me)\s+)?back\s+to\s+(?:that|the\s+last|the)\s+page[\s?.!]*$"
     r"|^what\s+were\s+we\s+looking\s+at[\s?.!]*$", re.I)
