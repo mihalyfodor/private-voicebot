@@ -243,6 +243,28 @@
 
             <div class="set-head">Services</div>
             <div id="settings-services"></div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">oMLX admin password</span>
+                <span class="desc">used to load/unload the model; .env wins when set</span>
+              </span>
+              <span class="set-ctl">
+                <span id="admin-password-state" class="set-value">not set</span>
+                <input type="password" id="admin-password" autocomplete="off" placeholder="password">
+                <button id="admin-password-save" class="chip">Save</button>
+                <button id="admin-password-clear" class="chip">Clear</button>
+              </span>
+            </div>
+            <div class="set-row">
+              <span class="set-label">
+                <span class="name">Model</span>
+                <span class="desc">load or unload the LLM through the oMLX admin API (what scripts/voicebot does)</span>
+              </span>
+              <span class="set-ctl">
+                <button id="model-load" class="chip">Load model</button>
+                <button id="model-unload" class="chip">Unload model</button>
+              </span>
+            </div>
 
             <div class="set-head">Session</div>
             <div class="set-row">

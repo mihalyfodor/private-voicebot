@@ -208,3 +208,122 @@ def test_client_backend_down_banner_on_close_1006_but_not_on_a_takeover(r):
     assert not b["hidden"] and b["cls"] == "down"
     assert b["text"] == "Wanko's backend is not running — run: scripts/voicebot start"
     assert r["svc_after_4000"] == "opened in another tab — reload to use here"
+
+
+# ---------------------------------------------------------------- addendum 2026-08-30: the admin password
+
+
+def settings_file():
+    import avatars
+    return json.load(open(avatars.SETTINGS_PATH)) if os.path.exists(avatars.SETTINGS_PATH) else {}
+
+
+def test_set_and_clear_the_password_without_ever_echoing_it(monkeypatch):
+    """Scenario 7: the reply and /api/config say only whether it is set; the file holds it."""
+    from tests.conftest import send_setting
+    monkeypatch.delenv("OMLX_ADMIN_PASSWORD", raising=False)
+    client = TestClient(chatbot.app)
+    reply = send_setting("omlx_admin_password", "s3-not-for-logs", client)
+    assert reply == {"type": "setting", "key": "omlx_admin_password",
+                     "omlx_admin_password_set": True, "omlx_admin_password_source": "settings"}
+    assert settings_file()["omlx_admin_password"] == "s3-not-for-logs"
+    cfg = client.get("/api/config")
+    assert cfg.json()["omlx_admin_password_set"] is True and cfg.json()["omlx_admin_password_source"] == "settings"
+    assert "s3-not-for-logs" not in cfg.text and "s3-not-for-logs" not in json.dumps(reply)
+
+    reply = send_setting("omlx_admin_password", "", client)
+    assert reply["omlx_admin_password_set"] is False and reply["omlx_admin_password_source"] is None
+    assert "omlx_admin_password" not in settings_file()
+    assert client.get("/api/config").json()["omlx_admin_password_set"] is False
+    assert send_setting("omlx_admin_password", 42, client)["type"] == "error"
+
+
+def test_env_password_wins_over_settings(monkeypatch):
+    """Scenario 8."""
+    import avatars
+    monkeypatch.delenv("OMLX_ADMIN_PASSWORD", raising=False)
+    assert services.admin_password() == "" and services.admin_password_source() is None
+    avatars.save_setting("omlx_admin_password", "from-settings")
+    assert services.admin_password() == "from-settings" and services.admin_password_source() == "settings"
+    monkeypatch.setenv("OMLX_ADMIN_PASSWORD", "from-env")
+    assert services.admin_password() == "from-env" and services.admin_password_source() == "env"
+    assert TestClient(chatbot.app).get("/api/config").json()["omlx_admin_password_source"] == "env"
+
+
+def test_client_password_row_and_model_buttons(r):
+    """Scenario 9."""
+    assert (r["pw_initial"], r["pw_env"], r["pw_settings"], r["pw_cleared"]) == \
+        ("not set", "set (from .env)", "set", "not set")
+    assert r["pw_save_sent"] == [{"action": "set_setting", "key": "omlx_admin_password", "value": "hunter2"}]
+    assert r["pw_input_after_save"] == ""
+    assert r["pw_clear_sent"] == [{"action": "set_setting", "key": "omlx_admin_password", "value": ""}]
+    assert r["model_sent"] == ["model_load", "model_unload"]
+
+
+class FakeAdmin:
+    """A `requests.Session` stand-in for the oMLX admin API: the bearer status, the login status."""
+
+    def __init__(self, bearer=200, login=200):
+        self.bearer, self.login, self.calls, self.logged_in = bearer, login, [], False
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.calls.append((url, json, headers))
+        if url.endswith("/admin/api/login"):
+            self.logged_in = self.login < 400
+            return SimpleNamespace(status_code=self.login)
+        return SimpleNamespace(status_code=200 if self.logged_in else self.bearer)
+
+
+def model_load(fake, password, monkeypatch):
+    if password is None:
+        monkeypatch.delenv("OMLX_ADMIN_PASSWORD", raising=False)
+    else:
+        monkeypatch.setenv("OMLX_ADMIN_PASSWORD", password)
+    with patch.object(requests, "Session", lambda: fake), patch.object(llm, "OMLX_MODEL", "g"), \
+            patch.object(services, "probe", lambda: {"llm": ok("llm"), "asr": ok("asr")}):
+        client = TestClient(chatbot.app)
+        with client.websocket_connect("/ws") as ws:
+            ws.send_json({"action": "model_load"})
+            while True:
+                msg = ws.receive_json()
+                if msg["type"] in ("services", "error"):
+                    return msg
+
+
+def test_model_load_with_the_bearer_accepted_answers_services(monkeypatch):
+    """Scenario 10."""
+    fake = FakeAdmin()
+    msg = model_load(fake, None, monkeypatch)
+    assert msg["type"] == "services" and msg["llm"]["ok"]
+    assert [u for u, _, _ in fake.calls] == ["http://localhost:8000/admin/api/models/g/load"]
+    assert fake.calls[0][2] == {"Authorization": f"Bearer {llm.OMLX_API_KEY}"}
+
+
+def test_model_load_logs_in_with_the_password_when_the_bearer_is_refused(monkeypatch):
+    fake = FakeAdmin(bearer=401)
+    msg = model_load(fake, "pw", monkeypatch)
+    assert msg["type"] == "services"
+    assert [u.rsplit("/", 1)[-1] for u, _, _ in fake.calls] == ["load", "login", "load"]
+    assert fake.calls[1][1] == {"password": "pw"}
+
+
+def test_model_load_without_a_password_is_refused_before_any_login(monkeypatch):
+    fake = FakeAdmin(bearer=401)
+    msg = model_load(fake, None, monkeypatch)
+    assert msg["type"] == "error" and msg["scope"] == "settings" and "password" in msg["text"]
+    assert len(fake.calls) == 1
+
+
+def test_model_load_with_a_wrong_password_reports_the_401(monkeypatch):
+    fake = FakeAdmin(bearer=401, login=401)
+    msg = model_load(fake, "wrong", monkeypatch)
+    assert msg["type"] == "error" and msg["scope"] == "settings" and "401" in msg["text"]
+    assert "wrong" not in msg["text"]
+
+
+def test_model_unload_with_omlx_down_reports_it():
+    def boom(*a, **k):
+        raise requests.ConnectionError("refused")
+    with patch.object(requests, "Session", lambda: SimpleNamespace(post=boom)):
+        with pytest.raises(services.AdminError, match="not answering"):
+            services.model_op("unload")

@@ -24,8 +24,10 @@ action name, plus `action`).
 | `set_backdrop` | `key` | `backdrop`, or `error` (settings) for an unknown key |
 | `reload_characters` | — | `characters_reloaded` (the YAML card re-read), or `error` (settings) |
 | `set_verbosity` | `value` short/normal/long | `verbosity`, or `error` (settings) |
-| `set_setting` | `key` in `SETTABLE`, `value` | `setting`, or `error` (settings) for an unknown key / wrong type |
+| `set_setting` | `key` in `SETTABLE`, `value` | `setting`, or `error` (settings) for an unknown key / wrong type. `key: omlx_admin_password` (a string, `""` clears) answers `setting {key, omlx_admin_password_set, omlx_admin_password_source}` — never the value |
 | `set_location` | `lat`, `lon`, `tz` | `setting` (`key: location`, the resolved value), or `error` (settings) |
+| `model_load` | — | loads `OMLX_MODEL` through the oMLX admin API with the resolved password (PRD 41 addendum): `services` after a re-probe, or `error` (settings) naming the reason (no password, login refused, oMLX down) |
+| `model_unload` | — | the same for unload |
 | `get_memory` | — | `memory` now; a second `memory` after the save when the session has unsaved turns |
 | `save_memory` | — | `memory` (before) + `memory` (after the save), or `error` (memory) while a turn runs |
 | `memory_op` | `op`, `path`, `value`, `reason?` | `memory`, or `memory_error` |
@@ -65,7 +67,7 @@ holds: the conversation's `transcript`s (bare user text, PRD 39) and any `thread
 | `verbosity` | `value` | `renderVerbosity` — the Settings control |
 | `backdrop` | `key` | `applyBackdrop` + thumbnails |
 | `characters_reloaded` | `avatar`, `name` | caption + "characters reloaded" on the status line |
-| `setting` | `key`, `value` | Settings rows: calendar horizon, recall threshold, location |
+| `setting` | `key`, `value` (or, for `omlx_admin_password`, `omlx_admin_password_set` + `omlx_admin_password_source` env/settings/null) | Settings rows: calendar horizon, recall threshold, location, the admin password state ("set (from .env)" / "set" / "not set") |
 | `memory` | `profile`, `rendered`, `count` | `setMemory` — the Memory view |
 | `memory_error` | `path`, `reason` | `showMemoryError` — the row that owns `path` (or the wiki slot for a wiki-side path) |
 | `memory_saving` | `value` | composer status while a background save runs |

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import requests
 
 import asr
+import avatars
 import llm
 
 PROBE_INTERVAL_S = 30
@@ -144,9 +145,74 @@ def start(on_change=None) -> None:
     _thread.start()
 
 
+# ---------------------------------------------------------------- the oMLX admin API (addendum 2026-08-30)
+
+#: settings.json key for the admin password; `OMLX_ADMIN_PASSWORD` in the environment wins over it.
+PASSWORD_KEY = "omlx_admin_password"
+
+
+def admin_password_source() -> str | None:
+    """Where the admin password comes from: "env", "settings", or None when there is none."""
+    if os.getenv("OMLX_ADMIN_PASSWORD"):
+        return "env"
+    if avatars.load_settings().get(PASSWORD_KEY):
+        return "settings"
+    return None
+
+
+def admin_password() -> str:
+    """The one resolver: the env value, else settings.json, else "". Never log or print it."""
+    return os.getenv("OMLX_ADMIN_PASSWORD") or str(avatars.load_settings().get(PASSWORD_KEY) or "")
+
+
+def admin_password_status() -> dict:
+    """What the UI may know: whether a password is set and where from — never the value."""
+    source = admin_password_source()
+    return {"omlx_admin_password_set": source is not None, "omlx_admin_password_source": source}
+
+
+class AdminError(Exception):
+    """A load/unload that did not happen; the message is fit for the settings status line."""
+
+
+def model_op(op: str) -> None:
+    """POST /admin/api/models/<model>/<op> like scripts/voicebot: bearer key first, then a password
+    login on a cookie session and a retry. Raises AdminError with the reason."""
+    assert op in ("load", "unload"), op
+    url = f"{_llm_host()}/admin/api/models/{llm.OMLX_MODEL}/{op}"
+    headers = {"Authorization": f"Bearer {llm.OMLX_API_KEY}"}
+    s = requests.Session()
+    try:
+        r = s.post(url, headers=headers, timeout=120)
+        if r.status_code < 400:
+            return
+        if r.status_code not in (401, 403):
+            raise AdminError(f"{op} failed: HTTP {r.status_code}")
+        password = admin_password()
+        if not password:
+            raise AdminError(f"{op} needs the oMLX admin password — set it in Settings or OMLX_ADMIN_PASSWORD")
+        login = s.post(f"{_llm_host()}/admin/api/login", json={"password": password}, timeout=10)
+        if login.status_code >= 400:
+            raise AdminError(f"oMLX admin login refused (HTTP {login.status_code}) — check the password")
+        r = s.post(url, headers=headers, timeout=120)
+        if r.status_code >= 400:
+            raise AdminError(f"{op} failed after login: HTTP {r.status_code}")
+    except requests.RequestException as exc:
+        raise AdminError(f"{op} failed: oMLX not answering ({exc.__class__.__name__})") from exc
+
+
 def reset() -> None:
     """Forget the last probe (tests)."""
     global _state
     with _lock:
         _state = {}
     _wake.clear()
+
+
+if __name__ == "__main__":
+    # `python -m services --admin-password`: scripts/voicebot asks the same resolver the server uses.
+    import sys
+    if sys.argv[1:] == ["--admin-password"]:
+        print(admin_password())
+    else:
+        sys.exit("usage: python -m services --admin-password")

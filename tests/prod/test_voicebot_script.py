@@ -1,8 +1,10 @@
 """PRD 41 scenario 5: scripts/voicebot start/stop check what's down and fix only that."""
+import json
 import os
 import re
 import stat
 import subprocess
+import sys
 
 from tests.conftest import ROOT
 
@@ -30,6 +32,13 @@ case "$url" in
     fi
     ;;
   */admin/api/models/*/load|*/admin/api/models/*/unload)
+    # STUB_ADMIN=password-only: the bearer is refused until the cookie login happened
+    if [ "$STUB_ADMIN" = password-only ] && [[ " $* " != *" -b "* ]]; then exit 22; fi
+    exit 0
+    ;;
+  */admin/api/login)
+    echo "login-body $(cat)" >> "$STUB_LOG"
+    while [ $# -gt 1 ]; do [ "$1" = -c ] && echo "cookie" > "$2"; shift; done   # a real curl writes the jar
     exit 0
     ;;
   */api/config)
@@ -128,7 +137,13 @@ def run(tmp_path, *args, **stub_env):
         "STUB_MODEL": stub_env.get("model", "loaded"),
         "STUB_ASR": stub_env.get("asr", "up"),
         "STUB_APP": stub_env.get("app", "up"),
+        "STUB_ADMIN": stub_env.get("admin", "bearer"),
+        "VOICEBOT_PY": sys.executable,
+        "SETTINGS_PATH": str(data / "settings.json"),
     })
+    env.pop("OMLX_ADMIN_PASSWORD", None)
+    if "settings" in stub_env:
+        (data / "settings.json").write_text(json.dumps(stub_env["settings"]))
     result = subprocess.run([VOICEBOT, *args], cwd=str(tmp_path), env=env,
                              capture_output=True, text=True, timeout=60)
     lines = log.read_text().splitlines()
@@ -187,6 +202,24 @@ def test_stop_all_also_stops_omlx_and_colima(tmp_path):
     omlx_stop_idx = next(i for i, l in enumerate(lines) if l == "omlx stop")
     colima_stop_idx = next(i for i, l in enumerate(lines) if l == "colima stop")
     assert curl_unload_idx < omlx_stop_idx < colima_stop_idx
+
+
+def test_stop_logs_in_with_the_settings_password_when_the_env_is_unset(tmp_path):
+    """Addendum scenario 11: the bearer is refused, the script asks services.admin_password() and logs in."""
+    result, lines = run(tmp_path, "stop", admin="password-only",
+                        settings={"omlx_admin_password": "pw-from-settings"})
+    assert result.returncode == 0, result.stderr
+    assert 'login-body {"password":"pw-from-settings"}' in lines
+    login_idx = lines.index('login-body {"password":"pw-from-settings"}')
+    assert any("-b" in l and "/unload" in l for l in lines[login_idx:])
+    assert "could not unload" not in result.stdout
+
+
+def test_stop_without_any_password_says_so(tmp_path):
+    result, lines = run(tmp_path, "stop", admin="password-only")
+    assert result.returncode == 0, result.stderr
+    assert not any(l.startswith("login-body") for l in lines)
+    assert "could not unload" in result.stdout
 
 
 def test_status_dev_starts_nothing(tmp_path):

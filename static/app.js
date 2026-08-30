@@ -159,6 +159,29 @@ function setServices(msg) {
   renderServices();
 }
 
+// The oMLX admin password (PRD 41 addendum): the page only ever learns whether one is set and
+// where from; Save / Clear go through `set_setting`, Load / Unload model through the server.
+const adminPasswordEl = document.getElementById('admin-password');
+const adminPasswordStateEl = document.getElementById('admin-password-state');
+function renderAdminPassword(st) {
+  const set = !!(st && st.omlx_admin_password_set);
+  const source = st && st.omlx_admin_password_source;
+  adminPasswordStateEl.textContent = !set ? 'not set' : source === 'env' ? 'set (from .env)' : 'set';
+}
+function saveAdminPassword(value) {
+  sendAction({ action: 'set_setting', key: 'omlx_admin_password', value });
+  adminPasswordEl.value = '';
+}
+document.getElementById('admin-password-save').addEventListener('click', () => saveAdminPassword(adminPasswordEl.value));
+document.getElementById('admin-password-clear').addEventListener('click', () => saveAdminPassword(''));
+adminPasswordEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveAdminPassword(adminPasswordEl.value); });
+function modelOp(op) {
+  status.textContent = `${op}ing model…`;
+  sendAction({ action: `model_${op}` });
+}
+document.getElementById('model-load').addEventListener('click', () => modelOp('load'));
+document.getElementById('model-unload').addEventListener('click', () => modelOp('unload'));
+
 let shutdownRequested = false;
 function showShutdownScreen() {
   avatar.onShutdown();   // PRD 27: settle into the slow breathing idle, lid closing
@@ -458,6 +481,7 @@ const avatar = {
       renderLocation(cfg.location);
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
       services = cfg.services || {};
+      renderAdminPassword(cfg);
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
     renderVerbosity();
@@ -2662,6 +2686,7 @@ function connect() {
       if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value);
       else if (msg.key === 'recall_min_score') renderRecallMinScore(msg.value);
       else if (msg.key === 'location') renderLocation(msg.value);
+      else if (msg.key === 'omlx_admin_password') renderAdminPassword(msg);
     }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'services') setServices(msg);

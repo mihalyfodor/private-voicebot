@@ -72,3 +72,40 @@ killing the server when the admin API allows it).
 
 ## Out of scope
 Auto-starting host services from the browser, model auto-selection, GPU/memory stats, notifications outside the app.
+
+## Also (2026-08-30): admin password in Settings
+
+Loading / unloading the model needs the oMLX admin password, which so far only `.env` could hold
+(`OMLX_ADMIN_PASSWORD`). This addendum lets the Settings view store it and lets the page do what the script
+does.
+
+- Settings key `omlx_admin_password` (string) via `set_setting`; an empty string clears it. Stored in
+  settings.json like every other setting. The value is never sent back: `/api/config` and the `setting` reply
+  carry only `omlx_admin_password_set` (bool) and `omlx_admin_password_source` (`env` / `settings` / null). It
+  never appears in logs or prints.
+- Precedence: `OMLX_ADMIN_PASSWORD` in the environment wins; else settings.json. One resolver,
+  `services.admin_password()`, is used by the server; `scripts/voicebot` asks the same resolver
+  (`.venv/bin/python -m services --admin-password`, `VOICEBOT_PY` overrides the interpreter) when the env is
+  unset and passes the result to curl over stdin as before.
+- Settings › Services gets a row "oMLX admin password — used to load/unload the model; .env wins when set" with
+  a password input, Save and Clear, and a state label "set (from .env)" / "set" / "not set"; and a row with
+  "Load model" / "Unload model" buttons.
+- Actions `model_load` / `model_unload`: the server POSTs to `/admin/api/models/<model>/load|unload` (bearer key
+  first, then `/admin/api/login` with the resolved password and a cookie session, as the script does), re-probes
+  and replies `services`; without a password or on a 401 it replies `error {scope: settings}` naming the reason.
+
+### Test scenarios
+7. `set_setting omlx_admin_password "s3"` → `setting {key, omlx_admin_password_set: true, source: settings}` with no
+   `value`; settings.json holds it; `/api/config` has `omlx_admin_password_set: true` and the string `s3` appears
+   nowhere in the reply or the config; `set_setting … ""` → `_set: false` and the key is gone from the file.
+8. `services.admin_password()` returns the env value when `OMLX_ADMIN_PASSWORD` is set even if settings.json has
+   another one; the settings value when the env is unset; `""` when neither.
+9. Node fixture: `setting` with source `env` → the row says "set (from .env)"; Save with a typed value sends
+   `set_setting {key: omlx_admin_password, value}` and empties the input; Clear sends `value: ""`; "Load model" /
+   "Unload model" send `model_load` / `model_unload`.
+10. `model_load` against a mocked admin API: bearer accepted → `services` reply; bearer refused, password login
+    accepted → `services` reply and the login carried the password; no password → `error {scope: settings}` saying
+    so and no login attempt; login 401 → `error {scope: settings}` mentioning 401.
+11. `scripts/voicebot stop` with `OMLX_ADMIN_PASSWORD` unset and a settings.json holding a password: the curl
+    stub refuses the bearer unload, the script logs in with the settings password (the stub records the body) and
+    unloads.

@@ -2,7 +2,8 @@
 # One entry point for the whole stack (docs/41-service-health.md):
 #   voicebot start [--dev] | stop [--all] [--dev] | status [--dev]
 # Env: OMLX_BASE_URL, OMLX_MODEL, OMLX_API_KEY, OMLX_ADMIN_PASSWORD, ASR_URL, PROD_PORT, DEV_PORT,
-#      OMLX_BIN, ASR_PLIST, ASR_LABEL. Loads $ROOT/.env (or $VOICEBOT_ENV) if present.
+#      OMLX_BIN, ASR_PLIST, ASR_LABEL, VOICEBOT_PY. Loads $ROOT/.env (or $VOICEBOT_ENV) if present.
+# The admin password falls back to the one stored in Settings (settings.json) when the env is unset.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
@@ -39,6 +40,11 @@ fi
 OMLX_BASE_URL=${OMLX_BASE_URL:-http://localhost:8000/v1}
 OMLX_MODEL=${OMLX_MODEL:-gemma-4-26b}
 OMLX_API_KEY=${OMLX_API_KEY:-}
+VOICEBOT_PY=${VOICEBOT_PY:-$ROOT/.venv/bin/python}
+if [ -z "${OMLX_ADMIN_PASSWORD:-}" ] && [ -x "$VOICEBOT_PY" ]; then
+  # the same resolver the server uses (env first, then settings.json); quiet when it fails
+  OMLX_ADMIN_PASSWORD=$(cd "$ROOT" && "$VOICEBOT_PY" -m services --admin-password 2>/dev/null || true)
+fi
 OMLX_ADMIN_PASSWORD=${OMLX_ADMIN_PASSWORD:-}
 ASR_URL=${ASR_URL:-http://127.0.0.1:8020}
 PROD_PORT=${PROD_PORT:-8010}

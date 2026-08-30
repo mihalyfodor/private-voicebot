@@ -350,6 +350,7 @@ globalThis.__t = {
   status, memError: memErrorEl, wikiError: wikiErrorEl,
   // ---- service health (PRD 41)
   serviceBanner, serviceBannerText, serviceCopyBtn, settingsServices: settingsServicesEl,
+  adminPassword: adminPasswordEl, adminPasswordState: adminPasswordStateEl,
   closeSocket: (code) => { shutdownRequested = false; ws.onclose({ code }); },   // the palette's Shut down above set it
   // ---- context meter (PRD 39)
   chatDot: () => railItems.find(b => b.dataset.view === 'chat').querySelector('.rail-dot').className,
@@ -833,5 +834,26 @@ t.closeSocket(1006);
 results.svc_backend_down = banner();
 t.closeSocket(4000);                                   // a takeover is not "backend down"
 results.svc_after_4000 = t.status.textContent;
+
+// ---- addendum scenario 9: the admin password row + the Load / Unload model buttons
+results.pw_initial = t.adminPasswordState.textContent;
+t.recv({ type: 'setting', key: 'omlx_admin_password', omlx_admin_password_set: true, omlx_admin_password_source: 'env' });
+results.pw_env = t.adminPasswordState.textContent;
+t.recv({ type: 'setting', key: 'omlx_admin_password', omlx_admin_password_set: true, omlx_admin_password_source: 'settings' });
+results.pw_settings = t.adminPasswordState.textContent;
+socket.sent.length = 0;
+t.adminPassword.value = 'hunter2';
+doc.getElementById('admin-password-save').dispatch('click');
+results.pw_save_sent = [...socket.sent];
+results.pw_input_after_save = t.adminPassword.value;
+socket.sent.length = 0;
+doc.getElementById('admin-password-clear').dispatch('click');
+results.pw_clear_sent = [...socket.sent];
+t.recv({ type: 'setting', key: 'omlx_admin_password', omlx_admin_password_set: false, omlx_admin_password_source: null });
+results.pw_cleared = t.adminPasswordState.textContent;
+socket.sent.length = 0;
+doc.getElementById('model-load').dispatch('click');
+doc.getElementById('model-unload').dispatch('click');
+results.model_sent = socket.sent.map(m => m.action);
 
 console.log(JSON.stringify(results, null, 1));

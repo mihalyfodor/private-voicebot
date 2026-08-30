@@ -65,6 +65,11 @@ def save_setting(key: str, value) -> None:
     """Persist one setting atomically (tmp file + os.replace), stamping the schema version."""
     data = load_settings()
     data[key] = value
+    save_settings(data)
+
+
+def save_settings(data: dict) -> None:
+    """Write the whole settings object atomically, stamping the schema version."""
     data["version"] = SETTINGS_VERSION
     tmp = SETTINGS_PATH + ".tmp"
     with open(tmp, "w") as f:

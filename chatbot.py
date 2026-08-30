@@ -297,7 +297,7 @@ def _scope_of(action) -> str:
         return "memory"
     if "source" in a:
         return "sources"
-    if a.startswith("set_") or a == "reload_characters":
+    if a.startswith("set_") or a.startswith("model_") or a == "reload_characters":
         return "settings"
     return "turn"
 
@@ -569,6 +569,8 @@ async def api_config():
         "screenshot_cmd": SCREENSHOT_CMD,
         # the last service probe (PRD 41); {} plus the hint before the first one
         "services": services.message(),
+        # whether the oMLX admin password is known and where from (never the value)
+        **services.admin_password_status(),
     }
 
 
@@ -747,7 +749,10 @@ async def _action_set_verbosity(sess, msg, loop):
 # next persisted UI preference is one line here instead of a new action.
 #: `calendar_horizon_days` — how far a recurring invite is expanded into meeting stubs (PRD 31)
 #: `recall_min_score` — the BM25-per-word floor a source passage must clear to be quoted (PRD 32)
-SETTABLE: dict[str, type] = {"calendar_horizon_days": int, "recall_min_score": float}
+#: `omlx_admin_password` — the oMLX admin password for load/unload (PRD 41 addendum); "" clears it and
+#: the reply / config only ever say whether one is set
+SETTABLE: dict[str, type] = {"calendar_horizon_days": int, "recall_min_score": float,
+                             services.PASSWORD_KEY: str}
 
 
 async def _action_set_location(sess, msg, loop):
@@ -789,8 +794,44 @@ async def _action_set_setting(sess, msg, loop):
         await _error("settings", f"{key} needs a {kind.__name__}")
         return
     value = kind(value)
+    if key == services.PASSWORD_KEY:
+        _save_admin_password(value)
+        await send({"type": "setting", "key": key, **services.admin_password_status()})
+        return
     avatars.save_setting(key, value)
     await send({"type": "setting", "key": key, "value": value})
+
+
+def _save_admin_password(value: str) -> None:
+    """Store the password (or drop the key for ""); the value itself is never echoed or printed."""
+    value = value.strip()
+    if value:
+        avatars.save_setting(services.PASSWORD_KEY, value)
+        return
+    data = avatars.load_settings()
+    if services.PASSWORD_KEY in data:
+        del data[services.PASSWORD_KEY]
+        avatars.save_settings(data)
+
+
+async def _action_model_load(sess, msg, loop):
+    await _model_op("load")
+
+
+async def _action_model_unload(sess, msg, loop):
+    await _model_op("unload")
+
+
+async def _model_op(op: str) -> None:
+    """Load / unload the model through the oMLX admin API (what scripts/voicebot does), then
+    re-probe and answer `services`; a refusal comes back on the settings status line."""
+    try:
+        await asyncio.to_thread(services.model_op, op)
+    except services.AdminError as e:
+        await _error("settings", str(e))
+        return
+    await asyncio.to_thread(services.refresh)
+    await send({"type": "services", **services.message()})
 
 
 def _ingest_now() -> None:
@@ -1039,6 +1080,8 @@ ACTIONS = {
     "set_verbosity": _action_set_verbosity,
     "set_setting": _action_set_setting,
     "set_location": _action_set_location,
+    "model_load": _action_model_load,
+    "model_unload": _action_model_unload,
     "get_memory": _action_get_memory,
     "save_memory": _action_save_memory,
     "memory_op": _action_memory_op,
