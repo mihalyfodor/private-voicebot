@@ -23,6 +23,7 @@ Nothing here is ever triggered automatically: the popup, a tool call or the harn
 """
 import base64
 import binascii
+import dataclasses
 import datetime as dt
 import email
 import email.policy
@@ -489,6 +490,23 @@ def _ics_person(value) -> str:
     return name or str(value).replace("mailto:", "").strip()
 
 
+def _ics_field(component, key: str) -> str:
+    return " ".join(str(component.get(key) or "").split())
+
+
+def _ics_people(component) -> tuple:
+    """``(organizer, attendees)`` display names, the organizer first among the attendees."""
+    organizer = _ics_person(component.get("ORGANIZER"))
+    raw = component.get("ATTENDEE") or []
+    named = [_ics_person(a) for a in (raw if isinstance(raw, list) else [raw])]
+    return organizer, [organizer] * bool(organizer) + [a for a in named if a and a != organizer]
+
+
+def _ics_time(start: dt.datetime, length: dt.timedelta | None) -> str:
+    """`09:00–09:45` (or just `09:00` without an end) for a timed occurrence."""
+    return start.strftime("%H:%M") + (f"–{(start + length).strftime('%H:%M')}" if length else "")
+
+
 def _as_datetime(value) -> dt.datetime | None:
     if isinstance(value, dt.datetime):
         return value
@@ -532,7 +550,7 @@ def ics_events(data: bytes, today: dt.date | None = None, horizon: int | None = 
     """``[{title, date, time, attendees, organizer, description, uid}]`` per occurrence, sorted.
 
     `attendees` are display names (CN or mailbox), the organizer first; nothing about the
-    wiki here — `_meeting_stub` decides what becomes a link.
+    wiki here — `_write_meeting_page` decides what becomes a link.
     """
     today = today or dt.date.fromisoformat(memory._today_iso())
     horizon = calendar_horizon_days() if horizon is None else horizon
@@ -545,37 +563,32 @@ def ics_events(data: bytes, today: dt.date | None = None, horizon: int | None = 
         return []
     events = []
     for component in cal.walk("VEVENT"):
-        title = " ".join(str(component.get("SUMMARY") or "").split()) or "Untitled event"
-        organizer = _ics_person(component.get("ORGANIZER"))
-        raw_attendees = component.get("ATTENDEE") or []
-        attendees = [_ics_person(a) for a in (raw_attendees if isinstance(raw_attendees, list) else [raw_attendees])]
-        attendees = [organizer] * bool(organizer) + [a for a in attendees if a and a != organizer]
-        description = " ".join(str(component.get("DESCRIPTION") or "").split())
-        start0 = _as_datetime(component.decoded("DTSTART", None))
-        end0 = _as_datetime(component.decoded("DTEND", None))
-        length = (end0 - start0) if start0 and end0 else None
-        all_day = not isinstance(component.decoded("DTSTART", None), dt.datetime)
+        organizer, attendees = _ics_people(component)
+        first, end = component.decoded("DTSTART", None), _as_datetime(component.decoded("DTEND", None))
+        length = end - _as_datetime(first) if first is not None and end else None
         for start in _occurrences(component, today, horizon):
-            time = ""
-            if not all_day:
-                time = start.strftime("%H:%M")
-                if length:
-                    time += "–" + (start + length).strftime("%H:%M")
-            events.append({"title": title, "date": start.date().isoformat(), "time": time,
-                           "attendees": attendees, "organizer": organizer,
-                           "description": description, "uid": str(component.get("UID") or "")})
+            events.append({
+                "title": _ics_field(component, "SUMMARY") or "Untitled event",
+                "date": start.date().isoformat(),
+                "time": _ics_time(start, length) if isinstance(first, dt.datetime) else "",
+                "attendees": attendees, "organizer": organizer,
+                "description": _ics_field(component, "DESCRIPTION"),
+                "uid": _ics_field(component, "UID"),
+            })
     return sorted(events, key=lambda e: (e["date"], e["time"], e["title"]))
 
 
+@dataclasses.dataclass
 class Extracted:
     """What `extract` found: the sampled text *or* an image part, plus the kind it decided on
     (a Teams `.docx` becomes a transcript) and the token counts the source page records."""
 
-    def __init__(self, text: str = "", image_part=None, kind: str = "", shown: int = 0,
-                 total: int = 0, events=()):
-        self.text, self.image_part, self.kind = text, image_part, kind
-        self.shown_tokens, self.total_tokens = shown, total
-        self.events = list(events)      # a calendar's VEVENT occurrences (`ics_events`)
+    text: str = ""
+    image_part: dict | None = None
+    kind: str = ""
+    shown_tokens: int = 0
+    total_tokens: int = 0
+    events: list = dataclasses.field(default_factory=list)   # a calendar's occurrences
 
 
 def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
@@ -784,11 +797,8 @@ def _attendee_ops(meeting: dict, meeting_rel: str, user_names=()) -> list:
             ops.append({"op": "new_page", "path": path, "type": "project",
                         "name": meeting["project"], "summary": f"Discussed in {when}."})
         ops.append({"op": "append_note", "path": path,
-                    "text": f"{link} ({meeting['date']}): {what}"[:MAX_NOTE]})
+                    "text": f"{link} ({meeting['date']}): {what}"[:wiki.MAX_NOTE_CHARS]})
     return ops
-
-
-MAX_NOTE = wiki.MAX_NOTE_CHARS
 
 
 def _file_meeting(client, model: str, extracted, *, raw_rel: str, source_rel: str, title: str,

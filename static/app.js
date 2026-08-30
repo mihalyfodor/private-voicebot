@@ -751,12 +751,14 @@ function renderDecayWindows(staleDays) {
 }
 
 // PRD 31: how far a dropped recurring invite is expanded into meeting stubs (settings.json).
+let calendarHorizonDays = 14;
 function renderCalendarHorizon(days) {
-  calendarHorizonEl.value = Number.isInteger(days) ? String(days) : '';
+  if (Number.isInteger(days) && days > 0) calendarHorizonDays = days;
+  calendarHorizonEl.value = String(calendarHorizonDays);
 }
 calendarHorizonEl.onchange = () => {
   const days = parseInt(calendarHorizonEl.value, 10);
-  if (!Number.isInteger(days) || days < 1) { renderCalendarHorizon(parseInt(calendarHorizonEl.defaultValue, 10) || 14); return; }
+  if (!Number.isInteger(days) || days < 1) { renderCalendarHorizon(); return; }   // revert a bad entry
   sendAction({ action: 'set_setting', key: 'calendar_horizon_days', value: days });
 };
 
