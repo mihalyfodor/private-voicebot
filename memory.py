@@ -574,8 +574,10 @@ def asr_prompt(profile: dict | None = None) -> str:
 WIKI_NOTE = (
     "Those pages can be opened with the read_page tool; use search_wiki when the user asks about "
     "past work, meetings, decisions, someone they mentioned before, or anything they filed — "
-    "documents, guides, emails and notes live under sources/. If the index lists a page on the "
-    "topic, read it before answering; never guess or deny having it."
+    "documents, guides, emails and notes live under sources/. search_wiki also returns passages "
+    "from inside filed documents as '<title> · part n/N'; read_source(path, part) continues "
+    "reading one. If the index lists a page on the topic, read it before answering; never guess "
+    "or deny having it."
 )
 
 

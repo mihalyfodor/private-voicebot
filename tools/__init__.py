@@ -13,6 +13,7 @@ TOOLS = [
     _weather.DEFINITION,
     _wiki.DEFINITION_SEARCH,
     _wiki.DEFINITION_READ,
+    _wiki.DEFINITION_READ_SOURCE,
     _sources.DEFINITION,
 ]
 
@@ -24,6 +25,7 @@ _DISPATCH = {
     "get_emails":      _gmail.run,
     "search_wiki":     _wiki.run_search,
     "read_page":       _wiki.run_read,
+    "read_source":     _wiki.run_read_source,
     "file_source":     _sources.run,
 }
 

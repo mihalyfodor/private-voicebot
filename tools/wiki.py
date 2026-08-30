@@ -6,9 +6,11 @@ DEFINITION_SEARCH = {
     "function": {
         "name": "search_wiki",
         "description": (
-            "Searches the user's wiki (people, projects, meetings, decisions) and returns the "
-            "best matching pages with a snippet. Use it whenever the user asks about past work, "
-            "a meeting, a decision or someone they mentioned before."
+            "Searches the user's wiki (people, projects, meetings, decisions) and the text of "
+            "filed documents (guides, FAQs, notes). Returns the best matching pages, then "
+            "passages from inside documents as '<title> · part n/N'. Use it whenever the user "
+            "asks about past work, a meeting, a decision, someone they mentioned before, or "
+            "anything a filed document might cover."
         ),
         "parameters": {
             "type": "object",
@@ -39,15 +41,53 @@ DEFINITION_READ = {
 }
 
 
+DEFINITION_READ_SOURCE = {
+    "type": "function",
+    "function": {
+        "name": "read_source",
+        "description": (
+            "Returns one part of a filed document with the text around it, e.g. part 12 of "
+            "'sources/fallout-4-guide'. Use the path and part number from a search_wiki passage; "
+            "ask for part+1 to keep reading."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "The source page path, e.g. sources/guide."},
+                "part": {"type": "integer", "description": "The part number from search_wiki."},
+            },
+            "required": ["path", "part"],
+        },
+    },
+}
+
+
+def snippet_lines(chunks: list) -> list:
+    """`<title> · part n/N (path): <text>` for each chunk hit, text capped at SNIPPET_CHARS."""
+    lines = []
+    for c in chunks:
+        text = " ".join(c["text"].split())
+        if len(text) > wiki.SNIPPET_CHARS:
+            text = text[:wiki.SNIPPET_CHARS].rstrip() + "…"
+        lines.append(f"{c['title']} · part {c['n']}/{c['total']} ({c['source']}): {text}")
+    return lines
+
+
 def run_search(args):
     query = str((args or {}).get("query") or "").strip()
     if not query:
         return "no query given"
     hits = wiki.search(query, k=5)
-    if not hits:
+    chunks = wiki.search_chunks(query, k=3)
+    if not hits and not chunks:
         return "no matching wiki pages"
-    return "\n".join(f"{h['path']}: {h['snippet']}" for h in hits)
+    return "\n".join([f"{h['path']}: {h['snippet']}" for h in hits] + snippet_lines(chunks))
 
 
 def run_read(args):
     return wiki.read_page(str((args or {}).get("path") or ""))
+
+
+def run_read_source(args):
+    args = args or {}
+    return wiki.read_source(str(args.get("path") or ""), args.get("part"))

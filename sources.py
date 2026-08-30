@@ -591,6 +591,32 @@ class Extracted:
     events: list = dataclasses.field(default_factory=list)   # a calendar's occurrences
 
 
+def raw_text(raw_rel: str, data: bytes) -> str:
+    """The whole extracted text of a stored text-kind raw file — nothing sampled out.
+
+    What the chunk index (PRD 32) reads; :func:`extract` samples it for the model. Images and
+    calendars have no text here ("").
+    """
+    ext = os.path.splitext(raw_rel)[1].lower()
+    if ext in IMAGE_EXTS or ext == ".ics":
+        return ""
+    if ext == ".pdf":
+        return pdf_text(data)
+    if ext == ".eml":
+        return eml_text(data)
+    if ext == ".msg":
+        return msg_text(wiki._path(raw_rel))
+    if ext == ".docx":
+        return docx_text(data)[0]
+    if ext == ".pptx":
+        return pptx_text(data)
+    if ext == ".xlsx":
+        return xlsx_text(data)
+    if ext == ".vtt":
+        return vtt_text(data)
+    return _decode(data)
+
+
 def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
     """The text (or image part) of a stored raw file — "" means "nothing extractable"."""
     ext = os.path.splitext(raw_rel)[1].lower()
@@ -599,28 +625,14 @@ def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
     if ext in IMAGE_EXTS:
         _downscale(full)
         return Extracted("", _image_part(full), kind)
-    if ext == ".pdf":
-        text = pdf_text(data)
-    elif ext == ".eml":
-        text = eml_text(data)
-    elif ext == ".msg":
-        text = msg_text(full)
-    elif ext == ".docx":
-        text, kind = docx_text(data)
-    elif ext == ".pptx":
-        text = pptx_text(data)
-    elif ext == ".xlsx":
-        text = xlsx_text(data)
-    elif ext == ".vtt":
-        text = vtt_text(data)
-    elif ext == ".ics":
+    if ext == ".ics":
         events = ics_events(data)
         text = "\n".join(f"{e['date']} {e['time']} {e['title']} — {', '.join(e['attendees'])}"
                          for e in events)
         return Extracted(text, None, kind, memory.tokens_est(text), memory.tokens_est(text), events)
-    else:
-        text = _decode(data)
-    shown, shown_tokens, total_tokens = sample_text(text)
+    if ext == ".docx":
+        kind = docx_text(data)[1]
+    shown, shown_tokens, total_tokens = sample_text(raw_text(raw_rel, data))
     return Extracted(shown, None, kind, shown_tokens, total_tokens)
 
 
@@ -965,6 +977,21 @@ def _store(raw_rel: str, data: bytes) -> None:
         f.write(data)
 
 
+def _rename_generic_raw(raw_rel: str, title: str) -> str:
+    """`raw/inbox/<date>-note.md` becomes `raw/inbox/<date>-<slug of title>.md` once the model
+    has named the document; a real filename (`falcon-plan.docx`) is left alone. Returns the path
+    the raw file now has (deduped like any other)."""
+    folder, name = os.path.split(raw_rel)
+    stem, ext = os.path.splitext(name)
+    slug = wiki.slugify(title)
+    if not is_generic_title(stem) or is_generic_title(title) or not slug:
+        return raw_rel
+    date = _DROP_DATE.search(stem)
+    new_rel = _free_path(folder, f"{date.group(1)}-{slug}" if date else slug, ext)
+    os.replace(wiki._path(raw_rel), wiki._path(new_rel))
+    return new_rel
+
+
 def is_generic_title(title: str) -> bool:
     """A name that says nothing about the content (`note`, `untitled`, a stamped `note 2026-…`)."""
     words = " ".join(str(title or "").lower().replace("_", " ").replace("-", " ").split())
@@ -1064,6 +1091,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names)
         kind = extracted.kind
         page_title = title or summary.get("title") or stem
+        raw_rel = _rename_generic_raw(raw_rel, page_title)
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
         fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
@@ -1072,6 +1100,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
                           "page": wiki.wikilink(source_rel), "pages_touched": fed})
+        wiki.raw_chunks(raw_rel)          # PRD 32: the chunk cache, built while the bytes are hot
         wiki.rebuild_index()
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
@@ -1198,6 +1227,7 @@ def forget(digest: str) -> dict:
             if os.path.exists(wiki._path(rel)):
                 os.remove(wiki._path(rel))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
+        wiki.drop_raw_chunks(digest)
         wiki.rebuild_index()
         wiki._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])

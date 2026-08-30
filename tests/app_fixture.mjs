@@ -323,6 +323,8 @@ globalThis.__t = {
   intakeFromText, intakeFromFiles, closeIntake,
   intakeTitle: intakeTitleEl, intake: intakeEl, intakeItems: intakeItemsEl,
   calendarHorizon: calendarHorizonEl,
+  // ---- source recall (PRD 32)
+  recallMinScore: recallMinScoreEl,
 };
 `;
 
@@ -634,5 +636,13 @@ socket.sent.length = 0;
 t.calendarHorizon.value = '21';
 t.calendarHorizon.dispatch('change');
 results.horizon_sent = [...socket.sent];
+
+// ---- PRD 32: the recall threshold field round-trips through set_setting
+t.recv({ type: 'setting', key: 'recall_min_score', value: 3.5 });
+results.recall_shown = t.recallMinScore.value;
+socket.sent.length = 0;
+t.recallMinScore.value = '1.5';
+t.recallMinScore.dispatch('change');
+results.recall_sent = [...socket.sent];
 
 console.log(JSON.stringify(results, null, 1));

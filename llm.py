@@ -7,6 +7,7 @@ from openai import OpenAI
 
 import memory
 import avatars
+import wiki
 from splitter import EMOTIONS
 from tools import TOOLS, run_tool
 
@@ -260,6 +261,47 @@ def _accumulate_tool_calls(pending: dict, fragments) -> None:
             entry["arguments"] += func.arguments
 
 
+RECALL_MIN_WORDS = 4
+RECALL_MAX_CHUNKS = 2
+RECALL_MAX_TOKENS = 1500
+#: a question whose content words are all of these is a tool command ("what time is it"),
+#: never a question for a filed document
+COMMAND_WORDS = frozenset("""time clock date day today weather temperature forecast rain outside
+news headlines headline email emails mail inbox messages message""".split())
+RECALL_NOTE = ("If this answers the question, answer from it and say in your reply that it comes "
+               "from {titles} — always name the source you used; otherwise ignore it.")
+
+
+def recall_for(user_text: str) -> str:
+    """The `<recall>` block for this turn, or "" (docs/32-source-recall.md).
+
+    Short messages (< RECALL_MIN_WORDS words) and pure commands (every content word a
+    COMMAND_WORDS one, "what time is it") never search; otherwise the best raw chunks above
+    `recall_min_score` are quoted, at most RECALL_MAX_CHUNKS of them within RECALL_MAX_TOKENS.
+    """
+    terms = wiki.content_terms(user_text)
+    if len(user_text.split()) < RECALL_MIN_WORDS or terms <= COMMAND_WORDS:
+        return ""
+    floor = wiki.recall_min_score()
+    quotes, titles = [], []
+    used = memory.tokens_est(RECALL_NOTE) + 40                  # the note and the tags count
+    for hit in wiki.search_chunks(user_text, k=RECALL_MAX_CHUNKS):
+        if hit["score"] < floor:
+            break
+        line = f'From "{hit["title"]}" (part {hit["n"]}/{hit["total"]}): {hit["text"]}'
+        room = (RECALL_MAX_TOKENS - used) * 4
+        if room <= 0:
+            break
+        line = line[:room]
+        quotes.append(line)
+        titles.append(hit["title"])
+        used += memory.tokens_est(line)
+    if not quotes:
+        return ""
+    note = RECALL_NOTE.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(titles)))
+    return "\n\n<recall>\n" + "\n\n".join(quotes) + f"\n{note}\n</recall>"
+
+
 def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks.
 
@@ -270,7 +312,9 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
 
     conv_len = len(_conversation)
     turns_len = len(_session_turns)
-    _conversation.append({"role": "user", "content": user_text})
+    # The recall block rides on this turn's user message only; the session turns (what memory
+    # and the wiki ingest see) keep the user's own words.
+    _conversation.append({"role": "user", "content": user_text + recall_for(user_text)})
     _session_turns.append({"role": "user", "content": user_text})
     _last_tool_calls = []
     trim_history()
