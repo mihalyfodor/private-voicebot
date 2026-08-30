@@ -50,6 +50,7 @@ const CONFIG = {
   mouthSmooth: 0.35,     // 0..1, higher = snappier
   fitWidth: 0.8,         // share of the avatar column the drawn model may use…
   fitHeight: 0.7,        // …and of its height; the smaller of the two wins
+  fitAnchorY: 0.62,      // where the art's vertical centre sits (0.5 = centred, larger = lower)
   cueFade: 0.1,          // per-frame lerp of a cue blend toward its target
   petGapMs: 4000,        // a tap this long after the last one is a big Pet, else PetSmall
   petHappyMs: 800,       // how long the happy blend rides on a tap
@@ -601,7 +602,7 @@ const avatar = {
 
   fit() {
     // The canvas resizes with its column (PIXI resizeTo: canvas.parentElement): scale the drawn
-    // art to CONFIG.fitWidth/fitHeight of the column, whichever limits, and centre it there.
+    // art to CONFIG.fitWidth/fitHeight of the column, whichever limits, and anchor it at fitAnchorY.
     const app = this.app, m = this.model;
     if (!m) return;
     const canvas = { w: m.width / m.scale.x, h: m.height / m.scale.y };
@@ -612,7 +613,7 @@ const avatar = {
     );
     m.scale.set(scale);
     m.x = app.screen.width / 2 - (art.x + art.w / 2) * scale;
-    m.y = app.screen.height / 2 - (art.y + art.h / 2) * scale
+    m.y = app.screen.height * CONFIG.fitAnchorY - (art.y + art.h / 2) * scale
         - art.h * scale * profile.avatarTopCrop;
   },
 

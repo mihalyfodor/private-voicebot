@@ -60,7 +60,7 @@ body {
 .decay-row .what { font-size: 12px; color: #ececec; }
 .decay-row .days { flex: none; font-size: 11px; color: #8fb4dd; }
 
-/* ---- backdrop image (behind everything) ---- */
+/* ---- backdrop image: only behind the avatar stage; history and composer stay plain ---- */
 #backdrop {
   position: absolute; inset: 0; z-index: 0; pointer-events: none;
   background-size: cover; background-position: center;
@@ -82,7 +82,6 @@ main {
 
 /* ---- companion: avatar + history + composer, one element re-parented on setView (PRD 24) ---- */
 #companion { position: relative; overflow: hidden; min-width: 0; min-height: 0; }
-#companion > :not(#backdrop) { position: relative; z-index: 1; }
 /* Chat: the companion IS the workspace — avatar on the left, conversation on the right */
 #companion.chat {
   flex: 1 1 auto;
@@ -91,11 +90,7 @@ main {
   column-gap: 8px;
 }
 #companion.chat > #avatar { grid-row: 1 / span 2; }
-#companion.chat > #history {
-  padding: 24px 24px 8px 4px;
-  /* dark floor so the transcript stays readable over bright backdrops */
-  background: linear-gradient(to bottom, transparent 25%, rgba(10,10,10,0.7));
-}
+#companion.chat > #history { padding: 24px 24px 8px 4px; }
 #companion.chat > #composer { padding-right: 24px; padding-bottom: 20px; }
 /* Every other view: a narrow vertical slice, stacked */
 #companion.side {
@@ -105,15 +100,12 @@ main {
   background: rgba(10,10,10,0.35);
 }
 #companion.side > #avatar { flex: 0 0 40%; min-height: 180px; }
-#companion.side > #history {
-  flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px;
-  /* a faint floor under the last lines so they stay readable over a busy backdrop */
-  background: linear-gradient(to bottom, transparent 30%, rgba(10,10,10,0.7));
-}
+#companion.side > #history { flex: 1 1 auto; min-height: 0; padding: 10px 14px 4px; }
 #companion.side > #composer { flex: none; padding: 6px 12px 12px; }
 
 /* ---- stage: the avatar area, model centered ---- */
 #avatar { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+#avatar > :not(#backdrop) { position: relative; z-index: 1; }
 #stage { width: 100%; height: 100%; display: block; }
 #avatar-note {
   position: absolute; inset: 0;
