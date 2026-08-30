@@ -161,7 +161,7 @@ voicebot/
     ├── 31-office-formats.md      # PRD: docx/pptx/xlsx/vtt/ics drops, meeting pages, calendar stubs, big-text sampling (done)
     ├── 32-source-recall.md       # PRD: search inside sources — chunk index, read_source, auto-recall into the turn (done)
     ├── 33-untrusted-text.md      # PRD: documents are data not instructions, memory-op provenance, read-only tool policy (exploration)
-    └── 34-grounded-answers.md    # PRD: look it up first, short cited answer + "dig deeper" offer, recall precision (refactoring)
+    └── 34-grounded-answers.md    # PRD: look it up first, short cited answer + "dig deeper" offer, recall precision (done)
 ```
 
 ## Active PRDs
@@ -195,7 +195,7 @@ voicebot/
 - [31-office-formats.md](31-office-formats.md) — Word/PowerPoint/Excel/Teams transcript/.ics through the same drop: new kinds and chips, `meetings/` pages from transcripts, deterministic calendar stubs with the `calendar_horizon_days` setting, 10 MB text with head/middle/tail sampling, model-titled pastes with a topic tag (done)
 - [32-source-recall.md](32-source-recall.md) — search inside sources: text-kind raw files chunked and cached per sha in `raw/.index/`, chunk BM25 behind `search_wiki` snippets and a `read_source` tool, the best passages injected into the user message per turn above `recall_min_score` (Settings), raw files renamed after the model's title (done)
 - [33-untrusted-text.md](33-untrusted-text.md) — hardening against prompt injection in filed/fetched text: `<document>` wrapping + standing rule, `source:` provenance on memory ops, read-only tool policy test, injection eval (exploration)
-- [34-grounded-answers.md](34-grounded-answers.md) — grounded answers: look-it-up-first prompt block (only with recall tools registered), 1–3 sentence cited answer ending in "Want me to dig deeper?", a short "yes" reads the neighbouring chunks at `long` for that one completion, recall needs ≥ 2 matched content words or a proper noun, Settings note (refactoring)
+- [34-grounded-answers.md](34-grounded-answers.md) — grounded answers: look-it-up-first prompt block (only with recall tools registered), 1–3 sentence cited answer ending in "Want me to dig deeper?", a short "yes" reads the neighbouring chunks at `long` for that one completion, recall needs ≥ 2 matched content words or a proper noun, Settings note (done)
 
 ## Research
 

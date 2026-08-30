@@ -132,8 +132,8 @@ def trim_history() -> None:
 #: model is asked for exactly one of them so `_deeper_offer` can be detected on its output
 DEEPER_OFFERS = ("Want me to dig deeper?", "Shall I dig deeper?", "Want me to read on?")
 GROUNDING_RULES = (
-    "\n\nLook it up first. When the wiki index or a recall block in the message names a source or page on the "
-    "topic, use search_wiki or read_source (or the recall text) before answering from your own "
+    "\n\nLook it up first. When the wiki index or a recall block in the message names a source or "
+    "page on the topic, use search_wiki or read_source (or the recall text) before answering from your own "
     "knowledge, and name the source once, by title, in a short natural clause woven into a "
     "sentence (\"per the Skyrim guide\", \"the Fallout 4 walkthrough says\") — vary the wording, "
     "never a separate closing sentence like \"This information comes from\". Whenever the "
@@ -315,14 +315,12 @@ DEEPER_NOTE = ("The user said yes to digging deeper. Give the full answer now fr
                "several sentences, at least twice as long as your previous reply, including the extra "
                "details, names and places the surrounding parts add. Name {title} once in passing. "
                "Do not offer to dig deeper again.")
-_AFFIRMATIVE_WORDS = (
-    "yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|certainly|go|on|ahead|do|it|"
-    "dig|deeper|dive|in|read|more|tell|me|why|not|thanks|thank|you|that|would|be|great|good|"
-    "i|d|like|lets|let|s|so")
-#: a short "yes" to the deeper offer: an affirmative lead, then only affirmative/filler words
-_AFFIRMATIVE = re.compile(
-    r"^(?:yes|yeah|yep|yup|sure|ok|okay|please|absolutely|definitely|certainly|go|dig|deeper|"
-    rf"dive|read|tell|more|why|do|that|i|lets|let)(?:\s+(?:{_AFFIRMATIVE_WORDS}))*$")
+#: a short "yes" to the deeper offer: one of these words first ...
+_AFFIRMATIVE_LEADS = frozenset("""yes yeah yep yup sure ok okay please absolutely definitely certainly
+go dig deeper dive read tell more why do that i lets let""".split())
+#: ... and nothing but these after it, at most AFFIRMATIVE_MAX_WORDS in all
+_AFFIRMATIVE_WORDS = _AFFIRMATIVE_LEADS | frozenset("""on ahead it in me not thanks thank you would be
+great good d like s so""".split())
 AFFIRMATIVE_MAX_WORDS = 6
 _SNIPPET_PART = re.compile(r"^(.+?) · part (\d+)/\d+ \(([^)]+)\)", re.M)
 
@@ -330,9 +328,22 @@ _SNIPPET_PART = re.compile(r"^(.+?) · part (\d+)/\d+ \(([^)]+)\)", re.M)
 def is_affirmative(text: str) -> bool:
     """"yes", "yes please", "go on", "dig deeper", "sure, do it" — ≤ 6 words, nothing else in it."""
     words = re.findall(r"[a-z]+", text.lower())
-    if not words or len(words) > AFFIRMATIVE_MAX_WORDS:
-        return False
-    return bool(_AFFIRMATIVE.match(" ".join(words)))
+    return (0 < len(words) <= AFFIRMATIVE_MAX_WORDS and words[0] in _AFFIRMATIVE_LEADS
+            and all(w in _AFFIRMATIVE_WORDS for w in words))
+
+
+def _fit(lines: list, budget: int, note: str) -> list:
+    """`lines` cut to fit `budget` tokens together with `note` and the tags: whole lines while
+    they fit, the first one that does not is truncated, the rest dropped."""
+    used = memory.tokens_est(note) + 40
+    kept = []
+    for line in lines:
+        room = (budget - used) * 4
+        if room <= 0:
+            break
+        kept.append(line[:room])
+        used += memory.tokens_est(kept[-1])
+    return kept
 
 
 def ends_with_offer(reply: str) -> bool:
@@ -380,17 +391,10 @@ def deeper_block(offer: dict) -> str:
     except KeyError:
         return ""
     chunks, title = record["chunks"], record["title"]
-    parts = deeper_parts(offer["parts"], len(chunks))
     note = DEEPER_NOTE.format(title=f'"{title}"')
-    used = memory.tokens_est(note) + 40
-    quotes = []
-    for n in parts:
-        line = f"Part {n}/{len(chunks)}: {chunks[n - 1]['text']}"
-        room = (DEEPER_MAX_TOKENS - used) * 4
-        if room <= 0:
-            break
-        quotes.append(line[:room])
-        used += memory.tokens_est(quotes[-1])
+    lines = [f"Part {n}/{len(chunks)}: {chunks[n - 1]['text']}"
+             for n in deeper_parts(offer["parts"], len(chunks))]
+    quotes = _fit(lines, DEEPER_MAX_TOKENS, note)
     if not quotes:
         return ""
     return f'\n\n<source title="{title}">\n' + "\n\n".join(quotes) + f"\n{note}\n</source>"
@@ -415,26 +419,20 @@ def recall_for(user_text: str) -> str:
     if len(user_text.split()) < RECALL_MIN_WORDS or terms <= COMMAND_WORDS:
         return ""
     floor = wiki.recall_min_score()
-    quotes, titles = [], []
-    used = memory.tokens_est(RECALL_NOTE) + 40                  # the note and the tags count
     proper = wiki.proper_terms(terms)
+    hits = []
     for hit in wiki.search_chunks(user_text, k=RECALL_MAX_CHUNKS):
         if hit["score"] < floor:
             break
-        if len(hit["matched"]) < 2 and not proper.intersection(hit["matched"]):
-            continue                                            # one common word is no match
-        _turn_sources.append((hit["source"], hit["title"], hit["n"]))
-        line = f'From "{hit["title"]}" (part {hit["n"]}/{hit["total"]}): {hit["text"]}'
-        room = (RECALL_MAX_TOKENS - used) * 4
-        if room <= 0:
-            break
-        line = line[:room]
-        quotes.append(line)
-        titles.append(hit["title"])
-        used += memory.tokens_est(line)
+        if len(hit["matched"]) >= 2 or proper.intersection(hit["matched"]):
+            hits.append(hit)                                    # one common word is no match
+    lines = [f'From "{h["title"]}" (part {h["n"]}/{h["total"]}): {h["text"]}' for h in hits]
+    quotes = _fit(lines, RECALL_MAX_TOKENS, RECALL_NOTE)
     if not quotes:
         return ""
-    note = RECALL_NOTE.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(titles)))
+    hits = hits[:len(quotes)]
+    _turn_sources.extend((h["source"], h["title"], h["n"]) for h in hits)
+    note = RECALL_NOTE.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(h["title"] for h in hits)))
     return "\n\n<recall>\n" + "\n\n".join(quotes) + f"\n{note}\n</recall>"
 
 

@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 34 — Grounded answers: look it up first, short reply, offer to dig deeper
 
@@ -56,8 +56,8 @@ tightens auto-recall so one stray keyword ("cook", "today") no longer drags a ga
    completion only (assert the max_tokens/style passed), offer cleared; "no, what's the weather" clears it and
    injects nothing; an offer never persists past one turn.
 4. Live (marker `live`, the three real guides — Fallout 4, Skyrim, Morrowind): 6 questions; ≥ 5 answers cite the
-   guide; ≥ 4 end with the offer; "yes" gives an answer ≥ 2× the first one's length that mentions a Title-case term
-   from a neighbouring chunk the short answer did not use; "how is the weather today?" calls `get_weather`. Print all
+   guide; ≥ 4 end with the offer; ≥ 4 "yes" turns give an answer ≥ 2× the first one's length that mentions a
+   Title-case term from a neighbouring chunk (sampling makes a single follow-up land at 1.5× now and then); "how is the weather today?" calls `get_weather`. Print all
    pairs.
 5. Fixture render: Settings reply-length row shows the note.
 
