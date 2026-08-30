@@ -18,6 +18,7 @@ import splitter
 import sources
 import fillers
 import avatars
+import services
 from tools import weather as weather_tool
 import backdrops
 import numpy as np
@@ -178,6 +179,19 @@ def _push_saving(value: bool) -> None:
     send_sync = _panel_sender()
     if send_sync is not None:
         send_sync({"type": "memory_saving", "value": value})
+
+
+def _push_services(msg: dict) -> None:
+    """A probe changed (PRD 41, on the services daemon thread): the page updates its banner."""
+    send_sync = _panel_sender()
+    if send_sync is not None:
+        send_sync({"type": "services", **msg})
+
+
+def llm_offline_text() -> str:
+    """The refusal a turn gets while the LLM is down: what is down and the command that fixes it."""
+    label = services.snapshot().get("llm", {}).get("label", "oMLX")
+    return f"LLM offline ({label}) — run {services.START_HINT}"
 
 
 def _periodic_memory(count: int) -> None:
@@ -419,6 +433,11 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
     if new_topic_command(user_text):
         new_topic(sess, turn, send_sync)
         return
+    if not services.llm_ok():
+        # PRD 41: no thinking state, no timeout — the composer line says what to run
+        send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
+        send_sync({"type": "state", "value": "idle"})
+        return
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
@@ -431,6 +450,7 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
         print(f"[Error] {e}")
+        services.recheck()   # a failed completion: find out now whether oMLX is gone
         send_sync({"type": "state", "value": "idle"})
 
 
@@ -462,6 +482,8 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
     try:
         send_sync({"type": "state", "value": "processing"})
         text = asr.transcribe(audio, prompt=memory.asr_prompt())
+        if getattr(asr, "last_error", None):
+            services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
         print(f"[Error] {e}")
         text = ""
@@ -545,6 +567,8 @@ async def api_config():
         "location": weather_tool.location(),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
+        # the last service probe (PRD 41); {} plus the hint before the first one
+        "services": services.message(),
     }
 
 
@@ -1151,6 +1175,7 @@ if __name__ == "__main__":
     from kokoro_onnx import Kokoro
     print("Loading Kokoro TTS...")
     kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
+    services.start(_push_services)
     print("Ready.\n")
     if OPEN_BROWSER:
         threading.Thread(target=open_browser, daemon=True).start()

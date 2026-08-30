@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Prod lifecycle (docs/40-docker-prod.md, docs/deploy.md):
-#   prod.sh build | up | down | logs | status | migrate | backup | restore <archive> <bundle> <dir>
+#   prod.sh build | up | down | logs | status | migrate | backup | restore <archive> <bundle> <dir> | start | stop
 # Env: DATA (default ~/docker-data/voicebot), TAG (image tag; default latest), PROD_PORT (default 8010),
 #      PROJECT (compose project; default voicebot), BACKUP_DIR (default ~/docker-data/backups).
+# start/stop delegate to scripts/voicebot (docs/41-service-health.md), which also brings up oMLX/ASR/colima.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
@@ -99,5 +100,7 @@ case ${1:-} in
   backup)  cmd_backup ;;
   restore) [ $# -eq 4 ] || { echo "usage: prod.sh restore <archive.tgz> <vault.bundle> <dir>" >&2; exit 1; }
            cmd_restore "$2" "$3" "$4" ;;
-  *) echo "usage: prod.sh build|up|down|logs|status|migrate|backup|restore <archive> <bundle> <dir>" >&2; exit 1 ;;
+  start)   exec "$ROOT/scripts/voicebot" start "${@:2}" ;;
+  stop)    exec "$ROOT/scripts/voicebot" stop "${@:2}" ;;
+  *) echo "usage: prod.sh build|up|down|logs|status|migrate|backup|restore <archive> <bundle> <dir>|start|stop" >&2; exit 1 ;;
 esac

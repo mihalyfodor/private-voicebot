@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 41 — Service health in the UI; one start/stop for everything
 
@@ -17,7 +17,7 @@ killing the server when the admin API allows it).
 - As the developer, dev on :8011 gets the same banner logic (probes are the same code).
 
 ## UI/UX
-- A slim banner above the transcript (chat) / at the top of the workspace (other views): red for the backend
+- A slim banner at the top of the workspace in every view (above the chat column in Chat): red for the backend
   websocket being down ("Wanko's backend is not running — run: `scripts/voicebot start`" + ⧉ copy), amber for
   a degraded service ("LLM offline (oMLX :8000)" / "voice input offline (ASR :8020)" — the app still works for
   what does not need it: typed turns without LLM are refused with the same hint; wiki/sources editing keeps working).
@@ -25,8 +25,8 @@ killing the server when the admin API allows it).
   a green/red dot, last check time, and the same copy button.
 
 ## Technical approach
-- `services.py`: `probe()` → `{"llm": {...}, "asr": {...}}` each `{ok, detail, checked}`; LLM = `GET /health` on
-  `OMLX_BASE_URL`'s host then `GET /v1/models` (with the key) and "model loaded" from the models list; ASR = `GET
+- `services.py`: `probe()` → `{"llm": {...}, "asr": {...}}` each `{ok, label, detail, checked}` (`label` = "oMLX :8000" / "ASR :8020", the piece and its port the banner names); LLM = `GET /health` on
+  `OMLX_BASE_URL`'s host then `GET /v1/models` (with the key) and "model loaded" = the configured `OMLX_MODEL` is in the models list (oMLX lists the models it serves; it lazy-loads on the first request); ASR = `GET
   ASR_URL/health` when `ASR_BACKEND=remote`, else `ok` (in-process MLX). Cached; re-probed every 30 s on a daemon
   thread and immediately after any LLM/ASR call fails; a change pushes `services {llm, asr, hint}` over the
   websocket (`hint` = the command to run, from `START_HINT` = `scripts/voicebot start`, overridable by `START_HINT`

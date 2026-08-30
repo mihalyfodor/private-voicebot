@@ -196,28 +196,47 @@ def omlx_up() -> bool:
         return False
 
 
-@pytest.fixture(scope="session")
-def asr_service():
-    """The host ASR service on :8020 — whatever is there, or one started from this venv."""
+def asr_up() -> bool:
     try:
         get(ASR_URL + "/health", timeout=2)
-        yield None
-        return
+        return True
     except Exception:
-        pass
+        return False
+
+
+def start_asr() -> subprocess.Popen:
+    """scripts/asr_server.py from this venv on :8020, returned once /health answers."""
     proc = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "asr_server.py")], cwd=ROOT,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     for _ in range(60):
-        try:
-            get(ASR_URL + "/health", timeout=2)
-            break
-        except Exception:
-            time.sleep(1)
-    else:
-        proc.terminate()
-        pytest.fail("asr_server.py did not come up on :8020")
-    yield proc
+        if asr_up():
+            return proc
+        time.sleep(1)
     proc.terminate()
+    pytest.fail("asr_server.py did not come up on :8020")
+
+
+class AsrService:
+    """The host ASR service on :8020: `proc` is ours (restartable), None when something else answers there."""
+
+    def __init__(self):
+        self.proc = None if asr_up() else start_asr()
+
+    def stop(self):
+        self.proc.terminate()
+        self.proc.wait(timeout=10)
+
+    def restart(self):
+        self.proc = start_asr()
+
+
+@pytest.fixture(scope="session")
+def asr_service():
+    """The host ASR service on :8020 — whatever is there, or one started from this venv."""
+    svc = AsrService()
+    yield svc
+    if svc.proc is not None:
+        svc.proc.terminate()
 
 
 def spoken_pcm(text: str) -> bytes:
@@ -278,6 +297,44 @@ def test_scenario_7_typed_turn_wiki_commit_memory_restart_and_spoken_turn(prod, 
     print(f"spoken turn transcript: {heard['text']!r}")
     assert heard["role"] == "user" and "plus" in heard["text"].lower()   # whisper writes "two" or "2"
     ws.wait_idle()
+    ws.close()
+
+
+# ---------------------------------------------------------------- PRD 41 scenario 6: the banner
+
+
+def services_of(prod) -> dict:
+    return json.loads(get(prod.base + "/api/config"))["services"]
+
+
+def wait_asr_state(prod, ok: bool, limit: float = 60) -> float:
+    """Seconds until /api/config.services.asr.ok == ok (what the banner renders); fails past `limit`."""
+    start = time.time()
+    while time.time() - start < limit:
+        asr = services_of(prod).get("asr")
+        if asr is not None and asr["ok"] is ok:
+            return round(time.time() - start, 1)
+        time.sleep(1)
+    pytest.fail(f"asr.ok never became {ok} within {limit}s: {services_of(prod)}")
+
+
+def test_prd41_scenario_6_service_banner_while_the_asr_service_is_stopped(prod, asr_service):
+    if asr_service.proc is None:
+        pytest.skip("the ASR service on :8020 is not ours to stop")
+    wait_asr_state(prod, True)
+    ws = Socket(prod.base)
+    asr_service.stop()
+    shown = wait_asr_state(prod, False)
+    push = ws.until("services")                      # the page gets it pushed, not only via /api/config
+    assert push["asr"]["ok"] is False and push["asr"]["label"] == "ASR :8020"
+    assert push["hint"] == "scripts/voicebot start"
+    print(f"\nbanner shown {shown}s after the ASR service stopped: {push['asr']['detail']}")
+    assert shown <= 60
+    asr_service.restart()
+    gone = wait_asr_state(prod, True)
+    assert ws.until("services")["asr"]["ok"] is True
+    print(f"banner gone {gone}s after the ASR service came back")
+    assert gone <= 60
     ws.close()
 
 

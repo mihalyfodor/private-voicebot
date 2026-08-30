@@ -18,6 +18,8 @@ BACKEND = os.getenv("ASR_BACKEND", "mlx")
 URL = os.getenv("ASR_URL", "http://127.0.0.1:8020").rstrip("/")
 REMOTE_TIMEOUT_S = 30
 SAMPLERATE = 16000
+#: the last remote failure's message, "" after a call that reached the service (PRD 41 re-probe hook)
+last_error = ""
 
 _JUNK_PATTERNS = [
     re.compile(r"^\[blank_audio\]$"),
@@ -85,9 +87,11 @@ def transcribe(audio, prompt=None):
     Returns "" for junk and for a failed remote call (the error is printed, never raised),
     so the turn takes the same "nothing heard" path either way.
     """
+    global last_error
     result = raw_transcribe(audio, prompt)
-    if result.get("error"):
-        print(f"[ASR] {result['error']}")
+    last_error = result.get("error") or ""
+    if last_error:
+        print(f"[ASR] {last_error}")
         return ""
     text = (result.get("text") or "").strip()
 

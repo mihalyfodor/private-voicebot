@@ -25,6 +25,12 @@
       <div id="left-slot"></div>
 
       <section id="workspace">
+        <!-- PRD 41: one slim banner for every view — red when the backend socket is gone, amber when
+             a host service (oMLX / ASR) is down; the button copies the command that fixes it. -->
+        <div id="service-banner" hidden>
+          <span id="service-banner-text"></span>
+          <button id="service-copy" class="chip svc-copy" title="Copy the command" aria-label="Copy the command">⧉ copy</button>
+        </div>
         <div id="view-chat" class="view">
           <div id="chat-slot">
             <section id="companion" class="chat">
@@ -234,6 +240,9 @@
               </span>
               <span class="set-ctl"><span id="settings-location" class="set-value"></span></span>
             </div>
+
+            <div class="set-head">Services</div>
+            <div id="settings-services"></div>
 
             <div class="set-head">Session</div>
             <div class="set-row">

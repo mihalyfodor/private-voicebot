@@ -250,6 +250,7 @@ class WebSocketStub {
 }
 WebSocketStub.OPEN = 1;
 
+const clipboardLog = [];         // every navigator.clipboard.writeText payload (PRD 41)
 const CONFIG_JSON = {
   avatar: 'wanko', name: 'Wanko', backdrops: [
     { key: 'none', name: 'None', file: null, credit: '' },
@@ -263,6 +264,8 @@ const sandbox = {
   document: doc,
   navigator: {
     mediaDevices: { getUserMedia: async () => ({}) },
+    // PRD 41: the copy button's payload lands here
+    clipboard: { writeText: (t) => { clipboardLog.push(t); return Promise.resolve(); } },
     // PRD 35: a stubbed position, handed over synchronously on request
     geolocation: { getCurrentPosition: (ok) => ok({ coords: { latitude: 46.7712, longitude: 23.6236 } }) },
   },
@@ -345,6 +348,9 @@ globalThis.__t = {
   memSections: memSectionsEl,
   // ---- scoped errors
   status, memError: memErrorEl, wikiError: wikiErrorEl,
+  // ---- service health (PRD 41)
+  serviceBanner, serviceBannerText, serviceCopyBtn, settingsServices: settingsServicesEl,
+  closeSocket: (code) => { shutdownRequested = false; ws.onclose({ code }); },   // the palette's Shut down above set it
   // ---- context meter (PRD 39)
   chatDot: () => railItems.find(b => b.dataset.view === 'chat').querySelector('.rail-dot').className,
 };
@@ -796,5 +802,36 @@ results.ctx_19 = { status: t.status.textContent, dot: t.chatDot() };
 t.recv({ type: 'thread', text: 'We planned the Falcon sync; open: the budget.' });
 results.thread_divider = t.historyLines().at(-1);
 results.pal_new_topic = runLabel('New topic');
+
+// ---------------------------------------------------------------- scenarios (PRD 41)
+// ---- scenario 4: `services` with asr down → the amber banner + a copy button whose payload is
+// the hint; both ok → hidden; close code 1006 → the red backend banner; Settings rows show
+// dots + times.
+const svcRows = () => t.settingsServices.children.map(r => ({
+  name: r.querySelector('.name').textContent,
+  dot: r.querySelector('.svc-dot').className,
+  value: r.querySelector('.set-value').textContent,
+  copy: r.querySelectorAll('.svc-copy').map(b => b.dataset.copy),
+}));
+const banner = () => ({ hidden: t.serviceBanner.hidden, cls: t.serviceBanner.className,
+                        text: t.serviceBannerText.textContent, copy: t.serviceCopyBtn.dataset.copy });
+results.svc_initial = banner();
+t.recv({ type: 'services', hint: 'scripts/voicebot start',
+         llm: { ok: true, label: 'oMLX :8000', detail: 'model g loaded', checked: '2026-08-30T10:11:12' },
+         asr: { ok: false, label: 'ASR :8020', detail: 'not answering (ConnectionError)', checked: '2026-08-30T10:11:13' } });
+results.svc_asr_down = banner();
+clipboardLog.length = 0;
+t.serviceCopyBtn.dispatch('click');
+results.svc_copied = [...clipboardLog];
+results.svc_rows_down = svcRows();
+t.recv({ type: 'services', hint: 'scripts/voicebot start',
+         llm: { ok: true, label: 'oMLX :8000', detail: 'model g loaded', checked: '2026-08-30T10:11:42' },
+         asr: { ok: true, label: 'ASR :8020', detail: 'answering', checked: '2026-08-30T10:11:43' } });
+results.svc_both_ok = banner();
+results.svc_rows_ok = svcRows();
+t.closeSocket(1006);
+results.svc_backend_down = banner();
+t.closeSocket(4000);                                   // a takeover is not "backend down"
+results.svc_after_4000 = t.status.textContent;
 
 console.log(JSON.stringify(results, null, 1));

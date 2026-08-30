@@ -17,6 +17,9 @@ scripts/prod.sh migrate
 # every release
 scripts/prod.sh build && scripts/prod.sh up     # http://localhost:8010, read-only container, state under /data
 scripts/prod.sh status | logs | down | backup | restore <tgz> <bundle> <dir>
+# the whole stack (PRD 41): starts only what is missing — colima, oMLX, the model, the ASR service, the container
+scripts/voicebot start          # `stop` frees the GPU (container down, ASR unloaded, model unloaded); `--all` also stops oMLX + colima
+scripts/voicebot status         # the one-line-per-service table; `--dev` targets :8011 and skips the container
 ```
 
 ## How to run tests
@@ -30,6 +33,8 @@ python3 -m pytest tests/
 # the PRD 40 docker scenarios (builds voicebot:test-<sha> once — minutes —, boots it on :8013 against a temp data dir under
 # ~/.cache, needs oMLX on :8000 and starts the host ASR service on :8020 if nothing answers there; skips without a daemon)
 python3 -m pytest -m docker tests/prod/test_docker.py -s
+# the PRD 41 docker scenario alone (needs the harness to start the ASR service itself: nothing may answer on :8020 beforehand)
+python3 -m pytest -m docker tests/prod/test_docker.py -k service_banner -s
 # live tests (needs oMLX on :8000)
 python3 -m pytest -m live tests/
 # the PRD 32 live recall check alone (files the two real guides from ~/llm-wiki-dev into a temp vault, prints the Q/A pairs)
@@ -73,7 +78,8 @@ voicebot/
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
 ├── vad.py            # Silero VAD endpointer (hands-free); Recorder is an unused PTT leftover
-├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing
+├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing; `last_error` after a failed remote call (PRD 41)
+├── services.py       # PRD 41: oMLX / ASR health probe (`probe`, `refresh`, 30 s daemon + `recheck` after a failed call), `START_HINT`, the `services` payload
 ├── avatars.py          # avatar profile (Wanko only since PRD 23: name, voice, speed, persona), current/set_current, settings.json persistence
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call (or a `dig_deeper` turn) is in flight, no immediate repeats
@@ -89,7 +95,8 @@ voicebot/
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
 │   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
-│   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT)
+│   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
+│   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API
 │   └── launchd/com.voicebot.asr.plist   # LaunchAgent for asr_server.py
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki editor / Sources / Settings), intake popup, command palette
@@ -153,6 +160,7 @@ voicebot/
 │   │   ├── test_greetings.py        # canned greetings: greet() turn shape, turn ids, no LLM call
 │   │   ├── test_chatbot_speech.py   # speak_stream: mocked Kokoro + WS, wav framing
 │   │   ├── test_text_input.py       # PRD 24: text_turn == spoken turn, `typed:` log line, no `ptt`, client fixture assertions
+│   │   ├── test_service_health.py   # PRD 41: probe() up/down/model-not-loaded (mocked HTTP), one `services` push per change, /api/config.services, turns refused with the hint while the LLM is down + the re-probe hooks, client banner / copy button / Settings rows (fixture)
 │   │   ├── test_error_scopes.py     # scoped `error` messages: one server refusal per scope through the Panel fixture (which asserts a scope on every error), the client routes on `scope` not on the open view
 │   │   └── test_settings_action.py  # set_setting whitelist, /api/config payload, no panel markup in index.html, OPEN_BROWSER flag, PRD 35 location + reverse geocode (one `live` Nominatim test)
 │   ├── ui/
@@ -167,7 +175,8 @@ voicebot/
 │   ├── prod/                    # PRD 40: Docker prod
 │   │   ├── test_data_paths.py       # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
 │   │   ├── test_prod_script.py      # prod.sh migrate moves state into DATA (refuses twice), bash -n, docker compose config
-│   │   └── test_docker.py           # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`)
+│   │   ├── test_voicebot_script.py  # PRD 41 scenario 5: scripts/voicebot against stubbed colima/omlx/launchctl/docker/curl — start touches only what is down, stop order, --all, status --dev
+│   │   └── test_docker.py           # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`); PRD 41 scenario 6: the amber banner data while the host ASR service is stopped
 │   └── e2e/                     # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`
 ├── requirements.txt
 ├── requirements-docker.txt   # PRD 40: requirements minus mlx-whisper/playwright/pytest (torch from the CPU index)
@@ -217,6 +226,7 @@ voicebot/
     ├── 37-wikipedia-routing.md   # PRD: get_wikipedia tool + routing between own knowledge / local base / Wikipedia offer (done)
     ├── 38-focus-context.md       # PRD: the open wiki/source page rides on the turn (head + matching section), find/open from chat, go back (done)
     ├── 39-context-meter.md       # PRD: context meter + 75/90 % warnings, recall stripping, explicit "new topic" with a visible summary (done)
+    ├── 41-service-health.md      # PRD: service health banner + Settings rows, scripts/voicebot start/stop/status (refactoring)
 ```
 
 ## Active PRDs
@@ -257,7 +267,7 @@ voicebot/
 - [38-focus-context.md](38-focus-context.md) — focus context: `set_focus` from the UI, the open page attached to each turn as a capped document block (head + best-matching section), deterministic find/open with `wiki_open`, last-page memory for "go back" (done)
 - [39-context-meter.md](39-context-meter.md) — context meter (`context` message, rail dot, 90 % spoken nudge), recall blocks stripped after their turn, explicit `new_topic` that folds memory first and restarts with a visible `<earlier>` summary divider (done)
 - [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/docker-data/voicebot` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore; runbook in [deploy.md](deploy.md) (done)
-- [41-service-health.md](41-service-health.md) — server-side probes of oMLX / ASR pushed as `services`, UI banner + Settings rows with a copy-the-command button, turns refused with the hint while the LLM is down, `scripts/voicebot start` (starts only what is missing) / `stop` (container down, ASR unloaded, Gemma unloaded via the oMLX admin API) / `status` (implementation)
+- [41-service-health.md](41-service-health.md) — server-side probes of oMLX / ASR pushed as `services`, UI banner + Settings rows with a copy-the-command button, turns refused with the hint while the LLM is down, `scripts/voicebot start` (starts only what is missing) / `stop` (container down, ASR unloaded, Gemma unloaded via the oMLX admin API) / `status` (refactoring)
 
 ## Research
 

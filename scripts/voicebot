@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# One entry point for the whole stack (docs/41-service-health.md):
+#   voicebot start [--dev] | stop [--all] [--dev] | status [--dev]
+# Env: OMLX_BASE_URL, OMLX_MODEL, OMLX_API_KEY, OMLX_ADMIN_PASSWORD, ASR_URL, PROD_PORT, DEV_PORT,
+#      OMLX_BIN, ASR_PLIST, ASR_LABEL. Loads $ROOT/.env (or $VOICEBOT_ENV) if present.
+set -euo pipefail
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+
+usage() { echo "usage: scripts/voicebot start [--dev] | stop [--all] [--dev] | status [--dev]" >&2; }
+
+CMD=${1:-}
+[ -n "$CMD" ] || { usage; exit 1; }
+shift || true
+
+DEV=0
+ALL=0
+for arg in "$@"; do
+  case "$arg" in
+    --dev) DEV=1 ;;
+    --all) ALL=1 ;;
+    *) usage; exit 1 ;;
+  esac
+done
+
+case "$CMD" in
+  start|stop|status) ;;
+  *) usage; exit 1 ;;
+esac
+[ "$CMD" = "stop" ] || [ "$ALL" -eq 0 ] || { usage; exit 1; }
+
+ENV_FILE=${VOICEBOT_ENV:-$ROOT/.env}
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+OMLX_BASE_URL=${OMLX_BASE_URL:-http://localhost:8000/v1}
+OMLX_MODEL=${OMLX_MODEL:-gemma-4-26b}
+OMLX_API_KEY=${OMLX_API_KEY:-}
+OMLX_ADMIN_PASSWORD=${OMLX_ADMIN_PASSWORD:-}
+ASR_URL=${ASR_URL:-http://127.0.0.1:8020}
+PROD_PORT=${PROD_PORT:-8010}
+DEV_PORT=${DEV_PORT:-8011}
+OMLX_BIN=${OMLX_BIN:-$HOME/.omlx/bin/omlx}
+ASR_PLIST=${ASR_PLIST:-$HOME/Library/LaunchAgents/com.voicebot.asr.plist}
+ASR_LABEL=${ASR_LABEL:-com.voicebot.asr}
+
+HOST=${OMLX_BASE_URL%/v1}
+
+COOKIE=$(mktemp)
+cleanup() { rm -f "$COOKIE"; }
+trap cleanup EXIT
+
+on_omlx_host() {
+  case "$1" in
+    "$HOST"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+http_get() {
+  local url=$1
+  if on_omlx_host "$url" && [ -n "$OMLX_API_KEY" ]; then
+    curl -fsS -m 5 -H "Authorization: Bearer $OMLX_API_KEY" "$url"
+  else
+    curl -fsS -m 5 "$url"
+  fi
+}
+
+http_post() {
+  local url=$1
+  local args=(-fsS -m 120 -X POST)
+  if on_omlx_host "$url" && [ -n "$OMLX_API_KEY" ]; then
+    args+=(-H "Authorization: Bearer $OMLX_API_KEY")
+  fi
+  if [ -s "$COOKIE" ]; then
+    args+=(-b "$COOKIE")
+  fi
+  curl "${args[@]}" "$url"
+}
+
+colima_running() { colima status > /dev/null 2>&1; }
+omlx_up() { http_get "$HOST/health" > /dev/null 2>&1; }
+model_loaded() { http_get "$OMLX_BASE_URL/models" 2>/dev/null | grep -q "\"id\":\"$OMLX_MODEL\""; }
+asr_up() { http_get "$ASR_URL/health" > /dev/null 2>&1; }
+app_up() { http_get "http://127.0.0.1:$PORT/api/config" > /dev/null 2>&1; }
+
+wait_for() {  # wait_for <check-fn> <seconds>
+  local fn=$1 deadline=$((SECONDS + $2))
+  until "$fn"; do
+    [ $SECONDS -lt "$deadline" ] || return 1
+    sleep 2
+  done
+}
+
+# admin_post <url>: bearer key first, then password login + cookie retry. Returns 0/1.
+admin_post() {
+  local url=$1
+  if http_post "$url" > /dev/null 2>&1; then
+    return 0
+  fi
+  if [ -n "$OMLX_ADMIN_PASSWORD" ]; then
+    if curl -fsS -m 10 -c "$COOKIE" -X POST -H 'Content-Type: application/json' \
+        -d "{\"password\":\"$OMLX_ADMIN_PASSWORD\"}" "$HOST/admin/api/login" > /dev/null 2>&1; then
+      if http_post "$url" > /dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+if [ "$DEV" -eq 1 ]; then
+  PORT=$DEV_PORT
+else
+  PORT=$PROD_PORT
+fi
+
+do_start() {
+  if [ "$DEV" -eq 0 ]; then
+    if ! colima_running; then
+      colima start
+    fi
+  fi
+
+  if ! omlx_up; then
+    "$OMLX_BIN" start
+    wait_for omlx_up 120 || true
+  fi
+
+  if omlx_up && ! model_loaded; then
+    if ! admin_post "$HOST/admin/api/models/$OMLX_MODEL/load"; then
+      echo "could not load $OMLX_MODEL through the admin API — open $HOST (dashboard) or just send a turn: oMLX loads on first request"
+    fi
+  fi
+
+  if ! asr_up; then
+    if [ ! -f "$ASR_PLIST" ]; then
+      cp "$ROOT/scripts/launchd/com.voicebot.asr.plist" "$ASR_PLIST"
+    fi
+    if launchctl list 2>/dev/null | grep -q "$ASR_LABEL"; then
+      launchctl kickstart -k "gui/$(id -u)/$ASR_LABEL"
+    else
+      launchctl load "$ASR_PLIST"
+    fi
+    wait_for asr_up 60 || true
+  fi
+
+  if [ "$DEV" -eq 1 ]; then
+    if ! app_up; then
+      echo "dev app on :$DEV_PORT is not running — start it from the checkout (python3 chatbot.py)"
+    fi
+  else
+    if ! app_up; then
+      "$ROOT/scripts/prod.sh" up
+      wait_for app_up 120 || true
+    fi
+  fi
+
+  print_table
+}
+
+do_stop() {
+  if [ "$DEV" -eq 0 ]; then
+    "$ROOT/scripts/prod.sh" down
+  fi
+
+  if [ -f "$ASR_PLIST" ]; then
+    launchctl unload "$ASR_PLIST" || true
+  fi
+
+  if ! admin_post "$HOST/admin/api/models/$OMLX_MODEL/unload"; then
+    echo "could not unload $OMLX_MODEL — oMLX left running; open $HOST"
+  fi
+
+  if [ "$ALL" -eq 1 ]; then
+    "$OMLX_BIN" stop
+    colima stop
+  fi
+
+  print_table
+}
+
+print_table() {
+  printf '%-10s %s\n' "service" "state"
+  if [ "$DEV" -eq 1 ]; then
+    printf '%-10s %s\n' "colima" "skipped"
+  elif colima_running; then
+    printf '%-10s %s\n' "colima" "running"
+  else
+    printf '%-10s %s\n' "colima" "stopped"
+  fi
+
+  if omlx_up; then
+    printf '%-10s %s\n' "omlx" "up $HOST"
+  else
+    printf '%-10s %s\n' "omlx" "down $HOST"
+  fi
+
+  if omlx_up && model_loaded; then
+    printf '%-10s %s\n' "model" "loaded $OMLX_MODEL"
+  else
+    printf '%-10s %s\n' "model" "not loaded $OMLX_MODEL"
+  fi
+
+  if asr_up; then
+    printf '%-10s %s\n' "asr" "up $ASR_URL"
+  else
+    printf '%-10s %s\n' "asr" "down $ASR_URL"
+  fi
+
+  local kind="container"
+  [ "$DEV" -eq 0 ] || kind="dev"
+  if app_up; then
+    printf '%-10s %s\n' "app" "up $kind http://localhost:$PORT"
+  else
+    printf '%-10s %s\n' "app" "down $kind http://localhost:$PORT"
+  fi
+}
+
+case "$CMD" in
+  start)  do_start ;;
+  stop)   do_stop ;;
+  status) print_table ;;
+esac

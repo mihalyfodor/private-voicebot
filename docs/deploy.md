@@ -39,6 +39,22 @@ scripts/prod.sh up                 # http://localhost:8010 (healthcheck: `docker
 
 ## Daily
 
+The whole stack in one go (PRD 41) — a checklist, not a supervisor: running things are left alone.
+
+```bash
+scripts/voicebot start        # colima → oMLX (~/.omlx/bin/omlx start) → the model (admin API load) → ASR (launchd) → container; then the table
+scripts/voicebot status       # the table only: colima / omlx / model / asr / app
+scripts/voicebot stop         # container down, ASR service unloaded, the model unloaded from oMLX (oMLX itself keeps running)
+scripts/voicebot stop --all   # ... and `omlx stop` + `colima stop`
+scripts/voicebot start --dev  # skips colima + the container and looks at the dev app on :8011 (does not start it)
+```
+
+`scripts/prod.sh start` / `stop` are the same commands. The model load/unload goes through the oMLX admin API: the
+`OMLX_API_KEY` bearer is tried first, then `/admin/api/login` with `OMLX_ADMIN_PASSWORD` when it is set in `.env`; when
+neither is accepted the script prints the dashboard URL and carries on (oMLX loads the model on the first request anyway;
+`stop` then leaves it loaded and says so). `START_HINT` (default `scripts/voicebot start`) is what the UI banner tells the
+user to run when a service is down.
+
 | command | what it does |
 |---|---|
 | `scripts/prod.sh up` / `down` | start / stop the container (`restart: unless-stopped` survives reboots) |
@@ -50,6 +66,15 @@ scripts/prod.sh up                 # http://localhost:8010 (healthcheck: `docker
 
 Env knobs: `DATA` (default `~/docker-data/voicebot`), `TAG` (image tag), `PROD_PORT` (host port),
 `PROJECT` (compose project), `BACKUP_DIR`, `RESTORE_PORT`.
+
+## When something is down
+
+The app probes oMLX (`/health`, then `/v1/models` for the configured model) and the ASR service (`/health`) every 30 s
+and right after a failed call. A down service is an amber banner at the top of the workspace naming it ("LLM offline
+(oMLX :8000)", "voice input offline (ASR :8020)") with a copy button for the start command; typed and spoken turns are
+refused with the same hint while the LLM is down (the wiki and sources keep working). Settings › Services lists each
+service with a dot and its last check time. When the app itself is gone the page shows the red "backend is not running"
+banner and keeps retrying the socket.
 
 ## Notes
 

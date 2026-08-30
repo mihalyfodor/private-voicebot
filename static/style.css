@@ -146,6 +146,19 @@ main {
   display: flex; flex-direction: column;
 }
 
+/* PRD 41: the service banner sits at the top of the workspace in every view */
+#service-banner {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 12px;
+  margin: 8px 12px 0; padding: 6px 10px; border-radius: 6px;
+  font-size: 12px; letter-spacing: 0.02em;
+  background: rgba(217,155,74,0.18); border: 1px solid rgba(217,155,74,0.6); color: #f2d9b3;
+}
+#service-banner[hidden] { display: none; }
+#service-banner.down { background: rgba(217,74,74,0.18); border-color: rgba(217,74,74,0.6); color: #f7c9c9; }
+#service-banner-text { flex: 1 1 auto; min-width: 0; }
+.svc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #d94a4a; }
+.svc-dot.ok { background: #3fae3f; }
+
 .view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .view[hidden] { display: none; }
 #chat-slot { flex: 1 1 auto; min-height: 0; display: flex; }

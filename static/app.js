@@ -88,6 +88,91 @@ const micBtn = document.getElementById('mic-btn');
 const muteBtn = document.getElementById('mute-btn');
 const listeningDot = document.getElementById('listening-dot');
 const handsFreeToggle = document.getElementById('hands-free-toggle');   // Settings' copy of the mic switch
+// ---------- service health (PRD 41) ----------
+// The server probes oMLX / ASR and pushes `services {llm, asr, hint}` on change (`/api/config`
+// carries the last probe); the socket closing abnormally is the backend itself being gone.
+const serviceBanner = document.getElementById('service-banner');
+const serviceBannerText = document.getElementById('service-banner-text');
+const serviceCopyBtn = document.getElementById('service-copy');
+const settingsServicesEl = document.getElementById('settings-services');
+const SERVICE_NAMES = { llm: 'LLM', asr: 'voice input' };
+const SERVICE_ROWS = { llm: ['LLM', 'oMLX answers the turns'], asr: ['Voice input', 'the speech service the mic goes to'] };
+let services = {};              // the last `services` message: { llm, asr, hint }
+let backendDown = false;        // the websocket closed for a reason other than a takeover / refusal
+
+function serviceHint() { return services.hint || 'scripts/voicebot start'; }
+
+// The one copy action: the button's `data-copy` is the command; the label flashes "copied".
+function copyCommand(btn) {
+  const text = btn.dataset.copy;
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+  const was = btn.textContent;
+  btn.textContent = 'copied';
+  setTimeout(() => { btn.textContent = was; }, 1200);
+}
+serviceCopyBtn.addEventListener('click', () => copyCommand(serviceCopyBtn));
+
+function copyChip(hint) {
+  const b = document.createElement('button');
+  b.className = 'chip svc-copy';
+  b.dataset.copy = hint;
+  b.title = 'Copy the command';
+  b.textContent = '⧉ copy';
+  b.addEventListener('click', () => copyCommand(b));
+  return b;
+}
+
+function renderServices() {
+  const hint = serviceHint();
+  const down = Object.keys(SERVICE_NAMES).filter(k => services[k] && services[k].ok === false);
+  serviceCopyBtn.dataset.copy = hint;
+  if (backendDown) {
+    serviceBannerText.textContent = `${avatarName}'s backend is not running — run: ${hint}`;
+    serviceBanner.className = 'down';
+    serviceBanner.hidden = false;
+  } else if (down.length) {
+    const what = down.map(k => `${SERVICE_NAMES[k]} offline (${services[k].label})`).join(' · ');
+    serviceBannerText.textContent = `${what} — run: ${hint}`;
+    serviceBanner.className = 'degraded';
+    serviceBanner.hidden = false;
+  } else {
+    serviceBanner.hidden = true;
+  }
+  // Settings › Services: one row per service, a dot, what was seen and when, the copy chip when down
+  const rows = Object.keys(SERVICE_ROWS).map(k => {
+    const svc = services[k];
+    const row = document.createElement('div');
+    row.className = 'set-row svc-row';
+    const label = document.createElement('span');
+    label.className = 'set-label';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = SERVICE_ROWS[k][0];
+    const desc = document.createElement('span');
+    desc.className = 'desc';
+    desc.textContent = svc ? svc.label : SERVICE_ROWS[k][1];
+    label.append(name, desc);
+    const ctl = document.createElement('span');
+    ctl.className = 'set-ctl';
+    const dot = document.createElement('span');
+    dot.className = 'svc-dot' + (svc && svc.ok ? ' ok' : '');
+    const value = document.createElement('span');
+    value.className = 'set-value';
+    value.textContent = svc ? `${svc.detail} · checked ${(svc.checked || '').slice(11, 19)}` : 'not checked yet';
+    ctl.append(dot, value);
+    if (svc && svc.ok === false) ctl.append(copyChip(hint));
+    row.append(label, ctl);
+    return row;
+  });
+  settingsServicesEl.replaceChildren(...rows);
+}
+
+function setServices(msg) {
+  services = { ...msg };
+  delete services.type;
+  renderServices();
+}
+
 let shutdownRequested = false;
 function showShutdownScreen() {
   avatar.onShutdown();   // PRD 27: settle into the slow breathing idle, lid closing
@@ -386,11 +471,13 @@ const avatar = {
       renderRecallMinScore(cfg.recall_min_score);
       renderLocation(cfg.location);
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
+      services = cfg.services || {};
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
     renderVerbosity();
     renderBackdropList();
     renderWikiPanel();
+    renderServices();
     renderComposer();
 
     if (!window.PIXI || !PIXI.live2d) { avatarNote.hidden = false; return; }
@@ -2591,10 +2678,12 @@ function connect() {
       else if (msg.key === 'location') renderLocation(msg.value);
     }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
+    else if (msg.type === 'services') setServices(msg);
     else if (msg.type === 'error') showError(msg);
   };
 
   ws.onopen = () => {
+    if (backendDown) { backendDown = false; renderServices(); }
     renderComposer();
     focusSent = '';            // a (re)connected server starts on Chat: tell it where we are
     sendFocus();
@@ -2617,6 +2706,8 @@ function connect() {
       return; // do not auto-reconnect: this origin will never be accepted
     }
     status.textContent = 'disconnected — retrying...';
+    backendDown = true;          // PRD 41: the red banner with the start command
+    renderServices();
     setTimeout(connect, 2000);
   };
 }
