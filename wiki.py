@@ -37,7 +37,8 @@ RECURRING_FILE = "recurring.md"          # where archived `recurring` profile en
 #: where the assistant may file pages; the user may also use any other single-level folder
 FOLDERS = ("people", "projects", "meetings", "sources", "notes")
 
-#: raw sources (PRD 20) live here: immutable originals, never pages, never indexed
+#: raw sources (PRD 20) live here: immutable originals, never pages; text-kind ones are
+#: chunk-indexed for recall (PRD 32), never ingested as pages
 RAW_DIR = "raw"
 RAW_SUBDIRS = ("inbox", "screens", "email", "news")
 #: per-sha chunk cache for search inside sources (PRD 32); gitignored, rebuilt on demand
@@ -1014,19 +1015,13 @@ def _chunk_corpus() -> list:
     entries = [e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)]
     sig = (WIKI_PATH, tuple(sorted((e["sha256"], e["path"]) for e in entries)))
     if _chunk_cache["sig"] != sig:
-        docs, seen, titled = [], Counter(), Counter()
+        docs = []
         for entry in entries:
             record = raw_chunks(entry["path"])
             total = len(record["chunks"])
-            for c in record["chunks"]:
-                docs.append((record["source"], record["raw"], record["title"], c["n"], total,
-                             c["text"], _tokenise(c["text"])))
-                for m in _WORD.finditer(c["text"]):
-                    word = m.group()
-                    seen[_stem(word.lower())] += 1
-                    if _proper_noun(c["text"], m):
-                        titled[_stem(word.lower())] += 1
-        _chunk_cache["proper"] = {w: titled[w] / seen[w] for w in titled}
+            docs += [(record["source"], record["raw"], record["title"], c["n"], total,
+                      c["text"], _tokenise(c["text"])) for c in record["chunks"]]
+        _chunk_cache["proper"] = _proper_ratios(text for *_, text, _ in docs)
         _chunk_cache["sig"], _chunk_cache["docs"] = sig, docs
     return _chunk_cache["docs"]
 
@@ -1038,6 +1033,18 @@ def _proper_noun(text: str, m) -> bool:
         return False
     prev = text[:m.start()].rstrip()[-1:]
     return prev.isalnum() or prev in ",;:"
+
+
+def _proper_ratios(texts) -> dict:
+    """stem -> share of its occurrences that are proper nouns, over every chunk text."""
+    seen, titled = Counter(), Counter()
+    for text in texts:
+        for m in _WORD.finditer(text):
+            stem = _stem(m.group().lower())
+            seen[stem] += 1
+            if _proper_noun(text, m):
+                titled[stem] += 1
+    return {w: titled[w] / seen[w] for w in titled}
 
 
 def _term_weights(terms: set) -> dict:
