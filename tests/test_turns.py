@@ -83,7 +83,7 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
     sent = []
     sess = Session(websocket=object())  # truthy socket → the playback wait is real
 
-    def fake_ask_events(user_text, origin="user"):
+    def fake_ask_events(user_text, origin="user", note=""):
         llm._conversation.append({"role": "user", "content": user_text})
         reply = f"[happy] Answer to {user_text}."
         yield ("delta", reply)

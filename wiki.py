@@ -1140,6 +1140,63 @@ def page_text(path: str) -> str | None:
     return _read(rel)
 
 
+
+# --- focus context (docs/38-focus-context.md) ----------------------------------------
+# The open page rides on the turn as its head plus the one `##` section (or, for a source,
+# the one raw chunk) that best matches the question — BM25 with the same tokeniser as search.
+
+_H2 = re.compile(r"^## .*$", re.M)
+
+
+def page_title(path: str) -> str:
+    """The `name:` of a page (its file stem when it has none); "" for an unknown path."""
+    text = page_text(path)
+    if text is None:
+        return ""
+    fm, _ = parse_page(text)
+    return str(fm.get("name") or os.path.basename(normalise_path(path, user=True) or path))
+
+
+def split_sections(body: str) -> tuple:
+    """``(head, [section, ...])``: the text before the first `## ` heading and each `##`
+    section with its heading line (the page's frontmatter is not part of `body`)."""
+    starts = [m.start() for m in _H2.finditer(body)]
+    if not starts:
+        return body.strip(), []
+    head = body[:starts[0]].strip()
+    ends = starts[1:] + [len(body)]
+    return head, [body[a:b].strip() for a, b in zip(starts, ends)]
+
+
+def best_section(sections: list, question: str) -> str | None:
+    """The section that scores best for `question`; None with fewer than two sections or
+    when no content word of the question occurs in any of them."""
+    terms = content_terms(question)
+    if len(sections) < 2 or not terms:
+        return None
+    scores = _bm25([_tokenise(s) for s in sections], terms)
+    best = max(range(len(sections)), key=lambda i: (scores[i], -i))
+    return sections[best] if scores[best] > 0 else None
+
+
+def best_chunk(path: str, question: str) -> dict | None:
+    """The raw chunk of source page `path` that scores best for `question` as
+    ``{title, n, total, text}``; None for a page without raw text or when nothing matches."""
+    try:
+        record = raw_chunks(path)
+    except KeyError:
+        return None
+    chunks, terms = record["chunks"], content_terms(question)
+    if not chunks or not terms:
+        return None
+    scores = _bm25([_tokenise(c["text"]) for c in chunks], terms)
+    best = max(range(len(chunks)), key=lambda i: (scores[i], -i))
+    if scores[best] <= 0:
+        return None
+    return {"title": record["title"], "n": chunks[best]["n"], "total": len(chunks),
+            "text": chunks[best]["text"]}
+
+
 _LINK = re.compile(r"\[\[([^\]|#]+)")
 
 

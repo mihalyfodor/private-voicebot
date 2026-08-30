@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 38 — Focus context: Wanko knows what you are looking at
 
@@ -23,13 +23,17 @@ opening pages from chat is deterministic, followed by a short comment from Wanko
 
 ## Technical approach
 - Client → server `set_focus {view, path?}` from `setView` and whenever a wiki/source page is opened or closed.
-  Server keeps `focus = {view, path}` and `last_page = path` (module state beside `hands_free`).
-- Per turn (typed and spoken, before recall): if `focus.view ∈ {wiki, sources}` and a path is set, build
-  `focus_block(question)`: `untrusted(text, title)` where text = page head (frontmatter stripped, ≤ 500 tokens) +
-  the best-matching `##` section for the question (BM25 over the page's sections with the shared tokeniser;
-  ≤ 700 tokens; skipped when nothing matches or the page has one section) — total ≤ 1200 tokens via `_fit`; plus
+  Server keeps `focus = {view, path}` and `last_page = path` (module state in `llm.py`, where the turn is
+  assembled; `chatbot.py`'s `set_focus` action writes it).
+- Per turn (typed and spoken, in place of recall): if `focus.view ∈ {wiki, sources}` and a path is set, build
+  `focus_block(question)`: `untrusted(text, title)` where text = page head (frontmatter stripped; the text before
+  the first `##` plus the `## Summary` section, which is where the schema keeps a page's gist; ≤ 500 tokens) +
+  the best-matching `##` section for the question (BM25 over the page's other sections with the shared tokeniser;
+  ≤ 700 tokens; skipped when nothing matches or there is no second section) — total ≤ 1200 tokens via `_fit`; plus
   the note "The user has «<title>» open; 'this / it / the page' means that page. Answer from it; if the answer is not
-  in it, say so." Memory view: note only ("the user is in the Memory editor"). Chat view: no block; recall as today.
+  in it, say so." In the Sources view the section is the source's best-matching raw chunk instead (same BM25),
+  recorded in `_turn_sources` so the dig-deeper offer works. Memory view: note only ("The user is in the Memory
+  editor."), recall as today. Chat view: no block; recall as today.
 - Focus rides on the user message like recall (`_session_turns` keep the bare text); `_note_documents` attribution
   applies (PRD 33).
 - Deterministic find/open in `_action_text_turn` and the voice path: regexes `(find|open|show( me)?) (the )?(page|note|

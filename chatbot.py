@@ -1,4 +1,5 @@
 import os
+import re
 import io
 import json
 import signal
@@ -323,17 +324,62 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
     send_sync({"type": "state", "value": "idle"})
 
 
+# --- find / open pages from chat (docs/38-focus-context.md) ---------------------------
+# Deterministic, not NLU: two phrasings, matched on the whole turn, typed or spoken.
+_OPEN_PAGE = re.compile(
+    r"^(?:please\s+)?(?:find|open|show(?:\s+me)?)\s+(?:the\s+|a\s+)?(?:(?:wiki\s+)?(?:page|note|source)\s+)?"
+    r"(?:(?:about|on|for)\s+)?(?P<query>.+?)[\s?.!]*$", re.I)
+_BACK_TO_PAGE = re.compile(
+    r"^(?:(?:go|take me)\s+)?back\s+to\s+(?:that|the\s+last|the)\s+page[\s?.!]*$"
+    r"|^what\s+were\s+we\s+looking\s+at[\s?.!]*$", re.I)
+
+
+def page_command(text: str):
+    """``("open", query)``, ``("back", None)`` or None for a turn that is not a page command."""
+    text = " ".join(str(text or "").split())
+    if _BACK_TO_PAGE.match(text):
+        return ("back", None)
+    m = _OPEN_PAGE.match(text)
+    if m and m.group("query"):
+        return ("open", m.group("query"))
+    return None
+
+
+def open_page_for(text: str, send_sync) -> str:
+    """Open the page a find/open/go-back turn asks for and return the one-turn note for the model.
+
+    Pushes `wiki_open {path}` and sets the focus; "" when the turn is not a page command.
+    """
+    cmd = page_command(text)
+    if cmd is None:
+        return ""
+    kind, query = cmd
+    if kind == "back":
+        path, query = llm.last_page, "the last page"
+    else:
+        hits = wiki.search(query, 1)
+        path = hits[0]["path"] if hits else None
+    if not path:
+        return llm.NO_MATCH_NOTE.format(query=query)
+    title = wiki.page_title(path) or path
+    send_sync({"type": "wiki_open", "path": path})
+    llm.set_focus("sources" if path.startswith("sources/") else "wiki", path)
+    return llm.OPENED_NOTE.format(title=title)
+
+
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """LLM → sentence-streamed TTS → wait for browser playback → idle.
 
     The one reply path: a typed turn and a transcribed one differ only in `origin`, which
     tags the session log line ("user" spoken, "typed" from the composer); the conversation,
     tools and memory see them identically. Always ends in the idle state, errors included.
+    A find/open/go-back turn first opens the page (PRD 38), then reaches the model with a note.
     """
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        reply = speak_stream(llm.ask_events(user_text, origin=origin), send_sync)
+        note = open_page_for(user_text, send_sync)
+        reply = speak_stream(llm.ask_events(user_text, origin=origin, note=note), send_sync)
         print(f"Bot: {reply}")
         send_sync({"type": "transcript", "role": "assistant", "text": reply})
         _wait_for_playback_then_idle(sess, send_sync)
@@ -574,6 +620,11 @@ async def _action_text_turn(sess, msg, loop):
     text = (msg.get("text") or "").strip()
     if text:
         submit_turn(handle_text, text, loop)
+
+
+async def _action_set_focus(sess, msg, loop):
+    """`{view, path?}` from the client whenever the view or the open page changes (PRD 38)."""
+    llm.set_focus(str(msg.get("view") or "chat"), msg.get("path"))
 
 
 async def _action_set_hands_free(sess, msg, loop):
@@ -904,6 +955,7 @@ async def _action_shutdown(sess, msg, loop):
 
 ACTIONS = {
     "text_turn": _action_text_turn,
+    "set_focus": _action_set_focus,
     "set_hands_free": _action_set_hands_free,
     "playback_done": _action_playback_done,
     "playback_blocked": _action_playback_blocked,

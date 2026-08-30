@@ -318,7 +318,8 @@ def test_alias_link_renders_the_alias_and_navigates_to_the_page(fixture_render):
 
 def test_red_link_click_confirms_then_sends_wiki_create(fixture_render):
     r = fixture_render
-    assert r["wiki_create_sent"] == [{"action": "wiki_create", "path": "people/missing"}]
+    sent = [m for m in r["wiki_create_sent"] if m["action"] != "set_focus"]   # PRD 38 rides along
+    assert sent == [{"action": "wiki_create", "path": "people/missing"}]
     assert r["wiki_create_confirm"] == 1
 
 
@@ -340,10 +341,11 @@ def test_editor_saves_with_the_etag_and_handles_a_conflict(fixture_render):
 
 def test_today_new_page_and_search_send_their_actions(fixture_render):
     r = fixture_render
-    assert r["wiki_tools_sent"][0]["action"] == "wiki_create"
-    assert r["wiki_tools_sent"][0]["path"].startswith("meetings/20")
-    assert r["wiki_tools_sent"][1:] == [{"action": "wiki_create", "path": "notes/scratch"},
-                                        {"action": "wiki_search", "query": "atlas"}]
+    sent = [m for m in r["wiki_tools_sent"] if m["action"] != "set_focus"]   # PRD 38 rides along
+    assert sent[0]["action"] == "wiki_create"
+    assert sent[0]["path"].startswith("meetings/20")
+    assert sent[1:] == [{"action": "wiki_create", "path": "notes/scratch"},
+                        {"action": "wiki_search", "query": "atlas"}]
     assert r["wiki_search_rows"] == ["# results", "Atlas"]
 
 

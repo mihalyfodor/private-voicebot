@@ -55,7 +55,7 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
     """Only the ASR half and the echoed user transcript differ; the reply path is identical."""
     origins = []
 
-    def fake_ask_events(user_text, origin="user"):
+    def fake_ask_events(user_text, origin="user", note=""):
         origins.append((user_text, origin))
         yield ("delta", "[happy] Answer.")
 

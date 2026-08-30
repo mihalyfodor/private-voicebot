@@ -18,6 +18,7 @@ action name, plus `action`).
 |---|---|---|
 | `text_turn` | `text` | a full turn: `transcript` (user), `state` thinking/speaking, `speech`…, `speech_end`, `transcript` (assistant), `state` idle |
 | `set_hands_free` | `value` (bool) | `hands_free`, then `listening` idle when switched off |
+| `set_focus` | `view`, `path?` | none — the server remembers what the user is looking at (PRD 38): a page in Wiki / Sources rides on the next turns, Chat drops it |
 | `playback_done` | `turn` | none — releases the worker waiting for playback (stale turn ids ignored) |
 | `playback_blocked` | `turn` | same as `playback_done` (autoplay refused; audio plays after the next gesture) |
 | `set_backdrop` | `key` | `backdrop`, or `error` (settings) for an unknown key |
@@ -69,6 +70,7 @@ turn id from `state` and answers `playback_done` with it. On connect the server 
 | `memory_saving` | `value` | composer status while a background save runs |
 | `wiki` | `pages`, `lint`, `vault` | `setWiki` — the page list (+ the palette) |
 | `wiki_page` | `path`, `text`, `links`, `etag`, `backlinks` | `setWikiPage` — the pane / editor |
+| `wiki_open` | `path` | `openFromServer` — a "find / open / go back" turn: selects the page, switches to Wiki (Sources for a source page); the focus is already set, so no `set_focus` goes back |
 | `wiki_conflict` | `path`, `text`, `etag` | `setWikiConflict` — the etag conflict dialog |
 | `wiki_search` | `query`, `hits` | `setWikiSearch` |
 | `sources` | `sources` | `setSources` — the inbox rows, the rail badge, clears `sourcesBusy` |

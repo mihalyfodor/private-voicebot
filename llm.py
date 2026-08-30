@@ -388,6 +388,66 @@ AFFIRMATIVE_MAX_WORDS = 6
 _SNIPPET_PART = re.compile(r"^(.+?) · part (\d+)/\d+ \(([^)]+)\)", re.M)
 
 
+# --- focus context (docs/38-focus-context.md) ----------------------------------------
+FOCUS_HEAD_TOKENS = 500
+FOCUS_SECTION_TOKENS = 700
+FOCUS_MAX_TOKENS = 1200
+FOCUS_NOTE = ("The user has «{title}» open; 'this / it / the page' means that page. Answer from it; "
+              "if the answer is not in it, say so.")
+MEMORY_FOCUS_NOTE = "The user is in the Memory editor."
+OPENED_NOTE = ("You just opened «{title}» for the user; add one short remark about it (one sentence), "
+               "then stop.")
+NO_MATCH_NOTE = "No page matched «{query}»; say so briefly."
+#: what the UI is looking at (`set_focus`) and the page it last had open; never persisted
+focus = {"view": "chat", "path": None}
+last_page: str | None = None
+
+
+def set_focus(view: str, path=None) -> None:
+    """Record the client's view and open page; a page in the Wiki / Sources view becomes `last_page`."""
+    global last_page
+    path = str(path or "").strip() or None
+    focus["view"], focus["path"] = str(view or "chat"), path
+    if view in ("wiki", "sources") and path:
+        last_page = path
+
+
+def focus_block(question: str) -> str:
+    """The `<document>` block for the page the user is looking at, or "".
+
+    Wiki / Sources view with a page: its head (≤ FOCUS_HEAD_TOKENS) and the `##` section — for a
+    source, the raw chunk — that best matches `question` (≤ FOCUS_SECTION_TOKENS), together within
+    FOCUS_MAX_TOKENS, wrapped as untrusted text plus FOCUS_NOTE. Any other view: "".
+    """
+    view, path = focus["view"], focus["path"]
+    if view not in ("wiki", "sources") or not path:
+        return ""
+    text = wiki.page_text(path)
+    if text is None:
+        return ""
+    fm, body = wiki.parse_page(text)
+    title = str(fm.get("name") or path.rsplit("/", 1)[-1])
+    head, sections = wiki.split_sections(body)
+    # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
+    summary = next((s for s in sections if s.startswith("## Summary")), None)
+    if summary:
+        head, sections = head + "\n\n" + summary, [s for s in sections if s is not summary]
+    parts = _fit([head], FOCUS_HEAD_TOKENS, "")
+    chunk = wiki.best_chunk(path, question) if view == "sources" else None
+    if chunk:
+        _turn_sources.append((path, chunk["title"], chunk["n"]))
+        section = f'Part {chunk["n"]}/{chunk["total"]}: {chunk["text"]}'
+    else:
+        section = wiki.best_section(sections, question)
+    if section:
+        parts += _fit([section], FOCUS_SECTION_TOKENS, "")
+    note = FOCUS_NOTE.format(title=title)
+    kept = _fit(["\n\n".join(p for p in parts if p)], FOCUS_MAX_TOKENS, note)
+    if not kept or not kept[0].strip():
+        return "\n\n" + note
+    return "\n\n" + untrusted(kept[0], title) + "\n" + note
+
+
 def is_affirmative(text: str) -> bool:
     """"yes", "yes please", "go on", "dig deeper", "sure, do it" — ≤ 6 words, nothing else in it."""
     words = re.findall(r"[a-z]+", text.lower())
@@ -508,11 +568,12 @@ def recall_for(user_text: str) -> str:
     return "\n\n<recall>\n" + "\n\n".join(blocks) + f"\n{note}\n</recall>"
 
 
-def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, object]]:
+def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks.
 
     `origin` only reaches the session log line; the conversation and memory see typed
-    and spoken input identically (PRD 24).
+    and spoken input identically (PRD 24). `note` is a one-turn system remark (a page was
+    just opened for the user, PRD 38) appended to this turn's user message only.
     """
     global _last_tool_calls, _deeper_offer, _turn_sources
 
@@ -526,7 +587,12 @@ def ask_events(user_text: str, origin: str = "user") -> Iterator[tuple[str, obje
     _turn_sources = [(offer["source"], offer["title"], p) for p in offer["parts"]] if deeper else []
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
-    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else recall_for(user_text))
+    # A page open in the UI takes the place of recall (PRD 38); Chat and Memory recall as before.
+    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focus_block(user_text) or recall_for(user_text))
+    if focus["view"] == "memory" and not (deeper or lookup):
+        extra += "\n\n" + MEMORY_FOCUS_NOTE
+    if note:
+        extra += "\n\n" + note
     _note_documents(extra)
     _conversation.append({"role": "user", "content": user_text + extra})
     _session_turns.append({"role": "user", "content": user_text})

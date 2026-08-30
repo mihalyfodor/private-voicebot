@@ -54,15 +54,17 @@ def test_ranking_prefers_label_prefix_then_substring_then_subsequence(r):
 
 def test_arrows_move_and_enter_opens_the_page_in_the_wiki_view(r):
     assert r["pal_nav"] == {"after_down": 1, "after_up": 0}
-    assert r["pal_enter"] == {"view": "wiki", "hidden": True,
-                              "sent": [{"action": "read_wiki_page", "path": "projects/atlas"}]}
+    sent = [m for m in r["pal_enter"]["sent"] if m["action"] != "set_focus"]   # PRD 38 rides along
+    assert {**r["pal_enter"], "sent": sent} == {"view": "wiki", "hidden": True,
+                                                "sent": [{"action": "read_wiki_page", "path": "projects/atlas"}]}
 
 
 # --------------------------------------------------------------- 4. search fallback
 
 def test_unknown_query_falls_back_to_a_wiki_search(r):
-    assert r["pal_fallback"] == {"view": "wiki", "search": "zzz",
-                                 "sent": [{"action": "wiki_search", "query": "zzz"}]}
+    sent = [m for m in r["pal_fallback"]["sent"] if m["action"] != "set_focus"]
+    assert {**r["pal_fallback"], "sent": sent} == {"view": "wiki", "search": "zzz",
+                                                   "sent": [{"action": "wiki_search", "query": "zzz"}]}
 
 
 # --------------------------------------------------------------- 5. payloads

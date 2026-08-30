@@ -753,4 +753,29 @@ t.recv({ type: 'error', scope: 'settings', text: 'Unknown setting' });
 results.error_settings_status = { status: t.status.textContent, wiki: t.wikiError.textContent };
 t.setView('chat');
 
+// ---------------------------------------------------------------- scenarios (PRD 38)
+// ---- scenario 7: opening a page sends set_focus; Chat sends set_focus {view: chat}; a server
+// `wiki_open` selects the page and switches to Wiki without echoing set_focus; the composer
+// placeholder names the focused page.
+const focusSent = () => socket.sent.filter(m => m.action === 'set_focus');
+t.setView('wiki');
+t.recv({ type: 'wiki', vault: '/tmp/v', lint: [], pages: [
+  { path: 'people/anna', title: 'Anna', type: 'person', updated: '2026-08-29', tags: [] },
+  { path: 'projects/atlas', title: 'Atlas', type: 'project', updated: '2026-08-29', tags: [] },
+] });
+socket.sent.length = 0;
+t.selectWikiPage('people/anna');
+results.focus_select = { sent: focusSent(), placeholder: t.input.placeholder };
+socket.sent.length = 0;
+t.setView('chat');
+results.focus_chat = { sent: focusSent(), placeholder: t.input.placeholder };
+socket.sent.length = 0;
+t.recv({ type: 'wiki_open', path: 'projects/atlas' });
+results.focus_wiki_open = {
+  view: t.view(), sent: focusSent(),
+  read: socket.sent.filter(m => m.action === 'read_wiki_page').map(m => m.path),
+  placeholder: t.input.placeholder,
+};
+t.setView('chat');
+
 console.log(JSON.stringify(results, null, 1));

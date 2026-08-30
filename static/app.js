@@ -743,6 +743,53 @@ function setView(name) {
   if (name === 'wiki' || name === 'sources') {
     if (!wikiPages) requestWiki(); else { renderWikiList(); renderWikiPage(); }   // per-view list + head
   }
+  sendFocus();
+}
+
+// ---------- focus context (PRD 38) ----------
+// The server learns what the user is looking at: the view, and in Wiki / Sources the open page.
+// `focusSent` is the last payload sent, so re-rendering the same state sends nothing; it is
+// null while a server-initiated open (`wiki_open`) moves the UI, so that is not echoed back.
+let focusSent = '';
+const COMPOSER_PLACEHOLDER = composerInput.placeholder || 'type a message…';
+
+function focusPath() {
+  return (currentView === 'wiki' || currentView === 'sources') && wikiSelected ? wikiSelected : null;
+}
+
+function focusPayload() {
+  const path = focusPath();
+  return path ? { action: 'set_focus', view: currentView, path } : { action: 'set_focus', view: currentView };
+}
+
+function focusTitle() {
+  const path = focusPath();
+  if (!path) return '';
+  const meta = (currentView === 'sources' ? sourcesList : wikiPages) || [];
+  const hit = meta.find(p => p.path === path) || (wikiPages || []).find(p => p.path === path);
+  return (hit && hit.title) || path;
+}
+
+function sendFocus() {
+  composerInput.placeholder = focusPath() ? `ask about ${focusTitle()}…` : COMPOSER_PLACEHOLDER;
+  if (focusSent === null) return;
+  const key = JSON.stringify(focusPayload());
+  if (key !== focusSent) { focusSent = key; sendAction(focusPayload()); }
+}
+
+// `wiki_open` from the server (a "find / open / go back" turn): select the page in the view it
+// belongs to. The server set the focus itself, so nothing is sent back while the UI moves.
+function openFromServer(path) {
+  path = String(path || '');
+  if (!path) return;
+  const view = (sourcesList || []).some(s => s.path === path) || path.startsWith('sources/') ? 'sources' : 'wiki';
+  focusSent = null;
+  try {
+    if (currentView !== view) setView(view);
+    selectWikiPage(path);
+  } finally {
+    focusSent = JSON.stringify(focusPayload());
+  }
 }
 
 function renderDecayWindows(staleDays) {
@@ -1409,6 +1456,7 @@ function wikiOpen(path) {
   wikiMode = 'view';
   wikiDraft = null;
   wikiConflict = null;
+  sendFocus();
 }
 
 // Paths are suffix-less everywhere (`people/anna`) — in the page list, in wikilinks and in
@@ -1877,6 +1925,7 @@ function setWiki(msg) {
   renderWikiList();
   renderWikiPage();
   renderWikiPanel();
+  sendFocus();                               // the placeholder picks up the page's title
   if (!intakeEl.hidden) {                    // the popup's picker is fed by this list
     intakeSyncPages();
     if (intakeBusy || intakeDone) renderIntakeItems();   // filed rows pick up their page titles
@@ -2525,6 +2574,7 @@ function connect() {
     else if (msg.type === 'memory') setMemory(msg);
     else if (msg.type === 'wiki') { setWiki(msg); if (palette.open) renderPalette(); }
     else if (msg.type === 'wiki_page') setWikiPage(msg);
+    else if (msg.type === 'wiki_open') openFromServer(msg.path);
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
     else if (msg.type === 'sources') setSources(msg);
@@ -2540,6 +2590,8 @@ function connect() {
 
   ws.onopen = () => {
     renderComposer();
+    focusSent = '';            // a (re)connected server starts on Chat: tell it where we are
+    sendFocus();
     // A reconnect (or a first connect while the tab is already on Memory) needs fresh data.
     if (currentView === 'memory') requestMemory();
     else if (currentView === 'wiki' || currentView === 'sources') requestWiki();
