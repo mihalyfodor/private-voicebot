@@ -12,8 +12,9 @@ stays.
 - `characters/`: delete `haru.yaml`, `natori.yaml`; rewrite `wanko.yaml` (below). `avatars.py`: single profile,
   `reload()` still works, `set_current` accepts only `wanko` (unknown key → wanko, no error).
 - `static/app.js`: `PROFILES` keeps only wanko; default profile/name = Wanko (fixes the "HARU" caption flash).
-- Chat panel: Avatar section removed (`#avatar-list` gone); `set_avatar`/`reload_characters` actions stay
-  (harmless) — the switch greeting path is unused.
+- Chat panel: Avatar section removed (`#avatar-list` gone); `reload_characters` stays (the card is editable).
+  `set_avatar`, the switch greeting and `avatars.listing()` were left in as harmless leftovers and removed
+  later (architecture review 2026-08-29, finding 10).
 - `scripts/fetch_assets.sh`: only wanko. `static/models/haru`, `static/models/natori` left on disk (gitignored;
   user may delete).
 - Docs: index.md, PRD 06/07 notes marked superseded; README avatar list.
@@ -47,7 +48,7 @@ switch_greeting: "[happy] Wanko here, ready when you are."
 ```
 
 ## Test scenarios
-1. `avatars.listing()` has exactly one entry; `set_current("haru")` returns wanko; settings.json with `avatar: natori`
+1. `avatars.AVATARS` has exactly one entry; `set_current("haru")` returns wanko; settings.json with `avatar: natori`
    loads as wanko without error.
 2. System prompt built from the card contains no "boss"; contains the name rule from PRD 15 (nickname wins).
 3. Greeting is the new one; the caption on first load says WANKO before /api/config arrives.

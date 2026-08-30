@@ -59,7 +59,6 @@ def load_card(path: str) -> dict:
         "scenario": raw.get("scenario", "") or "",
         "example_dialogue": example_dialogue,
         "greeting": raw.get("greeting", "") or "",
-        "switch_greeting": raw.get("switch_greeting", "") or "",
         "verbosity": verbosity,
     }
 

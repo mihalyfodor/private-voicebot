@@ -27,7 +27,6 @@ FAKE_AVATAR = {
     "voice": "am_puck",
     "speed": 1.05,
     "greeting": "[happy] Morning! Wanko here.",
-    "switch_greeting": "[happy] Wanko taking over now.",
     "persona": "You are Wanko.",
 }
 
@@ -37,7 +36,6 @@ def test_shipped_greeting_is_the_current_card_greeting():
     import avatars
     a = avatars.AVATARS["wanko"]
     assert a["greeting"] == "[happy] Morning! Wanko here. What are we working on today?"
-    assert a["switch_greeting"] == "[happy] Wanko here, ready when you are."
 
 
 def test_say_canned_emits_state_speech_speech_end_and_transcript():
@@ -106,69 +104,14 @@ def test_greet_messages_carry_the_turn_id(monkeypatch):
     assert all(m["turn"] == 1 for m in sent)
 
 
-def test_set_avatar_ws_speaks_switch_greeting(monkeypatch):
-    import avatars
-
-    llm.reset()
-    fake_profile = dict(FAKE_AVATAR)
-
-    monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
-    monkeypatch.setattr(llm, "set_avatar", lambda: None)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(chatbot, "_filler_wavs", {})
-    monkeypatch.setattr(chatbot, "_wait_for_playback_then_idle",
-                        lambda sess, send_sync: send_sync({"type": "state", "value": "idle"}))
-
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()  # hands_free
-        ws.receive_json()  # initial idle state (greeted already True)
-        ws.send_json({"action": "set_avatar", "key": "wanko"})
-
-        msg = ws.receive_json()
-        assert msg == {"type": "avatar", "key": "wanko", "name": "Wanko"}
-
-        # Drain messages until we see the switch_greeting speech chunk.
-        speech_msg = None
-        for _ in range(20):
-            m = ws.receive_json()
-            if m.get("type") == "speech":
-                speech_msg = m
-                break
-        assert speech_msg is not None
-        assert speech_msg["text"] == "Wanko taking over now."
-        assert speech_msg["turn"] == 1
-
-
-def test_set_avatar_refused_while_a_turn_runs(monkeypatch):
-    """The switch claims the controller synchronously, so a second switch is refused."""
-    import avatars
-    llm.reset()
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(llm, "set_avatar", lambda: None)
-    monkeypatch.setattr(avatars, "set_current", lambda key: dict(FAKE_AVATAR))
-
-    blocker = Blocker()
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        ws.receive_json()
-        blocker.hold(chatbot.controller)
-        ws.send_json({"action": "set_avatar", "key": "wanko"})
-        assert ws.receive_json()["type"] == "error"
-        blocker.free(chatbot.controller)
-
-
 def test_reload_characters_ws_action(monkeypatch):
     import avatars
     llm.reset()
 
     fake_profile = dict(FAKE_AVATAR)
-    fake_listing = [{"key": "wanko", "name": "Wanko", "description": "Office assistant, upbeat"}]
 
     monkeypatch.setattr(avatars, "reload", lambda: fake_profile)
     monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
-    monkeypatch.setattr(avatars, "listing", lambda: fake_listing)
     monkeypatch.setattr(llm, "set_avatar", lambda: None)
     monkeypatch.setattr(chatbot, "_filler_wavs", {})
 
@@ -178,10 +121,7 @@ def test_reload_characters_ws_action(monkeypatch):
         ws.receive_json()  # initial idle state
         ws.send_json({"action": "reload_characters"})
         msg = ws.receive_json()
-        assert msg["type"] == "characters_reloaded"
-        assert msg["avatar"] == "wanko"
-        assert msg["name"] == "Wanko"
-        assert msg["avatars"] == fake_listing
+        assert msg == {"type": "characters_reloaded", "avatar": "wanko", "name": "Wanko"}
 
 
 def test_reconnect_replays_transcript():

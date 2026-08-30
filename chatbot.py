@@ -39,7 +39,7 @@ KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", AVATAR["speed"]))
 
 
 def apply_avatar(key: str) -> dict:
-    """Switch avatar at runtime: persona, voice, filler cache. Returns the new profile."""
+    """(Re)apply the avatar profile: persona, voice, filler cache. Returns the profile."""
     global AVATAR, KOKORO_VOICE, KOKORO_SPEED
     AVATAR = avatars.set_current(key)
     KOKORO_VOICE = os.getenv("KOKORO_VOICE", AVATAR["voice"])
@@ -395,11 +395,6 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
         send_sync({"type": "state", "value": "idle"})
 
 
-def switch_greet(sess: Session, turn: int, loop):
-    """Speak the newly-applied avatar's switch_greeting after a set_avatar action."""
-    canned_turn(sess, turn, loop, AVATAR["switch_greeting"], thinking=False)
-
-
 def greet(sess: Session, turn: int, loop):
     """Speak the avatar's greeting on the first page connect."""
     canned_turn(sess, turn, loop, AVATAR["greeting"], thinking=True)
@@ -445,8 +440,8 @@ SCREENSHOT_CMD = ".venv/bin/python scripts/screenshot.py /tmp/shot.png"
 async def api_config():
     """Everything the UI needs at boot: what to render, what is switched on, what to display."""
     return {
-        # who is on stage and what else can be picked
-        "avatar": AVATAR["key"], "name": AVATAR["name"], "avatars": avatars.listing(),
+        # who is on stage (Wanko only since PRD 23) and the backdrop behind her
+        "avatar": AVATAR["key"], "name": AVATAR["name"],
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
         # session state the UI mirrors
         "hands_free": hands_free,
@@ -614,23 +609,10 @@ async def _action_set_backdrop(sess, msg, loop):
     await send({"type": "backdrop", "key": key})
 
 
-async def _action_set_avatar(sess, msg, loop):
-    if controller.busy:
-        await _error("turn", "Wait until the reply finishes.")
-        return
-    a = apply_avatar(msg.get("key", ""))
-    await send({"type": "avatar", "key": a["key"], "name": a["name"]})
-    # submit marks the controller busy synchronously, so a second switch is refused.
-    submit_turn(switch_greet, loop)
-
-
 async def _action_reload_characters(sess, msg, loop):
+    """The user edited characters/wanko.yaml: re-read the card, rebuild persona/voice/fillers."""
     apply_avatar(avatars.reload()["key"])
-    await send({
-        "type": "characters_reloaded",
-        "avatar": AVATAR["key"], "name": AVATAR["name"],
-        "avatars": avatars.listing(),
-    })
+    await send({"type": "characters_reloaded", "avatar": AVATAR["key"], "name": AVATAR["name"]})
 
 
 async def _action_set_verbosity(sess, msg, loop):
@@ -920,7 +902,6 @@ ACTIONS = {
     "playback_done": _action_playback_done,
     "playback_blocked": _action_playback_blocked,
     "set_backdrop": _action_set_backdrop,
-    "set_avatar": _action_set_avatar,
     "reload_characters": _action_reload_characters,
     "set_verbosity": _action_set_verbosity,
     "set_setting": _action_set_setting,

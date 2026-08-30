@@ -24,7 +24,6 @@ def _build_avatars() -> dict:
             "voice": card["voice"],
             "speed": card["speed"],
             "greeting": card["greeting"],
-            "switch_greeting": card["switch_greeting"],
             "verbosity": card["verbosity"],
             "persona": characters.build_persona(card),
         }
@@ -106,7 +105,3 @@ def set_current(key: str) -> dict:
 
 def current() -> dict:
     return {"key": current_key(), **AVATARS[current_key()]}
-
-
-def listing() -> list:
-    return [{"key": k, "name": v["name"], "description": v["tagline"]} for k, v in AVATARS.items()]

@@ -46,7 +46,7 @@ gitignored) gets one line per turn: origin, tools used, reply length. The e2e ru
 
 ```
 voicebot/
-├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, avatar/backdrop switching
+├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, backdrop switching, character-card reload
 ├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33)
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
@@ -104,7 +104,7 @@ voicebot/
 │   ├── test_streaming.py          # PRD 13: streamed first call, tool-call detection mid-stream
 │   ├── test_turns.py              # PRD 12: Session/TurnController, turn ids, origin check, periodic memory hook, dead sockets, static caching
 │   ├── test_memory_eval.py        # PRD 14: eval harness scripts, Sandbox isolation, scoring
-│   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys
+│   ├── test_avatar_switch.py      # set_current()/settings.json persistence, invalid keys, `set_avatar` action is gone
 │   ├── test_backdrops.py          # backdrops.validate()/listing()
 │   ├── test_vad.py                # Endpointer state machine (fake prob_fn) + Recorder
 │   ├── test_asr.py                # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing

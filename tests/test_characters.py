@@ -45,10 +45,8 @@ def test_build_persona_contains_all_sections():
         assert f"Wanko: {ex['assistant']}" in persona
 
 
-def test_avatars_listing_uses_tagline():
-    listing = avatars.listing()
-    by_key = {a["key"]: a for a in listing}
-    assert by_key["wanko"]["description"] == "Office assistant, upbeat"
+def test_avatar_profile_carries_the_tagline():
+    assert avatars.AVATARS["wanko"]["tagline"] == "Office assistant, upbeat"
 
 
 # The word appears once in the card, in the rule that forbids it as a form of address.

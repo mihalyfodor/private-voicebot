@@ -10,10 +10,10 @@ def test_default_is_wanko(monkeypatch):
     assert (a["key"], a["name"], a["voice"]) == ("wanko", "Wanko", "am_puck")
 
 
-def test_listing_has_exactly_one_entry():
-    """Scenario 1: Wanko is the only avatar."""
-    listing = avatars.listing()
-    assert [a["key"] for a in listing] == ["wanko"]
+def test_wanko_is_the_only_avatar():
+    """Scenario 1: Wanko is the only avatar (no listing any more — nothing to pick from)."""
+    assert list(avatars.AVATARS) == ["wanko"]
+    assert not hasattr(avatars, "listing")
 
 
 def test_unknown_avatar_falls_back_to_wanko(monkeypatch, capsys):
@@ -45,7 +45,7 @@ def test_api_config_and_prompt(monkeypatch):
     chatbot.apply_avatar("wanko")
     cfg = TestClient(chatbot.app).get("/api/config").json()
     assert (cfg["avatar"], cfg["name"]) == ("wanko", "Wanko")
-    assert [a["key"] for a in cfg["avatars"]] == ["wanko"]
+    assert "avatars" not in cfg
     assert "Wanko" in llm.SYSTEM_PROMPT
 
 
