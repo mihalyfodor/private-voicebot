@@ -2629,7 +2629,7 @@ document.addEventListener('paste', (e) => {
 // user has already moved to Memory must not show up on the memory panel).
 function showError(msg) {
   const text = msg.text || 'error';
-  if (msg.scope === 'wiki') setWikiError(text);                              // e.g. a rejected `wiki_note`
+  if (msg.scope === 'wiki') { setWikiError(text); cardSaveFailed(text); }    // e.g. a rejected `wiki_note` / `save_card`
   else if (msg.scope === 'intake') { setWikiError(text); wikiIngestDone(); }   // "Re-ingest last session"
   else if (msg.scope === 'memory') { memErrorEl.textContent = text; memorySaveDone(); }
   else if (msg.scope === 'sources') {
@@ -2652,6 +2652,8 @@ function connect() {
       setState(msg.value);
     }
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
+    else if (msg.type === 'card') addCard(msg);
+    else if (msg.type === 'card_saved') markCardSaved(msg);
     else if (msg.type === 'context') setContext(msg);
     else if (msg.type === 'thread') addDivider(msg.text);
     else if (msg.type === 'speech') enqueueSpeech(msg);
@@ -2783,6 +2785,79 @@ function addMessage(role, text, { typed = false } = {}) {
   div.append(r, t);
   historyEl.appendChild(div);
   historyEl.scrollTop = historyEl.scrollHeight;
+}
+
+// A written card (PRD 43): the markdown through the wiki renderer, collapsed to ~12 lines with
+// "show all", Copy, and Save to wiki behind a small folder picker (default notes/). Never spoken:
+// the server sends one `speech` line and the card as data.
+const cards = new Map();          // id → { save, picker, folder, note }
+const CARD_FOLDER = 'notes/';
+
+function addCard(msg) {
+  const div = el('div', 'msg card');
+  div.dataset.card = msg.id;
+  const r = el('span', 'role', `${avatarName} · written`);
+  const body = el('div', 'card-body collapsed');
+  body.append(wikiBodyNodes(msg.markdown || ''));
+  const foot = el('div', 'card-foot');
+  const more = el('button', 'card-btn card-more', 'show all');
+  more.onclick = () => {
+    body.classList.toggle('collapsed');
+    more.textContent = body.classList.contains('collapsed') ? 'show all' : 'show less';
+  };
+  const copy = el('button', 'card-btn card-copy', 'Copy');
+  copy.onclick = () => navigator.clipboard.writeText(msg.markdown || '').then(() => {
+    copy.textContent = 'copied';
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+  });
+  const save = el('button', 'card-btn card-save', 'Save to wiki');
+  const picker = el('span', 'card-picker');
+  picker.hidden = true;
+  const folder = el('input', 'card-folder');
+  folder.value = CARD_FOLDER;
+  folder.placeholder = 'folder/';
+  const ok = el('button', 'card-btn card-save-ok', 'Save');
+  ok.onclick = () => {
+    const chosen = folder.value.trim().replace(/\/+$/, '') || CARD_FOLDER.replace(/\/$/, '');
+    sendAction({ action: 'save_card', id: msg.id, folder: chosen });
+    picker.hidden = true;
+    save.textContent = 'saving…';
+    save.disabled = true;
+    note.textContent = '';
+  };
+  folder.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); ok.onclick(); }
+    if (e.key === 'Escape') picker.hidden = true;
+  });
+  picker.append(folder, ok);
+  save.onclick = () => { picker.hidden = !picker.hidden; if (!picker.hidden) folder.focus(); };
+  const note = el('span', 'card-note');
+  foot.append(more, copy, save, picker, note);
+  div.append(r, body, foot);
+  cards.set(msg.id, { save, picker, folder, note });
+  historyEl.appendChild(div);
+  historyEl.scrollTop = historyEl.scrollHeight;
+  if (msg.saved) markCardSaved({ id: msg.id, path: msg.saved });   // a reconnect replay
+}
+
+function markCardSaved(msg) {
+  const c = cards.get(msg.id);
+  if (!c) return;
+  c.save.textContent = `saved → ${msg.path}`;
+  c.save.disabled = true;
+  c.picker.hidden = true;
+  c.note.textContent = '';
+}
+
+// A refused `save_card` (wiki scope): put the button back and say why next to it.
+function cardSaveFailed(text) {
+  for (const c of cards.values()) {
+    if (c.save.textContent !== 'saving…') continue;
+    c.save.textContent = 'Save to wiki';
+    c.save.disabled = false;
+    c.note.textContent = text;
+  }
 }
 
 // A "new topic" divider (PRD 39): the summary the model carried over, readable in the history.

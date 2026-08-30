@@ -291,7 +291,7 @@ def _scope_of(action) -> str:
     a = str(action or "")
     if a == "wiki_ingest":
         return "intake"
-    if a.startswith("wiki") or a == "pull_wiki":
+    if a.startswith("wiki") or a in ("pull_wiki", "save_card"):
         return "wiki"
     if "memory" in a:
         return "memory"
@@ -371,6 +371,87 @@ def context_msg() -> dict:
     return {"type": "context", **llm.context_usage()}
 
 
+# --- written answers (docs/43-written-answers.md) --------------------------------------
+# "write it up" / `/write` turn the last answer into a card; "save that as a note" files the
+# last card. Both are deterministic, matched on the whole turn, typed or spoken.
+_SAVE_NOTE = re.compile(
+    r"^(?:please\s+)?save\s+(?:that|this|it)(?:\s+(?:as|to|in)\s+(?:a\s+|the\s+)?(?:note|wiki|wiki\s+note|note\s+in\s+the\s+wiki))?"
+    r"(?:,?\s+please)?[\s?.!]*$", re.I)
+NOTHING_TO_SAVE = "nothing to save"
+ALREADY_SAVED = "already saved"
+DEFAULT_CARD_FOLDER = "notes"
+
+
+def save_note_command(text: str) -> bool:
+    """True for "save that as a note" / "save this to the wiki" / "save it" (PRD 43)."""
+    return bool(_SAVE_NOTE.match(" ".join(str(text or "").split())))
+
+
+def card_msg(card: dict) -> dict:
+    return {"type": "card", "id": card["id"], "markdown": card["markdown"], "sources": card["sources"],
+            "title": card["title"]}
+
+
+def card_path(card: dict, folder: str = "") -> str:
+    """`notes/<date>-<slug(title)>` (or the folder given): the page a saved card becomes."""
+    folder = str(folder or "").strip().strip("/") or DEFAULT_CARD_FOLDER
+    return f"{folder}/{memory._today_iso()}-{wiki.slugify(card['title'])[:60]}"
+
+
+def save_card(card_id: str | None, folder: str = "") -> list:
+    """File a card as a note and return the messages to send (`wiki_open`, `card_saved`, the
+    refreshed `wiki` + `sources`); raises ValueError with the refusal reason (scope wiki)."""
+    card = llm._cards.get(str(card_id)) if card_id else llm.last_card
+    if not card:
+        raise ValueError(NOTHING_TO_SAVE)
+    if card.get("saved"):
+        raise ValueError(ALREADY_SAVED)
+    path, reason = wiki.save_card(card_path(card, folder), card["title"], card["markdown"], card["sources"])
+    if reason:
+        raise ValueError(reason)
+    card["saved"] = path
+    llm.refresh_context()
+    llm.set_focus("wiki", path)
+    return [{"type": "wiki_open", "path": path}, {"type": "card_saved", "id": card["id"], "path": path},
+            _wiki_msg(), _sources_msg()]
+
+
+def write_up(sess: Session, turn: int, user_text: str, send_sync):
+    """The write-up turn: one spoken line, then the `card`; the card body is never spoken."""
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        card = llm.write_up(user_text)
+        say_canned(llm.WRITTEN_LINE, send_sync)
+        send_sync(card_msg(card))
+        send_sync(context_msg())
+        _wait_for_playback_then_idle(sess, send_sync)
+    except ValueError as e:
+        send_sync({"type": "error", "scope": "turn", "text": str(e)})
+        send_sync({"type": "state", "value": "idle"})
+    except Exception as e:
+        print(f"[Error] {e}")
+        services.recheck()
+        send_sync({"type": "state", "value": "idle"})
+
+
+def save_note(sess: Session, turn: int, send_sync):
+    """The spoken "save that as a note" turn: the last card becomes a note, the page opens."""
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        for msg in save_card(None):
+            send_sync(msg)
+        say_canned(f"[happy] Saved as {llm.last_card['saved']}.", send_sync)
+        _wait_for_playback_then_idle(sess, send_sync)
+    except ValueError as e:
+        send_sync({"type": "error", "scope": "wiki", "text": str(e)})
+        send_sync({"type": "state", "value": "idle"})
+    except Exception as e:
+        print(f"[Error] {e}")
+        send_sync({"type": "state", "value": "idle"})
+
+
 def _with_context_notice(events):
     """The turn's events, then the 90 % crossing sentence as one more spoken delta (PRD 39)."""
     yield from events
@@ -433,10 +514,16 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
     if new_topic_command(user_text):
         new_topic(sess, turn, send_sync)
         return
+    if save_note_command(user_text):
+        save_note(sess, turn, send_sync)
+        return
     if not services.llm_ok():
         # PRD 41: no thinking state, no timeout — the composer line says what to run
         send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
         send_sync({"type": "state", "value": "idle"})
+        return
+    if llm.wants_writeup(user_text):
+        write_up(sess, turn, user_text, send_sync)
         return
     try:
         send_sync({"type": "state", "value": "thinking"})
@@ -1059,6 +1146,18 @@ async def _action_pull_wiki(sess, msg, loop):
     await _bridge(memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
 
 
+async def _action_save_card(sess, msg, loop):
+    """The card's Save to wiki: `{id, folder?}` → `wiki_open` + `card_saved` + `wiki` + `sources`,
+    or `error` (wiki): "nothing to save" / "already saved" / a bad folder (PRD 43)."""
+    try:
+        replies = await asyncio.to_thread(save_card, msg.get("id"), str(msg.get("folder") or ""))
+    except ValueError as e:
+        await _error("wiki", str(e))
+        return
+    for reply in replies:
+        await send(reply)
+
+
 async def _action_new_topic(sess, msg, loop):
     """The palette's "New topic": queued like a turn (PRD 39)."""
     submit_turn(new_topic_turn, loop)
@@ -1102,6 +1201,7 @@ ACTIONS = {
     "archive_memory": _action_archive_memory,
     "pull_wiki": _action_pull_wiki,
     "new_topic": _action_new_topic,
+    "save_card": _action_save_card,
     "shutdown": _action_shutdown,
 }
 
@@ -1115,8 +1215,11 @@ def replay_messages() -> list:
     out = []
     for m in llm.dialogue():
         earlier = _EARLIER.match(m["content"]) if m["role"] == "user" else None
+        card = llm.card_in(m["content"]) if m["role"] == "assistant" else None
         if earlier:
             out.append({"type": "thread", "text": earlier.group(1)})
+        elif card:
+            out.append({**card_msg(card), "saved": card.get("saved")})
         else:
             out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(m["content"])})
     return out

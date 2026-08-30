@@ -16,7 +16,7 @@ action name, plus `action`).
 
 | action | fields | replies |
 |---|---|---|
-| `text_turn` | `text` | a full turn: `transcript` (user), `state` thinking/speaking, `speech`…, `speech_end`, `transcript` (assistant), `state` idle |
+| `text_turn` | `text` | a full turn: `transcript` (user), `state` thinking/speaking, `speech`…, `speech_end`, `transcript` (assistant), `state` idle. "write it up" / typed `/write` (PRD 43) answer with one spoken line, then `card`; "save that as a note" with the `save_card` replies then one spoken line |
 | `set_hands_free` | `value` (bool) | `hands_free`, then `listening` idle when switched off |
 | `set_focus` | `view`, `path?` | none — the server remembers what the user is looking at (PRD 38): a page in Wiki / Sources rides on the next turns, Chat drops it |
 | `playback_done` | `turn` | none — releases the worker waiting for playback (stale turn ids ignored) |
@@ -48,18 +48,21 @@ action name, plus `action`).
 | `archive_memory` | `section`, `index` | `memory` + `wiki` + `sources`, or `memory_error` |
 | `pull_wiki` | `path`, `section` | `memory` + `wiki` + `sources`, or `memory_error` |
 | `new_topic` | — | a new-topic turn (PRD 39): `state` thinking, `thread` (the summary), the spoken ack as `speech`…/`speech_end`/`transcript`, `context`, `state` idle; typed `/new` and the exact phrase "new topic" (typed or spoken) take the same path through `text_turn` / the mic |
+| `save_card` | `id?` (the last card when omitted), `folder?` (default `notes`) | `wiki_open` + `card_saved` + `wiki` + `sources` — the card filed as `<folder>/<date>-<slug>` in one commit (PRD 43) — or `error` (wiki): "nothing to save", "already saved", a bad folder / an existing page |
 | `shutdown` | — | none — the process gets SIGTERM; the page shows its shutdown screen when the socket closes |
 
 ## Server → client (`{"type": ...}`)
 
 `state`, `speech` and `speech_end` (and the assistant `transcript`) carry `turn`; the client adopts the
 turn id from `state` and answers `playback_done` with it. On connect the server replays what the model
-holds: the conversation's `transcript`s (bare user text, PRD 39) and any `thread` divider, then sends `hands_free` and either greets (a turn) or sends `state` idle.
+holds: the conversation's `transcript`s (bare user text, PRD 39), any `thread` divider and any written `card` (PRD 43), then sends `hands_free` and either greets (a turn) or sends `state` idle.
 
 | type | fields | consumed by (app.js) |
 |---|---|---|
 | `state` | `value` idle/thinking/processing/speaking, `turn` | `setState` — composer status, avatar cues, mic gating |
 | `transcript` | `role`, `text` | `addMessage` — the history |
+| `card` | `id`, `markdown`, `sources`, `title`, `saved?` (the path, on a reconnect replay) | `addCard` — a written answer (PRD 43): the markdown through the wiki renderer, collapsed with "show all", Copy, Save to wiki with its folder picker; never spoken |
+| `card_saved` | `id`, `path` | `markCardSaved` — the card's Save button reads "saved → path" |
 | `speech` | `emotion`, `text`, `wav` (base64), `filler?`, `turn` | `enqueueSpeech` — audio queue, lip-sync, expression |
 | `speech_end` | `turn` | ends the reply: `playNext`, then `playback_done` |
 | `listening` | `value` hearing/idle | `setListening` — the mic indicator |

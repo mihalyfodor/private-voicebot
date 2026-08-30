@@ -169,7 +169,13 @@ def context_notice() -> str:
 
 #: the fixed offer phrases a grounded answer may end with (docs/34-grounded-answers.md); the
 #: model is asked for exactly one of them so `_deeper_offer` can be detected on its output
-DEEPER_OFFERS = ("Want me to dig deeper?", "Shall I dig deeper?", "Want me to read on?")
+DEEPER_OFFERS = ("Want me to dig deeper, or write it up?", "Want me to dig deeper?", "Shall I dig deeper?",
+                 "Want me to read on?")
+#: the short-answer clause of the grounding rule; a typed content question swaps it for
+#: WRITTEN_CLAUSE for that one completion (docs/43-written-answers.md)
+OFFER_CLAUSE = ("keep it to one to three sentences and make the very last sentence of the reply exactly: "
+                f"{DEEPER_OFFERS[0]} — the document always has more around that passage. ")
+WRITTEN_CLAUSE = "give the full answer from it, as long as it needs, and do not offer to dig deeper. "
 GROUNDING_RULES = (
     "\n\nLook it up first. When the wiki index or a recall block in the message names a source or "
     "page on the topic, use search_wiki or read_source (or the recall text) before answering from your own "
@@ -177,8 +183,7 @@ GROUNDING_RULES = (
     "sentence (\"per the Skyrim guide\", \"the Fallout 4 walkthrough says\") — vary the wording, "
     "never a separate closing sentence like \"This information comes from\". Whenever the "
     "answer comes from a document passage (a recall block, a search_wiki passage or read_source), "
-    "keep it to one to three sentences and make the very last sentence of the reply exactly: "
-    f"{DEEPER_OFFERS[0]} — the document always has more around that passage. "
+    + OFFER_CLAUSE +
     "If the recall text is off-topic, ignore it silently. Live facts — the weather, the time or "
     "date, the news, emails — always come from the matching tool (get_weather, get_time, get_news, "
     "get_emails): never state a temperature, a time or a headline from memory, and if the tool "
@@ -287,6 +292,14 @@ _turn_sources: list = []
 #: results) since the last successful memory save — the memory proposal is asked to attribute
 #: its ops against this list (docs/33-untrusted-text.md)
 _sources_seen: list = []
+#: the wiki / Wikipedia page titles this turn drew on (page recall, the focused page, get_wikipedia)
+_turn_pages: list = []
+#: what the last answer was built from, for `write_up` (docs/43-written-answers.md):
+#: {"question", "extra" (the recall/deeper/focus block), "tools" (tool result texts), "sources", "pages"}
+_last_context: dict | None = None
+#: every card this conversation wrote, by id; `last_card` is the one "save that" means
+_cards: dict = {}
+last_card: dict | None = None
 
 
 def client() -> OpenAI:
@@ -298,15 +311,24 @@ def client() -> OpenAI:
 
 def reset():
     global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources, _sources_seen
-    global _last_trimmed, _context_warned
+    global _last_trimmed, _context_warned, _turn_pages, _last_context
     _conversation = [{"role": "system", "content": memory.load(SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
     _deeper_offer = None
     _turn_sources = []
+    _turn_pages = []
     _sources_seen = []
+    _last_context = None
     _last_trimmed = 0
     _context_warned = False
+    _forget_cards()
+
+
+def _forget_cards() -> None:
+    global last_card
+    _cards.clear()
+    last_card = None
 
 
 def _note_documents(text: str) -> None:
@@ -316,11 +338,13 @@ def _note_documents(text: str) -> None:
             _sources_seen.append(name)
 
 
-def _tool_round(tool_calls: list[dict], content: str = "") -> None:
+def _tool_round(tool_calls: list[dict], content: str = "") -> list:
     """Execute accumulated tool calls and append the assistant + tool messages to the conversation.
 
     `tool_calls` is a list of plain dicts: {"id", "name", "arguments"} (arguments is a JSON string).
+    Returns the tool result texts (the write-up context, PRD 43).
     """
+    results = []
     _conversation.append({
         "role": "assistant",
         "content": content or "",
@@ -344,7 +368,9 @@ def _tool_round(tool_calls: list[dict], content: str = "") -> None:
         print(f"[Tool] {name}() → {result}")
         _note_tool_sources(name, args, str(result))
         _note_documents(str(result))
+        results.append(str(result))
         _conversation.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)})
+    return results
 
 
 def _rebuild_system_prompt(note: str = "") -> None:
@@ -405,9 +431,12 @@ RECALL_MAX_TOKENS = 1500
 #: never a question for a filed document
 COMMAND_WORDS = frozenset("""time clock date day today weather temperature forecast rain outside
 news headlines headline email emails mail inbox messages message""".split())
-RECALL_NOTE = ("If this answers the question, answer from it in one to three sentences, name {titles} "
+#: the two phrases of a recall note a typed content question rewrites (`written_note`, PRD 43)
+SHORT_PHRASE, FULL_PHRASE = "in one to three sentences", "fully, as long as it needs"
+NOTE_OFFER, NOTE_NO_OFFER = "finish with exactly this sentence: " + DEEPER_OFFERS[0], "do not offer to dig deeper."
+RECALL_NOTE = ("If this answers the question, answer from it " + SHORT_PHRASE + ", name {titles} "
                "once in a short natural clause inside a sentence (never as a separate closing sentence), "
-               "and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " Otherwise ignore it "
+               "and " + NOTE_OFFER + " Otherwise ignore it "
                "completely: answer as you normally would and never mention the document or what it lacks.")
 # --- recall precision 2 (docs/42-recall-precision-2.md) --------------------------------
 #: a question shorter than RECALL_MIN_WORDS still recalls with this many words and a proper term
@@ -429,8 +458,8 @@ NOT_COVERED = re.compile(
     r"|nothing (?:on|about|filed|in my|in the)|(?:can'?t|cannot|couldn'?t) find"
     r"|only contains? the (?:cover|introduction|contents)", re.I)
 FALLBACK_NOTE = ("A search of the filed documents found these passages. If they cover the question, answer "
-                 "from them in one to three sentences, name {titles} once in a short natural clause inside "
-                 "a sentence, and finish with exactly this sentence: " + DEEPER_OFFERS[0] + " If they do "
+                 "from them " + SHORT_PHRASE + ", name {titles} once in a short natural clause inside "
+                 "a sentence, and " + NOTE_OFFER + " If they do "
                  "not cover it, ignore them completely: answer the question as you normally would (your own "
                  "knowledge, the usual rules) and never mention documents, files or what you could not find.")
 
@@ -495,6 +524,7 @@ def focus_block(question: str) -> str:
     if text is None:
         return ""
     title = wiki.page_title(path)
+    _turn_pages.append(title)
     head, sections = wiki.split_sections(wiki.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
     summary = next((s for s in sections if s.startswith("## Summary")), None)
@@ -560,6 +590,8 @@ def _note_tool_sources(name: str, args: dict, result: str) -> None:
     elif name == "search_wiki":
         for m in _SNIPPET_PART.finditer(result):
             _turn_sources.append((m.group(3), m.group(1), int(m.group(2))))
+    elif name == "get_wikipedia" and args.get("query"):
+        _turn_pages.append(f"Wikipedia: {args['query']}")
 
 
 def _offer_from_turn(reply: str, question: str = "") -> dict | None:
@@ -601,12 +633,125 @@ def deeper_block(offer: dict) -> str:
             + f"\n{note}\n</source>")
 
 
-def _messages(deeper: bool) -> list:
-    """The conversation as sent: on a deeper turn the system rule reads `long` for this completion."""
+def _messages(deeper: bool, written: bool = False) -> list:
+    """The conversation as sent: on a deeper turn the system rule reads `long` for this completion;
+    on a written turn (typed, grounded, content — PRD 43) the short-answer clause reads full too."""
     if not deeper or not _conversation:
         return _conversation
     system = _conversation[0]["content"].replace(VERBOSITY_RULES[_verbosity], VERBOSITY_RULES["long"], 1)
+    if written:
+        system = system.replace(OFFER_CLAUSE, WRITTEN_CLAUSE, 1)
     return [{"role": "system", "content": system}] + _conversation[1:]
+
+
+# --- written answers (docs/43-written-answers.md) --------------------------------------
+#: a content question: one of these words, or CONTENT_MIN_WORDS words or more
+CONTENT_WORDS = re.compile(r"\b(?:what|how|why|explain|compare|list|steps|difference|summari[sz]e)\b", re.I)
+CONTENT_MIN_WORDS = 8
+#: "write it up", "write that up", "written version", "write it out" — and the typed `/write`
+WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten\s+version\b|^/write\s*$", re.I)
+#: the tools whose result is filed / fetched text (a typed content question answered from one runs long)
+GROUNDING_TOOLS = frozenset(("search_wiki", "read_source", "read_page", "get_wikipedia"))
+WRITTEN_LINE = "[happy] Written out below."
+CARD_PROMPT = ("You write reference notes in Markdown. Answer the question below fully from the material "
+               "given, as a document: start with one `# Title` line naming the topic, then at least two `## ` "
+               "sections; use bullet lists, numbered steps or a table where the material is structured, "
+               "prose where it is not. Only what the material says — no names, places or figures from memory. "
+               "No emotion tag, no greeting, no closing question, no offer, and no sources section: the "
+               "sources are appended for you.")
+CARD_MAX_TOKENS = VERBOSITY_MAX_TOKENS["long"]
+CARD_CONTEXT_TOKENS = DEEPER_MAX_TOKENS
+CARD_HISTORY_TURNS = 6
+_CARD_MARK = re.compile(r"^<card id=\"([a-z0-9]+)\">\n(.*)\n</card>$", re.S)
+
+
+def content_question(text: str) -> bool:
+    """A question that wants an explanation: a CONTENT_WORDS word or CONTENT_MIN_WORDS+ words."""
+    return bool(CONTENT_WORDS.search(text)) or len(text.split()) >= CONTENT_MIN_WORDS
+
+
+def wants_writeup(text: str) -> bool:
+    """"write it up", "yes, write that up please", "give me the written version", typed `/write`."""
+    return bool(WANTS_WRITEUP.search(" ".join(str(text or "").split())))
+
+
+def written_note(extra: str) -> str:
+    """The turn's recall / lookup block with its short-answer wording turned into the full one."""
+    return extra.replace(SHORT_PHRASE, FULL_PHRASE).replace(NOTE_OFFER, NOTE_NO_OFFER)
+
+
+def card_sources(sources: list, pages: list) -> list:
+    """`"Fallout 4 guide · part 3/120"` per passage (deduped, in order) and the page titles."""
+    out = []
+    for source, title, part in sources:
+        try:
+            total = len(wiki.raw_chunks(source)["chunks"])
+            line = f"{title} · part {part}/{total}"
+        except (KeyError, TypeError):
+            line = f"{title} · part {part}"
+        if line not in out:
+            out.append(line)
+    for title in pages:
+        if title and title not in out:
+            out.append(title)
+    return out
+
+
+def _card_title(markdown: str, question: str) -> str:
+    """The card's `# Title` line, else the question itself (trimmed)."""
+    for line in markdown.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip() or question
+    return " ".join(question.split())[:80] or "Written answer"
+
+
+def write_up(request: str = "") -> dict:
+    """One `long` completion turning the last answer into a Markdown card (PRD 43).
+
+    The card is built from the same context the last answer had (`_last_context`: the recall /
+    deeper / focus block and the tool results) and ends with a `Sources:` line. Returns the card
+    `{id, markdown, sources, title}`; the conversation keeps the card text as an assistant turn
+    (marked, so a reconnect replays it as a card) while the session turns get "wrote up: <title>".
+    Raises ValueError when nothing has been answered yet.
+    """
+    global last_card, _deeper_offer
+    ctx = _last_context
+    if not ctx:
+        raise ValueError("nothing to write up yet")
+    _deeper_offer = None                                        # the offer's "write it up" reply takes it
+    material = "\n\n".join(p for p in [ctx["extra"].strip()] + ctx["tools"] if p)
+    material = "".join(_fit([material], CARD_CONTEXT_TOKENS, CARD_PROMPT)) if material else ""
+    user = f"Question: {ctx['question']}\n\nThe answer you gave: {strip_tag(ctx['reply'])}"
+    if material:
+        user += "\n\nMaterial:\n" + material
+    history = [m for m in dialogue()[-CARD_HISTORY_TURNS:] if not card_in(m["content"])]
+    resp = client().chat.completions.create(
+        model=OMLX_MODEL, max_tokens=CARD_MAX_TOKENS,
+        messages=[{"role": "system", "content": CARD_PROMPT}] + history + [{"role": "user", "content": user}],
+    )
+    markdown = strip_tag((resp.choices[0].message.content or "").strip()).strip()
+    if not markdown:
+        raise ValueError("the model wrote nothing")
+    sources = card_sources(ctx["sources"], ctx["pages"])
+    if sources:
+        markdown += "\n\nSources: " + "; ".join(sources)
+    card = {"id": f"card{len(_cards) + 1}", "markdown": markdown, "sources": sources,
+            "title": _card_title(markdown, ctx["question"])}
+    _cards[card["id"]] = card
+    last_card = card
+    if request:
+        _conversation.append({"role": "user", "content": request})
+        _session_turns.append({"role": "user", "content": request})
+    _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{markdown}\n</card>'})
+    _session_turns.append({"role": "assistant", "content": f"wrote up: {card['title']}"})
+    _log(request or "/write", [], markdown, "card")
+    return card
+
+
+def card_in(content: str) -> dict | None:
+    """The card an assistant turn holds (`<card id>` marker), or None."""
+    m = _CARD_MARK.match(content or "")
+    return _cards.get(m.group(1)) if m else None
 
 
 def recall_for(user_text: str) -> str:
@@ -670,6 +815,8 @@ def _page_recall(question: str, terms: set) -> dict | None:
     section = wiki.best_section([s for s in sections if s is not summary], question)
     body = "\n\n".join(p for p in (head, summary, section) if p)
     kept = _fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
+    if kept:
+        _turn_pages.append(title)
     return {"line": kept[0], "path": path, "title": title} if kept else None
 
 
@@ -719,7 +866,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     and spoken input identically (PRD 24). `note` is a one-turn system remark (a page was
     just opened for the user, PRD 38) appended to this turn's user message only.
     """
-    global _last_tool_calls, _deeper_offer, _turn_sources
+    global _last_tool_calls, _deeper_offer, _turn_sources, _turn_pages, _last_context
 
     conv_len = len(_conversation)
     turns_len = len(_session_turns)
@@ -729,6 +876,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     lookup = offer.get("wikipedia") if yes else None            # the question to look up (PRD 37)
     deeper = deeper_block(offer) if yes and not lookup else ""
     _turn_sources = [(offer["source"], offer["title"], p) for p in offer["parts"]] if deeper else []
+    _turn_pages = []
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
     # A page open in the UI takes the place of recall (PRD 38); Chat and Memory recall as before.
@@ -741,6 +889,12 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         extra += "\n\n" + MEMORY_FOCUS_NOTE
     if note:
         extra += "\n\n" + note
+    # Length by origin (PRD 43): a typed content question answered from filed text runs long
+    # and drops the offer; a spoken one keeps the short rule and the offer.
+    typed_content = origin == "typed" and content_question(user_text)
+    written = typed_content and bool(extra.strip())
+    if written:
+        extra = written_note(extra)
     _note_documents(extra)
     user_msg = {"role": "user", "content": user_text + extra}
     _conversation.append(user_msg)
@@ -748,8 +902,9 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     _last_tool_calls = []
     trim_history()
 
-    long = bool(deeper or lookup)
+    long = bool(deeper or lookup or written)
     max_tokens = VERBOSITY_MAX_TOKENS["long"] if long else _effective_max_tokens()
+    tool_texts: list = []
 
     try:
         if deeper:
@@ -758,7 +913,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
         # for the model to name the topic, and get_wikipedia runs either way.
         first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_messages(long), tools=TOOLS, stream=True,
+            model=OMLX_MODEL, messages=_messages(long, written), tools=TOOLS, stream=True,
             max_tokens=max_tokens,
         )
         parts: list[str] = []
@@ -804,11 +959,14 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             print(f"[llm] fallback lookup for {user_text[:60]!r}")
             getattr(first, "close", lambda: None)()             # stop the abandoned generation
             yield ("tool_calls", ["search_wiki"])
+            if typed_content:
+                written, long, max_tokens = True, True, VERBOSITY_MAX_TOKENS["long"]
+                retry = written_note(retry)
             user_msg["content"] += retry
             _note_documents(retry)
             parts = []
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long), stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=max_tokens,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -821,9 +979,11 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
                 print("[llm] warning: text before tool call was spoken")
             parts = []  # spoken or held back; never the reply
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
-            _tool_round(tool_calls)
+            tool_texts = _tool_round(tool_calls)
+            if typed_content and any(tc["name"] in GROUNDING_TOOLS for tc in tool_calls):
+                written, long, max_tokens = True, True, VERBOSITY_MAX_TOKENS["long"]
             stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long), stream=True, max_tokens=max_tokens,
+                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=max_tokens,
             )
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -838,10 +998,13 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
 
     # The turn is done: the block was for this completion only, the history keeps the bare
     # words (PRD 39) — the reply quotes the source, follow-ups use read_source / dig deeper.
+    block = user_msg["content"][len(user_text):]
     user_msg["content"] = user_text
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
     _deeper_offer = _offer_from_turn(reply, user_text)
+    _last_context = {"question": user_text, "extra": block, "tools": tool_texts, "reply": reply,
+                     "sources": list(_turn_sources), "pages": list(_turn_pages)}
     _log(user_text, _last_tool_calls, reply, origin)
 
 
@@ -940,8 +1103,9 @@ def new_thread() -> str:
     `_conversation` becomes [system, `<earlier>summary</earlier>` (user), NEW_TOPIC_ACK]; the
     deeper offer, the turn's sources, the remembered page and the trim count are cleared.
     """
-    global _deeper_offer, _turn_sources, last_page, _last_trimmed, _context_warned
+    global _deeper_offer, _turn_sources, last_page, _last_trimmed, _context_warned, _last_context
     turns = dialogue()
+    _last_context = None
     try:
         save_memory()
     except Exception as e:
@@ -951,6 +1115,7 @@ def new_thread() -> str:
                          {"role": "assistant", "content": NEW_TOPIC_ACK}]
     _deeper_offer, _turn_sources, last_page = None, [], None
     _last_trimmed, _context_warned = 0, False
+    _forget_cards()
     return summary
 
 

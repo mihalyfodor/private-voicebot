@@ -186,6 +186,33 @@ main {
 .msg.user .role { color: #8dc0f5; }
 .msg .text { font-size: 15px; line-height: 1.45; color: #f2f2f2; text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 1px 10px rgba(0,0,0,0.8); }
 .msg.user .text { color: #d4dbe3; font-size: 14px; }
+/* PRD 43: a written card — rendered markdown in a panel, collapsed to ~12 lines */
+.msg.card .role { color: #d9a441; }
+.msg.card .card-body {
+  font-size: 13px; line-height: 1.45; color: #e8e8e8;
+  background: rgba(0,0,0,0.42); border: 1px solid #333; border-radius: 6px; padding: 8px 12px;
+}
+.msg.card .card-body.collapsed {
+  max-height: calc(1.45em * 12); overflow: hidden;
+  -webkit-mask-image: linear-gradient(#000 75%, transparent); mask-image: linear-gradient(#000 75%, transparent);
+}
+.msg.card .card-body .wiki-rendered h1 { font-size: 15px; margin: 0 0 8px; }
+.msg.card .card-body .wiki-rendered h2 { font-size: 13px; margin: 10px 0 4px; }
+.msg.card .card-body .wiki-rendered th, .msg.card .card-body .wiki-rendered td { font-size: 12px; }
+.card-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.card-btn {
+  font: inherit; font-size: 11px; color: #ddd; background: rgba(0,0,0,0.5); border: 1px solid #444;
+  border-radius: 4px; padding: 2px 8px; cursor: pointer;
+}
+.card-btn:hover:not(:disabled) { border-color: #888; }
+.card-btn:disabled { color: #9ac58f; cursor: default; }
+.card-picker { display: inline-flex; gap: 4px; align-items: center; }
+.card-picker[hidden] { display: none; }
+.card-folder {
+  font: inherit; font-size: 11px; width: 110px; color: #eee; background: rgba(0,0,0,0.5);
+  border: 1px solid #444; border-radius: 4px; padding: 2px 6px;
+}
+.card-note { font-size: 11px; color: #e29a9a; }
 /* typed turns carry a small keyboard glyph next to the role label */
 .msg .typed-glyph { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 1.6; }
 #companion.side .msg .text { font-size: 13px; }

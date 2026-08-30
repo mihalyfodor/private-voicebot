@@ -356,7 +356,8 @@ def test_a_typed_turn_gets_the_same_recall_as_a_spoken_one(fallout):
         list(llm.ask_events(question, origin="typed"))
         list(llm.ask_events(question, origin="user"))
     typed, spoken = fake.calls[0]["messages"][1], fake.calls[1]["messages"][3]
-    assert "<recall>" in typed["content"] and typed["content"] == spoken["content"]
+    # the same passages; a typed content question only reads the full-answer wording (PRD 43)
+    assert "<recall>" in typed["content"] and typed["content"] == llm.written_note(spoken["content"])
     assert llm._conversation[1]["content"] == llm._conversation[3]["content"] == question
 
 

@@ -40,6 +40,7 @@
 //   setState(v) / showShutdownScreen()   the two transitions the cues hang off
 //   palette / paletteInput / paletteList / view()   the ⌘K palette state, its input, its rows (PRD 30)
 //   cmdK()           a document-level ⌘K keydown
+//   cards()          the `.msg.card` elements in #history (PRD 43)
 //   submitIntake() / intakeStatus / intakeCancel   the intake batch loop, its status line and
 //                    its Cancel/Close button (PRD 36; `fetch` is re-scripted per scenario)
 //
@@ -354,6 +355,8 @@ globalThis.__t = {
   closeSocket: (code) => { shutdownRequested = false; ws.onclose({ code }); },   // the palette's Shut down above set it
   // ---- context meter (PRD 39)
   chatDot: () => railItems.find(b => b.dataset.view === 'chat').querySelector('.rail-dot').className,
+  // ---- written cards (PRD 43)
+  cards: () => historyEl.children.filter(c => c.classList.contains('card')),
 };
 `;
 
@@ -855,5 +858,46 @@ socket.sent.length = 0;
 doc.getElementById('model-load').dispatch('click');
 doc.getElementById('model-unload').dispatch('click');
 results.model_sent = socket.sent.map(m => m.action);
+
+// ---------------------------------------------------------------- scenarios (PRD 43)
+// ---- scenario 3: a `card` renders collapsed with "show all"; Copy puts the markdown on the
+// clipboard; Save opens the folder picker (notes/) and sends save_card; `card_saved` relabels
+// the button; nothing about the card is decoded as audio.
+t.setView('chat');
+const cardText = (n) => (n.children && n.children.length ? n.children.map(cardText).join("") : String(n.textContent || ""));
+const CARD_MD = '# Bleak Falls Barrow\n\n## Route\n- Arvel\n\n## Puzzle\nSnake, snake, whale.\n\nSources: Skyrim guide · part 12/300';
+const decodesBefore = audio.decodes;
+t.recv({ type: 'card', id: 'card1', markdown: CARD_MD, sources: ['Skyrim guide · part 12/300'], title: 'Bleak Falls Barrow' });
+const cardEl = t.cards().at(-1);
+const cardBody = cardEl.querySelector('.card-body');
+const cardMore = cardEl.querySelector('.card-more');
+results.card_rendered = { role: cardEl.children[0].textContent, cls: cardBody.className, more: cardMore.textContent,
+                          text: cardText(cardBody), decodes: audio.decodes - decodesBefore,
+                          history_role: t.historyLines().at(-1).role };
+cardMore.dispatch('click');
+results.card_expanded = { cls: cardBody.className, more: cardMore.textContent };
+clipboardLog.length = 0;
+cardEl.querySelector('.card-copy').dispatch('click');
+await tick();
+results.card_copied = [...clipboardLog];
+const cardSave = cardEl.querySelector('.card-save');
+const cardPicker = cardEl.querySelector('.card-picker');
+results.card_picker_before = cardPicker.hidden;
+socket.sent.length = 0;
+cardSave.dispatch('click');
+results.card_picker = { hidden: cardPicker.hidden, folder: cardEl.querySelector('.card-folder').value, sent: [...socket.sent] };
+cardEl.querySelector('.card-save-ok').dispatch('click');
+results.card_save_sent = [...socket.sent];
+results.card_saving = { label: cardSave.textContent, disabled: cardSave.disabled };
+t.recv({ type: 'error', scope: 'wiki', text: 'already saved' });
+results.card_save_failed = { label: cardSave.textContent, disabled: cardSave.disabled, note: cardEl.querySelector('.card-note').textContent };
+cardSave.dispatch('click');
+cardEl.querySelector('.card-folder').value = 'drafts/';
+cardEl.querySelector('.card-save-ok').dispatch('click');
+results.card_save_folder = socket.sent.at(-1);
+t.recv({ type: 'card_saved', id: 'card1', path: 'notes/2026-08-30-bleak-falls-barrow' });
+results.card_saved = { label: cardSave.textContent, disabled: cardSave.disabled, picker_hidden: cardPicker.hidden };
+t.recv({ type: 'card', id: 'card2', markdown: '# Two\n\n## A\nx', sources: [], title: 'Two', saved: 'notes/2026-08-30-two' });
+results.card_replayed_saved = t.cards().at(-1).querySelector('.card-save').textContent;
 
 console.log(JSON.stringify(results, null, 1));

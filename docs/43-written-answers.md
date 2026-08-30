@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 43 — Answer length by origin; written cards; explicit save to wiki
 
@@ -37,11 +37,17 @@ automatically; durable notes exist only when the user decides.
   turn's sources are kept in `_turn_sources`). Emitted as a new WS message `card {id, markdown, sources, title}`
   after a one-line spoken reply; the card text is appended to `_conversation` as an assistant turn (so follow-ups
   see it) but `_session_turns` get a one-line stand-in ("wrote up: <title>") so memory folding stays cheap.
-- Triggers: spoken/typed "write it up…" after any answer; the offer's "write it up" reply; typed `/write`.
-- **Save to wiki**: action `save_card {id, folder?}` → `wiki.create_page` + `save_page` with the card markdown under
-  `notes/<date>-<slug(title)>` (folder override allowed for user paths), frontmatter `source: written answer`,
-  `sources:` list from the card; one commit; reply `wiki_open` + `card_saved {id, path}`; spoken "save that as a
-  note" maps to the last card. No card → error {scope: wiki} "nothing to save".
+- Triggers: spoken/typed "write it up…" after any answer; the offer's "write it up" reply; typed `/write`. Before
+  any answer the write-up turn is an error {scope: turn} "nothing to write up yet" (nothing spoken).
+- A typed content question whose grounding arrives mid-turn — the held-reply lookup fallback (PRD 42) or a
+  search_wiki / read_source / read_page / get_wikipedia tool round — switches to `long` for the completion that
+  follows it, the same policy one step later.
+- **Save to wiki**: action `save_card {id, folder?}` → `wiki.save_card` (the editor's validated user write —
+  `_user_target`, any single-level folder but `raw/`, no existing page — with the card markdown under
+  `notes/<date>-<slug(title)>`; folder override allowed), frontmatter `source: written answer`, `sources:` list
+  from the card; one commit (`create_page` + `save_page` would have been two); reply `wiki_open` + `card_saved
+  {id, path}` + the refreshed `wiki` / `sources`; spoken "save that as a note" maps to the last card and answers
+  with one spoken line. No card → error {scope: wiki} "nothing to save"; a saved card → "already saved".
 - Protocol rows for `card`, `save_card`, `card_saved`; fixture hooks; focus/deeper/new-topic interplay: `new_topic`
   clears the last card; cards survive reconnect replay (stored as assistant turns with a marker).
 
@@ -71,3 +77,25 @@ automatically; durable notes exist only when the user decides.
 
 ## Out of scope
 Auto-saving cards, editing a card in place (use the wiki editor after saving), cards for chit-chat, PDF/export.
+
+## Results (2026-08-30, scenario 7)
+
+`tests/qa/stress.py` (typed turns, Playwright, replies muted) against `chatbot.py` on :8014 over a throwaway vault
+seeded from read-only copies of `~/llm-wiki-dev/raw/inbox` (the Fallout 4, Skyrim and Morrowind guides, three
+EPUBs, `people/anna`, `projects/falcon`); gemma-4-26B via oMLX. Same rubric as `docs/reviews/2026-08-30-stress-test.md`
+(facts checked against the raw files; "n/a" = the expectation no longer applies to a typed turn under this PRD).
+
+| section | turns | correct | partial | wrong | n/a | notes |
+|---|---|---|---|---|---|---|
+| A documents | 14 | 9 | 0 | 2 | 2 | A2/A6 "yes": typed content questions no longer end with an offer, so there was nothing to take (n/a); A8 now right (Caius 70 / Khargol 100); A10 still refused (database-per-service trade-off), A11 still off (bounded-context signal) — both recall misses, unchanged from PRD 42 |
+| B Wikipedia | 6 | 5 | 1 | 0 | 0 | B1 Ada Lovelace direct, B5 Vivec from the guide, B6 Falcon from the page; B4 (2024 Olympics) "no information" without the Wikipedia offer (partial, as before) |
+| C topic switching | 7 | 7 | 0 | 0 | 0 | C3 saga pattern now from the book; `/new` summary + "what were we talking about" fine |
+| D UI instructions | 8 | 7 | 1 | 0 | 0 | D3 "summarise this" from the page head; D4 still adds "South Wall Cornerclub" (partial, as before) |
+| E robustness | 5 | 4 | 1 | 0 | 0 | E2 opinion question gets the Wikipedia offer (partial, as before); no server errors, order kept, no prompt leak |
+| F written answers | 5 | 5 | 0 | 0 | 0 | F1 typed grounded content → 5 sentences, no offer; F2 "write it up" → "Written out below." + a card with 3 `##` sections and a Sources line (Skyrim guide parts 170/394, 209/394); F3 "save that as a note" → `notes/2026-08-30-bleak-falls-barrow` (source: written answer, sources: list), Wiki view opened, button "saved → notes/…"; F4 `/write` → a second card; F4b the card's Save to wiki into `drafts/` → `drafts/2026-08-30-bleak-falls-barrow-guide` |
+| **total** | **45** | **37** | **3** | **2** | **2** | PRD 42 run: 29 / 4 / 7 of 40 |
+
+Timing (44 timed turns): median 5.1 s, mean 5.6 s, p90 10.6 s, max 12.0 s (F1 long answer 11.5 s, the two
+cards 8.7 s and 7.5 s, the save 1.6 s). Context max 34 %. Zero `[Error]` / traceback lines in the server log; one
+vault commit per save (`wiki: save card notes/… (written answer)`). Both "yes" turns after a typed long answer
+were answered gracefully ("Anything else you need me to look up?") — the offer is spoken-only by design.

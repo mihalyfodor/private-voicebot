@@ -258,7 +258,11 @@ def _fm_text(fm: dict) -> str:
         else:
             lines.append(f"{key}: {value}")
     for key, value in fm.items():        # keys a human added in Obsidian survive a rewrite
-        if key not in FIELDS:
+        if key in FIELDS:
+            continue
+        if isinstance(value, (list, tuple)):
+            lines.append(f"{key}: [{', '.join(str(v) for v in value)}]")
+        else:
             lines.append(f"{key}: {value}")
     lines.append("---")
     return "\n".join(lines)
@@ -701,6 +705,36 @@ def create_page(path: str) -> tuple:
         _write(rel, _fresh_page(_TYPES.get(folder, "note"), base[:-3], "", USER_SOURCE))
         _user_commit(f"created [[{wikilink(rel)}]] (source: {USER_SOURCE})",
                      f"wiki: create {wikilink(rel)} ({USER_SOURCE})")
+        return wikilink(rel), None
+
+
+CARD_SOURCE = "written answer"
+
+
+def save_card(path: str, title: str, markdown: str, sources: list) -> tuple:
+    """A written answer filed as a note (PRD 43): ``(path, None)`` or ``(None, reason)``.
+
+    One validated user write (any single-level folder but `raw/`, no existing page) and one
+    commit: frontmatter `type: note`, `name: <title>`, `source: written answer`, `sources:` the
+    card's list; the body is the card markdown as it was rendered.
+    """
+    with vault_lock.LOCK:
+        ensure_vault()
+        rel, reason = _user_target(path, exists=False)
+        if reason:
+            return None, reason
+        today = memory._today_iso()
+        fm = {"type": "note", "name": title, "tags": [], "source": CARD_SOURCE, "updated": today,
+              "seen": today, "sources": [str(x).replace(",", " ") for x in sources]}
+        body = markdown.strip() + "\n"
+        if not body.startswith("# "):
+            body = f"# {title}\n\n" + body
+        text = _page_text(fm, body)
+        if len(text.encode()) > MAX_PAGE_BYTES:
+            return None, f"page larger than {MAX_PAGE_BYTES // 1024} kB"
+        _write(rel, text)
+        _user_commit(f"filed [[{wikilink(rel)}]] (source: {CARD_SOURCE})",
+                     f"wiki: save card {wikilink(rel)} ({CARD_SOURCE})")
         return wikilink(rel), None
 
 
