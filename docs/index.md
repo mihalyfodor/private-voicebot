@@ -5,7 +5,7 @@
 ```bash
 # oMLX must be running on :8000; run scripts/fetch_assets.sh once
 source .venv/bin/activate
-python3 chatbot.py    # opens http://localhost:8010 automatically
+python3 chatbot.py    # opens http://localhost:8011 automatically
 ```
 
 ## How to run — prod (docker)

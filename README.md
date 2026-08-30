@@ -2,7 +2,7 @@
 
 A local voice assistant with memory, real-time tools and an animated Live2D avatar that lip-syncs to speech. Runs entirely on your machine — no cloud LLM.
 
-**Stack:** Whisper (`mlx-whisper`, in-process STT) + Silero VAD → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8010.
+**Stack:** Whisper (`mlx-whisper`, in-process STT) + Silero VAD → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8011 (the prod container owns 8010).
 
 **Avatar:** **Wanko**, an upbeat dog office assistant, with her own voice, persona and expressions. The menu also lets you pick a **backdrop** behind her.
 
@@ -42,7 +42,7 @@ cp .env.example .env   # set OMLX_MODEL to the id shown by: curl http://localhos
 **Voice assistant:**
 ```bash
 source .venv/bin/activate
-python3 chatbot.py    # opens http://localhost:8010 automatically
+python3 chatbot.py    # opens http://localhost:8011 automatically
 #   OPEN_BROWSER=0 (env or .env) starts the server without opening a tab
 ```
 

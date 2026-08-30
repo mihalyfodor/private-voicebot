@@ -421,13 +421,14 @@ def test_scenario_12_live_tests_are_excluded_by_default(pytestconfig):
 
 def test_allowed_origins_env_extends_the_loopback_pair(monkeypatch):
     """PRD 40 scenario 2: ALLOWED_ORIGINS adds to — never replaces — the loopback:PORT pair."""
-    monkeypatch.setenv("ALLOWED_ORIGINS", "http://localhost:8011")
-    assert chatbot._origin_allowed("http://localhost:8011") is True
-    assert chatbot._origin_allowed("http://evil:8010") is False
+    extra = f"http://localhost:{chatbot.PORT + 1}"  # anything but the loopback:PORT pair
+    monkeypatch.setenv("ALLOWED_ORIGINS", extra)
+    assert chatbot._origin_allowed(extra) is True
+    assert chatbot._origin_allowed(f"http://evil:{chatbot.PORT}") is False
     assert chatbot._origin_allowed(f"http://localhost:{chatbot.PORT}") is True
 
     monkeypatch.delenv("ALLOWED_ORIGINS")
-    assert chatbot._origin_allowed("http://localhost:8011") is False
+    assert chatbot._origin_allowed(extra) is False
     assert chatbot._origin_allowed(f"http://localhost:{chatbot.PORT}") is True
     assert chatbot._origin_allowed(f"http://127.0.0.1:{chatbot.PORT}") is True
     assert chatbot._origin_allowed(None) is True

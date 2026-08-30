@@ -8,7 +8,7 @@ from playwright.sync_api import sync_playwright
 
 ap = argparse.ArgumentParser()
 ap.add_argument("out")
-ap.add_argument("--url", default="http://127.0.0.1:8010/")
+ap.add_argument("--url", default="http://127.0.0.1:8011/")
 ap.add_argument("--view", default=None, help="rail item to open, e.g. memory / wiki / sources / settings")
 ap.add_argument("--width", type=int, default=1440)
 ap.add_argument("--height", type=int, default=900)

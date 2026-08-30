@@ -1,6 +1,6 @@
 # WebSocket protocol
 
-One socket, `ws://localhost:8010/ws`, one page at a time (a second connection replaces the first). Text
+One socket, `ws://localhost:8011/ws`, one page at a time (a second connection replaces the first). Text
 frames are JSON objects; the browser's binary frames are 16 kHz Int16 mic audio (hands-free only). Boot
 state (`avatar`, `backdrop`, `backdrops`, `hands_free`, `verbosity`, settings facts) comes from `GET
 /api/config`; file intake goes over `POST /ingest` and only its progress comes back on the socket.
