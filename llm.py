@@ -139,7 +139,8 @@ def trim_history() -> int:
         if turn.get("tool_calls"):
             while len(_conversation) > 2 and _conversation[1].get("role") == "tool":
                 del _conversation[1]
-    _last_trimmed = sum(1 for t in dropped if t.get("role") == "user") or (1 if dropped else 0)
+    users = sum(1 for t in dropped if t.get("role") == "user")
+    _last_trimmed = users or int(bool(dropped))                  # a lone assistant turn still counts
     if dropped:
         print(f"[llm] trimmed conversation history to fit context budget ({budget} tokens)")
     return _last_trimmed
@@ -780,6 +781,13 @@ def _summarise(turns: list) -> str:
     return summary[:SUMMARY_TOKENS * 4].strip()
 
 
+def dialogue() -> list:
+    """The user and assistant lines the model holds, as `{"role", "content"}` copies: tool
+    rounds and empty assistant turns left out."""
+    return [{"role": m["role"], "content": m["content"]} for m in _conversation[1:]
+            if m.get("role") in ("user", "assistant") and m.get("content")]
+
+
 def new_thread() -> str:
     """Fold memory, then restart the conversation on a short visible summary; returns it.
 
@@ -787,8 +795,7 @@ def new_thread() -> str:
     deeper offer, the turn's sources, the remembered page and the trim count are cleared.
     """
     global _deeper_offer, _turn_sources, last_page, _last_trimmed, _context_warned
-    turns = [{"role": m["role"], "content": m["content"]} for m in _conversation[1:]
-             if m.get("role") in ("user", "assistant") and m.get("content")]
+    turns = dialogue()
     try:
         save_memory()
     except Exception as e:

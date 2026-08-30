@@ -1046,15 +1046,12 @@ def replay_messages() -> list:
     """The `transcript` / `thread` messages that rebuild the history on a (re)connect: the
     user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`."""
     out = []
-    for m in llm._conversation[1:]:
-        content = m.get("content") or ""
-        if m.get("role") not in ("user", "assistant") or not content:
-            continue                                            # tool rounds carry no line
-        earlier = _EARLIER.match(content) if m["role"] == "user" else None
+    for m in llm.dialogue():
+        earlier = _EARLIER.match(m["content"]) if m["role"] == "user" else None
         if earlier:
             out.append({"type": "thread", "text": earlier.group(1)})
         else:
-            out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(content)})
+            out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(m["content"])})
     return out
 
 
