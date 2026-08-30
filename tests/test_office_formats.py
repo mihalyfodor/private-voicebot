@@ -499,3 +499,47 @@ def test_ics_events_honours_exdate_and_names_the_organizer_first():
     kickoff = next(e for e in events if e["title"] == "Falcon kickoff")
     assert kickoff["attendees"] == ["Anna Kovacs", "Bob Nagy", "Mihaly Fodor"]
     assert kickoff["time"] == "10:00–10:30" and kickoff["uid"] == "one@x"
+
+
+# --- epub (PRD 31 addendum, 2026-08-30) -------------------------------------------------
+
+
+def _epub(chapters: list[tuple[str, str]]) -> bytes:
+    """A minimal EPUB: container.xml → content.opf → one XHTML per chapter, in spine order."""
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("mimetype", "application/epub+zip")
+        zf.writestr("META-INF/container.xml",
+                    '<?xml version="1.0"?><container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                    '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+                    '</rootfiles></container>')
+        items = "".join(f'<item id="c{i}" href="ch{i}.xhtml" media-type="application/xhtml+xml"/>'
+                        for i in range(len(chapters)))
+        refs = "".join(f'<itemref idref="c{i}"/>' for i in reversed(range(len(chapters))))   # spine reversed
+        zf.writestr("OEBPS/content.opf",
+                    f'<package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata/>'
+                    f'<manifest>{items}</manifest><spine>{refs}</spine></package>')
+        for i, (title, body) in enumerate(chapters):
+            zf.writestr(f"OEBPS/ch{i}.xhtml",
+                        f'<html xmlns="http://www.w3.org/1999/xhtml"><head><style>p{{}}</style></head>'
+                        f'<body><h1>{title}</h1><p>{body}</p><h2>Notes</h2><ul><li>one</li><li>two</li></ul>'
+                        f'<script>alert(1)</script></body></html>')
+    return buf.getvalue()
+
+
+def test_epub_extracts_chapters_in_spine_order_with_headings():
+    data = _epub([("Chapter One", "Bounded contexts keep models apart."),
+                  ("Chapter Two", "CQRS splits reads from writes.")])
+    text = sources.epub_text(data)
+
+    assert text.index("# Chapter Two") < text.index("# Chapter One")      # spine order, not file order
+    assert "## Notes" in text and "- one" not in text and "one\ntwo" in text.replace("\n\n", "\n")
+    assert "alert" not in text and "p{}" not in text                        # script/style dropped
+    assert sources.KINDS[".epub"] == "epub" and ".epub" in sources.LARGE_TEXT_EXTS
+    assert sources.raw_text("raw/inbox/x.epub", data) == text
+
+
+def test_broken_epub_is_unreadable_not_a_crash():
+    assert sources.epub_text(b"not a zip") == ""
+    assert sources.epub_text(_epub([])) == ""

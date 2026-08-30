@@ -1981,9 +1981,9 @@ sourcesInputEl.onchange = () => {
 // button posts to /ingest. Esc/Cancel closes it and sends nothing.
 const INTAKE_MAX_IMAGE = 4 * 1024 * 1024;
 const INTAKE_MAX_FILE = 2 * 1024 * 1024;       // pdf/eml/msg/ics
-const INTAKE_MAX_TEXT = 10 * 1024 * 1024;      // text kinds: the server only shows the model a sample (PRD 31)
+const INTAKE_MAX_TEXT = 50 * 1024 * 1024;      // text kinds: the server only shows the model a sample (PRD 31)
 const INTAKE_IMAGE_EXT = ['png', 'jpg', 'jpeg'];
-const INTAKE_TEXT_EXT = ['md', 'txt', 'docx', 'pptx', 'xlsx', 'vtt'];
+const INTAKE_TEXT_EXT = ['md', 'txt', 'docx', 'pptx', 'xlsx', 'vtt', 'epub'];
 const INTAKE_EXT = [...INTAKE_TEXT_EXT, 'pdf', 'eml', 'msg', 'ics', ...INTAKE_IMAGE_EXT];
 // Names that say nothing about the content: the title field stays empty and the model's title wins.
 const INTAKE_GENERIC = /^(note|untitled|pasted text|drop|document|new document)?[\s\d:._-]*$/;

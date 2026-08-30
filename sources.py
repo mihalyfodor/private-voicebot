@@ -28,6 +28,10 @@ import datetime as dt
 import email
 import email.policy
 import hashlib
+import posixpath
+import xml.etree.ElementTree as ET
+import zipfile
+from html.parser import HTMLParser
 import io
 import json
 import os
@@ -48,7 +52,7 @@ SAMPLE_SHARES = (0.60, 0.15, 0.25)
 SKIPPED = "[… %d tokens skipped …]"
 
 MAX_FILE_BYTES = 2 * 1024 * 1024        # pdf/eml/msg/ics and pasted text
-MAX_TEXT_BYTES = 10 * 1024 * 1024       # md/txt/docx/pptx/xlsx/vtt (sampled, so size is cheap)
+MAX_TEXT_BYTES = 50 * 1024 * 1024       # md/txt/docx/pptx/xlsx/vtt/epub (sampled, so size is cheap)
 MAX_IMAGE_BYTES = 4 * 1024 * 1024       # png/jpg
 IMAGE_LONG_EDGE = 1568                  # what the multimodal model wants to see
 #: below this, downscaling costs more than it saves (and keeps the tests off `sips`)
@@ -62,7 +66,7 @@ MANIFEST = "raw/manifest.jsonl"
 TEXT_EXTS = {".md": "md", ".markdown": "md", ".txt": "txt"}
 IMAGE_EXTS = {".png": "screenshot", ".jpg": "screenshot", ".jpeg": "screenshot"}
 DOC_EXTS = {".pdf": "pdf", ".eml": "email", ".msg": "email", ".ics": "calendar"}
-OFFICE_EXTS = {".docx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".vtt": "transcript"}
+OFFICE_EXTS = {".docx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".vtt": "transcript", ".epub": "epub"}
 #: extension -> the `kind` that lands in the source page's frontmatter
 KINDS = {**TEXT_EXTS, **IMAGE_EXTS, **DOC_EXTS, **OFFICE_EXTS}
 #: the kinds whose bytes are cheap to hold because the model only ever sees a sample
@@ -591,6 +595,77 @@ class Extracted:
     events: list = dataclasses.field(default_factory=list)   # a calendar's occurrences
 
 
+class _HtmlText(HTMLParser):
+    """XHTML → markdown-ish text: headings become `#` lines, block elements break lines, the
+    rest is inline text. Scripts/styles are dropped."""
+    _BLOCKS = {"p", "div", "li", "br", "tr", "section", "article", "blockquote", "pre", "table"}
+    _HEAD = {"h1": "#", "h2": "##", "h3": "###", "h4": "####"}
+
+    def __init__(self):
+        super().__init__()
+        self.parts, self._skip, self._head = [], 0, None
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self._skip += 1
+        elif tag in self._HEAD:
+            self._head = self._HEAD[tag]
+            self.parts.append(f"\n\n{self._head} ")
+        elif tag in self._BLOCKS:
+            self.parts.append("\n" if tag == "br" else "\n\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self._skip = max(0, self._skip - 1)
+        elif tag in self._HEAD:
+            self._head = None
+            self.parts.append("\n\n")
+        elif tag in self._BLOCKS:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if not self._skip:
+            self.parts.append(data)
+
+    def text(self) -> str:
+        return re.sub(r"[ \t]+", " ", re.sub(r"\n{3,}", "\n\n", "".join(self.parts))).strip()
+
+
+def epub_text(data: bytes) -> str:
+    """An EPUB (zip of XHTML) as text in spine order; chapters keep their headings.
+
+    Reads `META-INF/container.xml` → the OPF → its spine, then each XHTML item. A broken or
+    non-EPUB zip yields "" (unreadable), never an exception.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            container = ET.fromstring(zf.read("META-INF/container.xml"))
+            ns = {"c": "urn:oasis:names:tc:opendocument:xmlns:container"}
+            opf_path = container.find(".//c:rootfile", ns).attrib["full-path"]
+            opf = ET.fromstring(zf.read(opf_path))
+            ons = {"o": "http://www.idpf.org/2007/opf"}
+            base = posixpath.dirname(opf_path)
+            items = {i.attrib["id"]: i.attrib["href"] for i in opf.findall(".//o:manifest/o:item", ons)}
+            spine = [items[r.attrib["idref"]] for r in opf.findall(".//o:spine/o:itemref", ons)
+                     if r.attrib.get("idref") in items]
+            chapters = []
+            for href in spine:
+                name = posixpath.normpath(posixpath.join(base, href)) if base else href
+                try:
+                    raw = zf.read(name).decode("utf-8", "replace")
+                except KeyError:
+                    continue
+                parser = _HtmlText()
+                parser.feed(raw)
+                text = parser.text()
+                if text:
+                    chapters.append(text)
+            return "\n\n".join(chapters)
+    except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
+        print(f"[Sources] epub extraction failed: {exc}")
+        return ""
+
+
 def raw_text(raw_rel: str, data: bytes) -> str:
     """The whole extracted text of a stored text-kind raw file — nothing sampled out.
 
@@ -614,6 +689,8 @@ def raw_text(raw_rel: str, data: bytes) -> str:
         return xlsx_text(data)
     if ext == ".vtt":
         return vtt_text(data)
+    if ext == ".epub":
+        return epub_text(data)
     return _decode(data)
 
 

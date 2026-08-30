@@ -30,7 +30,7 @@ Transcripts and `.ics` additionally land as `meetings/` pages, because that is w
   events expanded for the next `calendar_horizon_days` (setting in settings.json, default 14, editable in the
   Settings view next to the decay windows — the user plans the week on Monday mornings). Teams' `.docx` transcript is detected by its `Speaker  timestamp` line
   pattern and routed to the transcript path.
-- `KINDS` grows accordingly. **Large text:** the byte cap for text kinds (md/txt/docx/pptx/xlsx/vtt) rises to 10 MB
+- `KINDS` grows accordingly. **Large text:** the byte cap for text kinds (md/txt/docx/pptx/xlsx/vtt/epub) rises to 50 MB (was 10 MB until 2026-08-30; ebooks carry images)
   (images/pdf unchanged); when the extracted text exceeds `RAW_CHUNK_TOKENS` the model is shown head (60 %), a middle
   slice (15 %) and tail (25 %) with `[… N tokens skipped …]` markers, and the source page frontmatter records
   `shown_tokens` / `total_tokens`. No chunk-and-merge (separate PRD if full coverage is ever needed).
@@ -93,3 +93,6 @@ first line) and a `topic` tag (e.g. gaming, work/project, finance) that lands in
 ## Out of scope
 OneNote, folder watching, Graph/IMAP sync, email thread grouping, `.doc`/`.ppt`/`.xls` legacy binaries, images inside
 documents, calendar write-back.
+
+## Also (2026-08-30): `.epub`
+Zipped XHTML read in spine order via the stdlib (container.xml → OPF → chapters); headings kept as `#` lines, scripts/styles dropped; kind `epub`, text-kind caps, chunk-indexed like any text. Test: spine order, headings, broken file → unreadable.
