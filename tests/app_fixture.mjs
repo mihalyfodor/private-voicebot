@@ -40,6 +40,8 @@
 //   setState(v) / showShutdownScreen()   the two transitions the cues hang off
 //   palette / paletteInput / paletteList / view()   the ⌘K palette state, its input, its rows (PRD 30)
 //   cmdK()           a document-level ⌘K keydown
+//   submitIntake() / intakeStatus / intakeCancel   the intake batch loop, its status line and
+//                    its Cancel/Close button (PRD 36; `fetch` is re-scripted per scenario)
 //
 // ------------------------------------------------------------- adding a scenario (next PRD)
 // 1. add whatever the scenario needs to HOOKS (keep it a thin accessor, no logic);
@@ -265,12 +267,14 @@ const sandbox = {
   atob, btoa, Uint8Array, Promise, JSON, Math, Object, Array, Number, String, Set, Map, Error, Date,
   setTimeout: () => 0,
   clearTimeout: () => {},
+  setInterval: () => 0,        // the intake batch's elapsed-time tick (PRD 36): nothing timed runs
+  clearInterval: () => {},
   requestAnimationFrame: fn => { fn(); return 0; },
   getComputedStyle: () => ({ lineHeight: '20px', paddingTop: '9px', paddingBottom: '9px' }),
   fetch: async () => ({ json: async () => CONFIG_JSON, ok: true }),
   AudioContext: AudioContextStub,
   WebSocket: WebSocketStub,
-  FormData: class {},
+  FormData: class { constructor() { this.fields = []; } append(...a) { this.fields.push(a); } },
   URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
   // PRD 31 intake: enough of Blob/File for size checks and the (unread) text preview.
   Blob: class { constructor(parts) { this.size = (parts || []).join('').length; } },
@@ -327,6 +331,8 @@ globalThis.__t = {
   // ---- office formats (PRD 31)
   intakeFromText, intakeFromFiles, closeIntake,
   intakeTitle: intakeTitleEl, intake: intakeEl, intakeItems: intakeItemsEl,
+  // ---- intake progress (PRD 36)
+  submitIntake, intakeStatus: intakeStatusEl, intakeCancel: intakeCancelBtn,
   calendarHorizon: calendarHorizonEl,
   // ---- source recall (PRD 32)
   recallMinScore: recallMinScoreEl,
@@ -664,4 +670,50 @@ t.recallMinScore.dispatch('change');
 results.recall_sent = [...socket.sent];
 
 results.verbosity_note = (html.match(/id="verbosity-desc"[^>]*>([^<]*)</) || [])[1] || '';
+// ---- PRD 36: a three-file batch is posted one file at a time, rows show their state, Cancel
+//      stops after the file in flight
+const tick = () => new Promise(r => setImmediate(r));
+const flat = (n) => (typeof n === 'string' ? n : (n.children.length ? n.children.map(flat).join('') : n.textContent));
+const rowStates = () => t.intakeItems.children.map(row => {
+  const state = row.querySelector('.intake-item-state');
+  return { cls: row.className, state: state ? flat(state) : '' };
+});
+const posts = [];                    // every /ingest call: {fields, resolve}
+sandbox.fetch = (url, opts) => new Promise((resolve) => posts.push({
+  url, fields: opts.body.fields,
+  resolve: (status, body) => resolve({ ok: status === 200, status, text: async () => JSON.stringify(body) }),
+}));
+t.intakeFromFiles([new sandbox.File(['1'], 'one.md'), new sandbox.File(['2'], 'two.md'), new sandbox.File(['3'], 'three.md')]);
+results.batch_before = rowStates().map(r => r.state);
+const batch = t.submitIntake();
+await tick();
+results.batch_started = { rows: rowStates(), posts: posts.length, status: t.intakeStatus.textContent,
+                          first_post_files: posts[0].fields.filter(f => f[0] === 'file').map(f => f[2]) };
+t.recv({ type: 'ingest_progress', filename: 'one.md', stage: 'summarising', i: 1, n: 1 });
+results.batch_summarising = rowStates()[0];
+posts[0].resolve(200, { filed: [{ path: 'sources/falcon-status', raw: 'raw/inbox/2026-08-30-one.md', already: false }], errors: [] });
+await tick(); await tick();
+t.recv({ type: 'wiki', pages: [{ path: 'sources/falcon-status', title: 'Falcon status', type: 'source', tags: [] }], lint: [], vault: '/tmp/v' });
+results.batch_one_filed = { rows: rowStates(), posts: posts.length, status: t.intakeStatus.textContent,
+                            link: !!t.intakeItems.children[0].querySelector('.intake-link') };
+t.intakeCancel.dispatch('click');
+results.batch_cancel_status = t.intakeStatus.textContent;
+posts[1].resolve(200, { filed: [{ path: 'sources/two', raw: 'raw/inbox/two.md', already: true }], errors: [] });
+await batch;
+results.batch_after_cancel = { rows: rowStates(), posts: posts.length, status: t.intakeStatus.textContent,
+                               button: t.intakeCancel.textContent, open: !t.intake.hidden };
+t.intakeCancel.dispatch('click');
+results.batch_closed = t.intake.hidden;
+
+// a failed request marks its row and the batch goes on
+t.intakeFromFiles([new sandbox.File(['a'], 'bad.md'), new sandbox.File(['b'], 'good.md')]);
+const batch2 = t.submitIntake();
+await tick();
+posts[2].resolve(413, { detail: 'the text is larger than 50 MB' });
+await tick(); await tick();
+posts[3].resolve(200, { filed: [{ path: 'sources/good', raw: 'raw/inbox/good.md', already: false }], errors: [] });
+await batch2;
+results.batch_error = { rows: rowStates(), status: t.intakeStatus.textContent, open: !t.intake.hidden };
+t.intakeCancel.dispatch('click');
+
 console.log(JSON.stringify(results, null, 1));

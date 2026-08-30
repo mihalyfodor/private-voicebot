@@ -587,3 +587,46 @@ def test_a_big_paste_gets_past_the_form_parser(http):
 
     assert response.status_code == 200, response.text
     assert response.json()["filed"]
+
+
+# --------------------------------------------------------------- PRD 36: progress pushes
+
+
+def _drain_until(ws, kind: str) -> list:
+    """Every message up to and including the first of type `kind`."""
+    got = [ws.receive_json()]
+    while got[-1].get("type") != kind:
+        got.append(ws.receive_json())
+    return got
+
+
+def test_ingest_pushes_a_progress_message_per_stage_and_item(http, monkeypatch):
+    """PRD 36 scenario 1: extracting -> summarising -> filing per item, all before the wiki push."""
+    client, ws = http
+    monkeypatch.setattr(sources, "_client_model",
+                        lambda: (FakeClient(SUMMARY, "[]", SUMMARY, "[]"), "m"))
+    response = client.post("/ingest", data={"confirm": "true", "kind": "file"}, files=[
+        ("file", ("one.md", b"one", "text/markdown")),
+        ("file", ("two.md", b"two", "text/markdown")),
+    ])
+    assert response.status_code == 200
+
+    got = _drain_until(ws, "wiki")
+    progress = [(m["filename"], m["stage"], m["i"], m["n"])
+                for m in got if m["type"] == "ingest_progress"]
+    assert progress == [("one.md", "extracting", 1, 2), ("one.md", "summarising", 1, 2),
+                        ("one.md", "filing", 1, 2), ("two.md", "extracting", 2, 2),
+                        ("two.md", "summarising", 2, 2), ("two.md", "filing", 2, 2)]
+
+
+def test_an_already_filed_drop_pushes_no_progress(http):
+    """PRD 36 scenario 1b: the sha short-circuit reports `already` and stays silent on the socket."""
+    client, ws = http
+    _post(client, files={"file": ("falcon.md", b"Falcon is amber.", "text/markdown")})
+    _drain_until(ws, "sources")
+
+    again = _post(client, files={"file": ("falcon.md", b"Falcon is amber.", "text/markdown")})
+    assert again.json()["filed"][0]["already"] is True
+
+    ws.send_json({"action": "get_sources"})        # the next frame is this reply, nothing in between
+    assert ws.receive_json()["type"] == "sources"

@@ -1077,17 +1077,20 @@ def is_generic_title(title: str) -> bool:
 
 
 def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
-                   title: str, names) -> tuple:
+                   title: str, names, on_stage=None) -> tuple:
     """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest.
 
     ``(summary, extracted)``: the kind the extraction settled on (`extracted.kind`) is the one
-    that lands on the page. A calendar never reaches the model.
+    that lands on the page. A calendar never reaches the model. `on_stage` (PRD 36) hears
+    "extracting" and "summarising" as each step starts.
     """
+    _stage(on_stage, "extracting")
     extracted = extract(raw_rel, data, kind)
     stem = os.path.splitext(os.path.basename(raw_rel))[0]
     label = title or ("" if is_generic_title(stem) else stem)
     if extracted.kind == "calendar":
         return _calendar_summary(extracted.events, title or stem), extracted
+    _stage(on_stage, "summarising")
     return summarise(client, model, extracted.kind, extracted.text, extracted.image_part,
                      hint, label, names), extracted
 
@@ -1143,12 +1146,24 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
     return fed
 
 
+def _stage(on_stage, stage: str) -> None:
+    """Report an ingest stage to the optional progress callback (PRD 36); never raises."""
+    if on_stage is None:
+        return
+    try:
+        on_stage(stage)
+    except Exception as exc:  # noqa: BLE001 — a progress push must not fail the ingest
+        print(f"[Sources] progress callback failed: {exc}")
+
+
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
-               page: str = "", client=None, model: str = "") -> dict:
+               page: str = "", client=None, model: str = "", on_stage=None) -> dict:
     """The one ingest path: store, extract, summarise, file, commit once.
 
     Returns ``{path, raw, already}`` — `path` is the source page (`sources/<slug>`), `raw` the
     vault-relative original, `already` True when these exact bytes were filed before.
+    `on_stage(stage)` hears "extracting" / "summarising" / "filing" as the steps start (PRD 36);
+    an already-filed drop reports nothing.
     """
     if client is None:
         client, model = _client_model()
@@ -1165,11 +1180,13 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         raw_rel = _free_path(folder, stem, ext)
         _store(raw_rel, data)
 
-        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names)
+        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names,
+                                            on_stage)
         kind = extracted.kind
         page_title = title or summary.get("title") or stem
         raw_rel = _rename_generic_raw(raw_rel, page_title)
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
+        _stage(on_stage, "filing")
         fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint=hint, page=page, source=f"user drop {memory._today_iso()}",
@@ -1336,7 +1353,8 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
 
 
 def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title: str = "",
-                  hint: str = "", page: str = "", client=None, model: str = "") -> dict:
+                  hint: str = "", page: str = "", client=None, model: str = "",
+                  on_stage=None) -> dict:
     """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
     ext, kind = check_upload(filename, len(data), kind_hint)
     stem = title or os.path.splitext(os.path.basename(filename or ""))[0] or "drop"
@@ -1345,7 +1363,7 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
-                      client=client, model=model)
+                      client=client, model=model, on_stage=on_stage)
 
 
 def check_note(text: str) -> str:
@@ -1359,7 +1377,7 @@ def check_note(text: str) -> str:
 
 
 def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
-                client=None, model: str = "") -> dict:
+                client=None, model: str = "", on_stage=None) -> dict:
     """Pasted or spoken free text -> `raw/inbox/<date>-<slug>.md`."""
     body = check_note(text)
     stem = title or "note"
@@ -1367,7 +1385,7 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
         title = ""
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
     return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
-                      client=client, model=model)
+                      client=client, model=model, on_stage=on_stage)
 
 
 def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "",
