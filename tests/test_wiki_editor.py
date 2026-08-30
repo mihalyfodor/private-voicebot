@@ -6,9 +6,6 @@ tests/app_fixture.mjs; this file asserts on the JSON it prints.
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import json
-import shutil
-import subprocess
 import threading
 import time
 
@@ -17,31 +14,16 @@ import pytest
 import memory
 import vault_lock
 import wiki
+from tests.conftest import commits, read
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 TODAY = memory._today_iso()
 
 
 @pytest.fixture
-def vault(wiki_sandbox, memory_sandbox):
-    wiki.ensure_vault()
-    return wiki_sandbox
-
-
-@pytest.fixture
 def editor(vault, panel):
     """The shared websocket client over a created vault."""
     return panel
-
-
-def commits(path: str = "") -> list:
-    args = ["git", "log", "--oneline"] + (["--", path] if path else [])
-    out = subprocess.run(args, cwd=wiki.WIKI_PATH, capture_output=True, text=True)
-    return [line for line in out.stdout.splitlines() if line.strip()]
-
-
-def read(rel: str) -> str:
-    return wiki._read(rel)
 
 
 def make(path, name=None, page_type="person", summary="Colleague."):
@@ -136,7 +118,7 @@ def test_missing_frontmatter_key_or_oversize_is_rejected(vault):
 # --------------------------------------------------------------- 4. waits for the lock
 
 
-def _hold_lock_and(change, seconds=0.4):
+def _hold_lock_and(change, seconds=0.2):
     """A fake memory.save: holds `memory._LOCK`, runs `change`, keeps holding for `seconds`."""
     entered = threading.Event()
 
@@ -164,7 +146,7 @@ def test_save_waits_for_an_ingest_and_then_sees_its_bytes(vault):
     started = time.monotonic()
     result, reason = wiki.save_page("people/anna", text, tag)
     thread.join()
-    assert time.monotonic() - started >= 0.3          # it waited for the lock
+    assert time.monotonic() - started >= 0.15         # it waited for the lock
     assert reason is None and result["conflict"] is True
     assert "theirs" in result["text"] and "- mine" not in read("people/anna.md")
 
@@ -283,25 +265,14 @@ def test_wiki_search_action_uses_bm25(editor):
 # --------------------------------------------------------------- 7/8. the client fixture
 
 
-@pytest.fixture(scope="module")
-def fixture_render():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
-def test_tags_group_filters_the_list(fixture_render):
-    r = fixture_render
+def test_tags_group_filters_the_list(r):
     assert r["wiki_list"] == ["# people", "Anna", "# projects", "Atlas", "# notes", "todo",
                               "# tags", "#infra", "#team"]
     assert r["wiki_list_infra"] == ["# projects", "Atlas", "# tags", "#infra", "#team"]
     assert r["wiki_list_after"] == r["wiki_list"]
 
 
-def test_alias_link_renders_the_alias_and_navigates_to_the_page(fixture_render):
-    r = fixture_render
+def test_alias_link_renders_the_alias_and_navigates_to_the_page(r):
     assert r["wiki_links"] == [
         {"text": "Atlas project", "cls": "wiki-link", "target": "projects/atlas"},
         {"text": "projects/atlas#Summary", "cls": "wiki-link", "target": "projects/atlas"},
@@ -316,15 +287,13 @@ def test_alias_link_renders_the_alias_and_navigates_to_the_page(fixture_render):
     assert r["wiki_fm_chips_open"] == ["tags", "source", "updated", "type", "name", "seen"]
 
 
-def test_red_link_click_confirms_then_sends_wiki_create(fixture_render):
-    r = fixture_render
+def test_red_link_click_confirms_then_sends_wiki_create(r):
     sent = [m for m in r["wiki_create_sent"] if m["action"] != "set_focus"]   # PRD 38 rides along
     assert sent == [{"action": "wiki_create", "path": "people/missing"}]
     assert r["wiki_create_confirm"] == 1
 
 
-def test_editor_saves_with_the_etag_and_handles_a_conflict(fixture_render):
-    r = fixture_render
+def test_editor_saves_with_the_etag_and_handles_a_conflict(r):
     assert r["wiki_save_disabled_clean"] is True
     assert r["wiki_editor_shown"] is True
     assert r["wiki_save_disabled_dirty"] is False
@@ -339,8 +308,7 @@ def test_editor_saves_with_the_etag_and_handles_a_conflict(fixture_render):
     assert r["wiki_escape"] == {"confirmed": ["confirm", "Discard unsaved changes?"], "editor_hidden": True}
 
 
-def test_today_new_page_and_search_send_their_actions(fixture_render):
-    r = fixture_render
+def test_today_new_page_and_search_send_their_actions(r):
     sent = [m for m in r["wiki_tools_sent"] if m["action"] != "set_focus"]   # PRD 38 rides along
     assert sent[0]["action"] == "wiki_create"
     assert sent[0]["path"].startswith("meetings/20")

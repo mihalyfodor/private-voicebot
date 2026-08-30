@@ -1,8 +1,6 @@
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
-
 from splitter import EMOTIONS, SentenceSplitter, split_stream, strip_tag
 
 
@@ -21,14 +19,8 @@ def test_unknown_tag_is_stripped_and_neutral():
     assert out == [("neutral", "Not today.")]
 
 
-@pytest.mark.parametrize("tag", ["proud", "sleepy", "shy"])
-def test_prd27_emotion_tags_survive(tag):
-    """PRD 27 added three tags; each one must reach the browser, not fall back to neutral."""
-    assert tag in EMOTIONS
-    assert list(split_stream([f"[{tag}] Done."])) == [(tag, "Done.")]
-
-
 def test_every_emotion_tag_round_trips():
+    """Every whitelisted tag (incl. PRD 27's proud/sleepy/shy) reaches the browser, not neutral."""
     for e in EMOTIONS:
         assert list(split_stream([f"[{e}] Ok."])) == [(e, "Ok.")]
 

@@ -6,7 +6,6 @@ test_hands_free.py, 9 in test_avatars.py).
 import sys, os, io
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import asyncio
-import subprocess
 import threading
 from types import SimpleNamespace
 
@@ -22,8 +21,6 @@ import llm
 import session as session_mod
 from session import Session, TurnController
 from tests.conftest import Blocker, fake_asr
-
-ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
 def fake_tts(text):
@@ -306,6 +303,8 @@ def test_make_sender_skips_once_the_socket_is_dropped(monkeypatch):
 
 
 def test_scenario_10_memory_saved_every_n_turns(monkeypatch):
+    """The periodic save fires on every multiple of MEMORY_SAVE_EVERY (default 5), never before."""
+    assert session_mod.MEMORY_SAVE_EVERY == 5
     calls = []
     monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
     every = session_mod.MEMORY_SAVE_EVERY
@@ -323,12 +322,9 @@ def test_scenario_10_memory_saved_every_n_turns(monkeypatch):
     assert calls == [1, 1]
 
 
-def test_memory_save_cadence_defaults_to_five():
-    assert session_mod.MEMORY_SAVE_EVERY == 5
-
-
 def test_memory_save_cadence_follows_the_constant(monkeypatch):
-    """The hook fires on multiples of `MEMORY_SAVE_EVERY`, whatever the constant says."""
+    """The hook fires on multiples of `MEMORY_SAVE_EVERY`, whatever the constant says, and is
+    handed the turn count."""
     monkeypatch.setattr(session_mod, "MEMORY_SAVE_EVERY", 3)
     counts = []
     c = TurnController(on_turn_complete=counts.append)
@@ -338,12 +334,16 @@ def test_memory_save_cadence_follows_the_constant(monkeypatch):
     assert counts == [3, 6]
 
 
-def test_memory_save_cadence_is_read_from_the_environment():
-    """MEMORY_SAVE_EVERY=<n> overrides the default (checked in a fresh interpreter)."""
-    env = {**os.environ, "MEMORY_SAVE_EVERY": "7"}
-    out = subprocess.run([sys.executable, "-c", "import session; print(session.MEMORY_SAVE_EVERY)"],
-                         cwd=ROOT, env=env, capture_output=True, text=True)
-    assert out.stdout.strip() == "7", out.stderr
+def test_memory_save_cadence_is_read_from_the_environment(monkeypatch):
+    """MEMORY_SAVE_EVERY=<n> overrides the default (session.py reads it at import; loaded
+    as a fresh module object so the live `session` is left alone)."""
+    import importlib.util
+    monkeypatch.setenv("MEMORY_SAVE_EVERY", "7")
+    spec = importlib.util.spec_from_file_location("session_under_env", session_mod.__file__)
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+    assert fresh.MEMORY_SAVE_EVERY == 7
+    assert session_mod.MEMORY_SAVE_EVERY == 5
 
 
 def test_next_turn_starts_while_the_memory_save_is_still_running(monkeypatch):

@@ -7,37 +7,15 @@ import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
-import subprocess
 
 import pytest
 
 import memory
 import wiki
-from tests.conftest import FakeClient
+from tests.conftest import FakeClient, commits, read, seed
 
 
 TURNS = [{"role": "user", "content": "we agreed to deploy on Fridays; Anna runs the release"}]
-
-
-@pytest.fixture
-def vault(wiki_sandbox, memory_sandbox):
-    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp).
-
-    `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
-    can never see the real memory.json.
-    """
-    wiki.ensure_vault()
-    return wiki_sandbox
-
-
-def commits() -> list:
-    out = subprocess.run(["git", "log", "--oneline"], cwd=wiki.WIKI_PATH,
-                         capture_output=True, text=True)
-    return [line for line in out.stdout.splitlines() if line.strip()]
-
-
-def read(rel: str) -> str:
-    return wiki._read(rel)
 
 
 def a_page(path="people/anna", name="Anna", summary="Colleague on the platform team."):
@@ -459,7 +437,6 @@ def test_a_wiki_failure_never_loses_the_profile_save(memory_sandbox, wiki_sandbo
 
 
 def test_archive_files_a_person_and_marks_the_entry_stale(vault, memory_sandbox):
-    from tests.conftest import seed
 
     seed(people=[{"name": "Anna", "rel": "colleague", "note": "platform team",
                   memory.SEEN_FIELD: "2026-01-05"}])
@@ -476,7 +453,6 @@ def test_archive_files_a_person_and_marks_the_entry_stale(vault, memory_sandbox)
 
 
 def test_archive_appends_to_an_existing_page(vault, memory_sandbox):
-    from tests.conftest import seed
 
     wiki.apply_page_ops([a_page()], "s")
     seed(people=[{"name": "Anna", "rel": "colleague", memory.SEEN_FIELD: "2026-01-05"}])
@@ -489,7 +465,6 @@ def test_archive_appends_to_an_existing_page(vault, memory_sandbox):
 
 
 def test_archive_of_a_recurring_entry_lands_on_one_shared_page(vault, memory_sandbox):
-    from tests.conftest import seed
 
     seed(recurring=[{"what": "gym", "when": "Tue/Thu", memory.SEEN_FIELD: "2026-02-02"}])
     _, error = memory.archive("recurring", 0)
@@ -505,7 +480,6 @@ def test_archive_refuses_a_bad_target(vault, memory_sandbox):
 
 
 def test_pull_recreates_a_live_entry_from_a_page(vault, memory_sandbox):
-    from tests.conftest import seed
 
     seed(people=[{"name": "Anna", "rel": "colleague", memory.SEEN_FIELD: "2026-01-05"}])
     memory.archive("people", 0)
@@ -549,8 +523,8 @@ def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox
 
 
 @pytest.fixture
-def wiki_panel(vault, memory_sandbox, panel):
-    """The shared `panel` websocket client, with a created vault and a sandboxed profile."""
+def wiki_panel(vault, panel):
+    """The shared `panel` websocket client over a created vault (`vault` sandboxes the profile too)."""
     return panel
 
 
@@ -589,7 +563,6 @@ def test_wiki_note_on_a_missing_page_errors(wiki_panel):
 
 
 def test_archive_memory_action_replies_with_memory_and_wiki(wiki_panel):
-    from tests.conftest import seed
 
     seed(people=[{"name": "Anna", "rel": "colleague", memory.SEEN_FIELD: "2026-01-05"}])
     mem, listing = wiki_panel.send_many(

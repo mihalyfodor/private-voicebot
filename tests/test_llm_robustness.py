@@ -1,4 +1,7 @@
+import warnings
+
 import pytest
+
 import llm
 
 pytestmark = pytest.mark.live  # needs a running oMLX server
@@ -7,16 +10,13 @@ THRESHOLD = 0.70
 SAMPLES = 3  # runs per phrase; a phrase "hits" on a majority (>= 2/3)
 
 
-def _omlx_available() -> bool:
+@pytest.fixture(scope="module", autouse=True)
+def omlx_available():
+    """One lazy probe per module run: nothing touches the network at collection time."""
     try:
         llm.client().with_options(timeout=3.0).models.list()
-        return True
     except Exception:
-        return False
-
-
-if not _omlx_available():
-    pytest.skip("oMLX server not reachable at OMLX_BASE_URL", allow_module_level=True)
+        pytest.skip("oMLX server not reachable at OMLX_BASE_URL")
 
 
 WEATHER_VARIANTS = [
@@ -148,6 +148,9 @@ def test_email_variant(phrase):
 
 
 def test_email_success_rate():
+    from tools import gmail
+    if not gmail.is_configured():
+        warnings.warn("Gmail not configured (credentials.json missing) — email tool returns a stub")
     _assert_rate("email trigger", EMAIL_VARIANTS, "get_emails")
 
 

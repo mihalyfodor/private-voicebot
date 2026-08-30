@@ -5,47 +5,17 @@ see tests/app_fixture.mjs; this file only asserts on the JSON it prints.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import asyncio
-import io
-import json
-import shutil
-import subprocess
-import threading
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
-import pytest
-import soundfile as sf
 from fastapi.testclient import TestClient
 
 import chatbot
 import llm
 from session import Session
-from tests.conftest import fake_asr
+from tests.conftest import StreamClient, drain_initial, fake_asr, fake_tts, run_turn
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-
-
-def fake_tts(text):
-    buf = io.BytesIO()
-    sf.write(buf, np.zeros(240, dtype=np.float32), 24000, format="WAV", subtype="PCM_16")
-    return buf.getvalue()
-
-
-def _in_loop(fn, *args):
-    """Run one turn function on a background loop, collecting everything it sends."""
-    sent = []
-    with patch.object(chatbot, "make_sender", lambda lp, turn=None: sent.append):
-        loop = asyncio.new_event_loop()
-        thread = threading.Thread(target=loop.run_forever, daemon=True)
-        thread.start()
-        try:
-            fn(*args, loop)
-        finally:
-            loop.call_soon_threadsafe(loop.stop)
-            thread.join(timeout=2)
-    return sent
 
 
 # ---------------------------------------------------------------- scenario 1: typed == spoken
@@ -63,8 +33,8 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(chatbot, "asr", fake_asr("hello there"))
 
-    spoken = _in_loop(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
-    typed = _in_loop(chatbot.handle_text, Session(), 1, "hello there")
+    spoken = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
+    typed = run_turn(chatbot.handle_text, Session(), 1, "hello there")
 
     # the browser already rendered the typed line, so the server does not echo it back
     assert {"type": "transcript", "role": "user", "text": "hello there"} in spoken
@@ -79,13 +49,11 @@ def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch
     llm.reset()
     monkeypatch.setattr(llm, "LOG_PATH", str(tmp_path / "session.log"))
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    fake = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
-        create=lambda **kw: iter([SimpleNamespace(choices=[SimpleNamespace(
-            delta=SimpleNamespace(content="[happy] Sure thing.", tool_calls=None))])]))))
+    fake = StreamClient("[happy] Sure thing.")
 
     client = TestClient(chatbot.app)
     with patch.object(llm, "_client", fake), client.websocket_connect("/ws") as ws:
-        ws.receive_json(); ws.receive_json()          # hands_free + idle
+        drain_initial(ws)
         ws.send_json({"action": "text_turn", "text": "  remind me to call Anna  "})
         seen = []
         while True:
@@ -109,7 +77,7 @@ def test_blank_text_turn_starts_nothing():
     llm.reset()
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json(); ws.receive_json()                      # hands_free + idle
+        drain_initial(ws)
         ws.send_json({"action": "text_turn", "text": "   "})
         ws.send_json({"action": "set_backdrop", "key": "none"})   # round trip
         assert ws.receive_json()["type"] == "backdrop"            # nothing came before it
@@ -145,34 +113,21 @@ def test_ptt_action_and_button_are_gone():
 # ---------------------------------------------------------------- scenarios 2-4: the client
 
 
-@pytest.fixture(scope="module")
-def fixture_render():
-    """static/app.js booted in node against a DOM shim; the JSON it prints."""
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
-def test_setview_reparents_the_one_companion(fixture_render):
+def test_setview_reparents_the_one_companion(r):
     """Scenario 3: the companion element moves between the chat slot and the shell slice."""
-    r = fixture_render
     assert (r["parent_chat"], r["class_chat"]) == ("chat-slot", "chat")
     assert (r["parent_memory"], r["class_memory"]) == ("left-slot", "side")
     assert (r["parent_back"], r["class_back"]) == ("chat-slot", "chat")
 
 
-def test_typed_line_is_rendered_locally_with_a_keyboard_glyph(fixture_render):
-    r = fixture_render
+def test_typed_line_is_rendered_locally_with_a_keyboard_glyph(r):
     assert r["typed_sent"] == [{"action": "text_turn", "text": "hello there"}]
     assert r["after_send_value"] == ""
     assert r["history"][0] == {"role": "msg user", "text": "hello there", "typed": True}
 
 
-def test_muted_client_shows_the_reply_but_plays_nothing(fixture_render):
+def test_muted_client_shows_the_reply_but_plays_nothing(r):
     """Scenario 2: no decode/playback while muted, but playback_done still goes out."""
-    r = fixture_render
     assert r["muted_after_space"] is True
     assert r["decodes_while_muted"] == 0
     assert r["playback_done_while_muted"] == [{"action": "playback_done", "turn": 1}]
@@ -182,9 +137,8 @@ def test_muted_client_shows_the_reply_but_plays_nothing(fixture_render):
     assert r["muted_after_space_while_typing"] is False   # space belongs to the composer
 
 
-def test_backdrop_thumbs_match_the_settings_chips(fixture_render):
+def test_backdrop_thumbs_match_the_settings_chips(r):
     """Scenario 4: same payload, current key highlighted, 'none' is a plain chip."""
-    r = fixture_render
     assert r["thumbs"] == [
         {"cls": "bd-thumb none active"},
         {"cls": "bd-thumb", "bg": 'url("/static/backdrops/office.jpg")'},

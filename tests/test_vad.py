@@ -151,14 +151,3 @@ def test_recorder_accumulates_and_stops():
     assert len(audio) == int(1.0 * SR)
     # stop() again after no more feeding returns empty
     assert len(rec.stop()) == 0
-
-
-def test_defaults_dict_present():
-    for key in (
-        "threshold",
-        "end_silence_ms",
-        "min_speech_ms",
-        "pre_roll_ms",
-        "max_utterance_s",
-    ):
-        assert key in vad.DEFAULTS

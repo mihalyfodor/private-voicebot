@@ -11,29 +11,11 @@ import avatars
 import llm
 import memory
 from eval import harness
+from tests.conftest import RawStreamClient, stream_chunks as _chunks, seed as _write_profile
 
 
 # --------------------------------------------------------------------------- fakes
 
-
-class FakeClient:
-    """Same shape as tests/test_llm_unit.py's FakeClient."""
-
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(kw)
-        return self._responses.pop(0)
-
-
-def _chunks(*texts):
-    return iter([
-        SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t, tool_calls=None))])
-        for t in texts
-    ])
 
 
 def _ops(*ops):
@@ -41,12 +23,6 @@ def _ops(*ops):
     import json
     return SimpleNamespace(choices=[SimpleNamespace(
         message=SimpleNamespace(content=json.dumps(list(ops))))])
-
-
-def _write_profile(**sections):
-    profile = memory._empty_profile()
-    profile.update(sections)
-    memory._write_profile(profile)
 
 
 # --------------------------------------------------------------------------- scoring
@@ -127,18 +103,26 @@ def test_appended_diff():
 # --------------------------------------------------------------------------- sandbox
 
 
-def test_sandbox_isolates_real_files(tmp_path):
-    real_mem = memory.MEMORY_PATH
-    real_settings = avatars.SETTINGS_PATH
-    real_tools = llm.TOOLS
-    real_mem_before = open(real_mem).read() if os.path.exists(real_mem) else None
+def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
+    """Sandbox must swap MEMORY_PATH / SETTINGS_PATH / LOG_PATH for its own, and put them back.
+
+    The "current" paths are the test sandbox's; a marker written there first proves that a
+    save inside harness.Sandbox never reaches the outer file, and that it is untouched after exit.
+    """
+    outer_mem = memory.MEMORY_PATH
+    outer_settings = avatars.SETTINGS_PATH
+    outer_log = llm.LOG_PATH
+    _write_profile(identity={"name": "outer marker"})
+    marker = open(outer_mem).read()
 
     with harness.Sandbox() as box:
-        assert memory.MEMORY_PATH != real_mem
+        assert memory.MEMORY_PATH != outer_mem
+        assert "memeval-" in memory.MEMORY_PATH
         assert "memeval-" in memory.OPS_LOG_PATH
         assert "memeval-" in memory.SHORTMEM_PATH
-        assert avatars.SETTINGS_PATH != real_settings
-        assert llm.TOOLS == []
+        assert avatars.SETTINGS_PATH != outer_settings
+        assert llm.LOG_PATH != outer_log
+        assert "outer marker" not in box.read_memory()
         _write_profile(identity={"name": "sandboxed fact"})
         avatars.save_setting("verbosity", "short")
         llm._log("hi", [], "there")
@@ -146,14 +130,13 @@ def test_sandbox_isolates_real_files(tmp_path):
         assert os.path.exists(box.log_path)
         sandbox_mem = box.memory_path
 
-    assert memory.MEMORY_PATH == real_mem
-    assert avatars.SETTINGS_PATH == real_settings
-    assert llm.TOOLS == real_tools
+    assert memory.MEMORY_PATH == outer_mem
+    assert avatars.SETTINGS_PATH == outer_settings
+    assert llm.LOG_PATH == outer_log
     assert not os.path.exists(sandbox_mem)
-    real_mem_after = open(real_mem).read() if os.path.exists(real_mem) else None
-    assert real_mem_after == real_mem_before
-    if real_mem_after is not None:
-        assert "sandboxed fact" not in real_mem_after
+    assert open(outer_mem).read() == marker
+    assert not os.path.exists(outer_settings)
+    assert not os.path.exists(outer_log)
 
 
 def test_sandbox_keeps_given_memory_path(tmp_path):
@@ -187,17 +170,22 @@ def test_session_end_falls_back_to_the_v1_shortmem_delta():
         assert sess.last_ops == []
 
 
-def test_sandbox_can_keep_tools_enabled():
+def test_sandbox_disables_tools_by_default_and_keeps_them_on_request():
     real_tools = llm.TOOLS
+    assert real_tools, "llm.TOOLS is expected to be non-empty outside a sandbox"
+    with harness.Sandbox():
+        assert llm.TOOLS == []
+    assert llm.TOOLS == real_tools
     with harness.Sandbox(tools=True):
         assert llm.TOOLS == real_tools
+    assert llm.TOOLS == real_tools
 
 
 # --------------------------------------------------------------------------- session
 
 
 def test_session_say_strips_tag_and_end_returns_applied_ops():
-    fake = FakeClient([_chunks("[happy] Hi ", "Mihaly."),
+    fake = RawStreamClient([_chunks("[happy] Hi ", "Mihaly."),
                        _ops({"op": "ADD", "path": "identity.name", "value": "Mihaly",
                              "reason": "said so"})])
     with harness.Sandbox() as box, patch.object(llm, "_client", fake):
@@ -213,7 +201,7 @@ def test_session_say_strips_tag_and_end_returns_applied_ops():
 
 
 def test_session_end_with_nothing_new():
-    fake = FakeClient([_chunks("[neutral] Sure."), _ops()])
+    fake = RawStreamClient([_chunks("[neutral] Sure."), _ops()])
     with harness.Sandbox(), patch.object(llm, "_client", fake):
         sess = harness.Session().start()
         sess.say("hello")
@@ -275,7 +263,7 @@ def test_run_script_rounds_persist_memory(tmp_path):
     def fake_save():
         """Upsert the same name every time, plus one new person per save."""
         saves.append(1)
-        client = FakeClient([_ops(
+        client = RawStreamClient([_ops(
             {"op": "ADD", "path": "identity.name", "value": "Mihaly"},
             {"op": "ADD", "path": "people[]", "value": {"name": "Anna %d" % len(saves)}},
         )])

@@ -22,12 +22,6 @@ TODAY = date.today().isoformat()
 # --------------------------------------------------------------------------- helpers
 
 
-@pytest.fixture(autouse=True)
-def sandbox(memory_sandbox):
-    """Every test in this module writes to a tmp memory.json (fixture lives in conftest)."""
-    return memory_sandbox
-
-
 @pytest.fixture
 def clock(monkeypatch):
     """`clock(200)` makes memory believe 200 days have passed."""
@@ -175,7 +169,17 @@ def test_mark_stale_is_idempotent_and_windows_are_per_section(clock):
     assert "stale" not in profile["people"][0]
 
 
-def test_stale_windows_are_env_overridable():
+def test_stale_windows_default_and_are_env_overridable(monkeypatch):
+    """MEMORY_STALE_<SECTION>=<days> overrides a window; loaded as a fresh module so the
+    live, sandboxed `memory` is left alone."""
+    import importlib.util
+    assert memory.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
+    monkeypatch.setenv("MEMORY_STALE_PEOPLE", "30")
+    monkeypatch.setenv("MEMORY_STALE_RECURRING", "7")
+    spec = importlib.util.spec_from_file_location("memory_under_env", memory.__file__)
+    fresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fresh)
+    assert fresh.STALE_DAYS == {"people": 30, "projects": 120, "recurring": 7}
     assert memory.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
 
 
@@ -247,7 +251,7 @@ def test_caps_fall_back_to_oldest_seen_when_nothing_is_stale():
 # --------------------------------------------------------------- 6. reflection
 
 
-REFLECTED = json.dumps({
+MERGED_REFLECTION = json.dumps({
     "identity": {"name": "Mihaly"},
     "preferences": {},
     "people": [{"name": "Anna", "rel": "colleague at work"}],   # merged, decay fields dropped
@@ -265,7 +269,7 @@ def test_validate_reflection_keeps_seen_and_stale_even_when_the_model_drops_them
         recurring=[{"what": "gym", "when": "Tue", "seen": days_ago(3)}],
         episodic=[{"date": days_ago(2), "text": "gym again", "ttl_days": 30, "importance": 2}],
     )
-    result = memory._validate_reflection(original, json.loads(REFLECTED))
+    result = memory._validate_reflection(original, json.loads(MERGED_REFLECTION))
     assert result["people"][0]["seen"] == days_ago(200)
     assert result["people"][0]["stale"] is True
     assert result["recurring"][0] == {"what": "gym", "when": "Tue/Thu", "seen": days_ago(3)}
@@ -285,7 +289,7 @@ def test_reflection_dates_a_freshly_promoted_recurring_entry_today():
 def test_a_stale_entry_survives_a_reflection_pass_through_save():
     seed(people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True}],
           meta={"saves": memory.REFLECT_EVERY - 1})
-    client = FakeClient('[{"op":"ADD","path":"identity.name","value":"Mihaly"}]', REFLECTED)
+    client = FakeClient('[{"op":"ADD","path":"identity.name","value":"Mihaly"}]', MERGED_REFLECTION)
     memory.save([{"role": "user", "content": "I'm Mihaly"}], client, "m")
     anna = on_disk()["people"][0]
     assert anna["stale"] is True and anna["seen"] == days_ago(200)

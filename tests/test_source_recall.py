@@ -6,12 +6,11 @@ filed with a mocked model; a second generated FAQ covers the cross-source checks
 (`live`) files the two real guides from ~/llm-wiki-dev into the temp vault and talks to oMLX.
 """
 import sys, os
-import copy
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import functools
 import json
 import random
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +20,7 @@ import llm
 import memory
 import sources
 import wiki
-from tests.conftest import FakeClient
+from tests.conftest import FakeClient, StreamClient, seeded_vault, send_setting, vault  # noqa: F401 — fixtures
 from tools import run_tool
 
 
@@ -32,45 +31,46 @@ return talk speak quest reward xp item note area path road bridge lake river hil
 inside outside before after again later there here cook meal weather rain time clock meeting
 plan email letter trip summer friday deploy decide joke tell remind said want next""".split()
 
-FALLOUT_SECTIONS = [
-    ("Covenant", ["Honest Dan", "Jacob Orden", "Compound", "SAFE test", "Stockton", "Turrets"]),
-    ("Diamond City", ["Piper", "Nick Valentine", "Dugout Inn", "Takahashi"]),
-    ("Sanctuary Hills", ["Codsworth", "Preston Garvey", "Red Rocket", "Concord"]),
-    ("Goodneighbor", ["Hancock", "Memory Den", "Irma", "Third Rail"]),
-    ("Fort Hagen", ["Kellogg", "Dogmeat", "Command Center", "Synth"]),
-    ("Vault 81", ["Overseer Gwen", "Austin", "Curie", "Mole Rat"]),
-    ("Bunker Hill", ["Kessler", "Deb", "Caravan", "Monument"]),
-    ("Salem", ["Barney Rook", "Museum of Witchcraft", "Deathclaw", "Rook Family"]),
-    ("Glowing Sea", ["Virgil", "Crater of Atom", "Rocky Cave", "Hazmat Suit"]),
-    ("The Castle", ["Ronnie Shaw", "Mirelurk Queen", "Minutemen", "Artillery"]),
-    ("Lockpicking", ["Bobby Pin", "Sweet Spot", "Master Lock", "Locksmith"]),
-    ("Hacking", ["Terminal", "Robco", "Likeness", "Science Perk"]),
-    ("Power Armor", ["Fusion Core", "T-45", "Frame", "Repair Bay"]),
-    ("Trinity Tower", ["Strong", "Rex Goodman", "Fist", "Elevator"]),
-    ("Hubris Comics", ["Silver Shroud", "Costume", "Kent Connolly", "Feral Ghoul"]),
-]
+FALLOUT_SECTIONS = (
+    ("Covenant", ("Honest Dan", "Jacob Orden", "Compound", "SAFE test", "Stockton", "Turrets")),
+    ("Diamond City", ("Piper", "Nick Valentine", "Dugout Inn", "Takahashi")),
+    ("Sanctuary Hills", ("Codsworth", "Preston Garvey", "Red Rocket", "Concord")),
+    ("Goodneighbor", ("Hancock", "Memory Den", "Irma", "Third Rail")),
+    ("Fort Hagen", ("Kellogg", "Dogmeat", "Command Center", "Synth")),
+    ("Vault 81", ("Overseer Gwen", "Austin", "Curie", "Mole Rat")),
+    ("Bunker Hill", ("Kessler", "Deb", "Caravan", "Monument")),
+    ("Salem", ("Barney Rook", "Museum of Witchcraft", "Deathclaw", "Rook Family")),
+    ("Glowing Sea", ("Virgil", "Crater of Atom", "Rocky Cave", "Hazmat Suit")),
+    ("The Castle", ("Ronnie Shaw", "Mirelurk Queen", "Minutemen", "Artillery")),
+    ("Lockpicking", ("Bobby Pin", "Sweet Spot", "Master Lock", "Locksmith")),
+    ("Hacking", ("Terminal", "Robco", "Likeness", "Science Perk")),
+    ("Power Armor", ("Fusion Core", "T-45", "Frame", "Repair Bay")),
+    ("Trinity Tower", ("Strong", "Rex Goodman", "Fist", "Elevator")),
+    ("Hubris Comics", ("Silver Shroud", "Costume", "Kent Connolly", "Feral Ghoul")),
+)
 
-SKYRIM_SECTIONS = [
-    ("Whiterun", ["Jarl Balgruuf", "Dragonsreach", "Companions", "Jorrvaskr"]),
-    ("Riverwood", ["Alvor", "Gerdur", "Sleeping Giant", "Golden Claw"]),
-    ("Bleak Falls Barrow", ["Draugr", "Arvel", "Word Wall", "Dragon Claw"]),
-    ("High Hrothgar", ["Greybeards", "Arngeir", "Unrelenting Force", "Seven Thousand Steps"]),
-    ("Winterhold", ["College of Winterhold", "Tolfdir", "Saarthal", "Arch Mage"]),
-    ("Riften", ["Thieves Guild", "Brynjolf", "Ragged Flagon", "Maven Black-Briar"]),
-    ("Solitude", ["Blue Palace", "Elisif", "Bards College", "Castle Dour"]),
-    ("Markarth", ["Cidhna Mine", "Forsworn", "Silver Blood", "Understone Keep"]),
-    ("Windhelm", ["Ulfric Stormcloak", "Palace of the Kings", "Grey Quarter", "Butcher"]),
-    ("Sovngarde", ["Alduin", "Tsun", "Hall of Valor", "Shor"]),
-    ("Lockpicking", ["Lockpick", "Sweet Spot", "Tumbler", "Skeleton Key"]),
-    ("Smithing", ["Forge", "Iron Ingot", "Leather Strips", "Warmaidens"]),
-    ("Dragon Shouts", ["Word of Power", "Dragon Soul", "Thu'um", "Whirlwind Sprint"]),
-    ("Dawnstar", ["Nightcaller Temple", "Erandur", "Vaermina", "Skull of Corruption"]),
-    ("Falkreath", ["Dark Brotherhood", "Astrid", "Sanctuary", "Black Door"]),
-]
+SKYRIM_SECTIONS = (
+    ("Whiterun", ("Jarl Balgruuf", "Dragonsreach", "Companions", "Jorrvaskr")),
+    ("Riverwood", ("Alvor", "Gerdur", "Sleeping Giant", "Golden Claw")),
+    ("Bleak Falls Barrow", ("Draugr", "Arvel", "Word Wall", "Dragon Claw")),
+    ("High Hrothgar", ("Greybeards", "Arngeir", "Unrelenting Force", "Seven Thousand Steps")),
+    ("Winterhold", ("College of Winterhold", "Tolfdir", "Saarthal", "Arch Mage")),
+    ("Riften", ("Thieves Guild", "Brynjolf", "Ragged Flagon", "Maven Black-Briar")),
+    ("Solitude", ("Blue Palace", "Elisif", "Bards College", "Castle Dour")),
+    ("Markarth", ("Cidhna Mine", "Forsworn", "Silver Blood", "Understone Keep")),
+    ("Windhelm", ("Ulfric Stormcloak", "Palace of the Kings", "Grey Quarter", "Butcher")),
+    ("Sovngarde", ("Alduin", "Tsun", "Hall of Valor", "Shor")),
+    ("Lockpicking", ("Lockpick", "Sweet Spot", "Tumbler", "Skeleton Key")),
+    ("Smithing", ("Forge", "Iron Ingot", "Leather Strips", "Warmaidens")),
+    ("Dragon Shouts", ("Word of Power", "Dragon Soul", "Thu'um", "Whirlwind Sprint")),
+    ("Dawnstar", ("Nightcaller Temple", "Erandur", "Vaermina", "Skull of Corruption")),
+    ("Falkreath", ("Dark Brotherhood", "Astrid", "Sanctuary", "Black Door")),
+)
 
 
-def faq_text(game: str, sections: list, seed: int, paragraphs: int = 60) -> str:
-    """A deterministic FAQ: a contents list, then one `==== Title ====` section per entry whose
+@functools.lru_cache(maxsize=None)
+def faq_text(game: str, sections: tuple, seed: int, paragraphs: int = 60) -> str:
+    """A deterministic FAQ (built once per session — it is ~150 k tokens): a contents list, then one `==== Title ====` section per entry whose
     paragraphs repeat the section's Title-case names between lowercase filler."""
     rng = random.Random(seed)
     out = [f"{game} FAQ and Walkthrough", "", "Contents"]
@@ -104,19 +104,7 @@ def file_faq(text: str, title: str, name: str = "guide.md") -> dict:
 
 
 @pytest.fixture
-def vault(wiki_sandbox, memory_sandbox):
-    wiki.ensure_vault()
-    wiki.apply_page_ops([
-        {"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
-         "summary": "Colleague on the platform team; runs the Friday deploy."},
-        {"op": "new_page", "path": "projects/falcon", "type": "project", "name": "Falcon",
-         "summary": "Load-test project, amber."},
-    ], "seed")
-    return wiki_sandbox
-
-
-@pytest.fixture
-def fallout(vault):
+def fallout(seeded_vault):
     """The Fallout-shaped FAQ filed as `Fallout 4 guide`; returns the ingest result."""
     return file_faq(faq_text("Fallout 4", FALLOUT_SECTIONS, seed=4), "Fallout 4 guide")
 
@@ -131,23 +119,6 @@ def both(fallout):
 def cache_files() -> list:
     root = os.path.join(wiki.WIKI_PATH, wiki.RAW_INDEX_DIR)
     return sorted(os.listdir(root)) if os.path.isdir(root) else []
-
-
-def _stream(text: str):
-    return iter([SimpleNamespace(choices=[SimpleNamespace(
-        delta=SimpleNamespace(content=text, tool_calls=None))])])
-
-
-class StreamClient:
-    """One streamed text reply per call; records the messages it was given."""
-
-    def __init__(self, *replies):
-        self.replies, self.calls = list(replies), []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
-        return _stream(self.replies.pop(0))
 
 
 # --------------------------------------------------------------- 1. chunking + cache
@@ -182,7 +153,9 @@ def test_a_heading_starts_its_own_chunk_and_a_long_line_is_cut():
     assert chunks[0]["text"] == "# One\n\npara one"                 # the long line starts fresh
     assert all(len(c["text"]) <= 400 for c in chunks)
     assert chunks[-1]["text"].endswith("# Two\n\npara two")          # paragraphs stay whole
-    assert [c["start"] for c in chunks] == [0] + [17 + 400 * i for i in range(13)]
+    starts = [c["start"] for c in chunks]
+    assert starts[:2] == [0, 17] and len(starts) == 14                  # 100 tokens = 400 chars a cut
+    assert all(b - a == 400 for a, b in zip(starts[1:], starts[2:]))
     assert wiki.chunk_text("") == []
 
 
@@ -211,7 +184,7 @@ def test_an_existing_vault_gets_the_cache_dir_ignored(wiki_sandbox):
     assert wiki._read(".gitignore") == ".obsidian/\nraw/.index/\n"
 
 
-def test_images_and_calendars_have_no_chunks(vault, monkeypatch):
+def test_images_and_calendars_have_no_chunks(seeded_vault, monkeypatch):
     monkeypatch.setattr(sources, "_downscale", lambda full: None)
     monkeypatch.setattr(sources, "_image_part", lambda full: {"type": "image_url"})
     client = FakeClient(summary_json("A screenshot"), "[]")
@@ -392,23 +365,12 @@ def test_the_threshold_setting_round_trips(fallout, file_sandbox):
 
     assert wiki.recall_min_score() == wiki.RECALL_MIN_SCORE
     client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json({"action": "set_setting", "key": "recall_min_score", "value": 50})
-        while True:
-            msg = ws.receive_json()
-            if msg.get("type") in ("setting", "error"):
-                break
+    msg = send_setting("recall_min_score", 50, client)
     assert msg == {"type": "setting", "key": "recall_min_score", "value": 50.0}
     assert wiki.recall_min_score() == 50.0
     assert client.get("/api/config").json()["recall_min_score"] == 50.0
     assert llm.recall_for("I'm at Covenant and Honest Dan keeps attacking me, what now") == ""
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json({"action": "set_setting", "key": "recall_min_score", "value": "high"})
-        while True:
-            msg = ws.receive_json()
-            if msg.get("type") in ("setting", "error"):
-                break
-    assert msg["type"] == "error"
+    assert send_setting("recall_min_score", "high", client)["type"] == "error"
 
 
 # --------------------------------------------------------------- 7. re-file / forget
@@ -437,7 +399,7 @@ def test_refiling_the_same_bytes_builds_nothing_and_forget_drops_the_cache(fallo
 # --------------------------------------------------------------- 10. raw named after the title
 
 
-def test_a_pasted_note_is_renamed_after_the_model_title(vault):
+def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault):
     client = FakeClient(summary_json("Falcon launch checklist"), "[]")
     filed = sources.ingest_note("Fuel, then countdown, then launch.", client=client, model="m")
     assert filed["raw"] == f"raw/inbox/{memory._today_iso()}-falcon-launch-checklist.md"
@@ -460,14 +422,14 @@ def test_a_pasted_note_is_renamed_after_the_model_title(vault):
     assert sources.manifest_entries() == [] and cache_files() == []
 
 
-def test_a_second_paste_with_the_same_title_is_deduped(vault):
+def test_a_second_paste_with_the_same_title_is_deduped(seeded_vault):
     first = sources.ingest_note("Fuel first.", client=FakeClient(summary_json("Falcon"), "[]"), model="m")
     second = sources.ingest_note("Countdown second.", client=FakeClient(summary_json("Falcon"), "[]"),
                                  model="m")
     assert first["raw"].endswith("-falcon.md") and second["raw"].endswith("-falcon-2.md")
 
 
-def test_a_real_file_name_is_not_renamed(vault):
+def test_a_real_file_name_is_not_renamed(seeded_vault):
     client = FakeClient(summary_json("Falcon launch checklist"), "[]")
     filed = sources.ingest_upload(b"Fuel, then countdown.", "falcon-plan.txt", client=client, model="m")
     assert filed["raw"].endswith("-falcon-plan.txt")
@@ -493,7 +455,7 @@ LIVE_QUESTIONS = [
 
 
 @pytest.mark.live
-def test_live_answers_cite_the_right_guide(vault, capsys):
+def test_live_answers_cite_the_right_guide(seeded_vault, capsys):
     """The two real guides, filed with a mocked summary (the point is recall, not filing), then
     seven questions through `llm.ask` against oMLX. Asserts the source mention; prints the pairs."""
     dev = os.path.expanduser("~/llm-wiki-dev/raw/inbox")

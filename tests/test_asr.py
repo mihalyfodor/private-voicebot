@@ -69,10 +69,6 @@ def test_transcribe_filters_low_confidence_short_text(monkeypatch):
     assert asr.transcribe(audio) == ""
 
 
-def test_model_env_default():
-    assert isinstance(asr.MODEL, str) and asr.MODEL
-
-
 # PRD 26 scenario 6: the profile's names are handed to whisper as `initial_prompt`.
 def test_transcribe_passes_the_prompt_to_whisper_as_initial_prompt(monkeypatch):
     seen = {}

@@ -1,8 +1,5 @@
 import sys, os, io, base64
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import asyncio
-import threading
-import time
 
 import pytest
 import soundfile as sf
@@ -10,13 +7,7 @@ import numpy as np
 
 import chatbot
 from session import Session
-from tests.conftest import fake_asr
-
-
-def fake_tts(text):
-    buf = io.BytesIO()
-    sf.write(buf, np.zeros(2400, dtype=np.float32), 24000, format="WAV", subtype="PCM_16")
-    return buf.getvalue()
+from tests.conftest import fake_asr, fake_tts, run_turn
 
 
 def test_speak_stream_emits_speech_per_sentence_then_end():
@@ -31,7 +22,7 @@ def test_speak_stream_emits_speech_per_sentence_then_end():
     assert all(m["emotion"] == "happy" for m in sent[1:3])
     for m in sent[1:3]:
         data, sr = sf.read(io.BytesIO(base64.b64decode(m["wav"])))
-        assert sr == 24000 and len(data) == 2400
+        assert sr == 24000 and len(data) == 240      # the fake's payload, framed as a WAV
 
 
 def test_tool_call_emits_cached_filler_before_answer(monkeypatch):
@@ -86,28 +77,14 @@ def test_apply_avatar_respects_env_override(monkeypatch):
     assert chatbot.KOKORO_SPEED == profile["speed"]  # no env override here
 
 
-def _run_utterance(monkeypatch, sess):
-    """Run one utterance turn against a real background event loop; returns the sent messages."""
-    sent = []
-
-    async def fake_send(msg):
-        sent.append(msg)
-
-    monkeypatch.setattr(chatbot, "send", fake_send)
-    loop = asyncio.new_event_loop()
-    loop_thread = threading.Thread(target=loop.run_forever, daemon=True)
-    loop_thread.start()
-    try:
-        chatbot.handle_utterance(sess, sess.next_turn(), np.zeros(10, dtype=np.float32), loop)
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
-        loop_thread.join(timeout=2)
-    return sent
+def _run_utterance(sess):
+    """One utterance turn on a background loop, captured at `chatbot.send`; the sent messages."""
+    return run_turn(chatbot.handle_utterance, sess, sess.next_turn(), np.zeros(10, dtype=np.float32), via="send")
 
 
 def test_empty_transcript_still_sends_idle_state(monkeypatch):
     monkeypatch.setattr(chatbot, "asr", fake_asr())
-    sent = _run_utterance(monkeypatch, Session(websocket=None))
+    sent = _run_utterance(Session(websocket=None))
 
     assert {"type": "state", "value": "idle", "turn": 1} in sent
     assert not any(m["type"] == "transcript" for m in sent)
@@ -119,7 +96,7 @@ def test_nonempty_transcript_sends_transcript_and_calls_respond(monkeypatch):
     monkeypatch.setattr(chatbot, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
 
-    sent = _run_utterance(monkeypatch, Session(websocket=None))
+    sent = _run_utterance(Session(websocket=None))
 
     assert respond_calls == [(1, "hello there")]
     assert {"type": "transcript", "role": "user", "text": "hello there"} in sent

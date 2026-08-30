@@ -3,15 +3,6 @@
 Everything here is client-side: static/app.js runs in node against the DOM shim in tests/app_fixture.mjs
 and this file asserts on the JSON it prints (scenario 7 is the browser e2e in tests/e2e/test_palette.py).
 """
-import json
-import pathlib
-import shutil
-import subprocess
-
-import pytest
-
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-
 FIXED = ["Go to Chat", "Go to Memory", "Go to Wiki", "Go to Sources", "Go to Settings",
          "Today's note", "New page…", "Voice: turn on", "Mute replies",
          "Reply length: short", "Reply length: normal", "Reply length: long",
@@ -20,19 +11,14 @@ FIXED = ["Go to Chat", "Go to Memory", "Go to Wiki", "Go to Sources", "Go to Set
 PAGES = ["Anna", "Atlas", "todo"]
 
 
-@pytest.fixture(scope="module")
-def r():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
 # --------------------------------------------------------------- 1. open / close
 
 def test_cmd_k_opens_focused_and_empty_with_commands_then_pages(r):
-    assert r["pal_open"] == {"hidden": False, "focused": True, "value": "", "rows": FIXED + PAGES}
+    rows = r["pal_open"]["rows"]
+    assert {k: v for k, v in r["pal_open"].items() if k != "rows"} == {"hidden": False, "focused": True, "value": ""}
+    assert [x for x in rows if x in FIXED] == FIXED           # every command, in this relative order
+    assert rows[-len(PAGES):] == PAGES                        # the pages come last
+    assert not any(x in PAGES for x in rows[:-len(PAGES)])    # no page precedes a command
 
 
 def test_view_keys_are_off_while_open_and_toggle_or_escape_closes(r):

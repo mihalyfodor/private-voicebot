@@ -18,9 +18,7 @@ import memory
 import sources
 import wiki
 import tools
-from tests.conftest import FakeClient
-from tests.test_llm_unit import _chunks, _tc_chunk, FakeClient as StreamClient
-from tests.test_sources import vault  # noqa: F401 — fixture
+from tests.conftest import FakeClient, RawStreamClient, stream_chunks, tool_call_chunk, vault  # noqa: F401 — fixture
 from tools import ALLOWED_HOSTS, READ_TOOLS, TOOLS, run_tool
 from tools import gmail, news, wikipedia
 from untrusted import DOCUMENT_RULE, documents_in, untrusted
@@ -162,7 +160,7 @@ DOC_OPS = json.dumps([
 def _document_turn(monkeypatch, doc: dict, reply: str = "[neutral] It says Falcon is green."):
     """One `llm.ask` turn whose user message carries `doc` as a recall block."""
     monkeypatch.setattr(llm, "recall_for", lambda text: _recall_block(doc))
-    with patch.object(llm, "_client", StreamClient([iter(_chunks(reply))])):
+    with patch.object(llm, "_client", RawStreamClient([stream_chunks(reply)])):
         return llm.ask("what does the plan say about Falcon?")
 
 
@@ -189,7 +187,7 @@ def test_a_session_that_read_a_document_attributes_its_ops(monkeypatch, memory_s
 def test_a_session_without_documents_gets_no_attribution(monkeypatch, memory_sandbox):
     llm.reset()
     monkeypatch.setattr(llm, "recall_for", lambda text: "")
-    with patch.object(llm, "_client", StreamClient([iter(_chunks("[happy] Sure."))])):
+    with patch.object(llm, "_client", RawStreamClient([stream_chunks("[happy] Sure.")])):
         llm.ask("my coffee is black these days")
     client = FakeClient(DOC_OPS, "[]")
     monkeypatch.setattr(llm, "client", lambda: client)
@@ -281,10 +279,10 @@ def test_injected_documents_reach_every_prompt_as_tagged_data(doc, vault, monkey
     llm.reset()
     system_before = llm._conversation[0]["content"]
     assert DOCUMENT_RULE in system_before
-    fake = StreamClient([
-        iter([_tc_chunk(id="c1", name="read_source", arguments='{"path": "sources/x", "part": 1}',
-                        finish_reason="tool_calls")]),
-        iter(_chunks("[neutral] It is a list of notes.")),
+    fake = RawStreamClient([
+        [tool_call_chunk(id="c1", name="read_source", arguments='{"path": "sources/x", "part": 1}',
+                         finish_reason="tool_calls")],
+        stream_chunks("[neutral] It is a list of notes."),
     ])
     wrapped = untrusted(f"{doc['title']} · part 1/1\n{doc['text']}", doc["title"])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value=wrapped):

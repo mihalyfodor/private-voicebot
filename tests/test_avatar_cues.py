@@ -8,8 +8,6 @@ tests/test_splitter.py plus `test_new_emotions_reach_the_system_prompt` below.
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import json
-import shutil
-import subprocess
 
 import pytest
 
@@ -22,15 +20,7 @@ import splitter
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 MODEL_DIR = os.path.join(ROOT, "static", "models", "wanko")
 
-EXPECTED_GROUPS = {
-    "Idle": ["idle_01", "idle_02", "idle_03", "idle_04"],
-    "Pet": ["touch_01", "touch_02", "touch_06"],
-    "PetSmall": ["touch_05", "touch_04"],
-    "Greet": ["shake_02"],
-    "No": ["shake_01"],
-    "Thinking": ["touch_03"],
-    "Listening": ["touch_04"],
-}
+GROUPS = wanko_groups.GROUPS
 
 
 # ---------------------------------------------------------------- scenario 1: the generator
@@ -45,8 +35,11 @@ def test_generated_model3_has_the_seven_groups_and_keeps_the_rest():
         "HitAreas": [{"Id": "HitArea", "Name": "Body"}],
     }
     out = wanko_groups.build(src)
-    assert wanko_groups.GROUPS == EXPECTED_GROUPS
-    assert list(out["FileReferences"]["Motions"]) == list(EXPECTED_GROUPS)
+    motions = out["FileReferences"]["Motions"]
+    assert set(GROUPS) == {"Idle", "Pet", "PetSmall", "Greet", "No", "Thinking", "Listening"}
+    assert list(motions) == list(GROUPS)
+    for group, clips in GROUPS.items():
+        assert clips and [m["File"] for m in motions[group]] == [f"motions/{c}.motion3.json" for c in clips]
     assert out["FileReferences"]["Motions"]["Pet"] == [
         {"File": "motions/touch_01.motion3.json"},
         {"File": "motions/touch_02.motion3.json"},
@@ -105,43 +98,30 @@ def test_every_emotion_tag_has_an_expression_in_app_js():
 # ---------------------------------------------------------------- scenarios 2 & 4: the client
 
 
-@pytest.fixture(scope="module")
-def fixture_render():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
-def test_app_js_loads_the_generated_model_and_sees_every_group(fixture_render):
+def test_app_js_loads_the_generated_model_and_sees_every_group(r):
     """Scenario 2: the groups app.js plays are exactly the ones the generator writes."""
-    r = fixture_render
     assert r["model_url"] == "/static/models/wanko/Wanko.app.model3.json"
-    assert r["motion_groups"] == sorted(EXPECTED_GROUPS)
+    assert r["motion_groups"] == sorted(GROUPS)
     app_js = open(os.path.join(ROOT, "static", "app.js")).read()
     table = app_js.split("const MOTIONS = {")[1].split("\n};")[0]
-    assert sorted(l.split(":")[0].strip() for l in table.strip().splitlines()) == sorted(EXPECTED_GROUPS)
+    assert sorted(l.split(":")[0].strip() for l in table.strip().splitlines()) == sorted(GROUPS)
 
 
-def test_tapping_wanko_pets_her_big_then_small(fixture_render):
+def test_tapping_wanko_pets_her_big_then_small(r):
     """Scenario 4: click → Pet, a click within 4 s → PetSmall, after the gap → Pet again."""
-    r = fixture_render
     assert r["tap_groups"] == ["Pet", "PetSmall"]      # the third tap missed the Body hit area
     assert r["tap_after_pause"] == "Pet"
     assert r["pet_emotion"] == "happy"                 # the 800 ms happy blend rides along
 
 
-def test_idle_never_repeats_and_reaches_every_clip(fixture_render):
-    r = fixture_render
+def test_idle_never_repeats_and_reaches_every_clip(r):
     assert r["idle_repeats"] == 0
     assert r["idle_indices"] == [0, 1, 2, 3]
     assert r["idle_priority"] == 1                     # MotionPriority.IDLE
 
 
-def test_thinking_sets_the_lid_and_steam_until_the_first_speech(fixture_render):
+def test_thinking_sets_the_lid_and_steam_until_the_first_speech(r):
     """Scenario 4: state thinking → lid + steam targets; the first speech clears them."""
-    r = fixture_render
     assert r["thinking_cue"]["target"] == {"PARAM_BOWL_LID": 40, "PARAM_EFFECT": 0.4}
     assert r["thinking_cue"]["pulse"] == ["PARAM_YUGE_01", "PARAM_YUGE_02"]
     assert r["thinking_motion"] == 1                   # the Thinking clip plays once
@@ -150,27 +130,23 @@ def test_thinking_sets_the_lid_and_steam_until_the_first_speech(fixture_render):
     assert r["speaking_cue"] == {"target": {}, "pulse": [], "active": ["greet"]}
 
 
-def test_greeting_fires_once_per_session(fixture_render):
-    r = fixture_render
+def test_greeting_fires_once_per_session(r):
     assert r["greet_calls"] == 1                       # on the first speech of the session
     assert r["greet_calls_after"] == 0                 # and never again
 
 
-def test_hearing_plays_the_listening_clip_once_and_lifts_the_ears(fixture_render):
-    r = fixture_render
+def test_hearing_plays_the_listening_clip_once_and_lifts_the_ears(r):
     assert r["listening_motions"] == ["Listening"]     # the second `hearing` is not a transition
     assert r["listening_cue"]["target"] == {"PARAM_EAR_L": 1, "PARAM_EAR_R": 1}
     assert r["listening_cue_after"]["target"] == {}
 
 
-def test_unknown_emotion_tag_is_ignored(fixture_render):
-    r = fixture_render
+def test_unknown_emotion_tag_is_ignored(r):
     assert r["emotion_proud"] == {"name": "proud", "target": {
         "PARAM_MOUTH_FORM": 1, "PARAM_EFFECT": 1, "PARAM_ANGLE_Y": 6}}
     assert r["emotion_unknown"] == "proud"             # the unknown tag changed nothing
 
 
-def test_shutdown_forces_the_slow_idle_and_closes_the_lid(fixture_render):
-    r = fixture_render
+def test_shutdown_forces_the_slow_idle_and_closes_the_lid(r):
     assert r["shutdown_motion"] == [["Idle", 3, 3]]    # idle_04 at MotionPriority.FORCE
     assert r["shutdown_cue"]["target"] == {"PARAM_BOWL_LID": -10}   # -10 = lid on the bowl

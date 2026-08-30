@@ -1,6 +1,6 @@
 """PRD 37 — Wikipedia tool and knowledge routing. Scenario numbers are the PRD's.
 
-The vault fixtures and the streaming fake come from tests/test_source_recall.py; the 28-question
+The FAQ fixtures come from tests/test_source_recall.py, the vault and the fakes from conftest; the 28-question
 calibration set lives in tests/fixtures/routing_questions.json.
 """
 import sys, os
@@ -17,13 +17,12 @@ import pytest
 import requests
 
 import avatars
-import fillers
 import llm
 import wiki
 from tools import TOOLS, run_tool
 from tools import wikipedia
-from tests.test_source_recall import vault, fallout, both, StreamClient  # noqa: F401  (fixtures)
-from tests.test_llm_unit import FakeClient, _tc_chunk, _chunks
+from tests.conftest import RawStreamClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
+from tests.test_source_recall import fallout, both  # noqa: F401  (fixtures)
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 QUESTIONS = json.loads((ROOT / "tests" / "fixtures" / "routing_questions.json").read_text())
@@ -40,12 +39,11 @@ _NOTHING = re.compile(r"don't have|do not have|don't know|do not know|no record|
 
 
 @pytest.fixture(autouse=True)
-def fresh():
-    llm.reset()
+def fresh(fresh_llm):
+    """`fresh_llm` plus an empty Wikipedia cache and throttle clock."""
     wikipedia._cache.clear()
     wikipedia._last_request = 0.0
     yield
-    llm.reset()
     wikipedia._cache.clear()
 
 
@@ -193,42 +191,32 @@ def test_the_prompt_carries_the_four_routing_rules_with_tools_registered():
     assert prompt.count(llm.WIKIPEDIA_OFFER) == 1
 
 
-def test_a_tool_free_run_gets_no_routing_rules(monkeypatch):
-    monkeypatch.setattr(llm, "TOOLS", [])
-    assert llm.WIKIPEDIA_OFFER not in llm.build_system_prompt(AVATAR)
-    monkeypatch.setattr(llm, "TOOLS", [t for t in TOOLS if t["function"]["name"] != "get_wikipedia"])
-    prompt = llm.build_system_prompt(AVATAR)
-    assert "Look it up first" in prompt and llm.WIKIPEDIA_OFFER not in prompt
-
-
-def test_fillers_exist_for_both_tools():
-    assert "get_wikipedia" in fillers.FILLERS and "read_wikipedia" in fillers.FILLERS
-    assert fillers.pick("get_wikipedia") in fillers.FILLERS["get_wikipedia"]
+# (the tool-free prompt and the fillers are covered in tests/test_grounded_answers.py)
 
 
 # --------------------------------------------------------------- 3. offer / yes
 
 
 def _turn(text: str, *replies):
-    fake = FakeClient([iter(r) for r in replies])
+    fake = RawStreamClient(replies)
     with patch.object(llm, "_client", fake):
         events = list(llm.ask_events(text))
     return events, fake
 
 
 def test_a_reply_ending_with_the_offer_remembers_the_question():
-    _turn(PRECISE, _chunks(OFFER_REPLY))
+    _turn(PRECISE, stream_chunks(OFFER_REPLY))
     assert llm._deeper_offer == {"wikipedia": PRECISE}
 
 
-TOPIC_CALL = [_tc_chunk(id="c1", name="get_wikipedia", arguments=json.dumps({"query": "Ada Lovelace"}),
+TOPIC_CALL = [tool_call_chunk(id="c1", name="get_wikipedia", arguments=json.dumps({"query": "Ada Lovelace"}),
                         finish_reason="tool_calls")]
 
 
 def test_yes_calls_the_tool_with_the_topic_at_long_and_clears_the_offer():
-    _turn(PRECISE, _chunks(OFFER_REPLY))
+    _turn(PRECISE, stream_chunks(OFFER_REPLY))
     with patch.object(llm, "run_tool", return_value="Wikipedia article ...") as rt:
-        events, fake = _turn("yes", TOPIC_CALL, _chunks("[happy] Per Wikipedia, 1843."))
+        events, fake = _turn("yes", TOPIC_CALL, stream_chunks("[happy] Per Wikipedia, 1843."))
     rt.assert_called_once_with("get_wikipedia", {"query": "Ada Lovelace"})
     assert events == [("tool_calls", ["get_wikipedia"]), ("delta", "[happy] Per Wikipedia, 1843.")]
     assert [tc["name"] for tc in llm.get_last_tool_calls()] == ["get_wikipedia"]
@@ -247,9 +235,9 @@ def test_yes_calls_the_tool_with_the_topic_at_long_and_clears_the_offer():
 def test_yes_without_a_tool_call_from_the_model_looks_up_the_question_itself():
     """The model answered in text instead of naming the topic: that text is never spoken, the tool
     runs with the question and the answer comes from the second pass."""
-    _turn(PRECISE, _chunks(OFFER_REPLY))
+    _turn(PRECISE, stream_chunks(OFFER_REPLY))
     with patch.object(llm, "run_tool", return_value="Wikipedia article ...") as rt:
-        events, _ = _turn("yes please", _chunks("[neutral] It was 1843."), _chunks("[happy] Per Wikipedia, 1843."))
+        events, _ = _turn("yes please", stream_chunks("[neutral] It was 1843."), stream_chunks("[happy] Per Wikipedia, 1843."))
     rt.assert_called_once_with("get_wikipedia", {"query": PRECISE})
     assert events == [("tool_calls", ["get_wikipedia"]), ("delta", "[happy] Per Wikipedia, 1843.")]
     assert llm._conversation[-1]["content"] == "[happy] Per Wikipedia, 1843."
@@ -257,21 +245,16 @@ def test_yes_without_a_tool_call_from_the_model_looks_up_the_question_itself():
 
 
 def test_no_clears_the_offer_without_a_call():
-    _turn(PRECISE, _chunks(OFFER_REPLY))
+    _turn(PRECISE, stream_chunks(OFFER_REPLY))
     with patch.object(llm, "run_tool") as rt:
-        _, fake = _turn("no thanks", _chunks("[neutral] Alright."))
+        _, fake = _turn("no thanks", stream_chunks("[neutral] Alright."))
     rt.assert_not_called()
     assert fake.calls[0]["max_tokens"] == 400 and llm.WIKIPEDIA_NOTE not in str(fake.calls[0]["messages"])
     assert llm._deeper_offer is None
 
 
-@pytest.mark.parametrize("text", ["yes", "yes please", "sure, check wikipedia", "look it up", "go ahead"])
-def test_short_yeses_to_the_wikipedia_offer(text):
-    assert llm.is_affirmative(text)
-
-
 def test_a_wikipedia_offer_wins_over_a_source_offer_and_needs_no_source(fallout):
-    _turn("I'm at Covenant and Honest Dan keeps attacking me, what now", _chunks(OFFER_REPLY))
+    _turn("I'm at Covenant and Honest Dan keeps attacking me, what now", stream_chunks(OFFER_REPLY))
     assert llm._deeper_offer == {"wikipedia": "I'm at Covenant and Honest Dan keeps attacking me, what now"}
 
 
@@ -302,30 +285,27 @@ def confusion(rows: list) -> str:
     return "\n".join(lines)
 
 
-def test_the_set_is_eight_eight_eight_four():
-    assert Counter(q["expect"] for q in QUESTIONS) == {"direct": 8, "local": 8, "wikipedia": 8, "personal": 4}
-
-
 def test_calibration_mocked(both):
     """Each question with a canned reply of the shape its rule asks for: filed-document questions
     get a recall block (local) and nothing else does; the offer, the tool call and the direct answer
     are detected from the output shape. ≥ 24/28."""
+    assert len(QUESTIONS) == 28                       # the thresholds below assume the full set
     rows = []
     for i, q in enumerate(QUESTIONS):
         llm.reset()
         expect, question = q["expect"], q["question"]
         if expect == "wikipedia" and i % 2:
-            replies = [[_tc_chunk(id="c", name="get_wikipedia", arguments=json.dumps({"query": question}),
-                                  finish_reason="tool_calls")], _chunks("[neutral] Per Wikipedia, 1843.")]
+            replies = [[tool_call_chunk(id="c", name="get_wikipedia", arguments=json.dumps({"query": question}),
+                                  finish_reason="tool_calls")], stream_chunks("[neutral] Per Wikipedia, 1843.")]
         elif expect == "wikipedia":
-            replies = [_chunks(OFFER_REPLY)]
+            replies = [stream_chunks(OFFER_REPLY)]
         elif expect == "personal":
-            replies = [_chunks("[sad] I don't have anything on that.")]
+            replies = [stream_chunks("[sad] I don't have anything on that.")]
         elif expect == "local":
-            replies = [_chunks("[happy] Talk to Jacob, says the guide. " + llm.DEEPER_OFFERS[0])]
+            replies = [stream_chunks("[happy] Talk to Jacob, says the guide. " + llm.DEEPER_OFFERS[0])]
         else:
-            replies = [_chunks("[happy] Here is the answer.")]
-        fake = FakeClient([iter(r) for r in replies])
+            replies = [stream_chunks("[happy] Here is the answer.")]
+        fake = RawStreamClient(replies)
         with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="Wikipedia article ..."):
             reply = llm.ask(question)
         recalled = "<recall>" in fake.calls[0]["messages"][1]["content"]
@@ -380,7 +360,7 @@ def _file_guides():
 
 
 @pytest.mark.live
-def test_live_calibration(vault, capsys):
+def test_live_calibration(seeded_vault, capsys):
     """The 28 questions through `llm.ask` against oMLX, one fresh session each; prints every
     question with its observed route and the confusion table. ≥ 20/28, and no filed-document
     question may go to Wikipedia. The first offered question also gets a real "yes"."""

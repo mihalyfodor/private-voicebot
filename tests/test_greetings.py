@@ -1,23 +1,13 @@
-import sys, os, io
+import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import threading
 from types import SimpleNamespace
 
-import numpy as np
-import soundfile as sf
-import pytest
 from fastapi.testclient import TestClient
 
 import chatbot
 import llm
 from session import Session
-from tests.conftest import Blocker
-
-
-def fake_tts(text):
-    buf = io.BytesIO()
-    sf.write(buf, np.zeros(240, dtype=np.float32), 24000, format="WAV", subtype="PCM_16")
-    return buf.getvalue()
+from tests.conftest import drain_initial, fake_tts, run_turn
 
 
 FAKE_AVATAR = {
@@ -81,22 +71,8 @@ def test_greet_messages_carry_the_turn_id(monkeypatch):
     monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
 
-    sent = []
-
-    async def fake_send(msg):
-        sent.append(msg)
-
-    monkeypatch.setattr(chatbot, "send", fake_send)
-    import asyncio
-    loop = asyncio.new_event_loop()
-    t = threading.Thread(target=loop.run_forever, daemon=True)
-    t.start()
-    try:
-        sess = Session(websocket=None)
-        chatbot.greet(sess, sess.next_turn(), loop)
-    finally:
-        loop.call_soon_threadsafe(loop.stop)
-        t.join(timeout=2)
+    sess = Session(websocket=None)
+    sent = run_turn(chatbot.greet, sess, sess.next_turn(), via="send")
 
     types = [m["type"] for m in sent]
     assert types[:2] == ["state", "state"]  # thinking, then speaking
@@ -117,8 +93,7 @@ def test_reload_characters_ws_action(monkeypatch):
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
-        ws.receive_json()  # hands_free
-        ws.receive_json()  # initial idle state
+        drain_initial(ws)
         ws.send_json({"action": "reload_characters"})
         msg = ws.receive_json()
         assert msg == {"type": "characters_reloaded", "avatar": "wanko", "name": "Wanko"}

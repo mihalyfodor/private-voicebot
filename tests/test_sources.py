@@ -8,7 +8,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
 import struct
-import subprocess
 import zlib
 
 import pytest
@@ -18,21 +17,10 @@ import chatbot
 import memory
 import sources
 import wiki
-from tests.conftest import FakeClient
+from tests.conftest import FakeClient, commits, read, vault  # noqa: F401 — fixture
 
 
 # --------------------------------------------------------------------------- fixtures
-
-
-@pytest.fixture
-def vault(wiki_sandbox, memory_sandbox):
-    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp).
-
-    `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
-    can never see the real memory.json.
-    """
-    wiki.ensure_vault()
-    return wiki_sandbox
 
 
 @pytest.fixture
@@ -54,16 +42,6 @@ OPS = json.dumps([
     {"op": "new_page", "path": "projects/falcon", "type": "project", "name": "Falcon",
      "summary": "Platform project, amber."},
 ])
-
-
-def commits() -> list:
-    out = subprocess.run(["git", "log", "--oneline"], cwd=wiki.WIKI_PATH,
-                         capture_output=True, text=True)
-    return [line for line in out.stdout.splitlines() if line.strip()]
-
-
-def read(rel: str) -> str:
-    return wiki._read(rel)
 
 
 def raw_files() -> list:

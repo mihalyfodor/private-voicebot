@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import datetime as dt
 import io
 import json
-import shutil
-import subprocess
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,8 +19,8 @@ import chatbot
 import memory
 import sources
 import wiki
-from tests.conftest import FakeClient
-from tests.test_sources import SUMMARY, commits, fake, prompts, read, vault  # noqa: F401 — fixtures
+from tests.conftest import FakeClient, commits, r, read, send_setting, vault  # noqa: F401 — fixtures
+from tests.test_sources import SUMMARY, fake, prompts  # noqa: F401 — fixture
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 TODAY = memory._today_iso()
@@ -261,6 +259,8 @@ TEAMS = [("p", "Anna Kovacs   0:12"), ("p", "We need the load test before go-liv
 
 
 def test_a_teams_docx_export_takes_the_transcript_path(vault, monkeypatch):
+    """... and still files the attendees as people (the author rule is for published works only)."""
+    be_the_user()
     client = FakeClient(SUMMARY, MEETING)
     monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
 
@@ -271,6 +271,9 @@ def test_a_teams_docx_export_takes_the_transcript_path(vault, monkeypatch):
     assert "kind: transcript" in read(filed["path"] + ".md")
     assert sources.manifest_entries()[0]["kind"] == "transcript"
     assert meeting_pages() == ["2026-08-28-falcon-go-live-sync.md"]
+    assert wiki.page_exists("people/anna-kovacs.md") and wiki.page_exists("people/bob-nagy.md")
+    assert not wiki.page_exists("people/mihaly-fodor.md")
+    assert "NOT people pages" not in client.calls[1]["messages"][0]["content"]
 
 
 def test_a_normal_docx_is_not_a_transcript(vault, fake):
@@ -342,12 +345,7 @@ def test_an_updated_invite_notes_the_existing_stub_once(vault, monkeypatch):
 def test_the_calendar_horizon_setting_round_trips(file_sandbox):
     assert sources.calendar_horizon_days() == 14
     client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json({"action": "set_setting", "key": "calendar_horizon_days", "value": 28})
-        while True:
-            msg = ws.receive_json()
-            if msg.get("type") in ("setting", "error"):
-                break
+    msg = send_setting("calendar_horizon_days", 28, client)
     assert msg == {"type": "setting", "key": "calendar_horizon_days", "value": 28}
     assert sources.calendar_horizon_days() == 28
     assert client.get("/api/config").json()["calendar_horizon_days"] == 28
@@ -450,15 +448,6 @@ def test_a_real_file_name_still_wins(vault, fake):
 
 
 # --------------------------------------------------------------- 8/10. the client fixture
-
-
-@pytest.fixture(scope="module")
-def r():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
 
 
 def test_sources_view_shows_the_new_kind_chips_and_the_meeting_link(r):
@@ -614,18 +603,6 @@ def test_restrict_ops_lets_a_published_work_touch_only_known_people(vault):
     for kind in ("md", "transcript", ""):
         kept, rejected = sources.restrict_ops(ops, "raw/inbox/ddd.md", (), kind, people)
         assert len(kept) == 5 and rejected == []
-
-
-def test_a_teams_docx_transcript_still_files_the_attendees_as_people(vault, monkeypatch):
-    be_the_user()
-    client = FakeClient(SUMMARY, MEETING)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
-
-    sources.ingest_upload(docx_bytes(TEAMS), "teams-export.docx")
-
-    assert wiki.page_exists("people/anna-kovacs.md") and wiki.page_exists("people/bob-nagy.md")
-    assert not wiki.page_exists("people/mihaly-fodor.md")
-    assert "NOT people pages" not in client.calls[1]["messages"][0]["content"]
 
 
 def test_a_docx_report_tells_the_model_its_authors_are_not_people(vault, monkeypatch):

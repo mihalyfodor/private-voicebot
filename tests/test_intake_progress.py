@@ -1,22 +1,11 @@
 """PRD 36 — bulk intake progress, the client half: one request per file, per-row states, Cancel.
 
 The scenario runs in tests/app_fixture.mjs (node) with a scripted `fetch`; this module asserts
-on its JSON. The server half (the `ingest_progress` pushes) is in test_sources.py.
+on its JSON (the `r` fixture in tests/conftest.py). The server half (the `ingest_progress` pushes) is in test_sources.py.
 """
-import json
 import os
-import subprocess
-
-import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-@pytest.fixture(scope="module")
-def r() -> dict:
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
 
 
 def states(rows: list) -> list:

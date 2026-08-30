@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
-from tests.conftest import Blocker, fake_asr
+from tests.conftest import Blocker, drain_initial, fake_asr
 
 
 @pytest.fixture(autouse=True)
@@ -47,11 +47,6 @@ def fake_respond(sess, turn, text, send_sync):
 
 def frame_bytes(n=512):
     return np.zeros(n, dtype=np.int16).tobytes()
-
-
-def drain_initial(ws):
-    """Consume the hands_free announce + idle state sent right after connect."""
-    return [ws.receive_json() for _ in range(2)]
 
 
 def test_set_hands_free_true_persists_and_announces_and_reflects_in_config():

@@ -209,3 +209,231 @@ def panel():
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         yield Panel(ws)
+
+
+# --------------------------------------------------------------------------- git isolation
+# Vault commits must never see the developer's global git config (signing, hooks, templates).
+os.environ.setdefault("GIT_CONFIG_GLOBAL", os.devnull)
+os.environ.setdefault("GIT_CONFIG_NOSYSTEM", "1")
+
+
+# --------------------------------------------------------------------------- streamed LLM fakes
+
+
+def stream_chunks(*texts) -> list:
+    """Streamed text deltas the way the OpenAI client yields them, one chunk per text."""
+    return [SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=t, tool_calls=None), finish_reason=None)]) for t in texts]
+
+
+def tool_call_chunk(index=0, id=None, name=None, arguments=None, finish_reason=None):
+    """One streamed chunk carrying a tool_call fragment."""
+    frag = SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=arguments))
+    return SimpleNamespace(choices=[SimpleNamespace(
+        delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
+
+
+class RawStreamClient:
+    """A stand-in OpenAI client that answers each call with the next queued *response*.
+
+    A response is whatever `stream_chunks` / `tool_call_chunk` built (a list or an iterator of
+    chunks); a streamed call gets it back as an iterator, so tool-call round trips and error
+    paths can be scripted chunk by chunk. A non-streamed call (memory.save's completion) gets
+    the queued object as-is. `StreamClient` below is the short form for plain text replies.
+    """
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    def _create(self, **kw):
+        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
+        response = self._responses.pop(0)
+        return iter(response) if kw.get("stream") else response
+
+
+class StreamClient(RawStreamClient):
+    """One streamed text reply per call; records the messages it was given."""
+
+    def __init__(self, *replies):
+        super().__init__([stream_chunks(reply) for reply in replies])
+
+
+@pytest.fixture
+def fresh_llm():
+    """A reset conversation on Chat with no remembered page, before and after the test.
+
+    Modules whose every test needs this say `pytestmark = pytest.mark.usefixtures("fresh_llm")`.
+    """
+    def reset():
+        llm.reset()
+        llm.set_focus("chat")
+        llm.last_page = None
+    reset()
+    yield
+    reset()
+
+
+# --------------------------------------------------------------------------- vault helpers
+
+
+@pytest.fixture
+def vault(wiki_sandbox, memory_sandbox):
+    """A created, committed, empty vault (the autouse fixture only points WIKI_PATH at tmp).
+
+    `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
+    can never see the real memory.json.
+    """
+    wiki.ensure_vault()
+    return wiki_sandbox
+
+
+@pytest.fixture
+def seeded_vault(vault):
+    """`vault` with the two pages the recall / focus / routing scenarios talk about."""
+    wiki.apply_page_ops([
+        {"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
+         "summary": "Colleague on the platform team; runs the Friday deploy."},
+        {"op": "new_page", "path": "projects/falcon", "type": "project", "name": "Falcon",
+         "summary": "Load-test project, amber."},
+    ], "seed")
+    return vault
+
+
+def commits(path: str = None) -> list:
+    """`git log --oneline` of the sandboxed vault (optionally for one path), newest first."""
+    import subprocess
+    args = ["git", "log", "--oneline"] + (["--", path] if path else [])
+    out = subprocess.run(args, cwd=wiki.WIKI_PATH, capture_output=True, text=True)
+    return [line for line in out.stdout.splitlines() if line.strip()]
+
+
+def read(rel: str) -> str:
+    """A vault file's text (`wiki._read`)."""
+    return wiki._read(rel)
+
+
+def write_page(rel: str, name: str, body: str) -> None:
+    """A minimal note page dropped straight into the vault, bypassing page ops."""
+    text = (f"---\ntype: note\nname: {name}\ntags: []\nsource: seed\n"
+            f"updated: 2026-08-30\nseen: 2026-08-30\n---\n{body}")
+    full = os.path.join(wiki.WIKI_PATH, rel + ".md")
+    os.makedirs(os.path.dirname(full), exist_ok=True)
+    open(full, "w").write(text)
+
+
+# --------------------------------------------------------------------------- turn helpers
+
+
+def fake_tts(text, samples: int = 240) -> bytes:
+    """A stand-in for `chatbot.synthesize`: a short silent WAV, whatever the text."""
+    import io
+    import numpy as np
+    import soundfile as sf
+    buf = io.BytesIO()
+    sf.write(buf, np.zeros(samples, dtype=np.float32), 24000, format="WAV", subtype="PCM_16")
+    return buf.getvalue()
+
+
+def run_turn(fn, *args, via: str = "make_sender") -> list:
+    """Run one turn function (`fn(*args, loop)`) on a background loop; returns everything it sent.
+
+    `via="make_sender"` captures through `chatbot.make_sender` (typed / spoken turns),
+    `via="send"` through the raw `chatbot.send` coroutine (greeting and speech tests).
+    """
+    import asyncio
+    import threading
+    from unittest.mock import patch
+
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    if via == "send":
+        capture = patch.object(chatbot, "send", fake_send)
+    else:
+        capture = patch.object(chatbot, "make_sender", lambda lp, turn=None: sent.append)
+    with capture:
+        loop = asyncio.new_event_loop()
+        thread = threading.Thread(target=loop.run_forever, daemon=True)
+        thread.start()
+        try:
+            fn(*args, loop)
+        finally:
+            loop.call_soon_threadsafe(loop.stop)
+            thread.join(timeout=2)
+    return sent
+
+
+def typed(text: str, reply: str = "[neutral] Sure.") -> tuple:
+    """A typed turn through `handle_text` against a mocked model: (sent messages, fake)."""
+    from unittest.mock import patch
+    from session import Session
+    fake = StreamClient(reply)
+    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
+        sent = run_turn(chatbot.handle_text, Session(), 1, text)
+    return sent, fake
+
+
+def spoken(text: str, reply: str = "[neutral] Sure.") -> tuple:
+    """The same through the hands-free path (`handle_utterance` with a fake ASR)."""
+    from unittest.mock import patch
+    import numpy as np
+    from session import Session
+    fake = StreamClient(reply)
+    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
+            patch.object(chatbot, "asr", fake_asr(text)):
+        sent = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
+    return sent, fake
+
+
+def last_user(fake) -> str:
+    """The last user message of the fake client's most recent call — what the model saw."""
+    return [m for m in fake.calls[-1]["messages"] if m["role"] == "user"][-1]["content"]
+
+
+# --------------------------------------------------------------------------- websocket helpers
+
+
+def drain_initial(ws) -> list:
+    """Consume the hands_free announce + idle state sent right after connect."""
+    return [ws.receive_json() for _ in range(2)]
+
+
+def send_setting(key, value, client=None) -> dict:
+    """Send one set_setting on a (fresh) socket and return the first `setting`/`error` reply."""
+    client = client or TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json({"action": "set_setting", "key": key, "value": value})
+        while True:
+            msg = ws.receive_json()
+            if msg.get("type") in ("setting", "error"):
+                return msg
+
+
+# --------------------------------------------------------------------------- the node client fixture
+
+
+@pytest.fixture(scope="session")
+def client_fixture() -> dict:
+    """static/app.js booted once per session in node against tests/app_fixture.mjs; the JSON it prints.
+
+    Every client-side scenario (companion re-parent, typed turn, palette, wiki editor, sources
+    chips, intake batch, context meter, error scopes …) runs in that one pass; tests assert on keys.
+    """
+    import shutil
+    import subprocess
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    root = os.path.join(os.path.dirname(__file__), "..")
+    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=root, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+@pytest.fixture
+def r(client_fixture) -> dict:
+    """The short name the client-assertion tests use for `client_fixture`."""
+    return client_fixture

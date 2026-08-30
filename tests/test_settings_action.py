@@ -16,6 +16,10 @@ import avatars
 import chatbot
 import memory
 import wiki
+from tests.conftest import send_setting
+from tools import weather as _weather_mod
+
+REAL_REVERSE_GEOCODE = _weather_mod.reverse_geocode      # the geocoder tests call the real one
 
 
 @pytest.fixture
@@ -23,19 +27,33 @@ def isolated_settings(file_sandbox):
     return file_sandbox / "settings.json"
 
 
+@pytest.fixture(autouse=True)
+def no_nominatim(monkeypatch):
+    """No test in this module reaches Nominatim; the canned geocoder records its calls."""
+    from tools import weather
+    calls = []
+
+    def fake(lat, lon):
+        calls.append((lat, lon))
+        return "Cluj-Napoca, Romania"
+    monkeypatch.setattr(weather, "reverse_geocode", fake)
+    monkeypatch.delenv("LOCATION_NAME", raising=False)
+    return calls
+
+
 def settings_on_disk(path):
     return json.load(open(path)) if os.path.exists(path) else {}
 
 
-def send_setting(key, value):
-    """Send one set_setting and return the first `setting`/`error` reply."""
+def _send(payload):
+    """Send one arbitrary action on a fresh socket: (client, first `setting`/`error` reply)."""
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
-        ws.send_json({"action": "set_setting", "key": key, "value": value})
+        ws.send_json(payload)
         while True:
             msg = ws.receive_json()
             if msg.get("type") in ("setting", "error"):
-                return msg
+                return client, msg
 
 
 def test_unknown_key_is_refused(isolated_settings):
@@ -46,7 +64,6 @@ def test_unknown_key_is_refused(isolated_settings):
 
 def test_panel_pinned_is_gone(isolated_settings):
     """PRD 22b: the panel flag is no longer a settable key, and nothing writes it."""
-    assert "panel_pinned" not in chatbot.SETTABLE
     reply = send_setting("panel_pinned", True)
     assert reply["type"] == "error"
     assert settings_on_disk(isolated_settings) == {}
@@ -123,34 +140,6 @@ def test_weather_location_prefers_browser_over_env_over_default(isolated_setting
     assert weather.location()["name"] == "Cluj-Napoca, Romania"
 
 
-def _send(payload):
-    client = TestClient(chatbot.app)
-    with client.websocket_connect("/ws") as ws:
-        ws.send_json(payload)
-        while True:
-            msg = ws.receive_json()
-            if msg.get("type") in ("setting", "error"):
-                return client, msg
-
-
-from tools import weather as _weather_mod
-REAL_REVERSE_GEOCODE = _weather_mod.reverse_geocode      # the geocoder tests below call the real one
-
-
-@pytest.fixture(autouse=True)
-def no_nominatim(monkeypatch):
-    """No test below reaches Nominatim; the canned geocoder records its calls."""
-    from tools import weather
-    calls = []
-
-    def fake(lat, lon):
-        calls.append((lat, lon))
-        return "Cluj-Napoca, Romania"
-    monkeypatch.setattr(weather, "reverse_geocode", fake)
-    monkeypatch.delenv("LOCATION_NAME", raising=False)
-    return calls
-
-
 def test_set_location_rounds_saves_and_shows_in_config(isolated_settings, monkeypatch):
     client, msg = _send({"action": "set_location", "lat": 46.77123, "lon": 23.62361, "tz": "Europe/Bucharest"})
 
@@ -171,17 +160,6 @@ def test_bad_locations_are_refused_and_nothing_is_saved(isolated_settings, paylo
     _client, msg = _send(payload)
     assert msg["type"] == "error"
     assert "location" not in settings_on_disk(isolated_settings)
-
-
-@pytest.fixture(scope="module")
-def r():
-    import shutil, subprocess
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    root = os.path.join(os.path.dirname(__file__), "..")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=root, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
 
 
 def test_the_page_offers_its_position_once_and_renders_the_row(r):

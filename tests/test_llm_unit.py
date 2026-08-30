@@ -1,80 +1,134 @@
-"""Unit tests for llm.py with a mocked OpenAI client (no oMLX needed)."""
-import sys, os
-import copy
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+"""Unit tests for llm.py with a mocked OpenAI client (no oMLX needed).
+
+Covers the tool round trip / ask() surface and the streamed first call
+(docs/13-streamed-first-call.md); the context budget lives in tests/test_context.py.
+"""
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 import llm
-
-
-def _chunks(*texts):
-    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t, tool_calls=None))]) for t in texts]
-
-
-def _tc_chunk(index=0, id=None, name=None, arguments=None, finish_reason=None):
-    """One streamed chunk carrying a tool_call fragment."""
-    frag = SimpleNamespace(
-        index=index, id=id,
-        function=SimpleNamespace(name=name, arguments=arguments),
-    )
-    return SimpleNamespace(choices=[SimpleNamespace(
-        delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
-
-
-class FakeClient:
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
-        return self._responses.pop(0)
+from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
 
 
 def setup_function():
     llm.reset()
 
 
-def test_ask_returns_reply_and_records_turn():
-    fake = FakeClient([iter(_chunks("[happy] Hello there."))])
-    with patch.object(llm, "_client", fake):
+# --------------------------------------------------------------------------- ask() surface
+
+def test_ask_stream_yields_only_deltas_and_ask_joins_them():
+    fake = FakeClient([
+        [_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")],
+        _chunks("[neutral] Noon."),
+        _chunks("[happy] Hello ", "there."),
+    ])
+    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+        assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
+        assert llm.get_last_tool_calls() == [{"name": "get_time", "args": {}}]
         reply = llm.ask("hi")
     assert reply == "[happy] Hello there."
     assert llm._conversation[-1] == {"role": "assistant", "content": "[happy] Hello there."}
     assert llm.get_last_tool_calls() == []
 
 
-def test_tool_round_then_streamed_answer():
-    fake = FakeClient([
-        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
-        iter(_chunks("[neutral] It is ", "noon.")),
-    ])
+# --------------------------------------------------------------------------- streamed first call
+# --- scenario 1: text-only stream ---
+
+def test_text_only_stream_yields_deltas_in_order_with_one_call():
+    fake = FakeClient([_chunks("[happy] Hi ", "there", "!")])
+    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool") as rt:
+        events = list(llm.ask_events("hi"))
+
+    assert events == [("delta", "[happy] Hi "), ("delta", "there"), ("delta", "!")]
+    rt.assert_not_called()
+    assert llm.get_last_tool_calls() == []
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["stream"] is True
+    assert fake.calls[0]["tools"] == llm.TOOLS
+    assert llm._conversation[-1] == {"role": "assistant", "content": "[happy] Hi there!"}
+    assert llm._session_turns[-1] == {"role": "assistant", "content": "[happy] Hi there!"}
+
+
+def test_deltas_are_yielded_before_the_stream_is_exhausted():
+    """The generator must emit each delta as it arrives, not after the whole stream."""
+    seen = []
+
+    def gen():
+        for text in ("[happy] one ", "two ", "three"):
+            seen.append(text)
+            yield _chunks(text)[0]
+
+    fake = FakeClient([gen()])
+    with patch.object(llm, "_client", fake):
+        events = llm.ask_events("hi")
+        assert next(events) == ("delta", "[happy] one ")
+        assert seen == ["[happy] one "]  # producer has not run ahead
+        assert next(events) == ("delta", "two ")
+        assert seen == ["[happy] one ", "two "]
+        list(events)
+
+
+# --- scenario 2: tool_call fragments split across chunks ---
+
+def test_tool_call_fragments_reassembled_across_chunks():
+    first = [
+        _tc_chunk(index=0, id="call_1", name="get_time"),
+        _tc_chunk(index=0, arguments='{"tz": '),
+        _tc_chunk(index=0, arguments='"UTC"}', finish_reason="tool_calls"),
+    ]
+    fake = FakeClient([first, _chunks("[neutral] It is ", "noon.")])
+
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00") as rt:
         events = list(llm.ask_events("what time is it?"))
-    rt.assert_called_once_with("get_time", {})
-    assert events == [("tool_calls", ["get_time"]), ("delta", "[neutral] It is "), ("delta", "noon.")]
-    assert llm.get_last_tool_calls() == [{"name": "get_time", "args": {}}]
+
+    rt.assert_called_once_with("get_time", {"tz": "UTC"})
+    assert events == [
+        ("tool_calls", ["get_time"]),
+        ("delta", "[neutral] It is "),
+        ("delta", "noon."),
+    ]
+    assert llm.get_last_tool_calls() == [{"name": "get_time", "args": {"tz": "UTC"}}]
+
     roles = [m["role"] for m in llm._conversation]
     assert roles == ["system", "user", "assistant", "tool", "assistant"]
-    assert llm._conversation[3]["tool_call_id"] == "call_1"
-    assert fake.calls[1]["stream"] is True
+    assert llm._conversation[2]["tool_calls"] == [
+        {"id": "call_1", "type": "function",
+         "function": {"name": "get_time", "arguments": '{"tz": "UTC"}'}},
+    ]
+    assert llm._conversation[3] == {"role": "tool", "tool_call_id": "call_1", "content": "12:00:00"}
+    assert llm._conversation[4] == {"role": "assistant", "content": "[neutral] It is noon."}
+
+    assert len(fake.calls) == 2
+    assert fake.calls[0]["stream"] is True and "tools" in fake.calls[0]
+    assert fake.calls[1]["stream"] is True and "tools" not in fake.calls[1]
 
 
-def test_ask_stream_yields_only_deltas():
-    fake = FakeClient([
-        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
-        iter(_chunks("[neutral] Noon.")),
-    ])
+def test_text_before_tool_call_is_warned_and_dropped_from_reply(capsys):
+    first = [
+        *_chunks("[neutral] Let me check. "),
+        _tc_chunk(index=0, id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls"),
+    ]
+    fake = FakeClient([first, _chunks("[neutral] Noon.")])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
-        assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
+        events = list(llm.ask_events("time?"))
+
+    assert events[0] == ("delta", "[neutral] Let me check. ")
+    assert events[1] == ("tool_calls", ["get_time"])
+    assert "text before tool call was spoken" in capsys.readouterr().out
+    assert llm._conversation[-1] == {"role": "assistant", "content": "[neutral] Noon."}
+
+
+# --- scenario 3: rollback on exception (at create() and mid-stream) ---
+
+def _raising_stream():
+    yield _chunks("[happy] partial ")[0]
+    raise RuntimeError("boom")
 
 
 class RaisingClient:
-    """Mimics FakeClient but its first create() call raises."""
+    """Its create() call itself raises — the request never got a stream."""
     def __init__(self):
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
@@ -82,11 +136,12 @@ class RaisingClient:
         raise RuntimeError("boom")
 
 
-def test_ask_events_rolls_back_conversation_on_error():
-    fake = RaisingClient()
-    with patch.object(llm, "_client", fake):
+@pytest.mark.parametrize("make_fake", [RaisingClient, lambda: FakeClient([_raising_stream()])],
+                         ids=["at_create", "mid_stream"])
+def test_exception_rolls_back_conversation(make_fake):
+    with patch.object(llm, "_client", make_fake()):
         with pytest.raises(RuntimeError, match="boom"):
             list(llm.ask_events("hi"))
-    assert llm._conversation == [llm._conversation[0]]
-    assert llm._conversation[0]["role"] == "system"
+
+    assert [m["role"] for m in llm._conversation] == ["system"]
     assert llm._session_turns == []

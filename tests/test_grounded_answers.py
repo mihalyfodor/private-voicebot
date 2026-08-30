@@ -1,16 +1,12 @@
 """PRD 34 — grounded answers: recall precision, the look-up-first prompt block, the one-turn
 "dig deeper" offer, the Settings note. Scenario numbers are the PRD's.
 
-Fixtures and the streaming fake come from tests/test_source_recall.py.
+The FAQ fixtures come from tests/test_source_recall.py, the vault and the streaming fake from conftest.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import json
-import pathlib
 import re
-import shutil
-import subprocess
 from unittest.mock import patch
 
 import pytest
@@ -20,22 +16,15 @@ import fillers
 import llm
 import memory
 import wiki
-from tests.test_source_recall import vault, fallout, both, StreamClient  # noqa: F401  (fixtures)
+from tests.conftest import RawStreamClient, StreamClient, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
+from tests.test_source_recall import fallout, both  # noqa: F401  (fixtures)
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+pytestmark = pytest.mark.usefixtures("fresh_llm")   # no mocked turn may leak into another test's session replay
 QUESTION = "I'm at Covenant and Honest Dan keeps attacking me, what now"
 OFFER_REPLY = "[thinking] Talk to Jacob Orden, says the Fallout 4 guide. Want me to dig deeper?"
 
 SMALL_TALK = ["what should we cook tonight?", "what's on today?", "any eggs left?"]
 IN_GUIDE = ["I'm at Covenant and the turrets shoot me", "Thieves Guild in Riften"]
-
-
-@pytest.fixture(autouse=True)
-def fresh_conversation():
-    """No mocked turn may leak into another test's session replay (`_on_connect`)."""
-    llm.reset()
-    yield
-    llm.reset()
 
 
 def _offer_turn(reply: str = OFFER_REPLY) -> StreamClient:
@@ -45,11 +34,6 @@ def _offer_turn(reply: str = OFFER_REPLY) -> StreamClient:
     with patch.object(llm, "_client", fake):
         llm.ask(QUESTION)
     return fake
-
-
-def _last_user(fake: StreamClient) -> str:
-    """The user message the last completion saw (the fake may hold the live, since-appended list)."""
-    return [m for m in fake.calls[-1]["messages"] if m["role"] == "user"][-1]["content"]
 
 
 def _turn(text: str, reply: str = "[happy] Here is more.") -> tuple[list, StreamClient]:
@@ -101,12 +85,10 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
     """The block names the live-fact rule; a weather turn records the get_weather call."""
     prompt = llm.build_system_prompt({"name": "Test", "persona": "You are Test.", "verbosity": None})
     assert "never state a temperature, a time or a headline from memory" in prompt
-    from tests.test_llm_unit import FakeClient, _tc_chunk, _chunks
-
     llm.reset()
-    fake = FakeClient([
-        iter([_tc_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")]),
-        iter(_chunks("[neutral] Sunny, 21 degrees.")),
+    fake = RawStreamClient([
+        [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
+        stream_chunks("[neutral] Sunny, 21 degrees."),
     ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
         events = list(llm.ask_events("how is the weather today?"))
@@ -117,10 +99,16 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
 
 
 def test_a_tool_free_run_gets_neither_rule(monkeypatch):
+    """No tools: no grounding and no routing rules; without get_wikipedia alone only the offer goes (PRD 37)."""
+    from tools import TOOLS
     monkeypatch.setattr(llm, "TOOLS", [])
     prompt = llm.build_system_prompt(AVATAR)
     assert "Look it up first" not in prompt and llm.DEEPER_OFFERS[0] not in prompt
+    assert llm.WIKIPEDIA_OFFER not in prompt
     assert llm.grounding_rules() == ""
+    monkeypatch.setattr(llm, "TOOLS", [t for t in TOOLS if t["function"]["name"] != "get_wikipedia"])
+    prompt = llm.build_system_prompt(AVATAR)
+    assert "Look it up first" in prompt and llm.WIKIPEDIA_OFFER not in prompt
 
 
 # --------------------------------------------------------------- 3. the deeper offer
@@ -142,7 +130,7 @@ def test_yes_please_reads_the_neighbours_long_for_that_turn_only(fallout):
     events, fake = _turn("yes please")
     assert ("tool_calls", ["dig_deeper"]) in events
     sent = fake.calls[-1]
-    user = _last_user(fake)
+    user = last_user(fake)
     assert user.startswith("yes please\n\n<source title=\"Fallout 4 guide\">")
     parts = [int(m) for m in re.findall(rf"^Part (\d+)/{total}:", user, re.M)]
     assert parts == sorted(parts) and 1 < len(parts) <= llm.DEEPER_MAX_CHUNKS
@@ -161,7 +149,7 @@ def test_yes_please_reads_the_neighbours_long_for_that_turn_only(fallout):
 def test_anything_else_clears_the_offer_and_injects_nothing(fallout):
     _offer_turn()
     _, fake = _turn("no, what's the weather")
-    user = _last_user(fake)
+    user = last_user(fake)
     assert "<source" not in user and user.startswith("no, what's the weather")
     assert fake.calls[-1]["max_tokens"] == 400
     assert llm._deeper_offer is None
@@ -172,7 +160,7 @@ def test_an_offer_never_persists_past_one_turn(fallout):
     _turn("tell me a joke about programmers", "[happy] Why do programmers prefer dark mode?")
     assert llm._deeper_offer is None
     _, fake = _turn("yes")
-    assert "<source" not in _last_user(fake)
+    assert "<source" not in last_user(fake)
     assert fake.calls[-1]["max_tokens"] == 400
 
 
@@ -183,8 +171,9 @@ def test_a_deeper_reply_ending_with_an_offer_offers_again(fallout):
 
 
 @pytest.mark.parametrize("text", ["yes", "Yes please!", "go on", "dig deeper", "sure, do it",
-                                  "yeah tell me more"])
+                                  "yeah tell me more", "sure, check wikipedia", "look it up", "go ahead"])
 def test_short_affirmatives(text):
+    """`is_affirmative` answers both the dig-deeper and the Wikipedia offer (PRD 34 / 37)."""
     assert llm.is_affirmative(text)
 
 
@@ -221,22 +210,15 @@ def test_tool_results_register_their_sources():
 # --------------------------------------------------------------- 5. fixture render
 
 
-@pytest.fixture(scope="module")
-def r():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
 def test_the_reply_length_row_notes_that_deeper_answers_are_long(r):
     assert "deeper answers are long regardless" in r["verbosity_note"]
 
 
-def test_the_dig_deeper_filler_exists():
-    assert fillers.FILLERS["dig_deeper"]
-    assert fillers.pick("dig_deeper") in fillers.FILLERS["dig_deeper"]
+@pytest.mark.parametrize("key", ["dig_deeper", "get_wikipedia", "read_wikipedia"])
+def test_the_filler_for_each_lookup_exists(key):
+    """The contract with fillers.py: every tool / offer the model can take has a spoken filler."""
+    assert fillers.FILLERS[key]
+    assert fillers.pick(key) in fillers.FILLERS[key]
 
 
 # --------------------------------------------------------------- 4. live
@@ -270,7 +252,7 @@ def _neighbour_names(offer: dict) -> set:
 
 
 @pytest.mark.live
-def test_live_answers_cite_offer_and_dig_deeper(vault, capsys):
+def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys):
     """The three real guides in a temp vault, six questions through `llm.ask` against oMLX:
     ≥ 5 cite a guide, ≥ 4 end with the offer, and ≥ 4 "yes" answers are ≥ 2× as long and mention
     a name from a neighbouring chunk (sampling varies); a weather question calls get_weather. Prints every pair."""

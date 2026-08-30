@@ -6,16 +6,8 @@ scope on every `error` it sees); the client half asserts on tests/app_fixture.mj
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-import json
-import shutil
-import subprocess
-
-import pytest
-
 import chatbot
 from tests.conftest import Blocker
-
-ROOT = os.path.join(os.path.dirname(__file__), "..")
 
 
 def test_wiki_scope(panel):
@@ -68,17 +60,7 @@ def test_every_action_has_a_scope():
     assert chatbot._scope_of("text_turn") == "turn"
 
 
-@pytest.fixture(scope="module")
-def fixture_render():
-    if shutil.which("node") is None:
-        pytest.skip("node is not installed")
-    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=ROOT, capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
-def test_client_routes_on_scope_not_view(fixture_render):
-    r = fixture_render
+def test_client_routes_on_scope_not_view(r):
     assert r["error_wiki_while_on_memory"] == {"memory": "", "wiki": "bad path raw/x", "status": ""}
     assert r["error_memory_slot"] == "Wait until the reply finishes."
     assert r["error_settings_status"] == {"status": "unknown setting", "wiki": "bad path raw/x"}

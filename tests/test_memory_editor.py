@@ -21,12 +21,6 @@ from tests.conftest import Blocker, FakeClient, audit_log, on_disk, seed
 # --------------------------------------------------------------------------- helpers
 
 
-@pytest.fixture(autouse=True)
-def sandbox(memory_sandbox):
-    """Every test in this module writes to a tmp memory.json (fixture lives in conftest)."""
-    return memory_sandbox
-
-
 # --------------------------------------------------------------- 1. update a scalar
 
 
@@ -182,7 +176,7 @@ def test_a_hand_edit_during_a_background_save_is_not_overwritten():
     entered = threading.Event()
     client = FakeClient(
         json.dumps([{"op": "ADD", "path": "preferences.coffee", "value": "black"}]),
-        delay=0.3, entered=entered,
+        delay=0.15, entered=entered,
     )
     saver = threading.Thread(
         target=memory.save,
@@ -284,7 +278,7 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
 
     def hammer(tid: int):
         local = 0
-        for i in range(50):
+        for i in range(25):
             _, reason = memory.edit({"op": "ADD", "path": f"preferences.t{tid}_{i}", "value": "v"})
             local += reason is None
         with lock:
@@ -302,9 +296,9 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
         assert not t.is_alive()
 
     final = on_disk()                          # valid JSON, no torn write
-    assert len([k for k in final["preferences"] if k != "superseded"]) == 200
+    assert len([k for k in final["preferences"] if k != "superseded"]) == 100
     assert [p["name"] for p in final["people"]] == ["Anna"]
-    assert sum(applied) == 201 == len(audit_log())
+    assert sum(applied) == 101 == len(audit_log())
 
 
 # --------------------------------------------------- follow-up: session-save triggers

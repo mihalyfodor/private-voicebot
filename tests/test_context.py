@@ -1,38 +1,14 @@
 """Tests for context budget, history trimming, and max_tokens (scenarios 1, 2, 3, 6)."""
 import sys, os
-import copy
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from types import SimpleNamespace
+
 import llm
-
-
-def _chunks(*texts):
-    return [SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=t, tool_calls=None))]) for t in texts]
-
-
-def _tc_chunk(index=0, id=None, name=None, arguments=None, finish_reason=None):
-    """One streamed chunk carrying a tool_call fragment."""
-    frag = SimpleNamespace(
-        index=index, id=id,
-        function=SimpleNamespace(name=name, arguments=arguments),
-    )
-    return SimpleNamespace(choices=[SimpleNamespace(
-        delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
-
-
-class FakeClient:
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
-        return self._responses.pop(0)
+from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
 
 
 def setup_function():
@@ -105,8 +81,8 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
     monkeypatch.setattr(llm, "MAX_TOKENS", 0)
     monkeypatch.setattr(llm, "_verbosity", "long")
     fake = FakeClient([
-        iter([_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")]),
-        iter(_chunks("[neutral] Noon.")),
+        [_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")],
+        _chunks("[neutral] Noon."),
     ])
     with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
         list(llm.ask_events("what time is it?"))
@@ -117,7 +93,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
 
 def test_max_tokens_env_override(monkeypatch):
     monkeypatch.setattr(llm, "MAX_TOKENS", 123)
-    fake = FakeClient([iter(_chunks("[happy] hi"))])
+    fake = FakeClient([_chunks("[happy] hi")])
     with patch.object(llm, "_client", fake):
         llm.ask("hi")
     assert fake.calls[0]["max_tokens"] == 123

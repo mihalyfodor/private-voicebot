@@ -14,12 +14,6 @@ from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_di
 # --------------------------------------------------------------------------- helpers
 
 
-@pytest.fixture(autouse=True)
-def sandbox(memory_sandbox):
-    """Every test in this module writes to a tmp memory.json (fixture lives in conftest)."""
-    return memory_sandbox
-
-
 TURNS = [{"role": "user", "content": "I'm Mihaly and I live in Budapest"}]
 
 
@@ -261,8 +255,8 @@ def test_reflect_runs_every_five_saves(monkeypatch):
 # --------------------------------------------------------------- 4. migration
 
 
-def test_migration_seeds_profile_once_and_keeps_the_text_file(sandbox, capsys):
-    short = sandbox / "shortmem.txt"
+def test_migration_seeds_profile_once_and_keeps_the_text_file(memory_sandbox, capsys):
+    short = memory_sandbox / "shortmem.txt"
     short.write_text("\n--- 2026-08-01 12:00 ---\nThe user is named Mihaly.\nThe user lives in Budapest.\n")
     ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"},
                       {"op": "ADD", "path": "identity.location", "value": "Budapest"}])
@@ -284,8 +278,8 @@ def test_no_migration_without_shortmem():
     assert client.calls == []
 
 
-def test_save_migrates_before_proposing(sandbox):
-    (sandbox / "shortmem.txt").write_text("The user is named Mihaly.\n")
+def test_save_migrates_before_proposing(memory_sandbox):
+    (memory_sandbox / "shortmem.txt").write_text("The user is named Mihaly.\n")
     client = FakeClient(
         json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}]),
         json.dumps([{"op": "ADD", "path": "identity.location", "value": "Budapest"}]),
@@ -315,8 +309,8 @@ def test_load_returns_prompt_unchanged_when_profile_is_empty():
     assert memory.load("PERSONA.") == "PERSONA."
 
 
-def test_load_ignores_a_corrupt_profile(sandbox, capsys):
-    (sandbox / "memory.json").write_text("{not json")
+def test_load_ignores_a_corrupt_profile(memory_sandbox, capsys):
+    (memory_sandbox / "memory.json").write_text("{not json")
     assert memory.load("PERSONA.") == "PERSONA."
     assert "could not read memory.json" in capsys.readouterr().out
 
@@ -324,7 +318,7 @@ def test_load_ignores_a_corrupt_profile(sandbox, capsys):
 # --------------------------------------------------------------- 6. atomic write + audit
 
 
-def test_save_writes_atomically_and_audits_every_applied_op(sandbox, monkeypatch, capsys):
+def test_save_writes_atomically_and_audits_every_applied_op(memory_sandbox, monkeypatch, capsys):
     replaces = []
     real_replace = os.replace
     monkeypatch.setattr(memory.os, "replace",
@@ -337,7 +331,7 @@ def test_save_writes_atomically_and_audits_every_applied_op(sandbox, monkeypatch
     assert not os.path.exists(memory.MEMORY_PATH + ".tmp")
     assert len(applied) == 2
 
-    logged = [json.loads(line) for line in (sandbox / "memory_ops.jsonl").read_text().splitlines()]
+    logged = [json.loads(line) for line in (memory_sandbox / "memory_ops.jsonl").read_text().splitlines()]
     assert len(logged) == 2
     assert [op["path"] for op in logged] == ["identity.name", "people[]"]
     assert logged[0]["reason"] == "said so" and logged[0]["ts"]
@@ -515,7 +509,7 @@ def test_alias_ops_add_update_and_delete():
     assert len(applied) == 1
 
 
-def test_alias_ops_are_audited(sandbox):
+def test_alias_ops_are_audited(memory_sandbox):
     memory._write_profile(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
     profile, error = memory.edit({"op": "ADD", "path": "identity.aliases", "value": "Miki"})
     assert error is None
@@ -555,7 +549,7 @@ def test_is_user_is_false_without_a_profile():
 
 
 # Scenario 4: the extraction guard.
-def test_an_extracted_name_that_is_only_an_alias_never_overwrites_the_real_name(sandbox, capsys):
+def test_an_extracted_name_that_is_only_an_alias_never_overwrites_the_real_name(memory_sandbox, capsys):
     memory._write_profile(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
     client = FakeClient(json.dumps([
         {"op": "UPDATE", "path": "identity.name", "value": "Michael", "reason": "they said so"},
@@ -591,7 +585,7 @@ def test_the_propose_prompt_documents_the_alias_rules():
 
 
 # Scenario 6 (the prompt itself; the whisper call is tests/test_asr.py).
-def test_the_asr_prompt_lists_the_user_names_and_people_and_is_rebuilt_after_a_save(sandbox):
+def test_the_asr_prompt_lists_the_user_names_and_people_and_is_rebuilt_after_a_save(memory_sandbox):
     memory._write_profile(memory._normalise(
         {"identity": dict(ALIAS_IDENTITY), "people": [{"name": "Anna"}]}))
     first = memory.asr_prompt()
@@ -602,7 +596,7 @@ def test_the_asr_prompt_lists_the_user_names_and_people_and_is_rebuilt_after_a_s
     assert "Miki" in memory.asr_prompt()
 
 
-def test_the_asr_prompt_stays_within_its_token_budget(sandbox):
+def test_the_asr_prompt_stays_within_its_token_budget(memory_sandbox):
     memory._write_profile(empty_profile(
         identity={"name": "Mihaly Fodor"},
         people=[{"name": f"Person Number {i}"} for i in range(20)]))
@@ -611,5 +605,5 @@ def test_the_asr_prompt_stays_within_its_token_budget(sandbox):
     assert prompt.startswith("Names: Mihaly Fodor,")
 
 
-def test_the_asr_prompt_is_empty_without_a_profile(sandbox):
+def test_the_asr_prompt_is_empty_without_a_profile(memory_sandbox):
     assert memory.asr_prompt() == ""

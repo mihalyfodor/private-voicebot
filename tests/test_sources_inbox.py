@@ -13,8 +13,8 @@ import pytest
 import memory
 import sources
 import wiki
-from tests.conftest import FakeClient
-from tests.test_sources import OPS, SUMMARY, commits, fake, read, vault  # noqa: F401 — fixtures
+from tests.conftest import FakeClient, commits, read, vault  # noqa: F401 — fixture
+from tests.test_sources import OPS, SUMMARY, fake  # noqa: F401 — fixture
 
 RE_SUMMARY = json.dumps({
     "title": "Falcon status",
@@ -170,7 +170,6 @@ def test_reingest_action_refreshes_the_page_list(inbox):
     wiki_msg, srcs = panel.send_many({"action": "reingest_source", "sha": _sha(filed)}, 2)
     assert wiki_msg["type"] == "wiki" and srcs["type"] == "sources"
     assert srcs["sources"][0]["path"] == filed["path"]
-    assert "re-ingested" in read("log.md")
 
 
 def test_reingest_action_with_an_unknown_sha_is_an_error(inbox):

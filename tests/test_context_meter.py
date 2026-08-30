@@ -1,14 +1,12 @@
 """PRD 39 — context meter, recall stripping and "new topic". Scenario numbers are the PRD's
 (8 is tests/test_protocol_doc.py; the client half of 2 and 5 reads the node fixture).
 
-Turn helpers (`typed`, `spoken`, `run_turn`) come from tests/test_focus_context.py, the streaming
-fake and the sandboxed vault from tests/test_source_recall.py.
+Turn helpers, the streaming fake and the seeded seeded_vault come from tests/conftest.py.
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
-import subprocess
 from unittest.mock import patch
 
 import numpy as np
@@ -19,11 +17,9 @@ import chatbot
 import llm
 import memory
 from session import Session
-from tests.conftest import FakeClient, fake_asr
-from tests.test_focus_context import fresh, typed, spoken, run_turn, fake_tts  # noqa: F401
-from tests.test_source_recall import vault, StreamClient  # noqa: F401
+from tests.conftest import FakeClient, StreamClient, fake_asr, fake_tts, run_turn, typed
 
-ROOT = os.path.join(os.path.dirname(__file__), "..")
+pytestmark = pytest.mark.usefixtures("fresh_llm")
 
 
 def context_msgs(sent: list) -> list:
@@ -55,18 +51,15 @@ def small_budget(monkeypatch):
 # --------------------------------------------------------------- 1. the context message
 
 
-def test_a_completed_turn_sends_context_with_the_estimated_usage(vault):  # noqa: F811
+def test_a_completed_turn_sends_context_with_the_estimated_usage(seeded_vault):
     sent, _ = typed("hello there, how are you today")
     (msg,) = context_msgs(sent)
     used = llm.estimate_tokens(llm._conversation) + llm.TOOLS_TOKENS
     assert msg == {"type": "context", "used": used, "budget": llm.context_budget(),
                    "pct": round(100 * used / llm.context_budget()), "trimmed": 0}
     assert sent.index(msg) > sent.index({"type": "transcript", "role": "assistant", "text": "Sure."})
-
-
-def test_tools_tokens_matches_the_registered_schemas():
     from tools import TOOLS
-    assert llm.TOOLS_TOKENS == len(json.dumps(TOOLS)) // 4
+    assert llm.TOOLS_TOKENS == len(json.dumps(TOOLS)) // 4          # the tool schemas count too
 
 
 def test_trim_history_returns_the_user_turns_dropped(monkeypatch):
@@ -87,13 +80,6 @@ def test_trim_history_returns_the_user_turns_dropped(monkeypatch):
 # --------------------------------------------------------------- 2. the client half (node fixture)
 
 
-@pytest.fixture(scope="module")
-def r():
-    out = subprocess.run(["node", os.path.join(ROOT, "tests/app_fixture.mjs")], capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    return json.loads(out.stdout)
-
-
 def test_status_suffix_rail_dot_and_forgot_turns(r):
     assert r["ctx_62"]["status"].endswith("ctx 62 %") and r["ctx_62"]["dot"] == "rail-dot"
     assert r["ctx_75"]["dot"] == "rail-dot ctx-amber"
@@ -105,7 +91,7 @@ def test_status_suffix_rail_dot_and_forgot_turns(r):
 # --------------------------------------------------------------- 3. the 90 % crossing
 
 
-def test_crossing_90_speaks_the_sentence_once_and_rearms_under_75(vault, small_budget):  # noqa: F811
+def test_crossing_90_speaks_the_sentence_once_and_rearms_under_75(seeded_vault, small_budget):
     reply = "[neutral] " + "word " * 80                          # ~100 tokens a turn
     sent, _ = typed("first", reply)
     assert llm.context_usage()["pct"] >= 90
@@ -128,7 +114,7 @@ def test_crossing_90_speaks_the_sentence_once_and_rearms_under_75(vault, small_b
 # --------------------------------------------------------------- 4. recall stripping
 
 
-def test_recall_blocks_leave_the_history_once_the_turn_is_done(vault, monkeypatch):  # noqa: F811
+def test_recall_blocks_leave_the_history_once_the_turn_is_done(seeded_vault, monkeypatch):
     block = "\n\n<recall>\n" + "lorem ipsum " * 500 + "\n</recall>"             # ~1500 tokens
     monkeypatch.setattr(llm, "recall_for", lambda text: block)
     fake = StreamClient(*["[neutral] Per the guide, yes."] * 10)
@@ -144,7 +130,7 @@ def test_recall_blocks_leave_the_history_once_the_turn_is_done(vault, monkeypatc
     assert [t["content"] for t in llm.get_session_turns() if t["role"] == "user"] == questions
 
 
-def test_focus_and_deeper_blocks_are_stripped_too(vault, monkeypatch):  # noqa: F811
+def test_focus_and_deeper_blocks_are_stripped_too(seeded_vault, monkeypatch):
     llm.set_focus("wiki", "people/anna")
     _, fake = typed("what does Anna do")
     assert "<document" in [m for m in fake.calls[-1]["messages"] if m["role"] == "user"][-1]["content"]
@@ -161,7 +147,7 @@ def three_turns():
             llm.ask(q)
 
 
-def test_new_thread_folds_first_then_restarts_on_a_short_summary(vault, recorded_memory):  # noqa: F811
+def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, recorded_memory):
     three_turns()
     llm.set_focus("wiki", "people/anna")
     llm._deeper_offer = {"source": "s", "title": "t", "parts": [1]}
@@ -182,7 +168,8 @@ def test_new_thread_folds_first_then_restarts_on_a_short_summary(vault, recorded
     assert llm.get_session_turns() == []
 
 
-def test_new_topic_action_sends_thread_then_context(vault, recorded_memory):  # noqa: F811
+def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memory):
+    assert "new_topic" in chatbot.ACTIONS
     three_turns()
     with patch.object(llm, "_client", FakeClient("[neutral] Falcon and the deploy.")), \
             patch.object(chatbot, "synthesize", fake_tts):
@@ -205,7 +192,7 @@ def new_topic_turn_via(fn, *args) -> tuple:
 
 
 @pytest.mark.parametrize("text", ["new topic", "New topic.", "/new"])
-def test_typed_new_topic_and_slash_new_take_the_new_topic_path(vault, recorded_memory, text):  # noqa: F811
+def test_typed_new_topic_and_slash_new_take_the_new_topic_path(seeded_vault, recorded_memory, text):
     three_turns()
     sent, fake = new_topic_turn_via(chatbot.handle_text, text)
     assert {"type": "thread", "text": "Falcon and the deploy."} in sent
@@ -214,7 +201,7 @@ def test_typed_new_topic_and_slash_new_take_the_new_topic_path(vault, recorded_m
     assert text not in json.dumps(llm._conversation)              # the command itself is not a turn
 
 
-def test_spoken_new_topic_takes_the_new_topic_path(vault, recorded_memory):  # noqa: F811
+def test_spoken_new_topic_takes_the_new_topic_path(seeded_vault, recorded_memory):
     three_turns()
     with patch.object(chatbot, "asr", fake_asr("new topic")):
         sent, fake = new_topic_turn_via(chatbot.handle_utterance, np.zeros(10, dtype=np.float32))
@@ -229,14 +216,10 @@ def test_the_palette_sends_new_topic_and_the_divider_shows_the_summary(r):
                                    "typed": False}
 
 
-def test_new_topic_is_an_action(vault, recorded_memory):  # noqa: F811
-    assert "new_topic" in chatbot.ACTIONS
-
-
 # --------------------------------------------------------------- 6. summary failure
 
 
-def test_summary_failure_falls_back_to_first_sentences(vault, recorded_memory, capsys):  # noqa: F811
+def test_summary_failure_falls_back_to_first_sentences(seeded_vault, recorded_memory, capsys):
     three_turns()
     with patch.object(llm, "_client", FakeClient(RuntimeError("model down"))):
         summary = llm.new_thread()
@@ -249,7 +232,7 @@ def test_summary_failure_falls_back_to_first_sentences(vault, recorded_memory, c
     assert len(recorded_memory) == 1
 
 
-def test_new_thread_on_an_empty_conversation_makes_no_summary_call(vault, recorded_memory):  # noqa: F811
+def test_new_thread_on_an_empty_conversation_makes_no_summary_call(seeded_vault, recorded_memory):
     client = FakeClient()
     with patch.object(llm, "_client", client):
         assert llm.new_thread() == llm.EARLIER_EMPTY
@@ -259,7 +242,7 @@ def test_new_thread_on_an_empty_conversation_makes_no_summary_call(vault, record
 # --------------------------------------------------------------- 7. reload replay
 
 
-def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(vault, recorded_memory, monkeypatch):  # noqa: F811
+def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(seeded_vault, recorded_memory, monkeypatch):
     monkeypatch.setattr(llm, "recall_for", lambda text: "\n\n<recall>\nbig block\n</recall>")
     three_turns()
     llm.save_memory()                                             # the periodic fold empties the session turns
@@ -279,8 +262,9 @@ def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(vault
             if msg["type"] == "hands_free":
                 break
             got.append(msg)
-    assert got == [{"type": "thread", "text": "Falcon and the deploy."},
-                   {"type": "transcript", "role": "assistant", "text": llm.NEW_TOPIC_ACK},
-                   {"type": "transcript", "role": "user", "text": "one more question then"},
-                   {"type": "transcript", "role": "assistant", "text": "Sure thing."}]
-    assert chatbot.replay_messages() == got and "<recall>" not in json.dumps(got)
+    replayed = [m for m in got if m["type"] in ("thread", "transcript")]
+    assert replayed == [{"type": "thread", "text": "Falcon and the deploy."},
+                        {"type": "transcript", "role": "assistant", "text": llm.NEW_TOPIC_ACK},
+                        {"type": "transcript", "role": "user", "text": "one more question then"},
+                        {"type": "transcript", "role": "assistant", "text": "Sure thing."}]
+    assert chatbot.replay_messages() == replayed and "<recall>" not in json.dumps(got)
