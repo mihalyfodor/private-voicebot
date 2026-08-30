@@ -221,7 +221,8 @@ main {
 #credit {
   position: absolute; left: 12px; bottom: 8px; z-index: 3;
   max-width: calc(100% - 24px);
-  font-size: 10px; color: #3a3a3a; letter-spacing: 0.05em;
+  font-size: 10px; color: #8a8a8a; letter-spacing: 0.05em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.9);
 }
 
 /* the switch is the whole control; its label lives in the .set-label next to it */

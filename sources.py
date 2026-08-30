@@ -1090,6 +1090,13 @@ def _manifest_write(entries: list) -> None:
 _DROP_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
 
+def _when(date: str, ingested_at: str) -> str:
+    """`2026-08-30 09:12` from the ISO stamp (which already carries the date); the drop date alone otherwise."""
+    if "T" in ingested_at:                       # full ISO stamp: it already carries the date
+        return ingested_at[:16].replace("T", " ")
+    return " ".join(part for part in (date, ingested_at) if part)
+
+
 def _source_meta(entry: dict) -> dict:
     """One inbox row: the manifest line joined with its page's frontmatter."""
     page_rel = f"{entry.get('page', '')}.md"
@@ -1102,7 +1109,7 @@ def _source_meta(entry: dict) -> dict:
         "raw": entry.get("path", ""),
         "kind": str(fm.get("kind") or entry.get("kind") or ""),
         "title": str(fm.get("name") or os.path.basename(entry.get("page", ""))),
-        "when": " ".join(part for part in (date, str(entry.get("ingested_at") or "")) if part),
+        "when": _when(date, str(entry.get("ingested_at") or "")),
         "fed": list(entry.get("pages_touched") or []),
         "meeting": str(fm.get("meeting") or ""),
     }
