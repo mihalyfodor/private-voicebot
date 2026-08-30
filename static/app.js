@@ -113,11 +113,9 @@ function copyCommand(btn) {
 serviceCopyBtn.addEventListener('click', () => copyCommand(serviceCopyBtn));
 
 function copyChip(hint) {
-  const b = document.createElement('button');
-  b.className = 'chip svc-copy';
+  const b = el('button', 'chip svc-copy', '⧉ copy');
   b.dataset.copy = hint;
   b.title = 'Copy the command';
-  b.textContent = '⧉ copy';
   b.addEventListener('click', () => copyCommand(b));
   return b;
 }
@@ -141,26 +139,14 @@ function renderServices() {
   // Settings › Services: one row per service, a dot, what was seen and when, the copy chip when down
   const rows = Object.keys(SERVICE_ROWS).map(k => {
     const svc = services[k];
-    const row = document.createElement('div');
-    row.className = 'set-row svc-row';
-    const label = document.createElement('span');
-    label.className = 'set-label';
-    const name = document.createElement('span');
-    name.className = 'name';
-    name.textContent = SERVICE_ROWS[k][0];
-    const desc = document.createElement('span');
-    desc.className = 'desc';
-    desc.textContent = svc ? svc.label : SERVICE_ROWS[k][1];
-    label.append(name, desc);
-    const ctl = document.createElement('span');
-    ctl.className = 'set-ctl';
-    const dot = document.createElement('span');
-    dot.className = 'svc-dot' + (svc && svc.ok ? ' ok' : '');
-    const value = document.createElement('span');
-    value.className = 'set-value';
-    value.textContent = svc ? `${svc.detail} · checked ${(svc.checked || '').slice(11, 19)}` : 'not checked yet';
-    ctl.append(dot, value);
+    const [name, desc] = SERVICE_ROWS[k];
+    const label = el('span', 'set-label');
+    label.append(el('span', 'name', name), el('span', 'desc', svc ? svc.label : desc));
+    const ctl = el('span', 'set-ctl');
+    ctl.append(el('span', 'svc-dot' + (svc && svc.ok ? ' ok' : '')),
+               el('span', 'set-value', svc ? `${svc.detail} · checked ${(svc.checked || '').slice(11, 19)}` : 'not checked yet'));
     if (svc && svc.ok === false) ctl.append(copyChip(hint));
+    const row = el('div', 'set-row svc-row');
     row.append(label, ctl);
     return row;
   });

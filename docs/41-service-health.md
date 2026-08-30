@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 41 — Service health in the UI; one start/stop for everything
 

@@ -102,8 +102,8 @@ admin_post() {
     return 0
   fi
   if [ -n "$OMLX_ADMIN_PASSWORD" ]; then
-    if curl -fsS -m 10 -c "$COOKIE" -X POST -H 'Content-Type: application/json' \
-        -d "{\"password\":\"$OMLX_ADMIN_PASSWORD\"}" "$HOST/admin/api/login" > /dev/null 2>&1; then
+    if printf '{"password":"%s"}' "$OMLX_ADMIN_PASSWORD" | curl -fsS -m 10 -c "$COOKIE" -X POST \
+        -H 'Content-Type: application/json' -d @- "$HOST/admin/api/login" > /dev/null 2>&1; then
       if http_post "$url" > /dev/null 2>&1; then
         return 0
       fi
