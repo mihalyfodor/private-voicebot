@@ -580,7 +580,15 @@ main {
   flex: none; width: 56px; height: 56px; object-fit: cover;
   border-radius: 6px; border: 1px solid #2c2c2c; background: #000;
 }
-.intake-item-body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.intake-item-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+/* PRD 36: per-row batch state on the right, coloured by state */
+.intake-item-state { flex: none; align-self: center; font-size: 11px; color: #6a6a6a; letter-spacing: 0.03em; white-space: nowrap; }
+.intake-item.st-uploading .intake-item-state, .intake-item.st-extracting .intake-item-state,
+.intake-item.st-summarising .intake-item-state, .intake-item.st-filing .intake-item-state { color: #4a90d9; }
+.intake-item.st-filed .intake-item-state { color: #6fbf73; }
+.intake-item.st-error .intake-item-state { color: #e06060; white-space: normal; }
+.intake-link { color: #cfe2f7; text-decoration: underline; cursor: pointer; }
+#intake-note { font-size: 11px; color: #6a6a6a; letter-spacing: 0.03em; }
 .intake-item-name { font-size: 13px; color: #ececec; word-break: break-all; }
 .intake-item-meta { font-size: 11px; color: #6a6a6a; }
 .intake-preview {

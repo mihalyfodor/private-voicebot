@@ -114,9 +114,10 @@ voicebot/
 │   ├── test_index.py              # every tests/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
 │   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
-│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop, test_palette.py), marker `e2e`
+│   ├── test_intake_progress.py    # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
+│   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py), marker `e2e`
 │   └── app_fixture.mjs            # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON
-│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake titles/horizon field); its header
+│                                   # of results (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake titles/horizon field, intake batch); its header
 │                                   # documents the hooks and how to add a scenario
 ├── requirements.txt
 └── docs/
@@ -191,6 +192,7 @@ voicebot/
 - [31-office-formats.md](31-office-formats.md) — Word/PowerPoint/Excel/Teams transcript/.ics through the same drop: new kinds and chips, `meetings/` pages from transcripts, deterministic calendar stubs with the `calendar_horizon_days` setting, 10 MB text with head/middle/tail sampling, model-titled pastes with a topic tag (done)
 - [32-source-recall.md](32-source-recall.md) — search inside sources: text-kind raw files chunked and cached per sha in `raw/.index/`, chunk BM25 behind `search_wiki` snippets and a `read_source` tool, the best passages injected into the user message per turn above `recall_min_score` (Settings), raw files renamed after the model's title (done)
 - [33-untrusted-text.md](33-untrusted-text.md) — hardening against prompt injection in filed/fetched text: `<document>` wrapping + standing rule, `source:` provenance on memory ops, read-only tool policy test, injection eval (exploration)
+- [36-intake-progress.md](36-intake-progress.md) — bulk intake progress: one `/ingest` request per file in list order, per-row queued/uploading/summarising/filed/already/error states with elapsed time, `ingest_progress` pushes from the ingest thread, Cancel after the current file (refactoring)
 
 ## Research
 

@@ -1845,7 +1845,10 @@ function setWiki(msg) {
   renderWikiList();
   renderWikiPage();
   renderWikiPanel();
-  if (!intakeEl.hidden) intakeSyncPages();   // the popup's picker is fed by this list
+  if (!intakeEl.hidden) {                    // the popup's picker is fed by this list
+    intakeSyncPages();
+    if (intakeBusy || intakeDone) renderIntakeItems();   // filed rows pick up their page titles
+  }
 }
 
 function setWikiPage(msg) {
@@ -2005,8 +2008,12 @@ const dropOverlayEl = document.getElementById('drop-overlay');
 const workspaceEl = document.getElementById('workspace');
 
 let intakeKind = null;        // 'file' | 'paste_image' | 'paste_text'
-let intakeItems = [];         // [{name, size, file?, text?, ok, reason, url?}]
-let intakeBusy = false;
+let intakeItems = [];         // [{name, size, file?, text?, ok, reason, url?, state, result?}]
+let intakeBusy = false;       // a batch is running (one request per item, in order — PRD 36)
+let intakeDone = false;       // the batch ended and the popup is showing its results
+let intakeCancel = false;     // Cancel pressed mid-batch: stop after the current item
+let intakeStarted = 0;        // Date.now() when the batch started, for the elapsed time
+let intakeTimer = null;       // the once-a-second status refresh while a batch runs
 let intakeToastTimer = null;
 let dragDepth = 0;
 
@@ -2079,9 +2086,43 @@ function intakeClearItems() {
   intakeItems = [];
 }
 
+// The right-hand state of a row while a batch runs (PRD 36); '' before the batch starts.
+const INTAKE_STAGE_LABEL = {
+  queued: 'queued', uploading: 'uploading…', extracting: 'extracting…',
+  summarising: 'summarising…', filing: 'filing…', already: 'already filed',
+};
+
+// The page title behind a filed row: the `wiki` push that follows each filing names it;
+// until then (or for an unlisted page) the path is shown.
+function intakePageTitle(path) {
+  const page = (wikiPages || []).find(p => p.path === path);
+  return (page && page.title) || path;
+}
+
+function intakeStateEl(it) {
+  const state = it.state || '';
+  const node = el('div', 'intake-item-state');
+  if (!state) return node;
+  if (state === 'filed') {
+    node.append('filed → ');
+    if (it.result && it.result.path) {
+      const link = el('span', 'intake-link', intakePageTitle(it.result.path));
+      link.onclick = () => { intakeOpenPage(it.result.path); };
+      node.append(link);
+    } else {
+      node.append(it.result && it.result.raw ? it.result.raw : 'no page');
+    }
+  } else if (state === 'error') {
+    node.textContent = `error — ${it.reason || 'failed'}`;
+  } else {
+    node.textContent = INTAKE_STAGE_LABEL[state] || state;
+  }
+  return node;
+}
+
 function renderIntakeItems() {
   const rows = intakeItems.map((it) => {
-    const row = el('div', 'intake-item' + (it.ok ? '' : ' bad'));
+    const row = el('div', 'intake-item' + (it.ok ? '' : ' bad') + (it.state ? ` st-${it.state}` : ''));
     if (it.url) {
       const img = el('img', 'intake-thumb');
       img.src = it.url;
@@ -2094,6 +2135,7 @@ function renderIntakeItems() {
     body.append(meta);
     if (it.preview) body.append(el('pre', 'intake-preview', it.preview));
     row.append(body);
+    if (it.state) row.append(intakeStateEl(it));
     return row;
   });
   // Pasted text is editable in place — it is the payload, not a file on disk.
@@ -2102,7 +2144,9 @@ function renderIntakeItems() {
     ta.value = intakeItems[0] ? intakeItems[0].text : '';
     ta.oninput = () => { if (intakeItems[0]) intakeItems[0].text = ta.value; };
     ta.onkeydown = (e) => { if (e.key !== 'Escape') e.stopPropagation(); };
-    intakeItemsEl.replaceChildren(ta);
+    ta.disabled = intakeBusy || intakeDone;
+    const state = intakeItems[0] && intakeItems[0].state ? [intakeStateEl(intakeItems[0])] : [];
+    intakeItemsEl.replaceChildren(ta, ...state);
     return;
   }
   intakeItemsEl.replaceChildren(...rows);
@@ -2113,11 +2157,75 @@ function setIntakeStatus(text, cls) {
   intakeStatusEl.textContent = text || '';
 }
 
+// ---- batch progress (PRD 36) ----
+function intakeElapsed() {
+  const s = Math.max(0, Math.round((Date.now() - intakeStarted) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function intakeCounts() {
+  const by = (state) => intakeItems.filter(i => i.ok && i.state === state).length;
+  return { filed: by('filed'), already: by('already'), errors: by('error'),
+           total: intakeItems.filter(i => i.ok).length };
+}
+
+// "10 filed, 1 already filed, 1 error" — the batch in one line (toast and final status).
+function intakeSummaryText() {
+  const c = intakeCounts();
+  const parts = [];
+  if (c.filed) parts.push(`${c.filed} filed`);
+  if (c.already) parts.push(`${c.already} already filed`);
+  if (c.errors) parts.push(`${c.errors} error${c.errors > 1 ? 's' : ''}`);
+  return parts.join(', ') || 'nothing filed';
+}
+
+// "3 of 12 · 1:05" while running; the summary with the elapsed time once the batch ends
+// (prefixed with "N of M —" when Cancel stopped it early).
+function renderIntakeStatus() {
+  const c = intakeCounts();
+  const done = c.filed + c.already + c.errors;
+  if (intakeBusy) {
+    const stopping = intakeCancel ? ' · stopping after this file' : '';
+    setIntakeStatus(`${Math.min(done + 1, c.total)} of ${c.total} · ${intakeElapsed()}${stopping}`);
+    return;
+  }
+  const early = done < c.total ? `${done} of ${c.total} — ` : '';
+  setIntakeStatus(`${early}${intakeSummaryText()} · ${intakeElapsed()}`, c.errors ? 'warn' : '');
+}
+
+function stopIntakeTimer() {
+  if (intakeTimer) clearInterval(intakeTimer);
+  intakeTimer = null;
+}
+
+const INTAKE_IN_FLIGHT = ['uploading', 'extracting', 'summarising', 'filing'];
+
+// The server's `ingest_progress` names the stage of the item in flight; it applies only to the
+// row currently uploading, so a late message from an old batch cannot mislabel a row.
+function setIntakeStage(msg) {
+  const current = intakeItems.find(i => i.ok && INTAKE_IN_FLIGHT.includes(i.state));
+  if (!intakeBusy || !current || !INTAKE_IN_FLIGHT.includes(msg.stage)) return;
+  current.state = msg.stage;
+  renderIntakeItems();
+}
+
+// A filed row's link: leave the popup and open the page (the batch must be over).
+function intakeOpenPage(path) {
+  if (intakeBusy) return;
+  closeIntake();
+  setView('wiki');
+  selectWikiPage(path);
+}
+
 function openIntake(kind, items, defaultTitle) {
   intakeClearItems();
   intakeKind = kind;
   intakeItems = items;
   intakeBusy = false;
+  intakeDone = false;
+  intakeCancel = false;
+  stopIntakeTimer();
+  intakeCancelBtn.textContent = 'Cancel';
   intakeEl.hidden = false;
   intakeTitleEl.value = defaultTitle || '';
   // With several files the server names each page after its own file; one title would lie.
@@ -2139,6 +2247,8 @@ function closeIntake() {
   // Focus would otherwise stay on the now-hidden title input and swallow the next paste.
   if (document.activeElement && intakeEl.contains(document.activeElement)) document.activeElement.blur();
   intakeEl.hidden = true;
+  stopIntakeTimer();
+  intakeDone = false;
   intakeClearItems();
   intakeKind = null;
   intakeTitleEl.value = '';
@@ -2190,57 +2300,94 @@ function intakeFromText(text) {
 }
 
 // ---- the one HTTP call in the app ----
-async function submitIntake() {
-  if (intakeBusy) return;
-  const usable = intakeItems.filter(i => i.ok);
-  if (!usable.length) { setIntakeStatus('nothing to file', 'err'); return; }
+// One POST per item, in list order (PRD 36): each row shows its own result as it lands, a
+// failure mid-batch costs only that item, and Cancel can stop between two files.
+function intakeForm(item) {
   const fd = new FormData();
   fd.append('confirm', 'true');
   fd.append('kind', intakeKind);
   fd.append('title', intakeTitleEl.value.trim());
   fd.append('hint', intakeHintEl.value.trim());
   fd.append('page', intakePageEl.value || '');
-  for (const item of usable) {
-    if (item.file) fd.append('file', item.file, item.name);
-    else fd.append('text', item.text);
-  }
-  intakeBusy = true;
-  intakeFileBtn.disabled = true;
-  setIntakeStatus('uploading…');
+  if (item.file) fd.append('file', item.file, item.name);
+  else fd.append('text', item.text);
+  return fd;
+}
+
+// {path, raw, already} for the item, or throws with the server's reason.
+async function postIntake(item) {
+  const res = await fetch('/ingest', { method: 'POST', body: intakeForm(item) });
+  const text = await res.text();
   let data = null;
-  try {
-    const res = await fetch('/ingest', { method: 'POST', body: fd });
-    const text = await res.text();
-    try { data = JSON.parse(text); } catch (_) { data = null; }
-    if (!res.ok) {
-      const why = (data && (data.detail || (data.errors || []).join(', '))) || text.slice(0, 120);
-      throw new Error(`${res.status} — ${why || 'upload failed'}`);
+  try { data = JSON.parse(text); } catch (_) { data = null; }
+  if (!res.ok) {
+    const why = (data && (data.detail || (data.errors || []).join(', '))) || text.slice(0, 120);
+    throw new Error(`${res.status} — ${why || 'upload failed'}`);
+  }
+  const filed = (data && data.filed) || [];
+  if (!filed.length) throw new Error(((data && data.errors) || []).join(', ') || 'nothing was filed');
+  return filed[0];
+}
+
+async function submitIntake() {
+  if (intakeBusy || intakeDone) return;
+  const usable = intakeItems.filter(i => i.ok);
+  if (!usable.length) { setIntakeStatus('nothing to file', 'err'); return; }
+  for (const item of usable) item.state = 'queued';
+  intakeBusy = true;
+  intakeCancel = false;
+  intakeStarted = Date.now();
+  intakeFileBtn.disabled = true;
+  stopIntakeTimer();
+  intakeTimer = setInterval(renderIntakeStatus, 1000);
+  for (const item of usable) {
+    if (intakeCancel) break;
+    item.state = 'uploading';
+    renderIntakeItems();
+    renderIntakeStatus();
+    try {
+      item.result = await postIntake(item);
+      item.state = item.result.already ? 'already' : 'filed';
+    } catch (e) {
+      item.reason = String((e && e.message) || e);
+      item.state = 'error';
     }
-  } catch (e) {
-    intakeBusy = false;
-    intakeFileBtn.disabled = false;
-    setIntakeStatus(String((e && e.message) || e), 'err');
-    return;
+    renderIntakeItems();
+    renderIntakeStatus();
   }
   intakeBusy = false;
-  intakeFileBtn.disabled = false;
-  const filed = (data && data.filed) || [];
-  const errors = (data && data.errors) || [];
-  if (!filed.length) { setIntakeStatus(errors.join(', ') || 'nothing was filed', 'err'); return; }
-  const first = filed[0];
-  const verb = first.already ? 'already filed' : 'filed';
-  const label = (first.path ? `${verb} as ${first.path}` : `${verb} (${first.raw || 'no page'})`)
-    + (filed.length > 1 ? ` (+${filed.length - 1})` : '');
+  intakeDone = true;
+  stopIntakeTimer();
+  intakeCancelBtn.textContent = 'Close';
+  renderIntakeItems();
+  renderIntakeStatus();
+  // A single clean filing closes itself, as it always did; a batch stays open with its rows.
+  const first = usable[0];
+  if (usable.length === 1 && first.state === 'filed' && first.result.path) {
+    const path = first.result.path;
+    closeIntake();
+    intakeToast(`filed as ${path}`);
+    setView('wiki');
+    selectWikiPage(path);
+  }
+}
+
+// Cancel while a batch runs stops it after the current file; otherwise the button closes the
+// popup (and, after a batch, sums it up in a toast).
+function intakeCancelOrClose() {
+  if (intakeBusy) {
+    if (!intakeCancel) { intakeCancel = true; renderIntakeStatus(); }
+    return;
+  }
+  const summary = intakeDone ? intakeSummaryText() : '';
   closeIntake();
-  intakeToast(errors.length ? `${label} — ${errors.join(', ')}` : label);
-  setView('wiki');
-  if (first.path) selectWikiPage(first.path);
+  if (summary) intakeToast(summary);
 }
 
 intakeFileBtn.onclick = submitIntake;
-intakeCancelBtn.onclick = closeIntake;
+intakeCancelBtn.onclick = intakeCancelOrClose;
 // Clicking the dimmed area outside the card cancels, like Esc.
-intakeEl.onclick = (e) => { if (e.target === intakeEl) closeIntake(); };
+intakeEl.onclick = (e) => { if (e.target === intakeEl) intakeCancelOrClose(); };
 for (const input of [intakeTitleEl, intakeHintEl]) {
   input.onkeydown = (e) => {
     if (e.key === 'Escape') return;      // let the global handler close the popup
@@ -2330,6 +2477,7 @@ function connect() {
     else if (msg.type === 'wiki_conflict') setWikiConflict(msg);
     else if (msg.type === 'wiki_search') setWikiSearch(msg);
     else if (msg.type === 'sources') setSources(msg);
+    else if (msg.type === 'ingest_progress') setIntakeStage(msg);
     else if (msg.type === 'setting') {
       if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value);
       else if (msg.key === 'recall_min_score') renderRecallMinScore(msg.value);
@@ -2645,7 +2793,7 @@ function isInteractive(node) {
 }
 document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); togglePalette(); return; }
-  if (e.key === 'Escape' && !intakeEl.hidden) { closeIntake(); return; }
+  if (e.key === 'Escape' && !intakeEl.hidden) { intakeCancelOrClose(); return; }
   if (e.key === 'Escape' && palette.open) { closePalette(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (isTyping(e.target) || isTyping(document.activeElement)) return;

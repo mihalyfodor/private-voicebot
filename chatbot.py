@@ -424,21 +424,36 @@ async def api_config():
 INGEST_KINDS = ("file", "paste_text", "paste_image")
 
 
-def _file_one(item: dict) -> dict:
+def _push_ingest_progress(filename: str, stage: str, i: int, n: int) -> None:
+    """Tell the intake popup which stage item `i` of `n` is in (PRD 36); no socket → no-op."""
+    sess, loop = session, _loop
+    if sess is None or sess.websocket is None or loop is None or not loop.is_running():
+        return
+    make_sender(loop)({"type": "ingest_progress", "filename": filename, "stage": stage,
+                       "i": i, "n": n})
+
+
+def _file_one(item: dict, on_stage=None) -> dict:
     """One popup item -> `sources`. Runs on a worker thread: it does IO, git and two LLM calls."""
     if item["kind"] == "paste_text":
         return sources.ingest_note(item["text"], title=item["title"], hint=item["hint"],
-                                   page=item["page"])
+                                   page=item["page"], on_stage=on_stage)
     return sources.ingest_upload(item["data"], item["filename"], kind_hint=item["kind"],
-                                 title=item["title"], hint=item["hint"], page=item["page"])
+                                 title=item["title"], hint=item["hint"], page=item["page"],
+                                 on_stage=on_stage)
 
 
 def _ingest_all(items: list) -> dict:
-    """File every item of one popup; a failure on one is reported, the rest still land."""
+    """File every item of one popup; a failure on one is reported, the rest still land.
+
+    Each stage of each item is pushed to the popup as `ingest_progress` (PRD 36).
+    """
     filed, errors = [], []
-    for item in items:
+    for i, item in enumerate(items, 1):
+        name = item.get("filename") or "text"
         try:
-            filed.append(_file_one(item))
+            filed.append(_file_one(
+                item, lambda stage, name=name, i=i: _push_ingest_progress(name, stage, i, len(items))))
         except sources.IngestError as exc:
             errors.append(exc.message)
         except Exception as exc:  # noqa: BLE001 — one bad drop must not 500 the popup

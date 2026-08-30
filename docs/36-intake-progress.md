@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 36 — Bulk intake progress
 

@@ -99,12 +99,14 @@ def test_rail_badge_counts_new_sources_until_the_view_is_opened(page, shot):
 # the file is rebuilt from base64 inside the page and dispatched as a DragEvent (same as
 # scripts/screenshot.py --drop-file).
 DROP_JS = """
-([name, mime, b64]) => {
-  const bin = atob(b64);
-  const buf = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+(files) => {
   const dt = new DataTransfer();
-  dt.items.add(new File([buf], name, { type: mime }));
+  for (const [name, mime, b64] of files) {
+    const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    dt.items.add(new File([buf], name, { type: mime }));
+  }
   const target = document.getElementById('workspace');
   for (const type of ['dragenter', 'dragover', 'drop']) {
     target.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }));
@@ -114,9 +116,14 @@ DROP_JS = """
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
-def drop_file(page, name: str, data: bytes, mime: str) -> None:
+def drop_files(page, files: list) -> None:
+    """One drop of several `(name, data, mime)` files onto the workspace."""
     import base64
-    page.evaluate(DROP_JS, [name, mime, base64.b64encode(data).decode()])
+    page.evaluate(DROP_JS, [[name, mime, base64.b64encode(data).decode()] for name, data, mime in files])
+
+
+def drop_file(page, name: str, data: bytes, mime: str) -> None:
+    drop_files(page, [(name, data, mime)])
 
 
 def test_a_dropped_docx_lands_in_sources_with_its_kind(page, shot, server):
@@ -150,3 +157,33 @@ def test_a_dropped_docx_lands_in_sources_with_its_kind(page, shot, server):
     assert entry["kind"] == "docx" and entry["path"].endswith("-falcon-plan.docx")
     assert (vault / entry["path"]).read_bytes() == data
     assert "kind: docx" in (vault / f"{entry['page']}.md").read_text()
+
+
+# --------------------------------------------------------------------------- PRD 36: a two-file batch
+
+
+def test_a_two_file_drop_files_one_at_a_time_and_shows_each_row(page, shot, server):
+    """PRD 36 scenario 3: two generated .md files → two rows reach `filed`, the popup stays
+    open with its summary line, Close hides it, both land in Sources."""
+    _, vault = server
+    drop_files(page, [("eagle-notes.md", b"# Eagle\n\nEagle kicked off on Monday.\n", "text/markdown"),
+                      ("hawk-notes.md", b"# Hawk\n\nHawk ships on Friday.\n", "text/markdown")])
+    page.wait_for_selector("#intake:not([hidden])")
+    assert page.locator("#intake-note").inner_text().endswith("already filed is a no-op")
+    page.click("#intake-file")
+    page.wait_for_function("document.querySelectorAll('#intake .intake-item.st-filed').length === 2",
+                           timeout=60_000)
+    states = page.locator("#intake .intake-item-state").all_inner_texts()
+    assert all(s.startswith("filed → ") for s in states) and len(states) == 2
+    assert page.locator("#intake-status").inner_text().startswith("2 filed ·")
+    assert page.inner_text("#intake-cancel") == "Close"
+    shot("batch-filed")
+    page.click("#intake-cancel")
+    page.wait_for_selector("#intake", state="hidden")
+
+    open_sources(page)
+    titles = page.locator(".source-row").all_inner_texts()
+    assert any("eagle" in t.lower() for t in titles) and any("hawk" in t.lower() for t in titles)
+    lines = [json.loads(line) for line in (vault / "raw/manifest.jsonl").read_text().splitlines() if line]
+    # raw/inbox/<date>-<name>: one manifest line per file, in drop order
+    assert [e["path"].split("-", 3)[-1] for e in lines[-2:]] == ["eagle-notes.md", "hawk-notes.md"]
