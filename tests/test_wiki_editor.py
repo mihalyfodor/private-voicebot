@@ -311,6 +311,9 @@ def test_alias_link_renders_the_alias_and_navigates_to_the_page(fixture_render):
     assert r["wiki_alias_nav"] == ["people/anna", "projects/atlas"]
     assert r["wiki_backlinks"] == ["projects/atlas"]
     assert r["wiki_fm_hidden"] is False
+    assert r["wiki_fm_chips"] == ["tags", "source", "updated"]        # at-a-glance keys only
+    assert r["wiki_fm_toggle"] == ["details (3)"]                      # type, name, seen folded away
+    assert r["wiki_fm_chips_open"] == ["tags", "source", "updated", "type", "name", "seen"]
 
 
 def test_red_link_click_confirms_then_sends_wiki_create(fixture_render):

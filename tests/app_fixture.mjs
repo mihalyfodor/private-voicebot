@@ -470,6 +470,12 @@ t.recv({ type: 'wiki_page', path: 'people/anna', text: anna, links: [], etag: 'e
 results.wiki_links = linkSpans();
 results.wiki_backlinks = t.wikiBacklinks.children.slice(1).map(c => c.textContent);
 results.wiki_fm_hidden = doc.getElementById('wiki-fm').hidden;
+// PRD 28 polish: only the at-a-glance keys get chips; the rest sit behind a details toggle
+const fmEl = doc.getElementById('wiki-fm');
+results.wiki_fm_chips = fmEl.children.filter(c => c.className === 'wiki-fm-item').map(c => c.textContent.split(':')[0]);
+results.wiki_fm_toggle = fmEl.children.filter(c => c.className === 'wiki-fm-toggle').map(c => c.textContent);
+fmEl.children.find(c => c.className === 'wiki-fm-toggle').dispatch('click');
+results.wiki_fm_chips_open = doc.getElementById('wiki-fm').children.filter(c => c.className.includes('wiki-fm-item')).map(c => c.textContent.split(':')[0]);
 t.wikiText.querySelectorAll('.wiki-link')[0].dispatch('click');          // the alias link
 results.wiki_alias_nav = socket.sent.filter(m => m.action === 'read_wiki_page').map(m => m.path);
 t.selectWikiPage('people/anna');

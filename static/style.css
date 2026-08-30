@@ -453,7 +453,13 @@ main {
 .wiki-menu { position: relative; display: inline-flex; gap: 6px; }
 .wiki-menu .wiki-menu-item { display: none; }
 .wiki-menu.open .wiki-menu-item { display: inline-block; }
-.wiki-fm { flex: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.wiki-fm { flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wiki-fm-toggle {
+  background: none; border: 1px solid #2a2a2a; border-radius: 10px; color: #8a8a8a;
+  font-size: 11px; padding: 1px 8px; cursor: pointer;
+}
+.wiki-fm-toggle:hover { color: #ddd; border-color: #444; }
+.wiki-fm-more { opacity: 0.7; }
 .wiki-fm-item {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; color: #8a8a8a;
   background: rgba(255,255,255,0.04); border: 1px solid #262626; border-radius: 999px; padding: 1px 8px;

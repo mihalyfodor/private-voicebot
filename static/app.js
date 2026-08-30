@@ -1561,6 +1561,26 @@ function renderWikiList() {
 
 // ---- rendering: frontmatter strip + body (marked when present, plain text otherwise) ----
 
+// Frontmatter keys worth a chip at a glance; everything else (hashes, paths, counters) sits
+// behind a "details" toggle so a source page's head stays one line.
+const WIKI_FM_SHOWN = ['tags', 'kind', 'source', 'updated', 'date', 'time', 'attendees', 'meeting'];
+let wikiFmOpen = false;
+
+function wikiFmChips(fm) {
+  const key = line => line.split(':')[0].trim();
+  const shown = fm.filter(line => WIKI_FM_SHOWN.includes(key(line)));
+  const rest = fm.filter(line => !WIKI_FM_SHOWN.includes(key(line)));
+  const chips = shown.map(line => el('span', 'wiki-fm-item', line));
+  if (rest.length) {
+    const toggle = el('button', 'wiki-fm-toggle', wikiFmOpen ? 'less' : `details (${rest.length})`);
+    toggle.type = 'button';
+    toggle.onclick = () => { wikiFmOpen = !wikiFmOpen; renderWikiPage(); };
+    chips.push(toggle);
+    if (wikiFmOpen) chips.push(...rest.map(line => el('span', 'wiki-fm-item wiki-fm-more', line)));
+  }
+  return chips;
+}
+
 function wikiSplitFrontmatter(text) {
   text = String(text || '');
   if (!text.startsWith('---')) return { fm: [], body: text };
@@ -1761,7 +1781,7 @@ function renderWikiPage() {
   const text = wikiDraft === null ? (wikiPage ? wikiPage.text : '') : wikiDraft;
   const { fm, body } = wikiSplitFrontmatter(text);
   wikiFmEl.hidden = editing || !fm.length;
-  wikiFmEl.replaceChildren(...fm.map(line => el('span', 'wiki-fm-item', line)));
+  wikiFmEl.replaceChildren(...wikiFmChips(fm));
   wikiTextEl.hidden = editing;
   wikiEditorEl.hidden = !editing;
   if (editing) {
