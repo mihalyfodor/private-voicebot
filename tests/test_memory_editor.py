@@ -384,7 +384,7 @@ def test_save_now_refuses_while_a_turn_is_running(panel, monkeypatch):
         reply = panel.send({"action": "save_memory"})
     finally:
         blocker.free(chatbot.controller)
-    assert reply == {"type": "error", "text": "Wait until the reply finishes."}
+    assert reply == {"type": "error", "scope": "memory", "text": "Wait until the reply finishes."}
     assert calls == []
 
 

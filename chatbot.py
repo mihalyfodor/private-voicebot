@@ -256,6 +256,37 @@ def make_sender(loop, turn: int | None = None):
     return send_sync
 
 
+#: Every `error` message names the UI slot it belongs to (the client routes on `scope`, never on
+#: which view happens to be open): wiki status slot, memory error line, sources head, the
+#: composer status line for `turn` / `settings`, the re-ingest button for `intake`.
+ERROR_SCOPES = ("wiki", "memory", "sources", "turn", "settings", "intake")
+
+
+async def _error(scope: str, text: str, action: str | None = None) -> None:
+    """The one shape a refusal comes back in: `{type: error, scope, text[, action]}`."""
+    assert scope in ERROR_SCOPES, scope
+    msg = {"type": "error", "scope": scope, "text": text}
+    if action:
+        msg["action"] = action
+    await send(msg)
+
+
+def _scope_of(action) -> str:
+    """Which slot an unexpected exception from `action` belongs to (the catch-all in the WS loop)."""
+    a = str(action or "")
+    if a == "wiki_ingest":
+        return "intake"
+    if a.startswith("wiki") or a == "pull_wiki":
+        return "wiki"
+    if "memory" in a:
+        return "memory"
+    if "source" in a:
+        return "sources"
+    if a.startswith("set_") or a == "reload_characters":
+        return "settings"
+    return "turn"
+
+
 def submit_turn(fn, *args) -> int | None:
     """Allocate a turn id on the current session and queue `fn(session, turn, *args)`."""
     sess = session
@@ -585,7 +616,7 @@ async def _action_set_backdrop(sess, msg, loop):
 
 async def _action_set_avatar(sess, msg, loop):
     if controller.busy:
-        await send({"type": "error", "text": "Wait until the reply finishes."})
+        await _error("turn", "Wait until the reply finishes.")
         return
     a = apply_avatar(msg.get("key", ""))
     await send({"type": "avatar", "key": a["key"], "name": a["name"]})
@@ -621,11 +652,11 @@ async def _action_set_location(sess, msg, loop):
     try:
         lat, lon = float(msg.get("lat")), float(msg.get("lon"))
     except (TypeError, ValueError):
-        await send({"type": "error", "text": "location needs numeric lat/lon"})
+        await _error("settings", "location needs numeric lat/lon")
         return
     tz = str(msg.get("tz") or "").strip()
     if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not tz:
-        await send({"type": "error", "text": "location out of range or missing tz"})
+        await _error("settings", "location out of range or missing tz")
         return
     value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser"}
     avatars.save_setting("location", value)
@@ -642,11 +673,11 @@ async def _action_set_setting(sess, msg, loop):
     kind = SETTABLE.get(key)
     value = msg.get("value")
     if kind is None:
-        await send({"type": "error", "text": f"Unknown setting {key!r}"})
+        await _error("settings", f"Unknown setting {key!r}")
         return
     ok = isinstance(value, kind) or (kind is float and isinstance(value, int) and not isinstance(value, bool))
     if not ok:
-        await send({"type": "error", "text": f"{key} needs a {kind.__name__}"})
+        await _error("settings", f"{key} needs a {kind.__name__}")
         return
     value = kind(value)
     avatars.save_setting(key, value)
@@ -690,7 +721,7 @@ async def _action_get_memory(sess, msg, loop):
 async def _action_save_memory(sess, msg, loop):
     """The panel's "Save now": the same save as the tab-open trigger, but unconditional."""
     if controller.busy:
-        await send({"type": "error", "text": "Wait until the reply finishes."})
+        await _error("memory", "Wait until the reply finishes.")
         return
     await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
     await _save_session_memory()
@@ -727,7 +758,7 @@ async def _source_op(fn, *args):
     try:
         await asyncio.to_thread(fn, *args)
     except sources.IngestError as exc:
-        await send({"type": "error", "text": exc.message})
+        await _error("sources", exc.message)
         return
     await _send_wiki()
 
@@ -740,7 +771,7 @@ async def _action_reingest_source(sess, msg, loop):
 async def _action_forget_source(sess, msg, loop):
     """`{sha, confirm: true}` → page, raw file, manifest line and its notes gone; one commit."""
     if msg.get("confirm") is not True:
-        await send({"type": "error", "text": "forget needs an explicit confirm"})
+        await _error("sources", "forget needs an explicit confirm")
         return
     await _source_op(sources.forget, str(msg.get("sha") or ""))
 
@@ -798,7 +829,7 @@ async def _action_wiki_note(sess, msg, loop):
     applied, rejected = await asyncio.to_thread(wiki.apply_page_ops, [op], op["source"])
     if not applied:
         reason = rejected[0]["reason"] if rejected else "nothing to add"
-        await send({"type": "error", "text": reason})
+        await _error("wiki", reason)
         return
     await send(await asyncio.to_thread(_wiki_page_msg, path))
     await _send_wiki()
@@ -808,7 +839,7 @@ async def _wiki_user_op(fn, *args, reply_path=None):
     """One editor write (PRD 28): refresh the page (when `reply_path`) and the list, or `error`."""
     result, reason = await asyncio.to_thread(fn, *args)
     if reason:
-        await send({"type": "error", "text": reason})
+        await _error("wiki", reason)
         return
     if reply_path is not None:
         await send(await asyncio.to_thread(_wiki_page_msg, reply_path(result)))
@@ -820,7 +851,7 @@ async def _action_wiki_save(sess, msg, loop):
     path = str(msg.get("path") or "")
     result, reason = await asyncio.to_thread(wiki.save_page, path, msg.get("text"), msg.get("etag"))
     if reason:
-        await send({"type": "error", "text": reason})
+        await _error("wiki", reason)
     elif result.get("conflict"):
         await send({"type": "wiki_conflict", "path": path, "text": result["text"], "etag": result["etag"]})
     else:
@@ -962,6 +993,7 @@ async def websocket_endpoint(websocket: WebSocket):
             frame = await websocket.receive()
             if frame.get("type") == "websocket.disconnect":
                 raise WebSocketDisconnect(frame.get("code", 1000))
+            msg = {}
             try:
                 if frame.get("bytes") is not None:
                     await _handle_audio(sess, np.frombuffer(frame["bytes"], dtype=np.int16), loop)
@@ -974,7 +1006,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 raise
             except Exception as e:
                 print(f"[WS error] {e}")
-                await send({"type": "error", "text": str(e)})
+                await _error(_scope_of(msg.get("action")), str(e), action=msg.get("action"))
     except WebSocketDisconnect:
         pass
     finally:

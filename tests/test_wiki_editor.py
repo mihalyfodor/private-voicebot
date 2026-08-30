@@ -218,7 +218,7 @@ def test_wiki_create_action_opens_the_new_page(editor):
     assert page["type"] == "wiki_page" and page["path"] == "meetings/2030-01-02"
     assert page["etag"] == wiki.etag(read("meetings/2030-01-02.md")) and page["backlinks"] == []
     assert [p["path"] for p in listing["pages"]] == ["meetings/2030-01-02"]
-    assert editor.send({"action": "wiki_create", "path": "raw/x"}) == {"type": "error", "text": "bad path 'raw/x'"}
+    assert editor.send({"action": "wiki_create", "path": "raw/x"}) == {"type": "error", "scope": "wiki", "text": "bad path 'raw/x'"}
 
 
 # --------------------------------------------------------------- 6. backlinks
@@ -453,7 +453,7 @@ def test_rename_refuses_an_existing_target_and_fixed_pages(editor):
     assert wiki.rename_page("people/nobody", "people/x") == (None, "no such page people/nobody")
     assert wiki.rename_page("decisions", "notes/d") == (None, "decisions is not an editable page")
     assert editor.send({"action": "wiki_rename", "path": "people/anna", "new_path": "people/bob"}) == \
-        {"type": "error", "text": "people/bob already exists"}
+        {"type": "error", "scope": "wiki", "text": "people/bob already exists"}
     assert os.path.exists(os.path.join(wiki.WIKI_PATH, "people/anna.md"))
 
 
@@ -477,5 +477,5 @@ def test_delete_removes_the_page_and_lint_names_the_broken_links(editor):
     assert len(commits("people/anna.md")) >= 2          # git log still shows the file's history
     assert f"- {TODAY} deleted [[people/anna]] (source: user edit)" in read("log.md")
     assert editor.send({"action": "wiki_delete", "path": "people/anna"}) == \
-        {"type": "error", "text": "no such page people/anna"}
+        {"type": "error", "scope": "wiki", "text": "no such page people/anna"}
     assert wiki.delete_page("index") == (None, "index is not an editable page")

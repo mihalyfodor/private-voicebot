@@ -124,6 +124,7 @@ voicebot/
 │   ├── test_palette.py            # PRD 30: ⌘K palette — open/close, ranking, keyboard, search fallback, payloads, click (client fixture assertions)
 │   ├── test_source_recall.py      # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
 │   ├── test_untrusted_text.py     # PRD 33: `untrusted()` + every read tool / recall block wraps, memory-op attribution and `source` stamps, editor snapshot + forget, the six-document injection eval (mocked + `live`), the read-only tool policy
+│   ├── test_error_scopes.py       # scoped `error` messages: one server refusal per scope through the Panel fixture (which asserts a scope on every error), the client routes on `scope` not on the open view
 │   ├── test_intake_progress.py    # PRD 36: intake batch in the client fixture — one POST per file, row states, progress push, Cancel after the current file, error rows
 │   ├── e2e/                       # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py), marker `e2e`
 │   ├── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy

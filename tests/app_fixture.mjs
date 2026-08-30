@@ -343,6 +343,8 @@ globalThis.__t = {
   recallMinScore: recallMinScoreEl,
   // ---- memory provenance (PRD 33)
   memSections: memSectionsEl,
+  // ---- scoped errors
+  status, memError: memErrorEl, wikiError: wikiErrorEl,
 };
 `;
 
@@ -734,5 +736,21 @@ t.recv({ type: 'memory', profile: {
 }, rendered: '', count: 2 });
 results.memory_source_tags = t.memSections.querySelectorAll('.mem-source').map(n => n.textContent);
 results.memory_scalar_keys = t.memSections.querySelectorAll('.mem-key').map(n => n.textContent);
+
+// ---------------------------------------------------------------- scoped errors
+// An `error` lands in the slot its `scope` names, not in whichever view is open: a wiki-scoped
+// error arriving while on Memory leaves the memory slot alone; a memory-scoped one fills it.
+t.setView('memory');
+t.memError.textContent = ''; t.wikiError.textContent = ''; t.status.textContent = '';
+t.recv({ type: 'error', scope: 'wiki', text: 'bad path raw/x' });
+results.error_wiki_while_on_memory = {
+  memory: t.memError.textContent, wiki: t.wikiError.textContent, status: t.status.textContent,
+};
+t.recv({ type: 'error', scope: 'memory', text: 'Wait until the reply finishes.' });
+results.error_memory_slot = t.memError.textContent;
+t.setView('wiki');
+t.recv({ type: 'error', scope: 'settings', text: 'Unknown setting' });
+results.error_settings_status = { status: t.status.textContent, wiki: t.wikiError.textContent };
+t.setView('chat');
 
 console.log(JSON.stringify(results, null, 1));

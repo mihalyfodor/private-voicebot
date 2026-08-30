@@ -2475,6 +2475,23 @@ document.addEventListener('paste', (e) => {
 });
 
 // ---------- websocket / ui ----------
+// A refusal lands in the slot its `scope` names, whatever view is open (a wiki error while the
+// user has already moved to Memory must not show up on the memory panel).
+function showError(msg) {
+  const text = msg.text || 'error';
+  if (msg.scope === 'wiki') setWikiError(text);                              // e.g. a rejected `wiki_note`
+  else if (msg.scope === 'intake') { setWikiError(text); wikiIngestDone(); }   // "Re-ingest last session"
+  else if (msg.scope === 'memory') { memErrorEl.textContent = text; memorySaveDone(); }
+  else if (msg.scope === 'sources') {
+    setWikiError(text);
+    if (sourcesBusy) { sourcesBusy = false; if (currentView === 'sources') renderWikiPage(); }
+  }
+  else {                                                                     // turn / settings
+    status.textContent = text.toLowerCase();
+    renderVerbosity();   // a refused `set_verbosity` puts the control back
+  }
+}
+
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
 
@@ -2518,13 +2535,7 @@ function connect() {
       else if (msg.key === 'location') renderLocation(msg.value);
     }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
-    else if (msg.type === 'error') {
-      status.textContent = msg.text.toLowerCase();
-      if (currentView === 'wiki' || currentView === 'sources') setWikiError(msg.text);   // e.g. a rejected `wiki_note`
-      if (currentView === 'sources' && sourcesBusy) { sourcesBusy = false; renderWikiPage(); }
-      if (currentView === 'memory') { memErrorEl.textContent = msg.text; memorySaveDone(); }
-      renderVerbosity();
-    }
+    else if (msg.type === 'error') showError(msg);
   };
 
   ws.onopen = () => {

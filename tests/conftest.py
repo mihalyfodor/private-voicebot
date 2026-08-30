@@ -193,6 +193,9 @@ class Panel:
         got = []
         while len(got) < count:
             reply = self.ws.receive_json()
+            if reply.get("type") == "error":
+                # every refusal names the slot it belongs to (tests/test_error_scopes.py)
+                assert reply.get("scope") in chatbot.ERROR_SCOPES, reply
             if reply.get("type") in self.WANTED:
                 got.append(reply)
         return got
