@@ -9,6 +9,7 @@ FILLERS = {
     "get_emails": ["Let me check your inbox.", "One sec, looking at your mail.", "Checking your emails now."],
     "search_wiki": ["Let me look that up in my notes.", "One sec, checking what we wrote down.", "Digging through the wiki."],
     "read_page": ["Let me open that page.", "One sec, reading it up.", "Pulling up the notes."],
+    "dig_deeper": ["Let me read a bit further.", "One sec, going deeper into it.", "Let me pull up the rest."],
     "file_source": ["Filing that away.", "One sec, writing it down.", "Let me put that in the wiki."],
     "default": ["One moment.", "Let me check.", "Just a second."],
 }

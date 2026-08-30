@@ -283,7 +283,7 @@ def test_recall_for_quotes_the_covenant_chunk_and_nothing_for_chit_chat(fallout)
     quotes = block.split('From "')[1:]
     assert 1 <= len(quotes) <= llm.RECALL_MAX_CHUNKS
     assert all(q.startswith("Fallout 4 guide\" (part ") and "Covenant" in q for q in quotes)
-    assert 'from "Fallout 4 guide"' in block and "always name the source" in block
+    assert 'name "Fallout 4 guide"' in block and llm.DEEPER_OFFERS[0] in block
     assert memory.tokens_est(block) <= llm.RECALL_MAX_TOKENS + 40
     for text in ("hi", "what time is it", "what should we cook tonight", "tell me a joke"):
         assert llm.recall_for(text) == "", text
