@@ -96,3 +96,11 @@ documents, calendar write-back.
 
 ## Also (2026-08-30): `.epub`
 Zipped XHTML read in spine order via the stdlib (container.xml → OPF → chapters); headings kept as `#` lines, scripts/styles dropped; kind `epub`, text-kind caps, chunk-indexed like any text. Test: spine order, headings, broken file → unreadable.
+
+## Also (2026-08-30): authors are not people
+Ingesting 22 EPUBs created a `people/` page per book author ("Author/Expert in …"). For document kinds that are
+published works (`epub`, `pdf`, `docx` without transcript markers) the ops prompt states that authors, editors and
+cited experts are not people pages (only people the user works with are), and `restrict_ops` rejects `new_page
+people/*` from those kinds unless the entity also appears in the user's profile/aliases. Test: an EPUB whose text
+names its author and a colleague already in the profile → no author page, the colleague's page gets the note.
+Also: when the summary comes back without a title, retry the summary once before falling back to the raw stem.
