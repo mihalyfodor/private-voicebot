@@ -1,10 +1,24 @@
 import os
 import requests
 
-LOCATION_NAME = os.getenv("LOCATION_NAME", "Seychelles")
-LOCATION_LAT = float(os.getenv("LOCATION_LAT", "-4.6796"))
-LOCATION_LON = float(os.getenv("LOCATION_LON", "55.4920"))
-LOCATION_TIMEZONE = os.getenv("LOCATION_TIMEZONE", "Indian/Mahe")
+import avatars
+
+#: the built-in fallback when neither the browser (settings.json) nor `.env` says where the user is
+DEFAULT_LOCATION = {"name": "Seychelles", "lat": -4.6796, "lon": 55.4920, "tz": "Indian/Mahe", "source": "default"}
+
+
+def location() -> dict:
+    """Where the weather is for: settings.json `location` (from the browser, PRD 35) → `LOCATION_*`
+    env → the built-in default. Always `{name?, lat, lon, tz, source}`."""
+    saved = avatars.load_settings().get("location")
+    if isinstance(saved, dict) and "lat" in saved and "lon" in saved:
+        return {"name": os.getenv("LOCATION_NAME", ""), "lat": float(saved["lat"]), "lon": float(saved["lon"]),
+                "tz": str(saved.get("tz") or os.getenv("LOCATION_TIMEZONE") or "auto"), "source": "browser"}
+    if os.getenv("LOCATION_LAT") and os.getenv("LOCATION_LON"):
+        return {"name": os.getenv("LOCATION_NAME", ""), "lat": float(os.getenv("LOCATION_LAT")),
+                "lon": float(os.getenv("LOCATION_LON")),
+                "tz": os.getenv("LOCATION_TIMEZONE", "auto"), "source": "env"}
+    return dict(DEFAULT_LOCATION)
 
 WMO_CODES = {
     0: "clear sky", 1: "mainly clear", 2: "partly cloudy", 3: "overcast",
@@ -19,23 +33,24 @@ DEFINITION = {
     "type": "function",
     "function": {
         "name": "get_weather",
-        "description": f"Returns the current weather in {LOCATION_NAME}.",
+        "description": "Returns the current weather and today's outlook at the user's location.",
         "parameters": {"type": "object", "properties": {}, "required": []},
     },
 }
 
 
 def run(args):
+    where = location()
     resp = requests.get(
         "https://api.open-meteo.com/v1/forecast",
         params={
-            "latitude": LOCATION_LAT,
-            "longitude": LOCATION_LON,
+            "latitude": where["lat"],
+            "longitude": where["lon"],
             "current": "temperature_2m,apparent_temperature,weathercode,windspeed_10m,wind_direction_10m",
             "daily": "temperature_2m_max,temperature_2m_min,weathercode,precipitation_sum",
             "temperature_unit": "celsius",
             "windspeed_unit": "kmh",
-            "timezone": LOCATION_TIMEZONE,
+            "timezone": where["tz"],
             "forecast_days": 1,
         },
         timeout=5,
@@ -52,8 +67,9 @@ def run(args):
     high = round(d['temperature_2m_max'][0])
     wind = round(c['windspeed_10m'])
     wind_dir = dirs[round(c['wind_direction_10m'] / 45) % 8]
+    place = f"in {where['name']}" if where.get("name") else "at your location"
     return (
-        f"Read out this full weather report naturally: "
+        f"Read out this full weather report naturally ({place}): "
         f"Currently {condition}, {temp} degrees Celsius, feels like {feels} degrees Celsius. "
         f"Today's low is {low} degrees Celsius and the high is {high} degrees Celsius. "
         f"Outlook: {outlook}. "

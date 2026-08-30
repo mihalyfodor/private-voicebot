@@ -17,6 +17,7 @@ import splitter
 import sources
 import fillers
 import avatars
+from tools import weather as weather_tool
 import backdrops
 import numpy as np
 import soundfile as sf
@@ -416,6 +417,7 @@ async def api_config():
         "stale_days": dict(memory.STALE_DAYS),
         "calendar_horizon_days": sources.calendar_horizon_days(),
         "recall_min_score": wiki.recall_min_score(),
+        "location": weather_tool.location(),
         "vault": wiki.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
     }
@@ -592,6 +594,22 @@ async def _action_set_verbosity(sess, msg, loop):
 #: `calendar_horizon_days` — how far a recurring invite is expanded into meeting stubs (PRD 31)
 #: `recall_min_score` — the BM25-per-word floor a source passage must clear to be quoted (PRD 32)
 SETTABLE: dict[str, type] = {"calendar_horizon_days": int, "recall_min_score": float}
+
+
+async def _action_set_location(sess, msg, loop):
+    """The browser's position (PRD 35): validated, rounded to ~100 m, saved as `location`."""
+    try:
+        lat, lon = float(msg.get("lat")), float(msg.get("lon"))
+    except (TypeError, ValueError):
+        await send({"type": "error", "text": "location needs numeric lat/lon"})
+        return
+    tz = str(msg.get("tz") or "").strip()
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not tz:
+        await send({"type": "error", "text": "location out of range or missing tz"})
+        return
+    value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser"}
+    avatars.save_setting("location", value)
+    await send({"type": "setting", "key": "location", "value": weather_tool.location()})
 
 
 async def _action_set_setting(sess, msg, loop):
@@ -855,6 +873,7 @@ ACTIONS = {
     "reload_characters": _action_reload_characters,
     "set_verbosity": _action_set_verbosity,
     "set_setting": _action_set_setting,
+    "set_location": _action_set_location,
     "get_memory": _action_get_memory,
     "save_memory": _action_save_memory,
     "memory_op": _action_memory_op,

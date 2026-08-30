@@ -381,6 +381,7 @@ const avatar = {
       renderDecayWindows(cfg.stale_days);
       renderCalendarHorizon(cfg.calendar_horizon_days);
       renderRecallMinScore(cfg.recall_min_score);
+      renderLocation(cfg.location);
       settingsScreenshotEl.textContent = cfg.screenshot_cmd || '';
     } catch (e) { console.warn('config fetch failed, using default profile', e); }
     applyBackdrop(currentBackdropKey);
@@ -764,6 +765,23 @@ calendarHorizonEl.onchange = () => {
   sendAction({ action: 'set_setting', key: 'calendar_horizon_days', value: days });
 };
 
+// PRD 35: where the weather is for. The browser offers its position once per page; the
+// server keeps it in settings.json and falls back to .env.
+let locationOffered = false;
+function renderLocation(loc) {
+  if (!loc || typeof loc.lat !== 'number') { settingsLocationEl.textContent = ''; return; }
+  const place = loc.name ? `${loc.name} · ` : '';
+  settingsLocationEl.textContent = `${place}${loc.lat.toFixed(3)}, ${loc.lon.toFixed(3)} · ${loc.tz} · from ${loc.source}`;
+}
+function offerLocation() {
+  if (locationOffered || !navigator.geolocation) return;
+  locationOffered = true;
+  navigator.geolocation.getCurrentPosition((pos) => {
+    const tz = (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || '';
+    sendAction({ action: 'set_location', lat: pos.coords.latitude, lon: pos.coords.longitude, tz });
+  }, () => {}, { maximumAge: 6 * 3600 * 1000, timeout: 10000, enableHighAccuracy: false });
+}
+
 // PRD 32: the BM25-per-word floor a source passage must clear to be quoted into a turn.
 let recallMinScore = 4.5;
 function renderRecallMinScore(score) {
@@ -780,6 +798,7 @@ buildRail();
 
 // ---------- settings view ----------
 const settingsVaultEl = document.getElementById('settings-vault');
+const settingsLocationEl = document.getElementById('settings-location');
 const settingsOpenVaultEl = document.getElementById('settings-open-vault');
 const settingsScreenshotEl = document.getElementById('settings-screenshot');
 
@@ -2333,6 +2352,7 @@ function connect() {
     else if (msg.type === 'setting') {
       if (msg.key === 'calendar_horizon_days') renderCalendarHorizon(msg.value);
       else if (msg.key === 'recall_min_score') renderRecallMinScore(msg.value);
+      else if (msg.key === 'location') renderLocation(msg.value);
     }
     else if (msg.type === 'memory_error') showMemoryError(msg.path, msg.reason);
     else if (msg.type === 'error') {
@@ -2352,6 +2372,7 @@ function connect() {
     // The badge baseline: what is filed now is "seen"; anything pushed later counts.
     sourcesSeen = null;
     requestSources();
+    offerLocation();
   };
   ws.onclose = (e) => {
     if (shutdownRequested) { showShutdownScreen(); return; }

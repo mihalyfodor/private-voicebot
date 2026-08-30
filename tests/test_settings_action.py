@@ -94,3 +94,72 @@ def test_env_flag_defaults_to_on(monkeypatch):
     monkeypatch.delenv("OPEN_BROWSER", raising=False)
     assert chatbot.env_flag("OPEN_BROWSER") is True
     assert chatbot.env_flag("OPEN_BROWSER", "0") is False
+
+
+# --------------------------------------------------------------- PRD 35: location
+
+
+def test_weather_location_prefers_browser_over_env_over_default(isolated_settings, monkeypatch):
+    from tools import weather
+
+    for key in ("LOCATION_NAME", "LOCATION_LAT", "LOCATION_LON", "LOCATION_TIMEZONE"):
+        monkeypatch.delenv(key, raising=False)
+    assert weather.location()["source"] == "default"
+
+    monkeypatch.setenv("LOCATION_LAT", "47.5"); monkeypatch.setenv("LOCATION_LON", "19.0")
+    monkeypatch.setenv("LOCATION_NAME", "Budapest"); monkeypatch.setenv("LOCATION_TIMEZONE", "Europe/Budapest")
+    env = weather.location()
+    assert (env["source"], env["name"], env["lat"]) == ("env", "Budapest", 47.5)
+
+    avatars.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest", "source": "browser"})
+    got = weather.location()
+    assert (got["source"], got["lat"], got["lon"], got["tz"]) == ("browser", 46.771, 23.624, "Europe/Bucharest")
+    assert got["name"] == "Budapest"       # a name only ever comes from .env (no reverse geocoding)
+
+
+def _send(payload):
+    client = TestClient(chatbot.app)
+    with client.websocket_connect("/ws") as ws:
+        ws.send_json(payload)
+        while True:
+            msg = ws.receive_json()
+            if msg.get("type") in ("setting", "error"):
+                return client, msg
+
+
+def test_set_location_rounds_saves_and_shows_in_config(isolated_settings, monkeypatch):
+    monkeypatch.delenv("LOCATION_NAME", raising=False)
+    client, msg = _send({"action": "set_location", "lat": 46.77123, "lon": 23.62361, "tz": "Europe/Bucharest"})
+
+    assert msg["type"] == "setting" and msg["key"] == "location"
+    assert (msg["value"]["lat"], msg["value"]["lon"], msg["value"]["source"]) == (46.771, 23.624, "browser")
+    assert settings_on_disk(isolated_settings)["location"] == {
+        "lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest", "source": "browser"}
+    assert client.get("/api/config").json()["location"]["source"] == "browser"
+
+
+@pytest.mark.parametrize("payload", [
+    {"action": "set_location", "lat": 95, "lon": 0, "tz": "UTC"},
+    {"action": "set_location", "lat": "x", "lon": 0, "tz": "UTC"},
+    {"action": "set_location", "lat": 1, "lon": 1},
+])
+def test_bad_locations_are_refused_and_nothing_is_saved(isolated_settings, payload):
+    _client, msg = _send(payload)
+    assert msg["type"] == "error"
+    assert "location" not in settings_on_disk(isolated_settings)
+
+
+@pytest.fixture(scope="module")
+def r():
+    import shutil, subprocess
+    if shutil.which("node") is None:
+        pytest.skip("node is not installed")
+    root = os.path.join(os.path.dirname(__file__), "..")
+    out = subprocess.run(["node", "tests/app_fixture.mjs"], cwd=root, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout)
+
+
+def test_the_page_offers_its_position_once_and_renders_the_row(r):
+    assert r["location_sent"] == [{"action": "set_location", "lat": 46.7712, "lon": 23.6236, "tz": "Europe/Bucharest"}]
+    assert r["location_shown"] == "46.771, 23.624 · Europe/Bucharest · from browser"

@@ -254,7 +254,12 @@ const CONFIG_JSON = {
 
 const sandbox = {
   document: doc,
-  navigator: { mediaDevices: { getUserMedia: async () => ({}) } },
+  navigator: {
+    mediaDevices: { getUserMedia: async () => ({}) },
+    // PRD 35: a stubbed position, handed over synchronously on request
+    geolocation: { getCurrentPosition: (ok) => ok({ coords: { latitude: 46.7712, longitude: 23.6236 } }) },
+  },
+  Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: 'Europe/Bucharest' }) }) },
   location: { host: '127.0.0.1:8010' },
   console,
   atob, btoa, Uint8Array, Promise, JSON, Math, Object, Array, Number, String, Set, Map, Error, Date,
@@ -642,6 +647,13 @@ socket.sent.length = 0;
 t.calendarHorizon.value = '21';
 t.calendarHorizon.dispatch('change');
 results.horizon_sent = [...socket.sent];
+
+// ---- PRD 35: the page offers its position once per connect; the Settings row shows what is in use
+if (socket.onopen) socket.onopen();                       // the stub never fires it on its own
+results.location_sent = socket.sent.filter(m => m.action === 'set_location');
+socket.sent.length = 0;
+t.recv({ type: 'setting', key: 'location', value: { lat: 46.771, lon: 23.624, tz: 'Europe/Bucharest', source: 'browser', name: '' } });
+results.location_shown = doc.getElementById('settings-location').textContent;
 
 // ---- PRD 32: the recall threshold field round-trips through set_setting
 t.recv({ type: 'setting', key: 'recall_min_score', value: 3.5 });
