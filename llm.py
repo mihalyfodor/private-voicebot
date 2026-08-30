@@ -770,21 +770,21 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
                 continue
             delta = chunk.choices[0].delta
             text = getattr(delta, "content", None)
-            if text:
+            if text and lookup:
+                parts.append(text)                              # held back: get_wikipedia runs anyway
+            elif text and holding:
                 parts.append(text)
-                if lookup:
-                    pass
-                elif holding:
-                    held.append(text)
-                    if len("".join(held)) >= FALLBACK_HOLD_CHARS:
-                        holding, retry = False, fallback_block(user_text, "".join(held))
-                        if retry:
-                            break
-                        for t in held:
-                            yield ("delta", t)
-                        held = []
-                else:
-                    yield ("delta", text)
+                held.append(text)
+                if len("".join(held)) >= FALLBACK_HOLD_CHARS:
+                    holding, retry = False, fallback_block(user_text, "".join(held))
+                    if retry:
+                        break
+                    for t in held:
+                        yield ("delta", t)
+                    held = []
+            elif text:
+                parts.append(text)
+                yield ("delta", text)
             fragments = getattr(delta, "tool_calls", None)
             if fragments:
                 _accumulate_tool_calls(pending, fragments)

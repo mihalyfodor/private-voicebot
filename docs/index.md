@@ -228,7 +228,7 @@ voicebot/
     ├── 38-focus-context.md       # PRD: the open wiki/source page rides on the turn (head + matching section), find/open from chat, go back (done)
     ├── 39-context-meter.md       # PRD: context meter + 75/90 % warnings, recall stripping, explicit "new topic" with a visible summary (done)
     ├── 41-service-health.md      # PRD: service health banner + Settings rows, scripts/voicebot start/stop/status (done)
-    ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (implementation)
+    ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (done)
 ```
 
 ## Active PRDs
@@ -270,7 +270,7 @@ voicebot/
 - [39-context-meter.md](39-context-meter.md) — context meter (`context` message, rail dot, 90 % spoken nudge), recall blocks stripped after their turn, explicit `new_topic` that folds memory first and restarts with a visible `<earlier>` summary divider (done)
 - [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/docker-data/voicebot` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore; runbook in [deploy.md](deploy.md) (done)
 - [41-service-health.md](41-service-health.md) — server-side probes of oMLX / ASR pushed as `services`, UI banner + Settings rows with a copy-the-command button, turns refused with the hint while the LLM is down, `scripts/voicebot start` (starts only what is missing) / `stop` (container down, ASR unloaded, Gemma unloaded via the oMLX admin API) / `status`; addendum 2026-08-30: the admin password stored from Settings (`.env` wins), Load / Unload model buttons through the server (done)
-- [42-recall-precision-2.md](42-recall-precision-2.md) — the 2026-08-30 stress-test recall defects: a source's title words pick the source but never score a chunk, four candidates with no neighbouring pair, a held first sentence that turns "the documents do not mention" into one server-side lookup re-ask (`<lookup>`), wiki pages join recall by name (head + Summary + best section), short questions recall on a proper term, proper bigrams must match whole, "summarise this" uses the page head, routing wording for past events / opinions, trailing "please" in open-page commands, no double date in raw names (implementation)
+- [42-recall-precision-2.md](42-recall-precision-2.md) — the 2026-08-30 stress-test recall defects: a source's title words pick the source but never score a chunk, four candidates with no neighbouring pair, a held first sentence that turns "the documents do not mention" into one server-side lookup re-ask (`<lookup>`), wiki pages join recall by name (head + Summary + best section), short questions recall on a proper term, proper bigrams must match whole, "summarise this" uses the page head, routing wording for past events / opinions, trailing "please" in open-page commands, no double date in raw names (done)
 
 ## Research
 
