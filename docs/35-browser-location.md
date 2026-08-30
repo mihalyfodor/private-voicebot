@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 35 — Location from the browser
 
