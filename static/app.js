@@ -2198,6 +2198,11 @@ function stopIntakeTimer() {
   intakeTimer = null;
 }
 
+function renderIntakeBatch() {
+  renderIntakeItems();
+  renderIntakeStatus();
+}
+
 const INTAKE_IN_FLIGHT = ['uploading', 'extracting', 'summarising', 'filing'];
 
 // The server's `ingest_progress` names the stage of the item in flight; it applies only to the
@@ -2343,8 +2348,7 @@ async function submitIntake() {
   for (const item of usable) {
     if (intakeCancel) break;
     item.state = 'uploading';
-    renderIntakeItems();
-    renderIntakeStatus();
+    renderIntakeBatch();
     try {
       item.result = await postIntake(item);
       item.state = item.result.already ? 'already' : 'filed';
@@ -2352,15 +2356,13 @@ async function submitIntake() {
       item.reason = String((e && e.message) || e);
       item.state = 'error';
     }
-    renderIntakeItems();
-    renderIntakeStatus();
+    renderIntakeBatch();
   }
   intakeBusy = false;
   intakeDone = true;
   stopIntakeTimer();
   intakeCancelBtn.textContent = 'Close';
-  renderIntakeItems();
-  renderIntakeStatus();
+  renderIntakeBatch();
   // A single clean filing closes itself, as it always did; a batch stays open with its rows.
   const first = usable[0];
   if (usable.length === 1 && first.state === 'filed' && first.result.path) {

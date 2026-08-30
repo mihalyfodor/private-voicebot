@@ -149,15 +149,23 @@ def _wiki_page_msg(path: str) -> dict:
             "etag": wiki.etag(text), "backlinks": wiki.backlinks(path)}
 
 
-def push_memory(with_wiki: bool = False) -> None:
-    """Push a fresh memory snapshot (and optionally the wiki) to an open panel.
+def _panel_sender():
+    """A thread-safe sender to the open panel, or None when there is no socket (or no loop).
 
-    No socket (or no loop) → silent no-op.
+    The worker-thread pushes below (memory snapshot, "saving", ingest progress) all go
+    through it, so "no panel → silent no-op" is decided in one place.
     """
     sess, loop = session, _loop
     if sess is None or sess.websocket is None or loop is None or not loop.is_running():
+        return None
+    return make_sender(loop)
+
+
+def push_memory(with_wiki: bool = False) -> None:
+    """Push a fresh memory snapshot (and optionally the wiki) to an open panel."""
+    send_sync = _panel_sender()
+    if send_sync is None:
         return
-    send_sync = make_sender(loop)
     send_sync(_memory_msg(memory.load_profile()))
     if with_wiki:
         send_sync(_wiki_msg())
@@ -165,10 +173,9 @@ def push_memory(with_wiki: bool = False) -> None:
 
 def _push_saving(value: bool) -> None:
     """Tell the UI a background memory save is running (it shows "saving memory…")."""
-    sess, loop = session, _loop
-    if sess is None or sess.websocket is None or loop is None or not loop.is_running():
-        return
-    make_sender(loop)({"type": "memory_saving", "value": value})
+    send_sync = _panel_sender()
+    if send_sync is not None:
+        send_sync({"type": "memory_saving", "value": value})
 
 
 def _periodic_memory(count: int) -> None:
@@ -425,12 +432,10 @@ INGEST_KINDS = ("file", "paste_text", "paste_image")
 
 
 def _push_ingest_progress(filename: str, stage: str, i: int, n: int) -> None:
-    """Tell the intake popup which stage item `i` of `n` is in (PRD 36); no socket → no-op."""
-    sess, loop = session, _loop
-    if sess is None or sess.websocket is None or loop is None or not loop.is_running():
-        return
-    make_sender(loop)({"type": "ingest_progress", "filename": filename, "stage": stage,
-                       "i": i, "n": n})
+    """Tell the intake popup which stage item `i` of `n` is in (PRD 36); no panel → no-op."""
+    send_sync = _panel_sender()
+    if send_sync is not None:
+        send_sync({"type": "ingest_progress", "filename": filename, "stage": stage, "i": i, "n": n})
 
 
 def _file_one(item: dict, on_stage=None) -> dict:
