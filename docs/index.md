@@ -104,7 +104,7 @@ voicebot/
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
 │   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
 │   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API (password from .env, else the one saved in Settings)
-│   └── launchd/com.voicebot.asr.plist   # LaunchAgent for asr_server.py
+│   └── launchd/com.voicebot.asr.plist, com.voicebot.backup.plist   # LaunchAgents: asr_server.py, daily prod.sh backup
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki editor / Sources / Settings), intake popup, command palette
 │   ├── mic-worklet.js # AudioWorklet: mic → 16 kHz Int16 frames
@@ -183,7 +183,7 @@ voicebot/
 │   │   └── test_splitter.py         # SentenceSplitter / split_stream / strip_tag, every emotion tag round-trips
 │   ├── prod/                    # PRD 40: Docker prod
 │   │   ├── test_data_paths.py       # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
-│   │   ├── test_prod_script.py      # prod.sh migrate moves state into DATA (refuses twice), bash -n, docker compose config
+│   │   ├── test_prod_script.py      # prod.sh migrate moves state into DATA (refuses twice), backup guards/rotation, plist lint, bash -n, docker compose config
 │   │   ├── test_voicebot_script.py  # PRD 41 scenario 5: scripts/voicebot against stubbed colima/omlx/launchctl/docker/curl — start touches only what is down, stop order, --all, status --dev, the Settings password used for the admin login when the env is unset
 │   │   └── test_docker.py           # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`); PRD 41 scenario 6: the amber banner data while the host ASR service is stopped
 │   └── e2e/                     # PRD 29: Playwright browser tests (conftest checks the fetched assets, spawns the server; test_app.py, test_sources.py incl. the PRD 31 .docx drop and the PRD 36 two-file batch, test_palette.py, test_focus.py = the PRD 38 live turn), marker `e2e`

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Daily vault backup (docs/deploy.md): runs `scripts/prod.sh backup` at 03:30; launchd runs a missed slot on wake.
+     Install: cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/
+              launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist
+     Edit the /Users/fomi/... paths if the checkout lives elsewhere. PATH is explicit: launchd has none for git/tar.
+     Per-run lines go to $DATA/logs/backup.log; this file only catches stray output. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.voicebot.backup</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>scripts/prod.sh</string>
+    <string>backup</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/fomi/projects/personal/private-voicebot</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key><string>/Users/fomi</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>30</integer>
+  </dict>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>/tmp/voicebot-backup.log</string>
+  <key>StandardErrorPath</key><string>/tmp/voicebot-backup.log</string>
+</dict>
+</plist>

@@ -27,6 +27,8 @@ through `host.docker.internal` (oMLX `:8000`, ASR `:8020`).
 # 1. host services (Apple-only pieces): oMLX on :8000 as today, plus the ASR service
 cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/   # edit the paths if the checkout moved
 launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
+cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/   # daily 03:30 backup
+launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist
 curl -s localhost:8020/health                                        # {"ok":true,...}
 
 # 2. move the state into the data folder (refuses if anything is already there; .env is copied)
@@ -61,11 +63,12 @@ user to run when a service is down.
 | `scripts/prod.sh logs` | follow the container log |
 | `scripts/prod.sh status` | `compose ps` + `/api/config` |
 | `scripts/prod.sh build && scripts/prod.sh up` | roll a new `main` into prod |
-| `scripts/prod.sh backup` | `git bundle --all` of the vault + `tar.gz` of `DATA` into `~/docker-data/backups/` |
+| `scripts/prod.sh backup` | `git bundle --all` of the vault + `tar.gz` of `DATA` into `~/docker-data/backups/`; keeps the newest `KEEP` (default 7) of each; skips when the vault head is unchanged; refuses below `MIN_FREE_MB` free or above `MAX_TOTAL_MB` total; one line per run in `DATA/logs/backup.log` |
 | `scripts/prod.sh restore <tgz> <bundle> <dir>` | untar into `<dir>`, verify the bundle, serve it from a throwaway container on `:8012`, then tear it down |
 
 Env knobs: `DATA` (default `~/docker-data/voicebot`), `TAG` (image tag), `PROD_PORT` (host port),
-`PROJECT` (compose project), `BACKUP_DIR`, `RESTORE_PORT`.
+`PROJECT` (compose project), `BACKUP_DIR`, `RESTORE_PORT`, `KEEP` (7), `MIN_FREE_MB` (2048),
+`MAX_TOTAL_MB` (5120), `FORCE=1` (back up even if the vault head is unchanged).
 
 ## When something is down
 

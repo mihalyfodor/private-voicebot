@@ -6,6 +6,8 @@ the end so they are not re-proposed.
 
 ## 0. Chore: daily vault backup with rotation
 
+Done 2026-10-16
+
 Not a PRD; one `Fix:`-style commit. Do first — it protects the vault before anything below touches it.
 
 - `scripts/prod.sh backup`: add `KEEP` (default 7), delete all but the newest N `.tgz` and `.bundle` (`scripts/prod.sh:67`).
