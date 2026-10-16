@@ -109,11 +109,14 @@ REGISTRY: tuple[Tool, ...] = (
 )
 
 
-def _validate():
-    names = [t.name for t in REGISTRY]
+def _validate(registry=None):
+    registry = REGISTRY if registry is None else registry
+    names = [t.name for t in registry]
     assert len(set(names)) == len(names), "duplicate tool name"
-    for t in REGISTRY:
+    for t in registry:
         assert (t.trigger is None) != (t.schema is None), f"{t.name}: exactly one of trigger/schema"
+    flags = [t.needs_llm for t in registry if t.trigger is not None]
+    assert flags == sorted(flags), "needs_llm triggers must come after every gate-free trigger"
 
 
 _validate()

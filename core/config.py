@@ -1,4 +1,5 @@
-"""The one place env paths are read (docs/50-modular-layout.md). Modules keep their own names, copied from here."""
+"""The data paths and model endpoint every layer shares, read from env once (docs/50-modular-layout.md).
+Module-specific settings (ASR, TTS, Gmail, ports) stay next to their module. Modules keep their own names, copied from here."""
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root

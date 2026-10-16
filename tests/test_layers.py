@@ -1,4 +1,4 @@
-"""PRD 50 scenario 1: the layer ratchet. App code imports only downward; `ALLOWED` may only shrink."""
+"""PRD 50 scenario 1: the layer ratchet. App code imports only downward; `ALLOWED` (importer, imported module) may only shrink."""
 import ast
 import os
 
@@ -7,10 +7,11 @@ LAYERS = ("core", "vault", "memory", "ingest", "tools", "agent", "server")   # b
 SHIMS = {"tracing", "untrusted", "vault_lock"}    # root modules that only re-export a new home; app code may not import them
 SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "__pycache__", "logs", "characters"}
 
-# (importer path, imported layer) pairs still pointing upward. May only shrink (docs/50-modular-layout.md).
+# (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
+# new upward import in the same file fails. May only shrink (docs/50-modular-layout.md).
 ALLOWED = {
-    ("tools/sources.py", "root"),    # imports sources
-    ("tools/wiki.py", "root"),       # imports wiki
+    ("tools/sources.py", "sources"),
+    ("tools/wiki.py", "wiki"),
 }
 
 
@@ -58,8 +59,8 @@ def check(root: str, allowed: set, shims=SHIMS) -> list:
                 else:
                     continue
                 if _rank(target) > _rank(layer):
-                    if (rel, target) in allowed:
-                        observed.add((rel, target))
+                    if (rel, top) in allowed:
+                        observed.add((rel, top))
                     else:
                         problems.append(f"{rel}:{node.lineno}: {layer} imports {target} ({name})")
     problems += [f"stale allow-list entry: {pair}" for pair in sorted(allowed - observed)]
@@ -87,7 +88,7 @@ def test_function_local_upward_import_is_named_with_line(tmp_path):
 
 
 def test_stale_allow_list_entry_fails():
-    assert any("stale allow-list entry" in p for p in check(ROOT, ALLOWED | {("core/config.py", "root")}))
+    assert any("stale allow-list entry" in p for p in check(ROOT, ALLOWED | {("core/config.py", "chatbot")}))
 
 
 def test_shim_import_fails(tmp_path):

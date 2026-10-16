@@ -140,7 +140,7 @@ voicebot/
 │   ├── models/           # gitignored, fetched (wanko/)
 │   └── backdrops/        # gitignored, fetched
 ├── tools/              # every module declares `HOSTS` (PRD 33 read-only policy: no free URL fetch, get_news_detail only takes a URL from the last get_news); `__init__.py` re-exports from registry
-│   ├── registry.py     # the ordered `REGISTRY` of `Tool` records (PRD 50): 11 schema tools, then the trigger tools in routing order (new_topic, save_note, briefing, write_up, open_page); `match(text)`, `Ctx` + `bind`/`current` (the turn's context, used by file_source's panel refresh), `handler(name)` (the server binds trigger bodies; an unbound one raises); `schemas()`, `tokens()`, `run_tool`, and `READ_TOOLS`/`ALLOWED_HOSTS` derived from the records
+│   ├── registry.py     # the ordered `REGISTRY` of `Tool` records (PRD 50): 11 schema tools, then the trigger tools in routing order (new_topic, save_note, briefing, write_up, open_page); `match(text)`, import-time `_validate` (unique names, one mode, needs_llm triggers last), `Ctx` + `bind`/`current` (the turn's context, used by file_source's panel refresh), `handler(name)` (the server binds trigger bodies; an unbound one raises); `schemas()`, `tokens()`, `run_tool`, and `READ_TOOLS`/`ALLOWED_HOSTS` derived from the records
 │   ├── commands.py     # the trigger regexes (OPEN_PAGE/BACK_TO_PAGE/OPEN_PAGE_ANY, NEW_TOPIC, BRIEF, SAVE_NOTE, WANTS_WRITEUP) and their predicates (`page_command`, `new_topic_command`, `briefing_command`, `save_note_command`, `wants_writeup`) (PRD 50)
 │   ├── time.py         # current time tool
 │   ├── weather.py       # open-meteo weather tool + one Nominatim reverse geocode per new position (PRD 35)
@@ -158,13 +158,13 @@ voicebot/
 │   ├── app_fixture.mjs          # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON of results
 │   │                            # (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake
 │   │                            # titles/horizon field, intake batch, context meter, error scopes, written cards); its header documents the hooks
-│   ├── tools/test_registry.py   # PRD 50: golden schema fixture byte-compare, tokens() == 1089, READ_TOOLS/ALLOWED_HOSTS derived, record invariants; trigger phrase table + `match` agrees with the predicates, handler binding (unbound raises), file_source refreshes the panel via the bound Ctx without importing the server
+│   ├── tools/test_registry.py   # PRD 50: golden schema fixture byte-compare, tokens() == 1089, READ_TOOLS/ALLOWED_HOSTS derived, record invariants (incl. needs_llm triggers after gate-free ones); trigger phrase table + `match` agrees with the predicates, handler binding (unbound raises), file_source refreshes the panel via the bound Ctx without importing the server
 │   ├── fixtures/tool_schemas.json  # PRD 50: golden `json.dumps(registry.schemas())`, byte-compared by tests/tools/test_registry.py
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
 │   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else
 │   ├── core/test_llm.py         # PRD 50 scenario 7: `core.llm.complete` (temperature 0, max_tokens, default model; spanned only with a purpose); an ingest, a memory save and a typed turn draw from one fake at core.llm._client, llm_call purposes ingest/ingest/reply
-│   ├── test_layers.py           # PRD 50: layer ratchet — app code imports only downward (`ALLOWED` may only shrink), no imports of the root shims, stale allow-list entries fail
+│   ├── test_layers.py           # PRD 50: layer ratchet — app code imports only downward (`ALLOWED` of (importer, imported module) pairs may only shrink), no imports of the root shims, stale allow-list entries fail
 │   ├── llm/
 │   │   ├── test_llm_unit.py         # llm.py with a mocked OpenAI client: ask/ask_events, PRD 13 streamed first call, tool-call detection mid-stream
 │   │   ├── test_context.py          # PRD 11: context budget, history trimming
@@ -283,7 +283,7 @@ voicebot/
     ├── 47b-remarkable-push.md   # PRD: "send this to my reMarkable" — host push service on :8021, markdown→PDF, approval via PRD 52 (exploration)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
     ├── 49-event-trace.md        # PRD: events.jsonl via core/trace.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
-    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (refactoring; step 1 done: core/, workflows → scripts, tests/test_layers.py; step 2 done: tools/registry.py; step 3 done: trigger tools in the registry, tools/commands.py, `@registry.handler`; step 4 done: core/llm.py model-call chokepoint, one conftest fake)
+    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation; steps 1–4 done — step 1: core/, workflows → scripts, tests/test_layers.py; step 2: tools/registry.py; step 3: trigger tools in the registry, tools/commands.py, `@registry.handler`; step 4: core/llm.py model-call chokepoint, one conftest fake)
     ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)

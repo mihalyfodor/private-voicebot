@@ -39,6 +39,10 @@ def test_invariants():
     assert registry.run_tool("nope", {}) == "unknown tool"
     assert isinstance(registry.run_tool("get_time", {}), str)
     assert registry.run_tool("briefing", {}) == "unknown tool"     # a trigger tool is not the model's to call
+    by = {t.name: t for t in registry.REGISTRY}
+    bad = (by["write_up"], by["briefing"])      # needs_llm before a gate-free trigger would change offline routing
+    with pytest.raises(AssertionError, match="needs_llm"):
+        registry._validate(bad)
 
 
 # --------------------------------------------------------------- scenario 4: trigger routing

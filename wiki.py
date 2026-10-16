@@ -14,7 +14,6 @@ PRD 15: ops + validation, never a whole-file rewrite. ``git log`` inside the vau
 
 See docs/19-wiki-layer.md.
 """
-from core import settings
 import hashlib
 import json
 import math
@@ -24,10 +23,9 @@ import subprocess
 from collections import Counter
 
 import memory
-from core import vault_lock
-from core.untrusted import DOCUMENT_RULE
-from core import config, trace
+from core import config, settings, trace, vault_lock
 from core import llm as core_llm
+from core.untrusted import DOCUMENT_RULE
 log = trace.logger("Wiki")
 
 # --- vault -------------------------------------------------------------------------
