@@ -35,11 +35,11 @@ def main(argv=None) -> int:
         return 0 if exc.code == 0 else 2
     if args.vault:
         os.environ["WIKI_PATH"] = args.vault        # before wiki / sources are imported
-    import sources
+    import batch_import
 
-    res = sources.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),
-                               resume=args.resume, dry_run=args.dry_run, limit=args.limit,
-                               sleep=args.sleep)
+    res = batch_import.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),
+                                    resume=args.resume, dry_run=args.dry_run, limit=args.limit,
+                                    sleep=args.sleep)
     return res["exit"]
 
 

@@ -12,6 +12,7 @@ import zlib
 import pytest
 from fastapi.testclient import TestClient
 
+import batch_import
 import chatbot
 import memory
 import sources
@@ -723,7 +724,7 @@ def put(folder, rel: str, data: bytes) -> None:
 
 def run_batch(folder, client=None, **kw) -> tuple:
     lines = []
-    res = sources.ingest_batch(str(folder), client=client, model="fake-model", out=lines.append, **kw)
+    res = batch_import.ingest_batch(str(folder), client=client, model="fake-model", out=lines.append, **kw)
     return res, lines
 
 
@@ -845,7 +846,7 @@ def test_limit_sleep_unsupported_and_a_large_pdf(vault, idle_port, export, monke
     put(export, "scan.png", b"x")
 
     naps = []
-    monkeypatch.setattr(sources, "_sleep", naps.append)
+    monkeypatch.setattr(batch_import, "_sleep", naps.append)
     res, _ = run_batch(export, FakeClient(*[SUMMARY, OPS] * 3), sleep=2)
     assert res["filed"] == 2 and res["already"] == 1 and res["unsupported"] == 2
     assert naps == [2, 2]                    # none after the already-filed n0

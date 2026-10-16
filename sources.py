@@ -37,7 +37,6 @@ import json
 import os
 import re
 import subprocess
-import time
 
 import avatars
 import memory
@@ -239,14 +238,6 @@ def pdf_text(data: bytes) -> str:
         return ""
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     return text if len(text.strip()) >= MIN_PDF_CHARS else ""
-
-
-def pdf_chars(data: bytes) -> tuple:
-    """``(characters, pages)`` of the text layer; raises on a PDF pypdf cannot open."""
-    import pypdf
-
-    pages = [(page.extract_text() or "").strip() for page in pypdf.PdfReader(io.BytesIO(data)).pages]
-    return sum(len(p) for p in pages), len(pages)
 
 
 def eml_text(data: bytes) -> str:
@@ -1032,7 +1023,7 @@ def _target_allowed(path) -> str | None:
 def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str,
               user_names=(), strict: bool = False) -> dict:
     """One completion -> ``{title, summary, entities, topic, unreadable}``; never raises
-    (`strict`, PRD 48: a failed completion raises instead of filing a stub).
+    (`strict`, PRD 48: an empty extraction or a failed completion raises instead of filing a stub).
 
     An empty extraction skips the call entirely: there is nothing to summarise, and the page is
     still worth creating (it carries the link to the raw file — PRD's "unreadable" risk).
@@ -1040,6 +1031,8 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     fallback = {"title": title or "Untitled", "summary": "", "entities": [], "topic": "",
                 "unreadable": True}
     if not text.strip() and image_part is None:
+        if strict:
+            raise IngestError(422, "no text could be extracted")
         fallback["summary"] = "unreadable — no text could be extracted from this file."
         return fallback
     context = [f"Kind: {kind}"]
@@ -1166,8 +1159,6 @@ def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hin
     """
     _stage(on_stage, "extracting")
     extracted = extract(raw_rel, data, kind)
-    if strict and not extracted.text.strip() and extracted.image_part is None and extracted.kind != "calendar":
-        raise IngestError(422, "no text could be extracted")
     stem = os.path.splitext(os.path.basename(raw_rel))[0]
     label = title or ("" if is_generic_title(stem) else stem)
     if extracted.kind == "calendar":
@@ -1518,176 +1509,3 @@ def decode_data_url(value: str) -> bytes:
     except (binascii.Error, ValueError) as exc:
         raise IngestError(415, "the pasted image could not be decoded") from exc
 
-
-# --- batch import (docs/48-batch-import.md) ------------------------------------------
-
-BATCH_LOG = "batch.log"
-_sleep = time.sleep
-_RETRY_STATES = ("needs-ocr", "unsupported", "too-large", "failed")
-
-
-def _app_running() -> str:
-    """The port something answers on among prod (8010), dev (8011) and PORT, whatever `.env` says."""
-    import urllib.error
-    import urllib.request
-
-    ports = {os.getenv("PROD_PORT") or "8010", os.getenv("DEV_PORT") or "8011", os.getenv("PORT") or ""} - {""}
-    for port in sorted(ports):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).close()
-        except urllib.error.HTTPError:
-            return port
-        except (OSError, ValueError):
-            continue
-        return port
-    return ""
-
-
-def _dirty_paths() -> list:
-    if not os.path.isdir(os.path.join(wiki.WIKI_PATH, ".git")):
-        return []
-    done = subprocess.run(["git", "status", "--porcelain"], cwd=wiki.WIKI_PATH,
-                          capture_output=True, text=True)
-    return [line for line in done.stdout.splitlines() if line.strip()]
-
-
-def _batch_walk(folder: str) -> list:
-    found = []
-    for base, dirs, files in os.walk(folder):
-        dirs[:] = [d for d in dirs if not d.startswith(".")]
-        for name in files:
-            if not name.startswith(".") and not (base == folder and name == BATCH_LOG):
-                found.append(os.path.relpath(os.path.join(base, name), folder).replace(os.sep, "/"))
-    return sorted(found)
-
-
-def _batch_last_states(log: str) -> dict:
-    last = {}
-    if os.path.exists(log):
-        for line in open(log).read().splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if "rel" in row:
-                last[row["rel"]] = row.get("state", "")
-    return last
-
-
-def _clock(seconds: float) -> str:
-    s = int(seconds)
-    h, m, s = s // 3600, s % 3600 // 60, s % 60
-    return f"{h}h {m:02d}m" if h else f"{m}m {s:02d}s" if m else f"{s}s"
-
-
-def _batch_one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> dict:
-    """One file's outcome `{state, ...}`; only a real filing touches the vault."""
-    ext = os.path.splitext(rel)[1].lower()
-    if ext not in kinds:
-        return {"state": "unsupported"}
-    try:
-        check_upload(rel, os.path.getsize(path))
-    except IngestError as exc:
-        return {"state": "too-large", "reason": exc.message}
-    reached = False
-    try:
-        with open(path, "rb") as f:
-            data = f.read()
-        digest = sha256(data)
-        seen = manifest_find(digest)
-        if seen:
-            return {"state": "already", "sha256": digest, "page": seen.get("page", ""),
-                    "pages_touched": len(seen.get("pages_touched") or [])}
-        note = ""
-        if ext == ".pdf":
-            chars, pages = pdf_chars(data)
-            per_page = chars // max(pages, 1)
-            note = f"{per_page} chars/page"
-            if per_page < MIN_PDF_CHARS:
-                return {"state": "needs-ocr", "sha256": digest, "reason": note}
-        if dry_run:
-            return {"state": "would file", "sha256": digest, "reason": note}
-        hint = os.path.dirname(rel)
-        reached = True
-        res = ingest_upload(data, os.path.basename(rel), hint=hint, client=client, model=model,
-                            source=f"batch import {memory._today_iso()}", strict=True)
-        entry = manifest_find(digest) or {}
-        fm, _ = wiki.parse_page((wiki._read(res["path"] + ".md") or ""))
-        return {"state": "filed", "sha256": digest, "page": res["path"],
-                "title": fm.get("name", ""), "pages_touched": len(entry.get("pages_touched") or [])}
-    except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch
-        return {"state": "failed", "reason": str(exc) or type(exc).__name__, "reached": reached}
-
-
-def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dry_run: bool = False,
-                 limit: int = 0, sleep: float = 0, client=None, model: str = "", out=print) -> dict:
-    """File every `kinds` file under `folder` through the drop path, one at a time (PRD 48).
-
-    Returns the per-state counts plus `exit` (0 clean, 1 something failed, 2 refused start) and
-    `seconds`. Idempotent through the manifest's sha guard; `batch.log` in `folder` remembers
-    skips and failures for `resume`.
-    """
-    exts = {"." + k.strip().lower().lstrip(".") for k in kinds if k.strip()}
-    counts = {s: 0 for s in ("filed", "would file", "already", "needs-ocr", "unsupported",
-                             "too-large", "resume", "failed")}
-    result = {**counts, "exit": 0, "seconds": 0}
-    refuse = None
-    out(f"vault {wiki.WIKI_PATH}")
-    if not os.path.isdir(folder):
-        refuse = f"not a folder: {folder}"
-    elif not exts or not exts <= set(KINDS):
-        refuse = f"unknown --kinds {','.join(sorted(exts))}"
-    elif (dirty := _dirty_paths()):
-        refuse = ("the vault has uncommitted changes (a half-filed crash leftover?) — clean them "
-                  "first:\n" + "\n".join("  " + line for line in dirty))
-    elif (port := _app_running()):
-        refuse = f"app is running — scripts/voicebot stop (port {port})"
-    if refuse:
-        out(refuse)
-        return {**result, "exit": 2}
-
-    files = _batch_walk(folder)
-    log = os.path.join(folder, BATCH_LOG)
-    last = _batch_last_states(log) if resume else {}
-    started = time.time()
-    out(f"{len(files)} files" + (" · dry run" if dry_run else ""))
-    if not dry_run:
-        with open(log, "a") as f:
-            f.write(json.dumps({"run": memory._stamp("%Y-%m-%dT%H:%M:%S"), "started": started,
-                                "vault": wiki.WIKI_PATH,
-                                "args": {"folder": folder, "kinds": sorted(exts), "resume": resume,
-                                         "limit": limit, "sleep": sleep}}) + "\n")
-    reached = 0
-    for i, rel in enumerate(files, 1):
-        if resume and last.get(rel) in _RETRY_STATES:
-            counts["resume"] += 1
-            out(f"[{i}/{len(files)}] skip   {rel} (last run: {last[rel]})")
-            continue
-        t0 = time.time()
-        row = _batch_one(os.path.join(folder, rel), rel, exts, dry_run, client, model)
-        state, seconds = row["state"], round(time.time() - t0, 1)
-        counts[state] += 1
-        shown = state if state == "filed" else f"{state} — {row['reason']}" if state == "failed" else state
-        tail = (f" -> {row['title'] or row['page']} ({row['pages_touched']} pages, {seconds:.0f} s)"
-                if state == "filed" else f" ({row['reason']})" if row.get("reason") and state != "failed" else "")
-        out(f"[{i}/{len(files)}] {shown}  {rel}{tail}")
-        if not dry_run:
-            with open(log, "a") as f:
-                f.write(json.dumps({"rel": rel, "sha256": row.get("sha256", ""), "state": state,
-                                    "title": row.get("title", ""), "page": row.get("page", ""),
-                                    "pages_touched": row.get("pages_touched", 0), "seconds": seconds,
-                                    "reason": row.get("reason", ""),
-                                    "at": memory._stamp("%Y-%m-%dT%H:%M:%S")}) + "\n")
-        if state == "filed" or row.get("reached"):
-            reached += 1
-            if limit and reached >= limit:
-                break
-            if sleep > 0 and i < len(files):
-                _sleep(sleep)
-    skipped = {k: counts[k] for k in ("already", "needs-ocr", "unsupported", "too-large", "resume")}
-    detail = ", ".join(f"{k} {v}" for k, v in skipped.items() if v)
-    elapsed = time.time() - started
-    head = f"would file {counts['would file']}" if dry_run else f"filed {counts['filed']}"
-    out(f"{head} · skipped {sum(skipped.values())}" + (f" ({detail})" if detail else "")
-        + f" · failed {counts['failed']} · {_clock(elapsed)}")
-    return {**counts, "exit": 1 if counts["failed"] else 0, "seconds": round(elapsed)}
