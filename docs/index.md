@@ -193,6 +193,7 @@ voicebot/
 └── docs/
     ├── index.md               # this file
     ├── process.md              # development process
+    ├── roadmap.md              # ordered next steps (PRDs 44–46, backlog, dropped ideas)
     ├── protocol.md             # WS protocol reference: every client action and server message type (tests/test_protocol_doc.py keeps it in sync)
     ├── reviews/                # dated read-only review notes (architecture, developer experience)
     ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, obsidian-host/, wanko-motions.md
