@@ -25,7 +25,7 @@ import services
 import session as session_mod
 import wiki
 from session import Session, TurnController
-from tests.conftest import Blocker, FakeClient, days_ago, fake_asr, run_turn, write_page
+from tests.conftest import Blocker, FakeClient, days_ago, fake_asr, log_ops, run_turn, write_page
 
 
 def fake_tts(text):
@@ -451,10 +451,8 @@ def changes(ts: str = None) -> None:
     write_page("people/anna", "Anna", "Runs the Friday deploy.\n")
     wiki._commit("wiki: created people/anna")
     ts = ts or f"{date.today().isoformat()}T11:00:00"
-    with open(memory.OPS_LOG_PATH, "a") as f:
-        for name in ("Wife", "Ben"):
-            f.write(json.dumps({"ts": ts, "op": "ADD", "path": "people[]", "value": {"name": name},
-                                "reason": "said"}) + "\n")
+    log_ops(*({"ts": ts, "op": "ADD", "path": "people[]", "value": {"name": name}, "reason": "said"}
+              for name in ("Wife", "Ben")))
 
 
 def brief(text: str = "what's new?", *replies, llm_up: bool = True) -> tuple:

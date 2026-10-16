@@ -1381,14 +1381,18 @@ def tools_registered() -> bool:
 # "what's new?": what the vault, the sources and memory gained since a cutoff, from git
 # subjects (every writer makes one commit per write), the manifest and the memory ops log.
 
-#: commits that are the layer's own housekeeping, never news
 _NOISE_COMMITS = ("wiki: lint", "wiki: initial vault", "wiki: vault layout")
-#: the user's own writes (`_user_commit`: editor save / create / rename / delete, PRD 43 save card)
 _USER_COMMIT = re.compile(r"^wiki: (?:edit|create|save card|rename|delete) ")
 _CHAT_COMMIT = re.compile(r"^wiki: \d+ ops? \(session [^)]*\)$")
 BRIEFING_CAP = 8                 # items per card section, then "+n more"
 _CHANGE = {"A": "new", "M": "edited", "D": "deleted"}
 _MEMORY_OPS = {"ADD": "added", "UPDATE": "updated", "DELETE": "removed"}
+
+
+def _news_commit(subject: str) -> bool:
+    """False for the layer's own housekeeping (lint, vault creation) and the user's own writes
+    (`_user_commit`: editor save / create / rename / delete, PRD 43 save card): never news."""
+    return subject not in _NOISE_COMMITS and not _USER_COMMIT.match(subject)
 
 
 def _news_path(path: str) -> bool:
@@ -1404,7 +1408,7 @@ def _page_changes(ts: str) -> tuple:
     for record in result.stdout.split("\x1e")[1:]:
         lines = [line for line in record.splitlines() if line.strip()]
         subject = lines[0] if lines else ""
-        if subject in _NOISE_COMMITS or _USER_COMMIT.match(subject):
+        if not _news_commit(subject):
             continue
         for line in lines[1:]:
             fields = line.split("\t")
@@ -1476,10 +1480,14 @@ def changes_since(ts: str) -> dict:
                 "memory": _memory_changes(ts)}
 
 
-def digest_empty(digest: dict) -> bool:
+def memory_total(digest: dict) -> int:
+    """How many memory ops the digest counts (added + updated + removed)."""
     mem = digest["memory"]
-    return not (digest["pages"] or digest["chat_pages"] or digest["sources"]
-                or mem["added"] or mem["updated"] or mem["removed"])
+    return mem["added"] + mem["updated"] + mem["removed"]
+
+
+def digest_empty(digest: dict) -> bool:
+    return not (digest["pages"] or digest["chat_pages"] or digest["sources"] or memory_total(digest))
 
 
 def _day(d) -> str:
@@ -1508,9 +1516,14 @@ def memory_value(value) -> str:
     return " ".join(str(value if value is not None else "").split())[:80]
 
 
+def capped(items: list) -> tuple:
+    """``(the first BRIEFING_CAP items, how many more)``."""
+    return items[:BRIEFING_CAP], max(0, len(items) - BRIEFING_CAP)
+
+
 def _capped(items: list) -> list:
-    extra = len(items) - BRIEFING_CAP
-    return items[:BRIEFING_CAP] + ([f"+{extra} more"] if extra > 0 else [])
+    head, extra = capped(items)
+    return head + ([f"+{extra} more"] if extra else [])
 
 
 def briefing_card(digest: dict) -> str:
@@ -1525,7 +1538,7 @@ def briefing_card(digest: dict) -> str:
     sections = [("Pages", pages),
                 ("Sources", _capped([f"[[{s['page']}]] · {s['kind'] or 'file'}" for s in digest["sources"]]))]
     mem = digest["memory"]
-    if mem["added"] or mem["updated"] or mem["removed"]:
+    if memory_total(digest):
         lines = [f"{mem['added']} added, {mem['updated']} updated, {mem['removed']} removed"]
         lines += [f"{_MEMORY_OPS[e['op']]} {e['path']}: {memory_value(e['value'])}".rstrip(": ")
                   for e in mem["examples"]]

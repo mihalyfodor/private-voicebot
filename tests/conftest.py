@@ -179,6 +179,12 @@ def seed(**sections) -> dict:
     return profile
 
 
+def log_ops(*ops: dict) -> None:
+    """Append `ops` to the memory ops log, as `memory` writes them (one JSON line each)."""
+    with open(memory.OPS_LOG_PATH, "a") as f:
+        f.writelines(json.dumps(o) + "\n" for o in ops)
+
+
 def audit_log() -> list:
     """Every line of the sandboxed memory_ops.jsonl, parsed."""
     if not os.path.exists(memory.OPS_LOG_PATH):

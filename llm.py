@@ -791,21 +791,20 @@ BRIEFING_PROMPT = ("The document below lists what changed in the user's wiki, so
 
 def _digest_text(digest: dict) -> str:
     """The digest as plain lines for the recap prompt, capped like the card."""
-    cap = wiki.BRIEFING_CAP
     lines = []
     for change in ("new", "edited", "deleted"):
-        titles = [p["title"] for p in digest["pages"] if p["change"] == change]
+        titles, extra = wiki.capped([p["title"] for p in digest["pages"] if p["change"] == change])
         if titles:
-            more = f" (+{len(titles) - cap} more)" if len(titles) > cap else ""
-            lines.append(f"Pages {change}: " + ", ".join(titles[:cap]) + more)
+            more = f" (+{extra} more)" if extra else ""
+            lines.append(f"Pages {change}: " + ", ".join(titles) + more)
     if digest["chat_pages"]:
         lines.append(f"Pages noted from our chats: {len(digest['chat_pages'])} ("
-                     + ", ".join(wiki.page_title(p) or p for p in digest["chat_pages"][:cap]) + ")")
+                     + ", ".join(wiki.page_title(p) or p for p in wiki.capped(digest["chat_pages"])[0]) + ")")
     if digest["sources"]:
         lines.append("New sources: " + ", ".join(
-            f"{wiki.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in digest["sources"][:cap]))
+            f"{wiki.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in wiki.capped(digest["sources"])[0]))
     mem = digest["memory"]
-    if mem["added"] or mem["updated"] or mem["removed"]:
+    if wiki.memory_total(digest):
         lines.append(f"Memory: {mem['added']} added, {mem['updated']} updated, {mem['removed']} removed"
                      + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {wiki.memory_value(e['value'])}"
                                for e in mem["examples"]))
@@ -834,11 +833,9 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     titles = [p["title"] for p in digest["pages"]]
     _conversation.append({"role": "user", "content": user_text})
     _conversation.append({"role": "assistant", "content": reply})
-    mem = digest["memory"]
     _session_turns.append({"role": "assistant", "content":
                            f"{memory.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
-                           f"{len(digest['sources'])} sources, {mem['added'] + mem['updated'] + mem['removed']} "
-                           "memory changes"})
+                           f"{len(digest['sources'])} sources, {wiki.memory_total(digest)} memory changes"})
     _last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
                      "pages": titles, "card": card_md}
     _log(user_text, [], reply, origin)

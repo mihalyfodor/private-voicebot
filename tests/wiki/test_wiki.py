@@ -11,7 +11,7 @@ import pytest
 
 import memory
 import wiki
-from tests.conftest import FakeClient, commits, read, seed, write_page
+from tests.conftest import FakeClient, commits, log_ops, read, seed, write_page
 
 
 TURNS = [{"role": "user", "content": "we agreed to deploy on Fridays; Anna runs the release"}]
@@ -794,8 +794,7 @@ def test_briefing_counts_later_sources_and_memory_ops_but_not_hand_edits(vault):
         {"ts": "2026-10-11T08:03:00", "op": "CONFIRM", "path": "people[1]", "value": None, "reason": "again"},
         {"ts": "2026-10-11T08:04:00", "op": "UPDATE", "path": "identity.city", "value": "Bern", "reason": "moved"},
     ]
-    with open(memory.OPS_LOG_PATH, "w") as f:
-        f.writelines(json.dumps(o) + "\n" for o in ops)
+    log_ops(*ops)
 
     digest = wiki.changes_since(CUTOFF)
 
