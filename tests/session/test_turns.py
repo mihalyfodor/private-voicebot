@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketDisconnect
 import avatars
 from core import settings
 import chatbot
+from tools import commands, registry
 import llm
 import memory
 import services
@@ -474,18 +475,39 @@ def spoken_text(sent: list) -> list:
     ("anything new?", True), ("please, what has changed?", True), ("What is new, please?", True),
     ("what changed", True), ("what's new with you", False), ("brief me on Falcon", False), ("new topic", False)])
 def test_briefing_command(text, expected):
-    assert chatbot.briefing_command(text) is expected
+    assert commands.briefing_command(text) is expected
 
 
 def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():
     started, asked = [], []
-    with patch.object(chatbot, "briefing", lambda sess, turn, text, send, origin="user": started.append(text)), \
+    with patch.dict(registry._HANDLERS, {"briefing": lambda ctx: started.append(ctx.text)}), \
             patch.object(llm, "ask_events", lambda text, **kw: asked.append(text) or iter([("delta", "Fine.")])), \
             patch.object(chatbot, "synthesize", fake_tts):
         for text in ("what's new?", "Brief me.", "what did I miss", "/brief", "what's new with you"):
             chatbot.respond(Session(), 1, text, lambda msg: None)
     assert started == ["what's new?", "Brief me.", "what did I miss", "/brief"]
     assert asked == ["what's new with you"]
+
+
+def test_with_the_llm_offline_only_the_offline_safe_commands_run(vault, fresh_llm):
+    """PRD 50 scenario 5: new topic / save note / briefing run before the llm_ok gate; a write-up,
+    a page command and a plain turn get the offline composer line and idle, nothing else."""
+    ran = []
+    stubs = {name: (lambda ctx, name=name: ran.append(name)) for name in
+             ("new_topic", "save_note", "briefing", "write_up", "open_page")}
+    offline = [{"type": "error", "scope": "turn", "text": chatbot.llm_offline_text()},
+               {"type": "state", "value": "idle"}]
+    with patch.dict(registry._HANDLERS, stubs), patch.object(services, "llm_ok", lambda: False), \
+            patch.object(llm, "ask_events", lambda *a, **kw: ran.append("model") or iter(())):
+        for text in ("new topic", "save that as a note", "what's new?"):
+            sent = []
+            chatbot.respond(Session(), 1, text, sent.append)
+            assert sent == []
+        for text in ("write it up", "find fallout", "hello there"):
+            sent = []
+            chatbot.respond(Session(), 1, text, sent.append)
+            assert sent == offline, text
+    assert ran == ["new_topic", "save_note", "briefing"]
 
 
 def test_a_briefing_with_changes_is_one_completion_ending_with_the_offer(vault, fresh_llm):

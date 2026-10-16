@@ -12,6 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import chatbot
+from tools import commands
 import llm
 import memory
 import wiki
@@ -127,12 +128,12 @@ def test_find_with_no_match_leaves_the_view_alone(seeded_vault):
 
 
 def test_page_commands_match_the_two_phrasings_and_nothing_else():
-    assert chatbot.page_command("Open Anna") == ("open", "Anna")
-    assert chatbot.page_command("show me the note on Falcon?") == ("open", "Falcon")
-    assert chatbot.page_command("Go back to the last page.") == ("back", None)
-    assert chatbot.page_command("What were we looking at?") == ("back", None)
+    assert commands.page_command("Open Anna") == ("open", "Anna")
+    assert commands.page_command("show me the note on Falcon?") == ("open", "Falcon")
+    assert commands.page_command("Go back to the last page.") == ("back", None)
+    assert commands.page_command("What were we looking at?") == ("back", None)
     for text in ("summarise this", "what does it say about turrets", "find", "I opened the door"):
-        assert chatbot.page_command(text) is None, text
+        assert commands.page_command(text) is None, text
 
 
 # --------------------------------------------------------------- 5. a source in the Sources view

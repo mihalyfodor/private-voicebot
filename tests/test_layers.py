@@ -9,7 +9,7 @@ SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "
 
 # (importer path, imported layer) pairs still pointing upward. May only shrink (docs/50-modular-layout.md).
 ALLOWED = {
-    ("tools/sources.py", "root"),    # imports sources, chatbot
+    ("tools/sources.py", "root"),    # imports sources
     ("tools/wiki.py", "root"),       # imports wiki
 }
 

@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from session import Session
 
 import chatbot
+from tools import commands
 import llm
 import memory
 import wiki
@@ -128,7 +129,7 @@ def test_content_question(text, expected):
     ("give me the written version", True), ("/write", True), ("write a poem", False), ("yes please", False),
 ])
 def test_wants_writeup(text, expected):
-    assert llm.wants_writeup(text) is expected
+    assert commands.wants_writeup(text) is expected
 
 
 # --------------------------------------------------------------- 2. the card
@@ -290,12 +291,12 @@ def test_wiki_save_card_frontmatter_lists_survive_a_reparse(vault):
 
 @pytest.mark.parametrize("text", ["save that as a note", "Save this to the wiki", "save it, please", "save that"])
 def test_save_note_command(text):
-    assert chatbot.save_note_command(text)
+    assert commands.save_note_command(text)
 
 
 @pytest.mark.parametrize("text", ["save the file", "save that as a note about Anna", "let's save money"])
 def test_not_a_save_note_command(text):
-    assert not chatbot.save_note_command(text)
+    assert not commands.save_note_command(text)
 
 
 def test_spoken_save_that_as_a_note_files_the_last_card(card):

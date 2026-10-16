@@ -26,7 +26,9 @@ import fillers
 import avatars
 from core import settings
 import services
+from tools import commands, registry
 from tools import weather as weather_tool
+from tools.registry import Ctx
 import backdrops
 import numpy as np
 import soundfile as sf
@@ -366,50 +368,19 @@ def _wait_for_playback_then_idle(sess: Session, send_sync):
     send_sync({"type": "state", "value": "idle"})
 
 
-# --- find / open pages from chat (docs/38-focus-context.md) ---------------------------
-# Deterministic, not NLU: two phrasings, matched on the whole turn, typed or spoken.
-_OPEN_PAGE = re.compile(
-    r"^(?:please\s+)?(?:find|open|show(?:\s+me)?)\s+(?:the\s+|a\s+)?(?:(?:wiki\s+)?(?:page|note|source)\s+)?"
-    r"(?:(?:about|on|for)\s+)?(?P<query>.+?)(?:,?\s+please)?[\s?.!]*$", re.I)
-_BACK_TO_PAGE = re.compile(
-    r"^(?:(?:go|take me)\s+)?back\s+to\s+(?:that|the\s+last|the)\s+page[\s?.!]*$"
-    r"|^what\s+were\s+we\s+looking\s+at[\s?.!]*$", re.I)
-
-
-def page_command(text: str):
-    """``("open", query)``, ``("back", None)`` or None for a turn that is not a page command."""
-    text = " ".join(str(text or "").split())
-    if _BACK_TO_PAGE.match(text):
-        return ("back", None)
-    m = _OPEN_PAGE.match(text)
-    if m and m.group("query"):
-        return ("open", m.group("query"))
-    return None
-
-
-_NEW_TOPIC = re.compile(r"^(?:new\s+topic|/new)[\s?.!]*$", re.I)
-
-
-def new_topic_command(text: str) -> bool:
-    """True for the exact phrase "new topic" (spoken or typed) or the typed `/new` (PRD 39)."""
-    return bool(_NEW_TOPIC.match(" ".join(str(text or "").split())))
-
+# --- the trigger tools' bodies (PRD 50 step 3) ------------------------------------------
+# Their regexes, order and flags live in tools/registry.py (+ tools/commands.py); the bodies drive TTS
+# and turn state, so they stay here and are bound with `@registry.handler(name)`.
 
 # --- briefing (docs/46-briefing.md) ---------------------------------------------------
-_BRIEF = re.compile(
-    r"^(?:please,?\s+)?(?:what(?:['’]?s|\s+is)\s+new|anything\s+new|brief\s+me|what\s+(?:has\s+)?changed"
-    r"|what\s+did\s+i\s+miss|/brief)(?:,?\s+please)?[\s?.!]*$", re.I)
 BRIEFING_HOURS = 24          # the look-back of the very first briefing
 
 
-def briefing_command(text: str) -> bool:
-    """True for "what's new?", "brief me", "anything new", "what changed", "what did I miss", `/brief`."""
-    return bool(_BRIEF.match(" ".join(str(text or "").split())))
-
-
-def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
+@registry.handler("briefing")
+def briefing(ctx: Ctx):
     """The briefing turn: "Nothing new since <when>." without the model, else one spoken recap;
     `briefing_at` moves forward only once the recap was spoken."""
+    sess, turn, user_text, send_sync, origin = ctx.session, ctx.turn, ctx.text, ctx.send, ctx.origin
     try:
         now = memory._stamp("%H:%M:%S")
         since = settings.load_settings().get("briefing_at") or \
@@ -442,17 +413,9 @@ def context_msg() -> dict:
 # --- written answers (docs/43-written-answers.md) --------------------------------------
 # "write it up" / `/write` turn the last answer into a card; "save that as a note" files the
 # last card. Both are deterministic, matched on the whole turn, typed or spoken.
-_SAVE_NOTE = re.compile(
-    r"^(?:please\s+)?save\s+(?:that|this|it)(?:\s+(?:as|to|in)\s+(?:a\s+|the\s+)?(?:note|wiki|wiki\s+note|note\s+in\s+the\s+wiki))?"
-    r"(?:,?\s+please)?[\s?.!]*$", re.I)
 NOTHING_TO_SAVE = "nothing to save"
 ALREADY_SAVED = "already saved"
 DEFAULT_CARD_FOLDER = "notes"
-
-
-def save_note_command(text: str) -> bool:
-    """True for "save that as a note" / "save this to the wiki" / "save it" (PRD 43)."""
-    return bool(_SAVE_NOTE.match(" ".join(str(text or "").split())))
 
 
 def card_msg(card: dict) -> dict:
@@ -484,8 +447,10 @@ def save_card(card_id: str | None, folder: str = "") -> list:
             _wiki_msg(), _sources_msg()]
 
 
-def write_up(sess: Session, turn: int, user_text: str, send_sync):
+@registry.handler("write_up")
+def write_up(ctx: Ctx):
     """The write-up turn: one spoken line, then the `card`; the card body is never spoken."""
+    sess, turn, user_text, send_sync = ctx.session, ctx.turn, ctx.text, ctx.send
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
@@ -501,8 +466,10 @@ def write_up(sess: Session, turn: int, user_text: str, send_sync):
         _turn_failed(send_sync, "write_up", e, "The write-up failed.", recheck=True)
 
 
-def save_note(sess: Session, turn: int, send_sync):
+@registry.handler("save_note")
+def save_note(ctx: Ctx):
     """The spoken "save that as a note" turn: the last card becomes a note, the page opens."""
+    sess, turn, send_sync = ctx.session, ctx.turn, ctx.send
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
@@ -525,8 +492,10 @@ def _with_context_notice(events):
         yield ("delta", " " + notice)
 
 
-def new_topic(sess: Session, turn: int, send_sync):
+@registry.handler("new_topic")
+def new_topic(ctx: Ctx):
     """Fold memory, restart on a summary, tell the page (`thread`), speak the ack, idle."""
+    sess, turn, send_sync = ctx.session, ctx.turn, ctx.send
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
@@ -539,16 +508,24 @@ def new_topic(sess: Session, turn: int, send_sync):
         _turn_failed(send_sync, "new_topic", e, "Starting a new topic failed.")
 
 
+def _ctx(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user") -> Ctx:
+    return Ctx(text=user_text, origin=origin, session=sess, turn=turn, send=send_sync,
+               push_panel=lambda: push_memory(with_wiki=True))
+
+
 def new_topic_turn(sess: Session, turn: int, loop):
-    new_topic(sess, turn, make_sender(loop, turn))
+    new_topic(_ctx(sess, turn, "", make_sender(loop, turn)))
 
 
-def open_page_for(text: str, send_sync) -> str:
-    """Open the page a find/open/go-back turn asks for and return the one-turn note for the model.
+@registry.handler("open_page")
+def open_page(ctx: Ctx) -> str:
+    """Open the page a find/open/go-back turn asks for (docs/38-focus-context.md) and return the
+    one-turn note for the model.
 
     Pushes `wiki_open {path}` and sets the focus; "" when the turn is not a page command.
     """
-    cmd = page_command(text)
+    send_sync = ctx.send
+    cmd = commands.page_command(ctx.text)
     if cmd is None:
         return ""
     kind, query = cmd
@@ -568,7 +545,7 @@ def open_page_for(text: str, send_sync) -> str:
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """One turn between its `turn_start` and `turn_end` events (docs/49-event-trace.md); see `_respond`."""
     with trace.turn(turn):
-        label = ("briefing" if briefing_command(user_text) else "card" if llm.wants_writeup(user_text)
+        label = ("briefing" if commands.briefing_command(user_text) else "card" if commands.wants_writeup(user_text)
                  else "typed" if origin == "typed" else "spoken")
         trace.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
         t0, end = time.monotonic(), {"outcome": "ok", "reply_len": 0, "tools": [], "band": None}
@@ -594,29 +571,26 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
     `/brief` is the briefing turn, offline-safe when nothing changed (PRD 46). Every
     completed turn ends with a `context` message; the 90 % crossing adds one spoken sentence.
     """
-    if new_topic_command(user_text):
-        new_topic(sess, turn, send_sync)
-        return
-    if save_note_command(user_text):
-        save_note(sess, turn, send_sync)
-        return
-    if briefing_command(user_text):
-        briefing(sess, turn, user_text, send_sync, origin)
+    ctx = _ctx(sess, turn, user_text, send_sync, origin)
+    tool = registry.match(user_text)    # the trigger tools, in routing order (tools/registry.py)
+    if tool is not None and not tool.needs_llm:
+        tool.run(ctx)
         return
     if not services.llm_ok():
         # PRD 41: no thinking state, no timeout — the composer line says what to run
         send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
         send_sync({"type": "state", "value": "idle"})
         return
-    if llm.wants_writeup(user_text):
-        write_up(sess, turn, user_text, send_sync)
+    if tool is not None and tool.takeover:
+        tool.run(ctx)
         return
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        note = open_page_for(user_text, send_sync)
-        events = _with_context_notice(llm.ask_events(user_text, origin=origin, note=note))
-        reply = speak_stream(events, send_sync)
+        note = tool.run(ctx) if tool is not None else ""
+        with registry.bind(ctx):     # a tool round's file_source refreshes the panel through it
+            events = _with_context_notice(llm.ask_events(user_text, origin=origin, note=note))
+            reply = speak_stream(events, send_sync)
         end.update(reply_len=len(reply), tools=[tc["name"] for tc in llm.get_last_tool_calls()], band=llm.last_band)
         log.debug(f"Bot: {reply}")
         trace.verbose("turn_text", user=user_text, reply=reply)

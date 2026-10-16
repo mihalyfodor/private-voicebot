@@ -86,11 +86,13 @@ def file_source(kind: str, ref: str, hint: str = "") -> str:
 
 
 def _push_panel() -> None:
-    """Refresh an open Wiki tab, if there is one. No app, no socket, no problem."""
+    """Refresh an open Wiki tab through the turn's bound context, if any. No turn, no panel, no problem."""
     try:
-        import chatbot
+        from tools import registry   # function-local: registry imports this module
 
-        chatbot.push_memory(with_wiki=True)
+        ctx = registry.current()
+        if ctx is not None:
+            ctx.push_panel()
     except Exception:  # noqa: BLE001
         pass
 

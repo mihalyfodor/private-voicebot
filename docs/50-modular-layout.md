@@ -101,6 +101,7 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
   flag on tools is the hook.
 - Chose deleting the shims at step 12 over keeping them one release: the layer test then fails any old import.
 - Step 2 keeps each module's `run(args: dict)` signature; `run_tool` passes the dict as today — `**args` unpacking is deferred until the modules are touched again, so step 2 stays a pure registry move.
+- Step 3: the registry holds every trigger tool's record (name, regex, order, flags) and `match()`; the body is bound by the server with `@registry.handler(name)` because it drives TTS and turn state, which must stay above the agent layer. Adding a command = one registry line + one decorated function. Risk: a record with no bound handler; mitigation: `run` raises naming the tool, and a test covers it.
 
 ## Data model
 - Layer graph: `core < vault < memory < ingest < tools < agent < server`; `scripts/` and `chatbot.py` on top. A

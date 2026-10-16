@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from tools import registry
+from tools import commands, registry
 
 import chatbot
 import llm
@@ -206,7 +206,7 @@ def test_spoken_new_topic_takes_the_new_topic_path(seeded_vault, recorded_memory
         sent, fake = new_topic_turn_via(chatbot.handle_utterance, np.zeros(10, dtype=np.float32))
     assert {"type": "transcript", "role": "user", "text": "new topic"} in sent
     assert {"type": "thread", "text": "Falcon and the deploy."} in sent
-    assert not chatbot.new_topic_command("a new topic please")
+    assert not commands.new_topic_command("a new topic please")
 
 
 def test_the_palette_sends_new_topic_and_the_divider_shows_the_summary(r):

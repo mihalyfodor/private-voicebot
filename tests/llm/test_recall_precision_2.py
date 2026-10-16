@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 
 from core import settings
-import chatbot
+from tools import commands
 import llm
 import memory
 import sources
@@ -257,7 +257,7 @@ def test_focus_and_deeper_notes_forbid_names_from_memory():
     ("open the window", "window"),
 ])
 def test_page_command_strips_a_trailing_please(text, query):
-    assert chatbot.page_command(text) == ("open", query)
+    assert commands.page_command(text) == ("open", query)
 
 
 # --------------------------------------------------------------- 10. the dated raw name

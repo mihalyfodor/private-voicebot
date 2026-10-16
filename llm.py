@@ -23,7 +23,7 @@ OMLX_API_KEY = config.OMLX_API_KEY
 OMLX_MODEL = config.OMLX_MODEL
 run_tool = registry.run_tool
 TOOLS = registry.schemas()
-trace.vocab("name", [t.name for t in registry.REGISTRY] + ["dig_deeper"])
+trace.vocab("name", [t.name for t in registry.REGISTRY if t.schema] + ["dig_deeper"])
 log = trace.logger("llm")
 tool_log = trace.logger("Tool")
 
@@ -725,8 +725,6 @@ CONTENT_MIN_WORDS = 8
 #: a name question ("Who is Vivec?") answers directly when its top hit has a proper match (the recall
 #: band only, PRD 45; CONTENT_WORDS and the typed length are untouched)
 ASK_WORDS = re.compile(r"^\W*(?:who|where|which|when)\b", re.I)
-#: "write it up", "write that up", "written version", "write it out" — and the typed `/write`
-WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten\s+version\b|^/write\s*$", re.I)
 #: the tools whose result is filed / fetched text (a typed content question answered from one runs long)
 GROUNDING_TOOLS = frozenset(("search_wiki", "read_source", "read_page", "get_wikipedia"))
 WRITTEN_LINE = "[happy] Written out below."
@@ -745,11 +743,6 @@ _CARD_MARK = re.compile(r"^<card id=\"([a-z0-9]+)\">\n(.*)\n</card>$", re.S)
 def content_question(text: str) -> bool:
     """A question that wants an explanation: a CONTENT_WORDS word or CONTENT_MIN_WORDS+ words."""
     return bool(CONTENT_WORDS.search(text)) or len(text.split()) >= CONTENT_MIN_WORDS
-
-
-def wants_writeup(text: str) -> bool:
-    """"write it up", "yes, write that up please", "give me the written version", typed `/write`."""
-    return bool(WANTS_WRITEUP.search(" ".join(str(text or "").split())))
 
 
 def written_note(extra: str) -> str:
