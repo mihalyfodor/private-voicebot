@@ -19,7 +19,7 @@ import llm
 import memory
 import sources
 import wiki
-from tests.conftest import (FakeClient, RawStreamClient, StreamClient, last_user, seeded_vault,  # noqa: F401
+from tests.conftest import (FakeClient, RawStreamClient, StreamClient, ask_turn, deltas, last_user, seeded_vault,  # noqa: F401
                             stream_chunks, tool_call_chunk, write_page)
 from tests.conftest import both, fallout, summary_json  # noqa: F401  (fixtures)
 
@@ -34,17 +34,6 @@ OFFER_REPLY = "[happy] Talk to Jacob Orden, says the Fallout 4 guide. Want me to
 def _parts(block: str) -> list:
     """The `(part n/N)` numbers quoted in a recall / lookup block, in order."""
     return [int(n) for n in re.findall(r"\(part (\d+)/\d+\)", block)]
-
-
-def _turn(text: str, *replies) -> tuple:
-    fake = StreamClient(*replies)
-    with patch.object(llm, "_client", fake):
-        events = list(llm.ask_events(text))
-    return events, fake
-
-
-def _deltas(events: list) -> str:
-    return "".join(payload for kind, payload in events if kind == "delta")
 
 
 # --------------------------------------------------------------- 1. title stripping
@@ -106,7 +95,7 @@ def test_recall_hits_skip_a_neighbour_of_a_kept_chunk(fallout):
 def test_a_not_covered_reply_is_dropped_and_the_turn_re_asked_with_a_lookup(fallout, file_sandbox):
     avatars.save_setting("recall_min_score", 999)
     assert llm.recall_for(COVENANT_QUESTION) == ""           # recall injects nothing
-    events, fake = _turn(COVENANT_QUESTION, NOT_COVERED_REPLY, OFFER_REPLY)
+    events, fake = ask_turn(COVENANT_QUESTION, NOT_COVERED_REPLY, OFFER_REPLY)
 
     assert not any(kind == "delta" and "do not mention" in payload for kind, payload in events)
     assert ("tool_calls", ["search_wiki"]) in events
@@ -115,7 +104,7 @@ def test_a_not_covered_reply_is_dropped_and_the_turn_re_asked_with_a_lookup(fall
     assert user.startswith(COVENANT_QUESTION)
     assert "<lookup>" in user and 'From "Fallout 4 guide"' in user and "Covenant" in user
     assert llm.FALLBACK_NOTE.format(titles='"Fallout 4 guide"') in user
-    assert _deltas(events) == OFFER_REPLY
+    assert deltas(events) == OFFER_REPLY
     assert llm._conversation[-1]["content"] == OFFER_REPLY
     assert llm._conversation[-2]["content"] == COVENANT_QUESTION   # the block is stripped after the turn
     assert llm._deeper_offer["source"] == fallout["path"]
@@ -123,17 +112,17 @@ def test_a_not_covered_reply_is_dropped_and_the_turn_re_asked_with_a_lookup(fall
 
 def test_a_grounded_reply_streams_normally_in_one_call(fallout, file_sandbox):
     avatars.save_setting("recall_min_score", 999)
-    events, fake = _turn(COVENANT_QUESTION, "[happy] Talk to Jacob.")
+    events, fake = ask_turn(COVENANT_QUESTION, "[happy] Talk to Jacob.")
     assert len(fake.calls) == 1
-    assert _deltas(events) == "[happy] Talk to Jacob."
+    assert deltas(events) == "[happy] Talk to Jacob."
     assert ("tool_calls", ["search_wiki"]) not in events
 
 
 def test_not_covered_about_a_topic_no_source_has_streams_as_is(fallout, file_sandbox):
     reply = "[sad] The provided documents do not mention a submarine periscope."
-    events, fake = _turn("how does a submarine periscope work in the documents", reply)
+    events, fake = ask_turn("how does a submarine periscope work in the documents", reply)
     assert len(fake.calls) == 1
-    assert _deltas(events) == reply
+    assert deltas(events) == reply
     assert "<lookup>" not in last_user(fake)
 
 
@@ -148,7 +137,7 @@ def test_a_tool_call_turn_never_retries(fallout, file_sandbox):
     assert len(fake.calls) == 2
     assert events[0] == ("tool_calls", ["get_weather"])
     assert ("tool_calls", ["search_wiki"]) not in events
-    assert _deltas(events) == NOT_COVERED_REPLY
+    assert deltas(events) == NOT_COVERED_REPLY
 
 
 @pytest.mark.parametrize("text", [

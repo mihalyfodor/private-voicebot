@@ -503,6 +503,20 @@ def spoken(text: str, reply: str = "[neutral] Sure.") -> tuple:
     return sent, fake
 
 
+def ask_turn(text: str, *replies, origin: str = "user") -> tuple:
+    """One turn through `llm.ask_events` against scripted streamed replies: (events, fake)."""
+    from unittest.mock import patch
+    fake = StreamClient(*replies)
+    with patch.object(llm, "_client", fake):
+        events = list(llm.ask_events(text, origin=origin))
+    return events, fake
+
+
+def deltas(events: list) -> str:
+    """The reply text of an `ask_events` turn: its "delta" payloads joined."""
+    return "".join(payload for kind, payload in events if kind == "delta")
+
+
 def last_user(fake) -> str:
     """The last user message of the fake client's most recent call — what the model saw."""
     return [m for m in fake.calls[-1]["messages"] if m["role"] == "user"][-1]["content"]

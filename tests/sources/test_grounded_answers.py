@@ -15,7 +15,7 @@ import fillers
 import llm
 import memory
 import wiki
-from tests.conftest import RawStreamClient, StreamClient, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
+from tests.conftest import RawStreamClient, StreamClient, ask_turn, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
 from tests.conftest import fallout, both  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")   # no mocked turn may leak into another test's session replay
@@ -26,6 +26,9 @@ SMALL_TALK = ["what should we cook tonight?", "what's on today?", "any eggs left
 IN_GUIDE = ["I'm at Covenant and the turrets shoot me", "Thieves Guild in Riften"]
 
 
+MORE_REPLY = "[happy] Here is more."
+
+
 def _offer_turn(reply: str = OFFER_REPLY) -> StreamClient:
     """One recall turn whose mocked reply ends with the offer; returns the fake."""
     llm.reset()
@@ -33,13 +36,6 @@ def _offer_turn(reply: str = OFFER_REPLY) -> StreamClient:
     with patch.object(llm, "_client", fake):
         llm.ask(QUESTION)
     return fake
-
-
-def _turn(text: str, reply: str = "[happy] Here is more.") -> tuple[list, StreamClient]:
-    fake = StreamClient(reply)
-    with patch.object(llm, "_client", fake):
-        events = list(llm.ask_events(text))
-    return events, fake
 
 
 # --------------------------------------------------------------- 1. recall precision
@@ -126,7 +122,7 @@ def test_yes_please_reads_the_neighbours_long_for_that_turn_only(fallout):
     _offer_turn()
     offered = llm._deeper_offer["parts"]
     total = wiki.search_chunks(QUESTION)[0]["total"]
-    events, fake = _turn("yes please")
+    events, fake = ask_turn("yes please", MORE_REPLY)
     assert ("tool_calls", ["dig_deeper"]) in events
     sent = fake.calls[-1]
     user = last_user(fake)
@@ -147,7 +143,7 @@ def test_yes_please_reads_the_neighbours_long_for_that_turn_only(fallout):
 
 def test_anything_else_clears_the_offer_and_injects_nothing(fallout):
     _offer_turn()
-    _, fake = _turn("no, what's the weather")
+    _, fake = ask_turn("no, what's the weather", MORE_REPLY)
     user = last_user(fake)
     assert "<source" not in user and user.startswith("no, what's the weather")
     assert fake.calls[-1]["max_tokens"] == 400
@@ -156,16 +152,16 @@ def test_anything_else_clears_the_offer_and_injects_nothing(fallout):
 
 def test_an_offer_never_persists_past_one_turn(fallout):
     _offer_turn()
-    _turn("tell me a joke about programmers", "[happy] Why do programmers prefer dark mode?")
+    ask_turn("tell me a joke about programmers", "[happy] Why do programmers prefer dark mode?")
     assert llm._deeper_offer is None
-    _, fake = _turn("yes")
+    _, fake = ask_turn("yes", MORE_REPLY)
     assert "<source" not in last_user(fake)
     assert fake.calls[-1]["max_tokens"] == 400
 
 
 def test_a_deeper_reply_ending_with_an_offer_offers_again(fallout):
     _offer_turn()
-    _turn("yes please", "[happy] More here. Shall I dig deeper?")
+    ask_turn("yes please", "[happy] More here. Shall I dig deeper?")
     assert llm._deeper_offer and llm._deeper_offer["source"] == fallout["path"]
 
 

@@ -443,6 +443,12 @@ RECALL_NOTE = ("If this answers the question, answer from it " + SHORT_PHRASE + 
                "once in a short natural clause inside a sentence (never as a separate closing sentence), "
                "and " + NOTE_OFFER + " Otherwise ignore it "
                "completely: answer as you normally would and never mention the document or what it lacks.")
+# --- ask before lookup (docs/45-ask-before-lookup.md): the recall band on spoken turns
+RECALL_HIGH_SCORE = wiki.RECALL_HIGH_SCORE
+#: the one sentence a medium spoken turn ends with, and the note that keeps the model from asking too
+RECALL_OFFER = "Want me to check your {title}?"
+RECALL_ASK_NOTE = "Answer briefly as you normally would, do not end with a question."
+RECALL_YES_NOTE = "The user said yes to checking. Answer their earlier question from it: «{question}»"
 # --- recall precision 2 (docs/42-recall-precision-2.md) --------------------------------
 #: a question shorter than RECALL_MIN_WORDS still recalls with this many words and a proper term
 RECALL_MIN_PROPER_WORDS = 2
@@ -588,8 +594,7 @@ def strip_offer(reply: str) -> str:
     offer replaces it, PRD 45)."""
     for phrase in DEEPER_OFFERS + (WIKIPEDIA_OFFER,):
         if ends_with_offer(reply, (phrase,)):
-            cut = reply.lower().rfind(phrase.lower())
-            return reply[:cut].rstrip() if cut >= 0 else reply
+            return reply[:reply.lower().rfind(phrase.lower())].rstrip()
     return reply
 
 
@@ -663,6 +668,9 @@ def _messages(deeper: bool, written: bool = False) -> list:
 #: a content question: one of these words, or CONTENT_MIN_WORDS words or more
 CONTENT_WORDS = re.compile(r"\b(?:what|how|why|explain|compare|list|steps|difference|summari[sz]e)\b", re.I)
 CONTENT_MIN_WORDS = 8
+#: a name question ("Who is Vivec?") answers directly when its top hit has a proper match (the recall
+#: band only, PRD 45; CONTENT_WORDS and the typed length are untouched)
+ASK_WORDS = re.compile(r"^\W*(?:who|where|which|when)\b", re.I)
 #: "write it up", "write that up", "written version", "write it out" — and the typed `/write`
 WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten\s+version\b|^/write\s*$", re.I)
 #: the tools whose result is filed / fetched text (a typed content question answered from one runs long)
@@ -776,52 +784,47 @@ def recall_for(user_text: str) -> str:
     COMMAND_WORDS one, "what time is it") never search; otherwise the best raw chunks above
     `recall_min_score` are quoted, at most RECALL_MAX_CHUNKS of them within RECALL_MAX_TOKENS.
     """
-    evidence = _recall_evidence(user_text)
-    return _quote_block("recall", *evidence, RECALL_MAX_TOKENS, RECALL_NOTE) if evidence else ""
+    return _recall_block(*_recall_evidence(user_text))
 
 
-def _recall_evidence(user_text: str) -> tuple | None:
-    """``(page, hits)`` recall would quote for this turn, or None when the turn never searches."""
+def _recall_block(page: dict | None, hits: list) -> str:
+    """The `<recall>` block quoting `page` and `hits`, or "" when there is nothing to quote."""
+    return _quote_block("recall", page, hits, RECALL_MAX_TOKENS, RECALL_NOTE)
+
+
+def _recall_evidence(user_text: str) -> tuple:
+    """``(page, hits)`` recall would quote for this turn; ``(None, [])`` when the turn never searches."""
     terms = wiki.content_terms(user_text)
     if terms <= COMMAND_WORDS:
-        return None
+        return None, []
     proper = wiki.proper_terms(terms)
     words = len(user_text.split())
     if words < RECALL_MIN_WORDS and not (words >= RECALL_MIN_PROPER_WORDS and proper):
-        return None
+        return None, []
     page = _page_recall(user_text, terms)
     return page, _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES)
 
-
-# --- ask before lookup (docs/45-ask-before-lookup.md) -----------------------------------
-#: a name question ("Who is Vivec?") answers directly when its top hit has a proper match (band only)
-ASK_WORDS = re.compile(r"^\W*(?:who|where|which|when)\b", re.I)
-RECALL_HIGH_SCORE = wiki.RECALL_HIGH_SCORE
-#: the one sentence a medium spoken turn ends with, and the note that keeps the model from asking too
-RECALL_OFFER = "Want me to check your {title}?"
-RECALL_ASK_NOTE = "Answer briefly as you normally would, do not end with a question."
-RECALL_YES_NOTE = "The user said yes to checking. Answer their earlier question from it: «{question}»"
 
 
 def recall_band(user_text: str, page: dict | None, hits: list) -> str:
     """"high" (answer grounded), "medium" (answer plainly, offer to check) or "low" (no recall)
     from the evidence recall found: score per topic word plus the kind of match (PRD 45)."""
-    if not page and not hits:
-        return "low"
     top = hits[0] if hits else None
     proper = wiki.proper_terms(wiki.content_terms(user_text))
     matched = wiki.proper_match(top, proper, wiki.proper_phrases(user_text)) if top else set()
     content = content_question(user_text)
-    if not (content or matched):
-        return "low"                                            # the gate: chat on plain words
+    # low: nothing kept, or the gate fails (chat carried by plain words)
+    if not (page or hits) or not (content or matched):
+        return "low"
+    # high: a named page or source, then the rules that need the top hit
     if page or top.get("named"):
         return "high"
-    if content and (matched or top["score"] >= RECALL_HIGH_SCORE):
+    strong_question = content and (matched or top["score"] >= RECALL_HIGH_SCORE)
+    name_question = bool(ASK_WORDS.search(user_text)) and bool(matched)
+    whole_name = not content and (top.get("phrases") or len(matched) >= 2)
+    if strong_question or name_question or whole_name:
         return "high"
-    if ASK_WORDS.search(user_text) and matched:
-        return "high"
-    if not content and (top.get("phrases") or len(matched) >= 2):
-        return "high"
+    # medium: everything else with a kept hit
     return "medium"
 
 
@@ -940,7 +943,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     # memory and the wiki ingest see) keep the user's own words.
     # A page open in the UI takes the place of recall (PRD 38); Chat and Memory recall as before.
     focused = "" if deeper or lookup or asked else focus_block(user_text)
-    band, offer_text, offer_from = "", "", ""
+    band, offer_text, recall_offer = "", "", None
     if deeper or lookup or focused:
         extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focused)
     elif asked:                                                 # "yes" to the recall offer: forced high
@@ -948,17 +951,17 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     elif origin == "typed":
         extra = recall_for(user_text)
     else:
-        # A spoken turn asks before it looks up (PRD 45): weak evidence gets one short offer,
-        # never twice in a row.
-        page, hits = _recall_evidence(user_text) or (None, [])
+        # A spoken turn asks before it looks up (PRD 45): only a high band quotes, weak evidence
+        # gets one short offer, never twice in a row.
+        page, hits = _recall_evidence(user_text)
         band = recall_band(user_text, page, hits)
-        extra = _quote_block("recall", page, hits, RECALL_MAX_TOKENS, RECALL_NOTE) if band == "high" else ""
+        extra = _recall_block(page, hits) if band == "high" else ""
         if band != "high":
             _turn_pages = []
         if band == "medium" and not (offer or {}).get("recall"):
             extra = "\n\n" + RECALL_ASK_NOTE
-            offer_from = offer_title(hits[0]["title"])
-            offer_text = RECALL_OFFER.format(title=offer_from)
+            recall_offer = {"recall": user_text, "title": offer_title(hits[0]["title"])}
+            offer_text = RECALL_OFFER.format(title=recall_offer["title"])
     # A plain Chat turn may be re-asked once with a server-side lookup when the reply starts by
     # claiming the documents do not cover the question (PRD 42): its first characters are held.
     # A medium turn never is: its offer replaces the fallback.
@@ -1088,9 +1091,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     user_msg["content"] = user_text
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
-    _deeper_offer = _offer_from_turn(reply, user_text)
-    if offer_text and not pending:
-        _deeper_offer = {"recall": user_text, "title": offer_from}
+    _deeper_offer = recall_offer if offer_text and not pending else _offer_from_turn(reply, user_text)
     _last_context = {"question": asked or user_text, "extra": block, "tools": tool_texts, "reply": reply,
                      "sources": list(_turn_sources), "pages": list(_turn_pages)}
     _log(user_text, _last_tool_calls, reply, origin, band if origin != "typed" else "")

@@ -8,14 +8,13 @@ tests/conftest.py; scenario 1 (`live`) runs over a copy of ~/llm-wiki-dev.
 """
 import os
 import shutil
-from unittest.mock import patch
 
 import pytest
 
 import avatars
 import llm
 import wiki
-from tests.conftest import StreamClient, fallout, last_user  # noqa: F401  (fixtures)
+from tests.conftest import ask_turn, deltas, fallout, last_user  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -24,14 +23,6 @@ QUESTION = "What about Covenant turrets?"            # four words, a content que
 OFFER = "Want me to check your Fallout 4 guide?"
 CHAT_REPLY = "[happy] Always, I'm right here."
 GROUNDED_REPLY = "[thinking] Covenant has turrets at the gate, says the Fallout 4 guide. " + llm.DEEPER_OFFERS[0]
-
-
-def _turn(text: str, reply: str, origin: str = "user") -> tuple:
-    """One turn through `ask_events` against one scripted reply: (deltas, fake)."""
-    fake = StreamClient(reply)
-    with patch.object(llm, "_client", fake):
-        events = list(llm.ask_events(text, origin=origin))
-    return "".join(p for k, p in events if k == "delta"), fake, events
 
 
 # --------------------------------------------------------------- 1. the band table (live)
@@ -65,7 +56,7 @@ def test_the_band_table_over_the_dev_vault(monkeypatch, tmp_path):
     rows, wrong = [], []
     battery = [(q, "high") for sid, q in _battery_questions() if llm.recall_for(q)]
     for question, want in BAND_TABLE + battery:
-        page, hits = llm._recall_evidence(question) or (None, [])
+        page, hits = llm._recall_evidence(question)
         band = llm.recall_band(question, page, hits)
         proper = wiki.proper_terms(wiki.content_terms(question))
         top = hits[0] if hits else {"score": 0.0, "matched": []}
@@ -83,7 +74,7 @@ def test_the_band_table_over_the_dev_vault(monkeypatch, tmp_path):
 
 def test_band_rules_on_the_fixture(fallout):
     def band(text):
-        return llm.recall_band(text, *(llm._recall_evidence(text) or (None, [])))
+        return llm.recall_band(text, *llm._recall_evidence(text))
     assert band(MISHEARD) == "medium"
     assert band(QUESTION) == "high"
     assert band("Who is Covenant?") == "high"                 # a name question answers directly
@@ -97,7 +88,8 @@ def test_band_rules_on_the_fixture(fallout):
 def test_a_spoken_misheard_turn_gets_no_block_and_one_offer(fallout):
     assert llm.recall_for(MISHEARD)                            # today it would quote a chunk
     llm.reset()
-    reply, fake, _ = _turn(MISHEARD, CHAT_REPLY)
+    events, fake = ask_turn(MISHEARD, CHAT_REPLY)
+    reply = deltas(events)
     assert len(fake.calls) == 1                                # one completion, no fallback retry
     user = last_user(fake)
     assert "<recall>" not in user and "<lookup>" not in user
@@ -113,9 +105,10 @@ def test_the_offer_title_stops_at_a_colon_or_a_bracket():
 
 
 def test_a_model_ended_offer_on_a_medium_turn_is_replaced_by_the_recall_offer(fallout):
-    reply, _, events = _turn(MISHEARD, "[happy] Always. " + llm.DEEPER_OFFERS[1])
+    events, _ = ask_turn(MISHEARD, "[happy] Always. " + llm.DEEPER_OFFERS[1])
+    reply = deltas(events)
     assert reply == "[happy] Always. " + OFFER
-    assert llm.DEEPER_OFFERS[1] not in "".join(p for k, p in events if k == "delta")   # never spoken
+    assert llm.DEEPER_OFFERS[1] not in deltas(events)   # never spoken
     assert llm._deeper_offer == {"recall": MISHEARD, "title": "Fallout 4 guide"}
 
 
@@ -140,14 +133,16 @@ def test_a_content_question_on_plain_words_below_the_high_score_is_medium(fallou
     assert not wiki.proper_terms(wiki.content_terms(PLAIN_QUESTION))
     assert hits[0]["score"] < llm.RECALL_HIGH_SCORE
     assert llm.recall_band(PLAIN_QUESTION, page, hits) == "medium"
-    reply, fake, _ = _turn(PLAIN_QUESTION, "[neutral] Fry some fish.")
+    events, fake = ask_turn(PLAIN_QUESTION, "[neutral] Fry some fish.")
+    reply = deltas(events)
     assert "<recall>" not in last_user(fake) and reply == "[neutral] Fry some fish. " + OFFER
     monkeypatch.setattr(llm, "RECALL_HIGH_SCORE", 0.0)       # at or above the score it answers grounded
     assert llm.recall_band(PLAIN_QUESTION, page, hits) == "high"
 
 
 def test_a_spoken_content_question_with_strong_evidence_answers_grounded(fallout):
-    reply, fake, _ = _turn(QUESTION, GROUNDED_REPLY)
+    events, fake = ask_turn(QUESTION, GROUNDED_REPLY)
+    reply = deltas(events)
     user = last_user(fake)
     assert "<recall>" in user and llm.RECALL_ASK_NOTE not in user
     assert reply == GROUNDED_REPLY and not reply.endswith(OFFER)
@@ -161,7 +156,8 @@ def test_a_spoken_content_question_with_strong_evidence_answers_grounded(fallout
 def test_typed_turns_get_todays_recall_message(fallout, text):
     expected = text + llm.recall_for(text)
     llm.reset()
-    reply, fake, _ = _turn(text, CHAT_REPLY, origin="typed")
+    events, fake = ask_turn(text, CHAT_REPLY, origin="typed")
+    reply = deltas(events)
     user = last_user(fake)
     if llm.content_question(text):
         expected = llm.written_note(expected)                  # PRD 43: typed content runs long
@@ -174,8 +170,9 @@ def test_typed_turns_get_todays_recall_message(fallout, text):
 
 
 def test_yes_after_the_offer_answers_the_earlier_question_grounded(fallout):
-    _turn(MISHEARD, CHAT_REPLY)
-    reply, fake, events = _turn("yes", GROUNDED_REPLY)
+    ask_turn(MISHEARD, CHAT_REPLY)
+    events, fake = ask_turn("yes", GROUNDED_REPLY)
+    reply = deltas(events)
     user = last_user(fake)
     assert user.startswith("yes\n\n<recall>") and 'From "Fallout 4 guide"' in user
     assert llm.RECALL_YES_NOTE.format(question=MISHEARD) in user
@@ -190,16 +187,18 @@ def test_yes_after_the_offer_answers_the_earlier_question_grounded(fallout):
 
 
 def test_no_after_the_offer_drops_it_silently(fallout):
-    _turn(MISHEARD, CHAT_REPLY)
-    reply, fake, _ = _turn("no", "[neutral] Okay.")
+    ask_turn(MISHEARD, CHAT_REPLY)
+    events, fake = ask_turn("no", "[neutral] Okay.")
+    reply = deltas(events)
     assert reply == "[neutral] Okay."
     assert last_user(fake) == "no"
     assert llm._deeper_offer is None
 
 
 def test_no_and_a_new_question_runs_that_turn_normally(fallout):
-    _turn(MISHEARD, CHAT_REPLY)
-    reply, fake, _ = _turn("no, what's the weather", "[happy] Sunny.")
+    ask_turn(MISHEARD, CHAT_REPLY)
+    events, fake = ask_turn("no, what's the weather", "[happy] Sunny.")
+    reply = deltas(events)
     assert last_user(fake) == "no, what's the weather"
     assert reply == "[happy] Sunny." and llm._deeper_offer is None
 
@@ -208,10 +207,12 @@ def test_no_and_a_new_question_runs_that_turn_normally(fallout):
 
 
 def test_two_weak_turns_offer_once(fallout):
-    first, _, _ = _turn(MISHEARD, CHAT_REPLY)
+    events, _ = ask_turn(MISHEARD, CHAT_REPLY)
+    first = deltas(events)
     second_text = "Covenant is so annoying"
     assert llm.recall_band(second_text, *llm._recall_evidence(second_text)) == "medium"
-    second, fake, _ = _turn(second_text, "[sad] It can be.")
+    events, fake = ask_turn(second_text, "[sad] It can be.")
+    second = deltas(events)
     assert first.endswith(OFFER)
     user = last_user(fake)
     assert "<recall>" not in user and llm.RECALL_ASK_NOTE not in user
@@ -228,7 +229,8 @@ def test_a_chat_turn_carried_by_two_plain_words_is_low(fallout, file_sandbox):
     assert hits and not llm.content_question(text)            # kept hits, plain words only
     assert not wiki.proper_terms(wiki.content_terms(text))
     assert llm.recall_band(text, page, hits) == "low"
-    reply, fake, _ = _turn(text, "[happy] Will do.")
+    events, fake = ask_turn(text, "[happy] Will do.")
+    reply = deltas(events)
     assert last_user(fake) == text
     assert reply == "[happy] Will do." and llm._deeper_offer is None
 
@@ -237,10 +239,10 @@ def test_a_chat_turn_carried_by_two_plain_words_is_low(fallout, file_sandbox):
 
 
 def test_spoken_log_lines_carry_the_band_typed_ones_do_not(fallout):
-    _turn(MISHEARD, CHAT_REPLY)
-    _turn("no", "[neutral] Okay.")
-    _turn(QUESTION, GROUNDED_REPLY)
-    _turn(QUESTION, GROUNDED_REPLY, origin="typed")
+    ask_turn(MISHEARD, CHAT_REPLY)
+    ask_turn("no", "[neutral] Okay.")
+    ask_turn(QUESTION, GROUNDED_REPLY)
+    ask_turn(QUESTION, GROUNDED_REPLY, origin="typed")
     lines = open(llm.LOG_PATH).read().splitlines()
     assert lines[0].endswith("| recall: medium")
     assert lines[1].endswith("| recall: low")
