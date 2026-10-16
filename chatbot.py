@@ -14,6 +14,7 @@ import webbrowser
 
 import llm
 import memory
+import notebooks
 import wiki
 import splitter
 import sources
@@ -720,9 +721,9 @@ def _push_ingest_progress(filename: str, stage: str, i: int, n: int) -> None:
 def _file_one(item: dict, on_stage=None) -> dict:
     """One popup item -> `sources`. Runs on a worker thread: it does IO, git and two LLM calls."""
     if item["kind"] == "notebook":          # PRD 47: all pages of one reMarkable notebook
-        return sources.ingest_notebook(item["pages"], title=item["title"], ocr=item["ocr"],
-                                       replaces=item["replaces"], device_id=item["device_id"],
-                                       on_stage=on_stage)
+        return notebooks.ingest_notebook(item["pages"], title=item["title"], ocr=item["ocr"],
+                                         replaces=item["replaces"], device_id=item["device_id"],
+                                         on_stage=on_stage)
     if item["kind"] == "paste_text":
         return sources.ingest_note(item["text"], title=item["title"], hint=item["hint"],
                                    page=item["page"], on_stage=on_stage)
@@ -783,21 +784,9 @@ async def ingest(request: Request):
     try:
         if kind == "notebook":
             pages = [await upload.read() for upload in file]
-            for upload, data in zip(file, pages):
-                sources.check_upload(upload.filename or "", len(data), kind)
-            sources.check_notebook(pages)
-            replaces, device_id = str(form.get("replaces") or ""), str(form.get("device_id") or "")
-            digest = sources.sha256(b"".join(pages))
-            if replaces and replaces != digest and not sources.manifest_find(digest):
-                sources.check_replaces(replaces, device_id)      # refused here: 400, nothing forgotten
-            try:
-                ocr = json.loads(str(form.get("ocr") or "[]"))
-            except ValueError:
-                ocr = None
-            if not isinstance(ocr, list) or not all(isinstance(x, str) for x in ocr):
-                raise sources.IngestError(400, "ocr must be a JSON list of strings")
-            items.append({**fields, "pages": pages, "ocr": ocr, "filename": title or "notebook",
-                          "replaces": replaces, "device_id": device_id})
+            ocr, replaces, device_id = (str(form.get(k) or "") for k in ("ocr", "replaces", "device_id"))
+            checked = notebooks.check_request([u.filename for u in file], pages, ocr, replaces, device_id)
+            items.append({**fields, **checked, "filename": title or "notebook"})
             file = []
         for upload in file or []:
             data = await upload.read()

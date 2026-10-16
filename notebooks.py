@@ -1,0 +1,138 @@
+"""reMarkable notebooks — page PNGs in, one transcript source out (PRD 47).
+
+The sender is scripts/remarkable_sync.py via `POST /ingest kind=notebook`. The digest is the
+pages' bytes in order, checked before any model call; each page gets one transcription
+completion outside the lock; the transcript `.md` then takes the text path of
+`sources.file_bytes`, the PNGs stored beside it. `replaces` (an earlier notebook's sha, same
+`device_id`) is forgotten after the new filing.
+
+See docs/47-remarkable-pull.md.
+"""
+import json
+import os
+import tempfile
+
+import memory
+import sources
+from sources import IngestError
+from untrusted import DOCUMENT_RULE
+
+#: PNG pages, each under `sources.MAX_IMAGE_BYTES`
+MAX_NOTEBOOK_PAGES = 50
+TRANSCRIBE_TOKENS = 600
+TRANSCRIBE_PROMPT = ("Transcribe any text visible on this handwritten page as markdown; `[?]` for illegible "
+                     "words; reply with the text only.")
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def check_page(filename: str, size: int) -> None:
+    """`IngestError` unless one page is a `.png` within `sources.MAX_IMAGE_BYTES`."""
+    ext = os.path.splitext(filename or "")[1].lower()
+    if ext != ".png":
+        raise IngestError(415, f"a notebook page must be a PNG, not {ext or filename!r}")
+    sources.check_upload(filename, size)
+
+
+def check_notebook(pages: list) -> None:
+    """`IngestError` unless 1..`MAX_NOTEBOOK_PAGES` PNG pages each fit `MAX_IMAGE_BYTES`."""
+    if not pages:
+        raise IngestError(400, "nothing to file: the notebook has no pages")
+    if len(pages) > MAX_NOTEBOOK_PAGES:
+        raise IngestError(413, f"a notebook is at most {MAX_NOTEBOOK_PAGES} pages, not {len(pages)}")
+    for i, png in enumerate(pages, 1):
+        check_page(f"page-{i:02d}.png", len(png))
+        if not png.startswith(PNG_MAGIC):
+            raise IngestError(415, f"notebook page {i} is not a PNG")
+
+
+def check_replaces(replaces: str, device_id: str) -> None:
+    """`IngestError` 400 unless `replaces` is a filed notebook from the same `device_id`."""
+    entry = sources.manifest_find(replaces)
+    if entry is None:
+        raise IngestError(400, f"replaces: no filed source with sha {replaces[:12]}")
+    if entry.get("kind") != "notebook" or entry.get("device_id", "") != device_id:
+        raise IngestError(400, f"replaces: {replaces[:12]} is not a notebook from this device")
+
+
+def check_request(names: list, pages: list, ocr: str, replaces: str, device_id: str) -> dict:
+    """The `/ingest` gate for one notebook: every refusal before a worker thread is spent.
+
+    Returns the item's ``{pages, ocr, replaces, device_id}``; `ocr` arrives as the JSON text of
+    a list of strings. A `replaces` is checked only when it would be acted on (new pages).
+    """
+    for name, data in zip(names, pages):
+        check_page(name or "", len(data))
+    check_notebook(pages)
+    digest = sources.sha256(b"".join(pages))
+    if replaces and replaces != digest and not sources.manifest_find(digest):
+        check_replaces(replaces, device_id)      # refused here: 400, nothing forgotten
+    try:
+        texts = json.loads(ocr or "[]")
+    except ValueError:
+        texts = None
+    if not isinstance(texts, list) or not all(isinstance(x, str) for x in texts):
+        raise IngestError(400, "ocr must be a JSON list of strings")
+    return {"pages": pages, "ocr": texts, "replaces": replaces, "device_id": device_id}
+
+
+def _transcribe(client, model: str, png: bytes, folder: str, n: int) -> str:
+    """One page -> its markdown, or `[page N: unreadable]` under `MIN_PDF_CHARS`."""
+    full = os.path.join(folder, f"page-{n:02d}.png")
+    with open(full, "wb") as f:
+        f.write(png)
+    sources._downscale(full)
+    text = sources._ask(client, model, DOCUMENT_RULE,
+                        [{"type": "text", "text": TRANSCRIBE_PROMPT}, sources._image_part(full)],
+                        TRANSCRIBE_TOKENS).strip()
+    return text if len(text) >= sources.MIN_PDF_CHARS else f"[page {n}: unreadable]"
+
+
+def _ocr_block(text: str) -> str:
+    lines = [line.rstrip() for line in (text or "").strip().splitlines()]
+    return "\n".join(["> Apple Vision OCR:", *(f"> {line}" if line else ">" for line in lines)])
+
+
+def _transcript(texts: list, ocr: list) -> str:
+    """`## Page N` per page, plus an Apple Vision block where `ocr` has text for it."""
+    blocks = []
+    for n, text in enumerate(texts, 1):
+        extra = ocr[n - 1] if n <= len(ocr) else ""
+        blocks.append(f"## Page {n}\n\n{text}" + (f"\n\n{_ocr_block(extra)}" if str(extra).strip() else ""))
+    return "\n\n".join(blocks) + "\n"
+
+
+def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", device_id: str = "",
+                    client=None, model: str = "", on_stage=None) -> dict:
+    """Page PNGs in order -> one transcript source; `sources.file_bytes`'s result plus `sha256`.
+
+    `ocr` (one string per page, "" = none) adds an Apple Vision block per page. `replaces` is
+    forgotten after the new filing — and on an `already` filing too, so a forget that failed is
+    retried by the next pull; there an sha already gone is done, not an error.
+    """
+    check_notebook(pages)
+    digest = sources.sha256(b"".join(pages))
+    replaces = "" if replaces == digest else replaces
+    seen = sources.manifest_find(digest)
+    if seen:
+        if replaces and sources.manifest_find(replaces):
+            check_replaces(replaces, device_id)
+            sources.forget(replaces)
+        return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
+    if replaces:
+        check_replaces(replaces, device_id)
+    if client is None:
+        client, model = sources._client_model()
+    texts = []
+    with tempfile.TemporaryDirectory() as folder:
+        for n, png in enumerate(pages, 1):
+            sources._stage(on_stage, f"transcribing {n}/{len(pages)}")
+            texts.append(_transcribe(client, model, png, folder, n))
+    unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
+    raw_rel = f"raw/remarkable/{sources._dated(title or 'notebook')}.md"
+    res = sources.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
+                             title=title, client=client, model=model, on_stage=on_stage,
+                             source=f"remarkable {memory._today_iso()}", digest=digest, pages=pages,
+                             unreadable=unreadable, extra={"device_id": device_id} if device_id else None)
+    if replaces and sources.manifest_find(replaces):
+        sources.forget(replaces)
+    return {**res, "sha256": digest}

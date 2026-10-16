@@ -31,6 +31,11 @@ def lines(out: subprocess.CompletedProcess) -> list:
     return [line for line in out.stdout.splitlines() if line.strip()]
 
 
+def ocr_sent(fake_ingest) -> list:
+    """The `ocr` field of every request, decoded."""
+    return [json.loads(r["fields"]["ocr"]) for r in fake_ingest.requests]
+
+
 def stub(tmp_path, body: str) -> str:
     path = tmp_path / "vision_ocr"
     path.write_text("#!/bin/sh\n" + body + "\n")
@@ -129,7 +134,7 @@ def test_no_ocr_helper_sends_empty_strings(tmp_path, fake_remarkable, fake_inges
     out = pull(tmp_path, fake_remarkable.url, fake_ingest.url)
 
     assert out.returncode == 0
-    assert all(json.loads(r["fields"]["ocr"]) == ["", ""] for r in fake_ingest.requests)
+    assert ocr_sent(fake_ingest) == [["", ""]] * len(fake_ingest.requests)
 
 
 def test_ocr_disabled_skips_a_present_helper(tmp_path, fake_remarkable, fake_ingest):
@@ -137,7 +142,7 @@ def test_ocr_disabled_skips_a_present_helper(tmp_path, fake_remarkable, fake_ing
                REMARKABLE_OCR_BIN=stub(tmp_path, "echo seen"), REMARKABLE_OCR="0")
 
     assert out.returncode == 0
-    assert all(json.loads(r["fields"]["ocr"]) == ["", ""] for r in fake_ingest.requests)
+    assert ocr_sent(fake_ingest) == [["", ""]] * len(fake_ingest.requests)
 
 
 def test_an_ocr_helper_text_arrives_per_page(tmp_path, fake_remarkable, fake_ingest):
@@ -145,8 +150,7 @@ def test_an_ocr_helper_text_arrives_per_page(tmp_path, fake_remarkable, fake_ing
                REMARKABLE_OCR_BIN=stub(tmp_path, 'echo "standup notes"'))
 
     assert out.returncode == 0
-    assert all(json.loads(r["fields"]["ocr"]) == ["standup notes", "standup notes"]
-               for r in fake_ingest.requests)
+    assert ocr_sent(fake_ingest) == [["standup notes", "standup notes"]] * len(fake_ingest.requests)
 
 
 def test_a_failing_ocr_helper_is_an_empty_string(tmp_path, fake_remarkable, fake_ingest):
@@ -154,4 +158,4 @@ def test_a_failing_ocr_helper_is_an_empty_string(tmp_path, fake_remarkable, fake
                REMARKABLE_OCR_BIN=stub(tmp_path, "echo half; exit 1"))
 
     assert out.returncode == 0 and len(fake_ingest.requests) == 2
-    assert all(json.loads(r["fields"]["ocr"]) == ["", ""] for r in fake_ingest.requests)
+    assert ocr_sent(fake_ingest) == [["", ""]] * len(fake_ingest.requests)

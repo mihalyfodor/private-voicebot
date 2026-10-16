@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 47 — reMarkable 2 over USB: pull handwriting into the vault
 

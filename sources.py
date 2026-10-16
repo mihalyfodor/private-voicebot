@@ -37,7 +37,6 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 
 import avatars
 import memory
@@ -62,11 +61,6 @@ DOWNSCALE_ABOVE_BYTES = 256 * 1024
 
 #: a PDF that yields less than this much text has no text layer we can use
 MIN_PDF_CHARS = 20
-#: a reMarkable notebook (PRD 47): PNG pages, each under MAX_IMAGE_BYTES
-MAX_NOTEBOOK_PAGES = 50
-TRANSCRIBE_TOKENS = 600
-TRANSCRIBE_PROMPT = ("Transcribe any text visible on this handwritten page as markdown; `[?]` for illegible "
-                     "words; reply with the text only.")
 
 MANIFEST = "raw/manifest.jsonl"
 
@@ -1447,9 +1441,7 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
     ext = os.path.splitext(filename or "")[1].lower()
     if kind_hint == "paste_image" and ext not in IMAGE_EXTS:
         ext = ".png"
-    if kind_hint == "notebook" and ext != ".png":
-        raise IngestError(415, f"a notebook page must be a PNG, not {ext or filename!r}")
-    kind = "notebook" if kind_hint == "notebook" else KINDS.get(ext)
+    kind = KINDS.get(ext)
     if kind is None:
         raise IngestError(415, f"unsupported file type {ext or filename!r}")
     limit = (MAX_IMAGE_BYTES if ext in IMAGE_EXTS
@@ -1471,92 +1463,6 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
                       client=client, model=model, on_stage=on_stage, source=source, strict=strict)
-
-
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
-
-
-def check_notebook(pages: list) -> None:
-    """`IngestError` unless 1..`MAX_NOTEBOOK_PAGES` PNG pages each fit `MAX_IMAGE_BYTES` (PRD 47)."""
-    if not pages:
-        raise IngestError(400, "nothing to file: the notebook has no pages")
-    if len(pages) > MAX_NOTEBOOK_PAGES:
-        raise IngestError(413, f"a notebook is at most {MAX_NOTEBOOK_PAGES} pages, not {len(pages)}")
-    for i, png in enumerate(pages, 1):
-        check_upload(f"page-{i:02d}.png", len(png), "notebook")
-        if not png.startswith(PNG_MAGIC):
-            raise IngestError(415, f"notebook page {i} is not a PNG")
-
-
-def check_replaces(replaces: str, device_id: str) -> None:
-    """`IngestError` 400 unless `replaces` is a filed notebook from the same `device_id`."""
-    entry = manifest_find(replaces)
-    if entry is None:
-        raise IngestError(400, f"replaces: no filed source with sha {replaces[:12]}")
-    if entry.get("kind") != "notebook" or entry.get("device_id", "") != device_id:
-        raise IngestError(400, f"replaces: {replaces[:12]} is not a notebook from this device")
-
-
-def _transcribe(client, model: str, png: bytes, folder: str, n: int) -> str:
-    """One page -> its markdown, or `[page N: unreadable]` under `MIN_PDF_CHARS`."""
-    full = os.path.join(folder, f"page-{n:02d}.png")
-    with open(full, "wb") as f:
-        f.write(png)
-    _downscale(full)
-    text = _ask(client, model, DOCUMENT_RULE,
-                [{"type": "text", "text": TRANSCRIBE_PROMPT}, _image_part(full)], TRANSCRIBE_TOKENS).strip()
-    return text if len(text) >= MIN_PDF_CHARS else f"[page {n}: unreadable]"
-
-
-def _ocr_block(text: str) -> str:
-    lines = [line.rstrip() for line in (text or "").strip().splitlines()]
-    return "\n".join(["> Apple Vision OCR:", *(f"> {line}" if line else ">" for line in lines)])
-
-
-def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", device_id: str = "",
-                    client=None, model: str = "", on_stage=None) -> dict:
-    """A reMarkable notebook (PRD 47): page PNGs in order -> one transcript source.
-
-    The digest is the pages' bytes in order, checked before any model call; each page gets one
-    transcription completion outside the lock; the transcript `.md` then takes the text-kind path
-    of `file_bytes`, the PNGs stored beside it. `ocr` (one string per page, "" = none) adds an
-    Apple Vision block per page. `replaces` (an earlier notebook's sha, same `device_id`) is
-    forgotten after the new filing — and on an `already` filing too, so a forget that failed is
-    retried by the next pull; there an sha already gone is done, not an error.
-    Returns `file_bytes`'s result plus `sha256`.
-    """
-    check_notebook(pages)
-    digest = sha256(b"".join(pages))
-    replaces = "" if replaces == digest else replaces
-    seen = manifest_find(digest)
-    if seen:
-        if replaces and manifest_find(replaces):
-            check_replaces(replaces, device_id)
-            forget(replaces)
-        return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
-    if replaces:
-        check_replaces(replaces, device_id)
-    if client is None:
-        client, model = _client_model()
-    ocr = list(ocr or [])
-    texts = []
-    with tempfile.TemporaryDirectory() as folder:
-        for n, png in enumerate(pages, 1):
-            _stage(on_stage, f"transcribing {n}/{len(pages)}")
-            texts.append(_transcribe(client, model, png, folder, n))
-    blocks = []
-    for n, text in enumerate(texts, 1):
-        extra = ocr[n - 1] if n <= len(ocr) else ""
-        blocks.append(f"## Page {n}\n\n{text}" + (f"\n\n{_ocr_block(extra)}" if str(extra).strip() else ""))
-    unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
-    today = memory._today_iso()
-    res = file_bytes(("\n\n".join(blocks) + "\n").encode(), f"raw/remarkable/{_dated(title or 'notebook')}.md",
-                     "notebook", title=title, client=client, model=model, on_stage=on_stage,
-                     source=f"remarkable {today}", digest=digest, pages=pages, unreadable=unreadable,
-                     extra={"device_id": device_id} if device_id else None)
-    if replaces and manifest_find(replaces):
-        forget(replaces)
-    return {**res, "sha256": digest}
 
 
 def check_note(text: str) -> str:

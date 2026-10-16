@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import batch_import
 import chatbot
 import memory
+import notebooks
 import sources
 import wiki
 from tests.conftest import FakeClient, commits, read, vault, write_page  # noqa: F401 — fixture
@@ -949,8 +950,13 @@ def notebook_summary(title: str = "Standup") -> str:
                        "topic": "work", "unreadable": False})
 
 
+def notebook_client(pages: int, ops: str = "[]") -> FakeClient:
+    """One readable transcription per page, then the summary and the page ops."""
+    return FakeClient(*[NOTE_TEXT] * pages, notebook_summary(), ops)
+
+
 def file_notebook(pages: list, client, **kw) -> dict:
-    return sources.ingest_notebook(pages, title=kw.pop("title", "Standup"), client=client, model="m", **kw)
+    return notebooks.ingest_notebook(pages, title=kw.pop("title", "Standup"), client=client, model="m", **kw)
 
 
 def test_a_notebook_is_transcribed_page_by_page_and_filed_once(vault):
@@ -984,7 +990,7 @@ def test_a_notebook_is_transcribed_page_by_page_and_filed_once(vault):
 
 
 def test_the_same_pages_again_are_already_filed_without_a_model_call(vault):
-    file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), OPS))
+    file_notebook(notebook_pages(2), notebook_client(2, OPS))
     again = FakeClient()
     res = file_notebook(notebook_pages(2), again)
 
@@ -1009,9 +1015,9 @@ def test_an_all_unreadable_notebook_files_its_page_without_ops(vault):
 
 
 def test_replaces_forgets_the_earlier_source_and_its_raw_files(vault):
-    old = file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"))
+    old = file_notebook(notebook_pages(2), notebook_client(2))
     old_pngs = sources.manifest_find(old["sha256"])["pages"]
-    new = file_notebook(notebook_pages(3), FakeClient(NOTE_TEXT, NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"),
+    new = file_notebook(notebook_pages(3), notebook_client(3),
                         replaces=old["sha256"])
 
     assert sources.manifest_find(old["sha256"]) is None
@@ -1041,7 +1047,7 @@ def test_more_than_50_pages_is_413_before_any_model_call(vault):
 
 def test_ingest_endpoint_files_a_notebook(http, monkeypatch):
     client, _ws = http
-    fake = FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]")
+    fake = notebook_client(2)
     monkeypatch.setattr(sources, "_client_model", lambda: (fake, "m"))
     pages = notebook_pages(2)
     files = [("file", (f"page-0{i}.png", data, "image/png")) for i, data in enumerate(pages, 1)]
@@ -1064,7 +1070,7 @@ def test_ingest_endpoint_refuses_a_notebook_page_that_is_not_png(http):
 
 
 def test_a_failed_replace_is_retried_when_the_same_pages_come_again(vault, monkeypatch):
-    v1 = file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"), device_id="n1")
+    v1 = file_notebook(notebook_pages(2), notebook_client(2), device_id="n1")
     real_forget, calls = sources.forget, []
 
     def flaky(digest):
@@ -1076,7 +1082,7 @@ def test_a_failed_replace_is_retried_when_the_same_pages_come_again(vault, monke
     monkeypatch.setattr(sources, "forget", flaky)
     v2_pages = notebook_pages(3)
     with pytest.raises(RuntimeError):
-        file_notebook(v2_pages, FakeClient(NOTE_TEXT, NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"),
+        file_notebook(v2_pages, notebook_client(3),
                       device_id="n1", replaces=v1["sha256"])
     assert sources.manifest_find(v1["sha256"]) is not None
 
@@ -1090,7 +1096,7 @@ def test_replaces_must_name_a_notebook_from_the_same_device(vault):
     drop = sources.ingest_upload(b"# Falcon\n\nFalcon is amber.\n", "falcon.md",
                                  client=FakeClient(SUMMARY, "[]"), model="m")
     sha = sources.manifest_entries()[0]["sha256"]
-    other = file_notebook(notebook_pages(1), FakeClient(NOTE_TEXT, notebook_summary(), "[]"), device_id="n2")
+    other = file_notebook(notebook_pages(1), notebook_client(1), device_id="n2")
     for bad in (sha, other["sha256"], "f" * 64):
         client = FakeClient()
         with pytest.raises(sources.IngestError) as exc:

@@ -15,6 +15,7 @@ Exit 0 done (or tablet not connected), 1 the app was unreachable or a notebook f
 writes to the tablet.
 """
 import argparse
+import contextlib
 import json
 import os
 import subprocess
@@ -28,9 +29,23 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_STATE = os.path.join("~", ".cache", "voicebot", "remarkable.json")
 
+#: every line `pull` prints, in one place
+LINES = {
+    "offline": "reMarkable not connected ({host})",
+    "no_folder": 'no folder "{folder}" on the reMarkable',
+    "nothing": "nothing new",
+    "app_down": "voicebot app not reachable ({app}): {error}",
+    "failed": 'failed "{name}": {error}',
+    "done": '{verb} "{name}" ({pages} pages) -> {path}',
+}
+
 
 class AppDown(Exception):
     """The app did not answer at all: every further notebook would fail the same way."""
+
+
+class Idle(Exception):
+    """Nothing to pull this run (tablet absent, no folder, nothing changed): one line, exit 0."""
 
 
 def _get(url: str, timeout: float) -> bytes:
@@ -40,6 +55,9 @@ def _get(url: str, timeout: float) -> bytes:
 
 def _listing(device: str, ident: str = "") -> list:
     return json.loads(_get(f"{device}/documents/{ident}", 10))
+
+
+# --------------------------------------------------------------------------- state
 
 
 def load_state(path: str) -> dict:
@@ -53,12 +71,55 @@ def load_state(path: str) -> dict:
 
 
 def save_state(path: str, state: dict) -> None:
-    """Atomic: temp file in the same folder, then rename."""
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path) or ".", prefix=".remarkable-")
-    with os.fdopen(fd, "w") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+    """Atomic: temp file in the same folder, then `os.replace`; a failed write leaves no temp."""
+    folder = os.path.dirname(path) or "."
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=".remarkable-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+
+
+def record(state_path: str, state: dict, doc: dict, name: str, pages: int, sha: str) -> None:
+    """One filed notebook -> its state entry, saved at once."""
+    state[doc["ID"]] = {"modified": doc.get("ModifiedClient"), "pages": pages, "sha": sha, "name": name}
+    save_state(state_path, state)
+
+
+# --------------------------------------------------------------------------- list, download
+
+
+def list_changed(device: str, state: dict) -> list:
+    """The notebooks in `$REMARKABLE_FOLDER` whose `ModifiedClient` differs from `state`; `Idle`
+    when the tablet does not answer, the folder is missing or nothing changed."""
+    folder_name = os.getenv("REMARKABLE_FOLDER", "wiki-inbox")
+    try:
+        _get(f"{device}/documents/", 1)
+    except (OSError, ValueError) as exc:
+        raise Idle(LINES["offline"].format(host=urllib.parse.urlparse(device).hostname or device)) from exc
+    folder = next((d for d in _listing(device) if d.get("Type") == "CollectionType"
+                   and d.get("VissibleName") == folder_name), None)
+    if folder is None:
+        raise Idle(LINES["no_folder"].format(folder=folder_name))
+    todo = [d for d in _listing(device, folder["ID"])
+            if d.get("Type") == "DocumentType" and d.get("fileType", "notebook") == "notebook"
+            and d.get("ModifiedClient") != (state.get(d["ID"]) or {}).get("modified")]
+    if not todo:
+        raise Idle(LINES["nothing"])
+    return todo
+
+
+def download(device: str, ident: str) -> bytes:
+    """The notebook as the tablet renders it: one PDF."""
+    return _get(f"{device}/download/{ident}/pdf", 300)
+
+
+# --------------------------------------------------------------------------- rasterise, OCR
 
 
 def render_pages(pdf: bytes, folder: str) -> list:
@@ -99,6 +160,18 @@ def ocr_page(helper: str, png: bytes, folder: str, n: int) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
+def rasterise(pdf: bytes, helper: str) -> tuple:
+    """``(page PNGs, one OCR string per page)``; `RuntimeError` when the PDF has no pages."""
+    with tempfile.TemporaryDirectory() as tmp:
+        pages = render_pages(pdf, tmp)
+        if not pages:
+            raise RuntimeError("the PDF rendered no pages")
+        return pages, [ocr_page(helper, p, tmp, n) for n, p in enumerate(pages, 1)]
+
+
+# --------------------------------------------------------------------------- post
+
+
 def _multipart(fields: dict, files: list) -> tuple:
     boundary = uuid.uuid4().hex
     out = []
@@ -113,7 +186,7 @@ def _multipart(fields: dict, files: list) -> tuple:
 
 
 def post_notebook(app: str, fields: dict, pages: list) -> dict:
-    """One `/ingest` request -> its `filed[0]`; raises `AppDown` or `RuntimeError`."""
+    """One `/ingest` request -> its `filed[0]` (with a `sha256`); raises `AppDown` or `RuntimeError`."""
     body, ctype = _multipart(fields, [(f"page-{i:02d}.png", p) for i, p in enumerate(pages, 1)])
     req = urllib.request.Request(f"{app}/ingest", data=body, method="POST",
                                  headers={"Content-Type": ctype})
@@ -127,57 +200,46 @@ def post_notebook(app: str, fields: dict, pages: list) -> dict:
         raise AppDown(str(getattr(exc, "reason", exc))) from exc
     if reply.get("errors") or not reply.get("filed"):
         raise RuntimeError("; ".join(reply.get("errors") or ["nothing filed"]))
-    return reply["filed"][0]
+    filed = reply["filed"][0]
+    if not filed.get("sha256"):
+        raise RuntimeError("the app reply carries no sha256")
+    return filed
+
+
+def notebook_fields(doc: dict, name: str, ocr: list, prev: dict) -> dict:
+    fields = {"confirm": "true", "kind": "notebook", "title": name, "ocr": json.dumps(ocr),
+              "device_id": doc["ID"]}
+    if prev.get("sha"):
+        fields["replaces"] = prev["sha"]       # the app ignores it when the pages are unchanged
+    return fields
+
+
+# --------------------------------------------------------------------------- pull
 
 
 def pull(device: str, app: str, state_path: str, out=print) -> int:
-    folder_name = os.getenv("REMARKABLE_FOLDER", "wiki-inbox")
-    host = urllib.parse.urlparse(device).hostname or device
-    try:
-        _get(f"{device}/documents/", 1)
-    except (OSError, ValueError):
-        out(f"reMarkable not connected ({host})")
-        return 0
-    folder = next((d for d in _listing(device) if d.get("Type") == "CollectionType"
-                   and d.get("VissibleName") == folder_name), None)
-    if folder is None:
-        out(f'no folder "{folder_name}" on the reMarkable')
-        return 0
     state = load_state(state_path)
-    todo = [d for d in _listing(device, folder["ID"])
-            if d.get("Type") == "DocumentType" and d.get("fileType", "notebook") == "notebook"
-            and d.get("ModifiedClient") != (state.get(d["ID"]) or {}).get("modified")]
-    if not todo:
-        out("nothing new")
+    try:
+        todo = list_changed(device, state)
+    except Idle as idle:
+        out(str(idle))
         return 0
     helper, failed = ocr_bin(), 0
     for doc in todo:
         name, prev = doc.get("VissibleName") or doc["ID"], state.get(doc["ID"]) or {}
         try:
-            with tempfile.TemporaryDirectory() as tmp:
-                pages = render_pages(_get(f"{device}/download/{doc['ID']}/pdf", 300), tmp)
-                if not pages:
-                    raise RuntimeError("the PDF rendered no pages")
-                ocr = [ocr_page(helper, p, tmp, n) for n, p in enumerate(pages, 1)]
-            fields = {"confirm": "true", "kind": "notebook", "title": name, "ocr": json.dumps(ocr),
-                      "device_id": doc["ID"]}
-            if prev.get("sha"):
-                fields["replaces"] = prev["sha"]       # the app ignores it when the pages are unchanged
-            filed = post_notebook(app, fields, pages)
-            sha = filed.get("sha256")
-            if not sha:
-                raise RuntimeError("the app reply carries no sha256")
+            pages, ocr = rasterise(download(device, doc["ID"]), helper)
+            filed = post_notebook(app, notebook_fields(doc, name, ocr, prev), pages)
         except AppDown as exc:
-            out(f"voicebot app not reachable ({app}): {exc}")
+            out(LINES["app_down"].format(app=app, error=exc))
             return 1
         except Exception as exc:  # noqa: BLE001 — one bad notebook must not stop the rest
-            out(f'failed "{name}": {exc}')
+            out(LINES["failed"].format(name=name, error=exc))
             failed += 1
             continue
-        state[doc["ID"]] = {"modified": doc.get("ModifiedClient"), "pages": len(pages), "sha": sha, "name": name}
-        save_state(state_path, state)
-        verb = "already" if filed.get("already") else "filed"
-        out(f'{verb} "{name}" ({len(pages)} pages) -> {filed.get("path", "")}')
+        record(state_path, state, doc, name, len(pages), filed["sha256"])
+        out(LINES["done"].format(verb="already" if filed.get("already") else "filed", name=name,
+                                 pages=len(pages), path=filed.get("path", "")))
     return 1 if failed else 0
 
 
