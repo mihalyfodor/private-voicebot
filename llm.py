@@ -14,14 +14,16 @@ from core import settings
 from core import config, trace
 import wiki
 from splitter import EMOTIONS, strip_tag
-from tools import TOOLS, run_tool
+from tools import registry
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
 
 OMLX_BASE_URL = config.OMLX_BASE_URL
 OMLX_API_KEY = config.OMLX_API_KEY
 OMLX_MODEL = config.OMLX_MODEL
-trace.vocab("name", [t["function"]["name"] for t in TOOLS] + ["dig_deeper"])
+run_tool = registry.run_tool
+TOOLS = registry.schemas()
+trace.vocab("name", [t.name for t in registry.REGISTRY] + ["dig_deeper"])
 log = trace.logger("llm")
 tool_log = trace.logger("Tool")
 
@@ -123,8 +125,6 @@ def estimate_tokens(messages: list) -> int:
 
 
 #: `estimate_tokens` counts the messages only; the tool schemas ride on every request too.
-#: Measured once as len(json.dumps(TOOLS)) // 4 with all 11 tools registered: 4358 chars → 1089.
-TOOLS_TOKENS = 1089
 #: the 90 % crossing sentence (docs/39-context-meter.md), spoken once per crossing
 CONTEXT_WARNING = "I'm close to the end of what I can hold — say new topic to start fresh."
 CONTEXT_WARN_PCT, CONTEXT_REARM_PCT = 90, 75
@@ -159,7 +159,7 @@ def trim_history() -> int:
 def context_usage() -> dict:
     """`{used, budget, pct, trimmed}`: what the model holds, the budget, and the user turns the
     last trim forgot (docs/39-context-meter.md)."""
-    used = estimate_tokens(_conversation) + TOOLS_TOKENS
+    used = estimate_tokens(_conversation) + registry.tokens()
     budget = context_budget()
     return {"used": used, "budget": budget, "pct": round(100 * used / budget), "trimmed": _last_trimmed}
 

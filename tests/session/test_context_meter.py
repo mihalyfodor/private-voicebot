@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from tools import registry
 
 import chatbot
 import llm
@@ -52,12 +53,12 @@ def small_budget(monkeypatch):
 def test_a_completed_turn_sends_context_with_the_estimated_usage(seeded_vault):
     sent, _ = typed("hello there, how are you today")
     (msg,) = context_msgs(sent)
-    used = llm.estimate_tokens(llm._conversation) + llm.TOOLS_TOKENS
+    used = llm.estimate_tokens(llm._conversation) + registry.tokens()
     assert msg == {"type": "context", "used": used, "budget": llm.context_budget(),
                    "pct": round(100 * used / llm.context_budget()), "trimmed": 0}
     assert sent.index(msg) > sent.index({"type": "transcript", "role": "assistant", "text": "Sure."})
     from tools import TOOLS
-    assert llm.TOOLS_TOKENS == len(json.dumps(TOOLS)) // 4          # the tool schemas count too
+    assert registry.tokens() == len(json.dumps(TOOLS)) // 4          # the tool schemas count too
 
 
 def test_trim_history_returns_the_user_turns_dropped(monkeypatch):
@@ -176,7 +177,7 @@ def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memor
     assert kinds.index("thread") < kinds.index("speech") < kinds.index("context")
     assert {"type": "thread", "text": "Falcon and the deploy."} in sent
     assert sent[-1] == {"type": "state", "value": "idle"}
-    assert context_msgs(sent)[0]["used"] == llm.estimate_tokens(llm._conversation) + llm.TOOLS_TOKENS
+    assert context_msgs(sent)[0]["used"] == llm.estimate_tokens(llm._conversation) + registry.tokens()
     assert [m for m in sent if m.get("type") == "transcript"] == [
         {"type": "transcript", "role": "assistant", "text": llm.NEW_TOPIC_ACK}]
 

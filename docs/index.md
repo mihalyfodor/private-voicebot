@@ -138,7 +138,8 @@ voicebot/
 │   ├── vendor/          # gitignored, fetched — except marked.umd.js + LICENSE-marked.md (MIT, committed; PRD 28)
 │   ├── models/           # gitignored, fetched (wanko/)
 │   └── backdrops/        # gitignored, fetched
-├── tools/              # every module declares `HOSTS`; `ALLOWED_HOSTS` is their union and `READ_TOOLS` the ones whose text is wrapped as `<document>` (PRD 33 read-only policy: no free URL fetch, get_news_detail only takes a URL from the last get_news)
+├── tools/              # every module declares `HOSTS` (PRD 33 read-only policy: no free URL fetch, get_news_detail only takes a URL from the last get_news); `__init__.py` re-exports from registry
+│   ├── registry.py     # the ordered `REGISTRY` of `Tool` records (PRD 50); `schemas()`, `tokens()`, `run_tool`, and `READ_TOOLS`/`ALLOWED_HOSTS` derived from the records
 │   ├── time.py         # current time tool
 │   ├── weather.py       # open-meteo weather tool + one Nominatim reverse geocode per new position (PRD 35)
 │   ├── news.py          # BBC news headlines + article detail
@@ -155,6 +156,8 @@ voicebot/
 │   ├── app_fixture.mjs          # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON of results
 │   │                            # (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake
 │   │                            # titles/horizon field, intake batch, context meter, error scopes, written cards); its header documents the hooks
+│   ├── tools/test_registry.py   # PRD 50: golden schema fixture byte-compare, tokens() == 1089, READ_TOOLS/ALLOWED_HOSTS derived, record invariants
+│   ├── fixtures/tool_schemas.json  # PRD 50: golden `json.dumps(registry.schemas())`, byte-compared by tests/tools/test_registry.py
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
 │   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else
@@ -277,7 +280,7 @@ voicebot/
     ├── 47b-remarkable-push.md   # PRD: "send this to my reMarkable" — host push service on :8021, markdown→PDF, approval via PRD 52 (exploration)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
     ├── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
-    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation; step 1 done: core/, workflows → scripts, tests/test_layers.py)
+    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation; step 1 done: core/, workflows → scripts, tests/test_layers.py; step 2 done: tools/registry.py)
     ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)

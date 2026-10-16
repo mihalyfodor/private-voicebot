@@ -100,6 +100,7 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
 - Chose `agent/approvals.py` (PRD 52 registry) and `server/runs.py` (PRD 51 run pages) over other homes: the `writes`
   flag on tools is the hook.
 - Chose deleting the shims at step 12 over keeping them one release: the layer test then fails any old import.
+- Step 2 keeps each module's `run(args: dict)` signature; `run_tool` passes the dict as today — `**args` unpacking is deferred until the modules are touched again, so step 2 stays a pure registry move.
 
 ## Data model
 - Layer graph: `core < vault < memory < ingest < tools < agent < server`; `scripts/` and `chatbot.py` on top. A
