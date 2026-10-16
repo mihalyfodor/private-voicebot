@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 49 — Event trace: structured logs with a prod and a dev profile
 
