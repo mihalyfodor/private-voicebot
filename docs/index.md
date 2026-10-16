@@ -271,7 +271,7 @@ voicebot/
     ├── 47b-remarkable-push.md   # PRD: "send this to my reMarkable" — host push service on :8021, markdown→PDF, approval via PRD 52 (exploration)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
     ├── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
-    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (exploration)
+    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation)
     ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)

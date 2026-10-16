@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 50 — Modular layout: seven downward-only layers and one tool registry
 
