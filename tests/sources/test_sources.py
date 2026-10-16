@@ -18,6 +18,8 @@ import sources
 import wiki
 from tests.conftest import FakeClient, commits, read, vault, write_page  # noqa: F401 — fixture
 
+ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
+
 
 # --------------------------------------------------------------------------- fixtures
 
@@ -673,3 +675,260 @@ def test_the_page_ops_prompt_lists_a_page_the_index_cut(vault, monkeypatch):
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
     assert "projects/zephyr" not in index_part
     assert "(update these rather than duplicating):" in block and "projects/zephyr" in block
+
+
+# --------------------------------------------------------------- PRD 48: batch import
+
+
+def docx_file(text: str) -> bytes:
+    import docx
+    import io
+
+    doc = docx.Document()
+    doc.add_paragraph(text)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def text_pdf(n: int) -> bytes:
+    return pdf_bytes([[f"Falcon status note number {n}, amber, load test 940 ms p99"]])
+
+
+@pytest.fixture
+def export(tmp_path):
+    """An export folder next to the vault, never inside it."""
+    folder = tmp_path / "export"
+    folder.mkdir()
+    return folder
+
+
+@pytest.fixture
+def idle_port(monkeypatch):
+    """Nothing answers on PORT (a dev machine may run the app on the default)."""
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = str(s.getsockname()[1])
+    for name in ("PORT", "DEV_PORT", "PROD_PORT"):
+        monkeypatch.setenv(name, port)
+
+
+def put(folder, rel: str, data: bytes) -> None:
+    path = folder / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def run_batch(folder, client=None, **kw) -> tuple:
+    lines = []
+    res = sources.ingest_batch(str(folder), client=client, model="fake-model", out=lines.append, **kw)
+    return res, lines
+
+
+def batch_log(folder) -> list:
+    return [json.loads(line) for line in (folder / "batch.log").read_text().splitlines()]
+
+
+def three_files(export) -> None:
+    put(export, "a.pdf", text_pdf(1))
+    put(export, "b.pdf", text_pdf(2))
+    put(export, "work/falcon/kickoff.docx", docx_file("Falcon kickoff notes, amber status."))
+
+
+def test_a_folder_is_filed_through_the_drop_path(vault, idle_port, export):
+    three_files(export)
+    client = FakeClient(*[SUMMARY, OPS] * 3)
+    before = len(commits())
+
+    res, lines = run_batch(export, client)
+
+    assert res["exit"] == 0 and res["filed"] == 3
+    assert len(sources.manifest_entries()) == 3
+    assert len(commits()) == before + 3
+    assert [l.split()[0] for l in lines if l.startswith("[")] == ["[1/3]", "[2/3]", "[3/3]"]
+    assert "filed 3 · skipped 0 · failed 0" in lines[-1]
+    docx_entry = next(e for e in sources.manifest_entries() if e["kind"] == "docx")
+    fm, _ = wiki.parse_page(read(docx_entry["page"] + ".md"))
+    assert fm["source"] == f"batch import {memory._today_iso()}"
+    sent = prompts(client)
+    assert all("User hint: work/falcon" in p for p in sent[4:6])
+    assert not any("User hint" in p for p in sent[:4])
+
+
+def test_a_rerun_finds_everything_already_filed(vault, idle_port, export):
+    three_files(export)
+    run_batch(export, FakeClient(*[SUMMARY, OPS] * 3))
+    before = commits()
+    client = FakeClient()
+
+    res, lines = run_batch(export, client)
+
+    assert res["already"] == 3 and res["filed"] == 0 and res["exit"] == 0
+    assert client.calls == [] and commits() == before
+    assert sum(" already " in l for l in lines) == 3
+
+
+def test_a_pdf_without_readable_text_needs_ocr(vault, idle_port, export):
+    put(export, "ink.pdf", pdf_bytes([["ignored"]], with_text=False))
+    put(export, "thin.pdf", pdf_bytes([["ten chars!!"]] * 5))      # ~11 chars a page: over the total floor, under the average
+    client = FakeClient()
+
+    res, lines = run_batch(export, client)
+
+    assert res["needs-ocr"] == 2 and res["filed"] == 0 and client.calls == []
+    assert raw_files() == [] and sources.manifest_entries() == []
+    assert not [f for f in os.listdir(os.path.join(wiki.WIKI_PATH, "sources")) if f.endswith(".md")]
+    assert sum(" needs-ocr " in l for l in lines) == 2
+
+
+def test_failures_do_not_stop_the_batch_and_are_logged(vault, idle_port, export):
+    put(export, "a.pdf", text_pdf(1))
+    put(export, "b.pdf", text_pdf(2))
+    put(export, "c.pdf", text_pdf(3))
+    put(export, "d.docx", b"not a zip at all")
+    client = FakeClient(SUMMARY, OPS, RuntimeError("model fell over"), SUMMARY, OPS)
+
+    res, _lines = run_batch(export, client)
+
+    assert res["exit"] == 1 and res["filed"] == 2 and res["failed"] == 2
+    assert len(sources.manifest_entries()) == 2
+    assert raw_files() == [f for f in raw_files() if any(
+        e["path"] == f for e in sources.manifest_entries())]      # a failed file leaves no orphan original
+    rows = [r for r in batch_log(export) if "rel" in r]
+    assert [(r["rel"], r["state"]) for r in rows] == [
+        ("a.pdf", "filed"), ("b.pdf", "failed"), ("c.pdf", "filed"), ("d.docx", "failed")]
+    assert "model fell over" in rows[1]["reason"] and rows[3]["reason"]
+    assert wiki._git("status", "--porcelain").stdout.strip() == ""
+
+
+def test_resume_skips_what_failed_and_a_plain_rerun_retries_it(vault, idle_port, export):
+    put(export, "a.pdf", text_pdf(1))
+    put(export, "b.pdf", text_pdf(2))
+    run_batch(export, FakeClient(SUMMARY, OPS, RuntimeError("boom")))
+
+    client = FakeClient(SUMMARY, OPS)
+    res, _ = run_batch(export, client, resume=True)
+    assert res["filed"] == 0 and res["already"] == 1 and client.calls == []
+
+    res, _ = run_batch(export, client)
+    assert res["filed"] == 1 and res["failed"] == 0 and res["exit"] == 0
+    assert len(sources.manifest_entries()) == 2
+
+
+def test_a_dry_run_lists_states_and_writes_nothing(vault, idle_port, export):
+    three_files(export)
+    put(export, "ink.pdf", pdf_bytes([["x"]], with_text=False))
+    sources.ingest_upload(text_pdf(1), "a.pdf", client=FakeClient(SUMMARY, OPS), model="m")
+    head, entries, raw = commits(), sources.manifest_entries(), raw_files()
+    client = FakeClient()
+
+    res, lines = run_batch(export, client, dry_run=True)
+
+    assert client.calls == [] and commits() == head
+    assert sources.manifest_entries() == entries and raw_files() == raw
+    assert not (export / "batch.log").exists()
+    states = " ".join(lines)
+    assert "would file" in states and " already " in states and " needs-ocr " in states
+    assert res["would file"] == 2 and res["filed"] == 0
+
+
+def test_limit_sleep_unsupported_and_a_large_pdf(vault, idle_port, export, monkeypatch):
+    for n in range(3):
+        put(export, f"n{n}.pdf", text_pdf(n))
+    put(export, ".hidden.pdf", text_pdf(9))
+
+    res, _ = run_batch(export, FakeClient(*[SUMMARY, OPS] * 3), limit=1, sleep=0)
+    assert res["filed"] == 1 and len(sources.manifest_entries()) == 1
+    put(export, "page.one", b"x")
+    put(export, "scan.png", b"x")
+
+    naps = []
+    monkeypatch.setattr(sources, "_sleep", naps.append)
+    res, _ = run_batch(export, FakeClient(*[SUMMARY, OPS] * 3), sleep=2)
+    assert res["filed"] == 2 and res["already"] == 1 and res["unsupported"] == 2
+    assert naps == [2, 2]                    # none after the already-filed n0
+    put(export, "zlast.pdf", text_pdf(7))
+    run_batch(export, FakeClient(SUMMARY, OPS), sleep=2)
+    assert naps == [2, 2]                    # none after the last file
+
+    big = pdf_bytes([[("Falcon load test notes. " * 40) for _ in range(3300)]])
+    assert len(big) > 2 * 1024 * 1024
+    put(export, "zbig.pdf", big)
+    res, _ = run_batch(export, FakeClient(SUMMARY, OPS))
+    assert res["filed"] == 1 and res["failed"] == 0
+
+
+def test_start_guards_refuse_a_dirty_vault_or_a_running_app(vault, idle_port, export, monkeypatch):
+    import http.server
+    import threading
+
+    three_files(export)
+    (vault / "stray.md").write_text("half filed")
+    client = FakeClient()
+    res, lines = run_batch(export, client)
+    assert res["exit"] == 2 and client.calls == [] and "stray.md" in "\n".join(lines)
+    assert sources.manifest_entries() == []
+    (vault / "stray.md").unlink()
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("PROD_PORT", str(server.server_address[1]))     # `.env` says PORT=8011, prod is on 8010
+    try:
+        res, lines = run_batch(export, client)
+    finally:
+        server.shutdown()
+    assert res["exit"] == 2 and client.calls == []
+    assert "app is running — scripts/voicebot stop" in "\n".join(lines)
+
+
+def test_the_script_points_the_vault_at_the_given_directory(tmp_path, export):
+    import subprocess
+    import sys
+
+    target = tmp_path / "other-vault"
+    target.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=target, check=True)
+    (target / "stray.md").write_text("x")
+    env = {**os.environ, "MEMORY_DIR": str(tmp_path / "mem"), "PORT": "1"}
+    env.pop("WIKI_PATH", None)
+
+    done = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "ingest_batch.py"),
+                           str(export), "--vault", str(target), "--dry-run"],
+                          capture_output=True, text=True, env=env, cwd=tmp_path)
+
+    assert done.returncode == 2
+    assert str(target) in done.stdout and "stray.md" in done.stdout
+    bad = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "ingest_batch.py"),
+                          str(tmp_path / "missing"), "--dry-run"],
+                         capture_output=True, text=True, env=env, cwd=tmp_path)
+    assert bad.returncode == 2
+
+
+def test_a_strict_failure_removes_only_the_stored_original(vault, idle_port, monkeypatch):
+    (vault / "notes.md").write_text("unrelated edit")
+    wiki._commit("unrelated")
+    (vault / "scratch.md").write_text("written during the run")
+
+    def boom(*a, **kw):
+        raise RuntimeError("model fell over")
+
+    monkeypatch.setattr(sources, "summarise", boom)
+    with pytest.raises(RuntimeError):
+        sources.ingest_upload(text_pdf(1), "a.pdf", strict=True, client=FakeClient(), model="m")
+
+    assert (vault / "scratch.md").exists() and (vault / "notes.md").exists()
+    assert raw_files() == [] and sources.manifest_entries() == []
+
+
+@pytest.mark.parametrize("reply", ["garbage", json.dumps({"title": "T", "summary": "x", "entities": [],
+                                                           "unreadable": True})])
+def test_strict_refuses_an_unparseable_or_unreadable_summary(vault, idle_port, export, reply):
+    put(export, "a.pdf", text_pdf(1))
+
+    res, lines = run_batch(export, FakeClient(reply, reply, OPS))
+
+    assert res["failed"] == 1 and res["exit"] == 1 and res["filed"] == 0
+    assert sources.manifest_entries() == [] and raw_files() == []
+    assert not [f for f in os.listdir(os.path.join(wiki.WIKI_PATH, "sources")) if f.endswith(".md")]

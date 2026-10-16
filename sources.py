@@ -37,6 +37,7 @@ import json
 import os
 import re
 import subprocess
+import time
 
 import avatars
 import memory
@@ -52,8 +53,8 @@ RAW_CHUNK_TOKENS = int(os.getenv("RAW_CHUNK_TOKENS", "6000"))
 SAMPLE_SHARES = (0.60, 0.15, 0.25)
 SKIPPED = "[… %d tokens skipped …]"
 
-MAX_FILE_BYTES = 2 * 1024 * 1024        # pdf/eml/msg/ics and pasted text
-MAX_TEXT_BYTES = 50 * 1024 * 1024       # md/txt/docx/pptx/xlsx/vtt/epub (sampled, so size is cheap)
+MAX_FILE_BYTES = 2 * 1024 * 1024        # eml/msg/ics
+MAX_TEXT_BYTES = 50 * 1024 * 1024       # pdf/md/txt/docx/pptx/xlsx/vtt/epub and pasted text (sampled, so size is cheap)
 MAX_IMAGE_BYTES = 4 * 1024 * 1024       # png/jpg
 IMAGE_LONG_EDGE = 1568                  # what the multimodal model wants to see
 #: below this, downscaling costs more than it saves (and keeps the tests off `sips`)
@@ -71,7 +72,7 @@ OFFICE_EXTS = {".docx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".vtt": "trans
 #: extension -> the `kind` that lands in the source page's frontmatter
 KINDS = {**TEXT_EXTS, **IMAGE_EXTS, **DOC_EXTS, **OFFICE_EXTS}
 #: the kinds whose bytes are cheap to hold because the model only ever sees a sample
-LARGE_TEXT_EXTS = set(TEXT_EXTS) | set(OFFICE_EXTS)
+LARGE_TEXT_EXTS = set(TEXT_EXTS) | set(OFFICE_EXTS) | {".pdf"}      # PRD 48: OneNote PDFs carry images
 
 #: page folders an op may create in when the page is not in the index yet
 NEW_PAGE_FOLDERS = ("people", "projects")
@@ -238,6 +239,14 @@ def pdf_text(data: bytes) -> str:
         return ""
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     return text if len(text.strip()) >= MIN_PDF_CHARS else ""
+
+
+def pdf_chars(data: bytes) -> tuple:
+    """``(characters, pages)`` of the text layer; raises on a PDF pypdf cannot open."""
+    import pypdf
+
+    pages = [(page.extract_text() or "").strip() for page in pypdf.PdfReader(io.BytesIO(data)).pages]
+    return sum(len(p) for p in pages), len(pages)
 
 
 def eml_text(data: bytes) -> str:
@@ -1021,8 +1030,9 @@ def _target_allowed(path) -> str | None:
 
 
 def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str,
-              user_names=()) -> dict:
-    """One completion -> ``{title, summary, entities, topic, unreadable}``; never raises.
+              user_names=(), strict: bool = False) -> dict:
+    """One completion -> ``{title, summary, entities, topic, unreadable}``; never raises
+    (`strict`, PRD 48: a failed completion raises instead of filing a stub).
 
     An empty extraction skips the call entirely: there is nothing to summarise, and the page is
     still worth creating (it carries the link to the raw file — PRD's "unreadable" risk).
@@ -1049,6 +1059,8 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
             raw = _ask(client, model, system, content, 700)
         except Exception as exc:  # noqa: BLE001
             print(f"[Sources] summary failed: {exc}")
+            if strict:
+                raise
             fallback["summary"] = "the summary model could not be reached; the raw file is filed."
             return fallback
         parsed = memory._extract_json(raw, "{", "}")
@@ -1060,10 +1072,14 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
             print("[Sources] summary came back without a title; asking once more")
     if not isinstance(data, dict):
         print("[Sources] could not parse the summary; filing the raw file only")
+        if strict:
+            raise IngestError(422, "the summary could not be parsed")
         fallback["summary"] = "the summary could not be parsed; the raw file is filed."
         return fallback
     entities = [e for e in (data.get("entities") or []) if isinstance(e, dict)][:8]
     summary = " ".join(str(data.get("summary") or "").split())
+    if strict and (data.get("unreadable") or not summary):
+        raise IngestError(422, "the model found nothing readable in the file")
     return {
         "title": " ".join(str(data.get("title") or title or "Untitled").split())[:120],
         "summary": summary,
@@ -1141,7 +1157,7 @@ def is_generic_title(title: str) -> bool:
 
 
 def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
-                   title: str, names, on_stage=None) -> tuple:
+                   title: str, names, on_stage=None, strict: bool = False) -> tuple:
     """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest.
 
     ``(summary, extracted)``: the kind the extraction settled on (`extracted.kind`) is the one
@@ -1150,13 +1166,15 @@ def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hin
     """
     _stage(on_stage, "extracting")
     extracted = extract(raw_rel, data, kind)
+    if strict and not extracted.text.strip() and extracted.image_part is None and extracted.kind != "calendar":
+        raise IngestError(422, "no text could be extracted")
     stem = os.path.splitext(os.path.basename(raw_rel))[0]
     label = title or ("" if is_generic_title(stem) else stem)
     if extracted.kind == "calendar":
         return _calendar_summary(extracted.events, title or stem), extracted
     _stage(on_stage, "summarising")
     return summarise(client, model, extracted.kind, extracted.text, extracted.image_part,
-                     hint, label, names), extracted
+                     hint, label, names, strict), extracted
 
 
 def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, source_rel: str,
@@ -1221,7 +1239,8 @@ def _stage(on_stage, stage: str) -> None:
 
 
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
-               page: str = "", client=None, model: str = "", on_stage=None) -> dict:
+               page: str = "", client=None, model: str = "", on_stage=None,
+               source: str = "", strict: bool = False) -> dict:
     """The one ingest path: store, extract, summarise, file, commit once.
 
     Returns ``{path, raw, already}`` — `path` is the source page (`sources/<slug>`), `raw` the
@@ -1244,8 +1263,13 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         raw_rel = _free_path(folder, stem, ext)
         _store(raw_rel, data)
 
-        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title, names,
-                                            on_stage)
+        try:
+            summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title,
+                                                names, on_stage, strict)
+        except Exception:
+            if strict:          # PRD 48: nothing but the stored original exists yet; drop just that file
+                os.remove(wiki._path(raw_rel))
+            raise
         kind = extracted.kind
         page_title = title or summary.get("title") or stem
         raw_rel = _rename_generic_raw(raw_rel, page_title)
@@ -1253,7 +1277,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _stage(on_stage, "filing")
         fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
-                         hint=hint, page=page, source=f"user drop {memory._today_iso()}",
+                         hint=hint, page=page, source=source or f"user drop {memory._today_iso()}",
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
@@ -1423,7 +1447,7 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
 
 def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title: str = "",
                   hint: str = "", page: str = "", client=None, model: str = "",
-                  on_stage=None) -> dict:
+                  on_stage=None, source: str = "", strict: bool = False) -> dict:
     """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
     ext, kind = check_upload(filename, len(data), kind_hint)
     stem = title or os.path.splitext(os.path.basename(filename or ""))[0] or "drop"
@@ -1432,7 +1456,7 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
-                      client=client, model=model, on_stage=on_stage)
+                      client=client, model=model, on_stage=on_stage, source=source, strict=strict)
 
 
 def check_note(text: str) -> str:
@@ -1493,3 +1517,177 @@ def decode_data_url(value: str) -> bytes:
         return base64.b64decode(payload, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise IngestError(415, "the pasted image could not be decoded") from exc
+
+
+# --- batch import (docs/48-batch-import.md) ------------------------------------------
+
+BATCH_LOG = "batch.log"
+_sleep = time.sleep
+_RETRY_STATES = ("needs-ocr", "unsupported", "too-large", "failed")
+
+
+def _app_running() -> str:
+    """The port something answers on among prod (8010), dev (8011) and PORT, whatever `.env` says."""
+    import urllib.error
+    import urllib.request
+
+    ports = {os.getenv("PROD_PORT") or "8010", os.getenv("DEV_PORT") or "8011", os.getenv("PORT") or ""} - {""}
+    for port in sorted(ports):
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).close()
+        except urllib.error.HTTPError:
+            return port
+        except (OSError, ValueError):
+            continue
+        return port
+    return ""
+
+
+def _dirty_paths() -> list:
+    if not os.path.isdir(os.path.join(wiki.WIKI_PATH, ".git")):
+        return []
+    done = subprocess.run(["git", "status", "--porcelain"], cwd=wiki.WIKI_PATH,
+                          capture_output=True, text=True)
+    return [line for line in done.stdout.splitlines() if line.strip()]
+
+
+def _batch_walk(folder: str) -> list:
+    found = []
+    for base, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in files:
+            if not name.startswith(".") and not (base == folder and name == BATCH_LOG):
+                found.append(os.path.relpath(os.path.join(base, name), folder).replace(os.sep, "/"))
+    return sorted(found)
+
+
+def _batch_last_states(log: str) -> dict:
+    last = {}
+    if os.path.exists(log):
+        for line in open(log).read().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "rel" in row:
+                last[row["rel"]] = row.get("state", "")
+    return last
+
+
+def _clock(seconds: float) -> str:
+    s = int(seconds)
+    h, m, s = s // 3600, s % 3600 // 60, s % 60
+    return f"{h}h {m:02d}m" if h else f"{m}m {s:02d}s" if m else f"{s}s"
+
+
+def _batch_one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> dict:
+    """One file's outcome `{state, ...}`; only a real filing touches the vault."""
+    ext = os.path.splitext(rel)[1].lower()
+    if ext not in kinds:
+        return {"state": "unsupported"}
+    try:
+        check_upload(rel, os.path.getsize(path))
+    except IngestError as exc:
+        return {"state": "too-large", "reason": exc.message}
+    reached = False
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        digest = sha256(data)
+        seen = manifest_find(digest)
+        if seen:
+            return {"state": "already", "sha256": digest, "page": seen.get("page", ""),
+                    "pages_touched": len(seen.get("pages_touched") or [])}
+        note = ""
+        if ext == ".pdf":
+            chars, pages = pdf_chars(data)
+            per_page = chars // max(pages, 1)
+            note = f"{per_page} chars/page"
+            if per_page < MIN_PDF_CHARS:
+                return {"state": "needs-ocr", "sha256": digest, "reason": note}
+        if dry_run:
+            return {"state": "would file", "sha256": digest, "reason": note}
+        hint = os.path.dirname(rel)
+        reached = True
+        res = ingest_upload(data, os.path.basename(rel), hint=hint, client=client, model=model,
+                            source=f"batch import {memory._today_iso()}", strict=True)
+        entry = manifest_find(digest) or {}
+        fm, _ = wiki.parse_page((wiki._read(res["path"] + ".md") or ""))
+        return {"state": "filed", "sha256": digest, "page": res["path"],
+                "title": fm.get("name", ""), "pages_touched": len(entry.get("pages_touched") or [])}
+    except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch
+        return {"state": "failed", "reason": str(exc) or type(exc).__name__, "reached": reached}
+
+
+def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dry_run: bool = False,
+                 limit: int = 0, sleep: float = 0, client=None, model: str = "", out=print) -> dict:
+    """File every `kinds` file under `folder` through the drop path, one at a time (PRD 48).
+
+    Returns the per-state counts plus `exit` (0 clean, 1 something failed, 2 refused start) and
+    `seconds`. Idempotent through the manifest's sha guard; `batch.log` in `folder` remembers
+    skips and failures for `resume`.
+    """
+    exts = {"." + k.strip().lower().lstrip(".") for k in kinds if k.strip()}
+    counts = {s: 0 for s in ("filed", "would file", "already", "needs-ocr", "unsupported",
+                             "too-large", "resume", "failed")}
+    result = {**counts, "exit": 0, "seconds": 0}
+    refuse = None
+    out(f"vault {wiki.WIKI_PATH}")
+    if not os.path.isdir(folder):
+        refuse = f"not a folder: {folder}"
+    elif not exts or not exts <= set(KINDS):
+        refuse = f"unknown --kinds {','.join(sorted(exts))}"
+    elif (dirty := _dirty_paths()):
+        refuse = ("the vault has uncommitted changes (a half-filed crash leftover?) — clean them "
+                  "first:\n" + "\n".join("  " + line for line in dirty))
+    elif (port := _app_running()):
+        refuse = f"app is running — scripts/voicebot stop (port {port})"
+    if refuse:
+        out(refuse)
+        return {**result, "exit": 2}
+
+    files = _batch_walk(folder)
+    log = os.path.join(folder, BATCH_LOG)
+    last = _batch_last_states(log) if resume else {}
+    started = time.time()
+    out(f"{len(files)} files" + (" · dry run" if dry_run else ""))
+    if not dry_run:
+        with open(log, "a") as f:
+            f.write(json.dumps({"run": memory._stamp("%Y-%m-%dT%H:%M:%S"), "started": started,
+                                "vault": wiki.WIKI_PATH,
+                                "args": {"folder": folder, "kinds": sorted(exts), "resume": resume,
+                                         "limit": limit, "sleep": sleep}}) + "\n")
+    reached = 0
+    for i, rel in enumerate(files, 1):
+        if resume and last.get(rel) in _RETRY_STATES:
+            counts["resume"] += 1
+            out(f"[{i}/{len(files)}] skip   {rel} (last run: {last[rel]})")
+            continue
+        t0 = time.time()
+        row = _batch_one(os.path.join(folder, rel), rel, exts, dry_run, client, model)
+        state, seconds = row["state"], round(time.time() - t0, 1)
+        counts[state] += 1
+        shown = state if state == "filed" else f"{state} — {row['reason']}" if state == "failed" else state
+        tail = (f" -> {row['title'] or row['page']} ({row['pages_touched']} pages, {seconds:.0f} s)"
+                if state == "filed" else f" ({row['reason']})" if row.get("reason") and state != "failed" else "")
+        out(f"[{i}/{len(files)}] {shown}  {rel}{tail}")
+        if not dry_run:
+            with open(log, "a") as f:
+                f.write(json.dumps({"rel": rel, "sha256": row.get("sha256", ""), "state": state,
+                                    "title": row.get("title", ""), "page": row.get("page", ""),
+                                    "pages_touched": row.get("pages_touched", 0), "seconds": seconds,
+                                    "reason": row.get("reason", ""),
+                                    "at": memory._stamp("%Y-%m-%dT%H:%M:%S")}) + "\n")
+        if state == "filed" or row.get("reached"):
+            reached += 1
+            if limit and reached >= limit:
+                break
+            if sleep > 0 and i < len(files):
+                _sleep(sleep)
+    skipped = {k: counts[k] for k in ("already", "needs-ocr", "unsupported", "too-large", "resume")}
+    detail = ", ".join(f"{k} {v}" for k, v in skipped.items() if v)
+    elapsed = time.time() - started
+    head = f"would file {counts['would file']}" if dry_run else f"filed {counts['filed']}"
+    out(f"{head} · skipped {sum(skipped.values())}" + (f" ({detail})" if detail else "")
+        + f" · failed {counts['failed']} · {_clock(elapsed)}")
+    return {**counts, "exit": 1 if counts["failed"] else 0, "seconds": round(elapsed)}

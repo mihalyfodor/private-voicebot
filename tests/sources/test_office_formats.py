@@ -393,13 +393,14 @@ def test_a_3mb_text_is_sampled_head_middle_tail(vault, fake):
 
 
 def test_an_oversized_png_is_still_refused(vault, fake):
-    """Images keep PRD 20's 4 MB cap and pdf its 2 MB one; only the text kinds grew."""
+    """Images keep PRD 20's 4 MB cap and eml its 2 MB one; pdf joined the 50 MB text kinds (PRD 48)."""
     with pytest.raises(sources.IngestError) as exc:
         sources.check_upload("big.png", sources.MAX_IMAGE_BYTES + 1)
     assert exc.value.status == 413
     assert sources.check_upload("big.png", 3 * 1024 * 1024) == (".png", "screenshot")
     with pytest.raises(sources.IngestError):
-        sources.check_upload("big.pdf", 3 * 1024 * 1024)               # pdf keeps the 2 MB cap
+        sources.check_upload("big.eml", 3 * 1024 * 1024)               # eml keeps the 2 MB cap
+    assert sources.check_upload("big.pdf", 3 * 1024 * 1024) == (".pdf", "pdf")
     assert sources.check_upload("big.docx", 9 * 1024 * 1024) == (".docx", "docx")
 
 

@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 48 — Batch import (OneNote history)
 
@@ -53,7 +53,18 @@ the first real run is a manual scenario for the user.
   that reached the model; `--sleep S` waits between such files. Ctrl-C finishes nothing mid-file: the
   in-flight file has no manifest line, the next run's dirty check tells the user to clean it.
 
+- **Strict mode (batch only):** `ingest_upload(..., strict=True)` raises on a failed extraction or a failed summary
+  instead of filing the source as "unreadable" with a fallback summary; an unparseable summary (both attempts) and
+  a model `unreadable: true` are failures too. The batch always passes `strict=True`; a drop keeps today's forgiving
+  path because the user sees the result in the inbox at once. On a strict failure nothing is committed and the only
+  thing written so far — the stored raw file — is removed under `vault_lock.LOCK`; no git reset or clean ever runs on
+  the vault (an overnight run must not touch unrelated edits). The file is logged `failed — <reason>`.
+- **App-running guard:** probes both `DEV_PORT` (8011) and `PROD_PORT` (8010) regardless of `.env`, so a prod
+  container on :8010 blocks a run against the prod data dir.
+
 ### Decisions
+- Chose a batch-only strict mode over changing the drop path because a silent "unreadable" across hundreds of files
+  is a lost import, while a single drop is checked by eye.
 - Host script over an upload UI: hundreds of files over hours do not fit a browser popup that must stay open; the
   script runs with the app stopped, against dev or prod data via `WIKI_PATH`, and needs no protocol changes.
 - One file at a time through `ingest_upload`, not a bulk path: the 4-bit model is the bottleneck anyway, every file
