@@ -14,6 +14,7 @@ import pytest
 import chatbot
 import llm
 import memory
+from core import llm as core_llm
 from tests.conftest import Blocker, FakeClient, audit_log, on_disk, seed
 
 
@@ -169,7 +170,7 @@ def test_memory_reset_empties_the_file_and_logs_one_delete_all(panel):
 # --------------------------------------------------------------- 7. concurrency
 
 
-def test_a_hand_edit_during_a_background_save_is_not_overwritten():
+def test_a_hand_edit_during_a_background_save_is_not_overwritten(monkeypatch):
     """The lock must span load -> propose -> write in save(); without it the edit is lost."""
     seed(identity={"name": "Misi"})
     entered = threading.Event()
@@ -177,9 +178,10 @@ def test_a_hand_edit_during_a_background_save_is_not_overwritten():
         json.dumps([{"op": "ADD", "path": "preferences.coffee", "value": "black"}]),
         delay=0.15, entered=entered,
     )
+    monkeypatch.setattr(core_llm, "_client", client)
     saver = threading.Thread(
         target=memory.save,
-        args=([{"role": "user", "content": "I drink black coffee"}], client, "m"))
+        args=([{"role": "user", "content": "I drink black coffee"}],))
     saver.start()
     assert entered.wait(timeout=5), "the save never reached the LLM call"
 
@@ -270,7 +272,7 @@ def test_fuzz_two_hundred_random_ops_keep_the_profile_valid():
 # --------------------------------------------------------------- stress: concurrent hammer
 
 
-def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
+def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact(monkeypatch):
     seed(identity={"name": "Misi"})
     applied = []
     lock = threading.Lock()
@@ -285,9 +287,10 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact():
 
     client = FakeClient(json.dumps([{"op": "ADD", "path": "people[]", "value": {"name": "Anna"}}]),
                         delay=0.05)
+    monkeypatch.setattr(core_llm, "_client", client)
     threads = [threading.Thread(target=hammer, args=(t,)) for t in range(4)]
     saver = threading.Thread(target=lambda: applied.append(
-        len(memory.save([{"role": "user", "content": "Anna is a colleague"}], client, "m"))))
+        len(memory.save([{"role": "user", "content": "Anna is a colleague"}]))))
     for t in threads + [saver]:
         t.start()
     for t in threads + [saver]:

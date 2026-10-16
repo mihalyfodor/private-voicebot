@@ -34,6 +34,7 @@ import unicodedata
 from datetime import date, datetime
 
 from core import config, trace
+from core import llm as core_llm
 from core.untrusted import DOCUMENT_RULE
 
 # --- files -------------------------------------------------------------------------
@@ -744,17 +745,7 @@ def _extract_json(text: str, opener: str = "[", closer: str = "]"):
     return None
 
 
-def _complete(client, model: str, system: str, user: str, max_tokens: int) -> str:
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-        temperature=0,
-        max_tokens=max_tokens,
-    )
-    return response.choices[0].message.content or ""
-
-
-def propose_ops(profile: dict, turns: list, client, model: str, sources=()) -> list | None:
+def propose_ops(profile: dict, turns: list, sources=()) -> list | None:
     """Ask the LLM for upsert ops against `profile`; [] on anything unparseable, None when the
     call itself failed (server down, timeout) so the caller can keep the turns for a retry.
 
@@ -773,7 +764,7 @@ def propose_ops(profile: dict, turns: list, client, model: str, sources=()) -> l
         f"New conversation:\n{transcript}"
     )
     try:
-        content = _complete(client, model, system, user, 600)
+        content = core_llm.complete(system, user, 600)
     except Exception as exc:  # noqa: BLE001 — memory must never break a session
         log.warning(f"warning: op proposal failed ({exc})")
         return None
@@ -1412,7 +1403,7 @@ def reset() -> dict:
 # --------------------------------------------------------------------------- reflection
 
 
-def reflect(profile: dict, client, model: str) -> dict:
+def reflect(profile: dict) -> dict:
     """Merge duplicates / expire episodics / promote repeats — validated, never blind.
 
     The model returns a whole profile, but its answer is only ever used as a proposal to shrink:
@@ -1423,7 +1414,7 @@ def reflect(profile: dict, client, model: str) -> dict:
     system = REFLECT_SYSTEM % _today_iso()
     user = json.dumps(_public(profile), ensure_ascii=False, indent=1)
     try:
-        content = _complete(client, model, system, user, 900)
+        content = core_llm.complete(system, user, 900)
     except Exception as exc:  # noqa: BLE001
         log.warning(f"warning: reflection failed ({exc})")
         return profile
@@ -1517,7 +1508,7 @@ def _validate_reflection(original: dict, cleaned: dict) -> dict:
 # --------------------------------------------------------------------------- migration
 
 
-def migrate_if_needed(client, model: str) -> dict:
+def migrate_if_needed() -> dict:
     """Seed memory.json from shortmem.txt once, then return the profile.
 
     Runs only when there is no memory.json yet; the v1 text file is left untouched so the
@@ -1544,7 +1535,7 @@ def migrate_if_needed(client, model: str) -> dict:
         return load_profile()
 
     profile = _empty_profile()
-    ops = propose_ops(profile, [{"role": "user", "content": "\n".join(lines)}], client, model)
+    ops = propose_ops(profile, [{"role": "user", "content": "\n".join(lines)}])
     profile, applied = apply_ops(profile, ops)
     _write_profile(profile)
     _log_ops(applied)
@@ -1571,7 +1562,7 @@ def stand_ins_only(turns: list) -> bool:
     return bool(turns) and all(stand_in(t) for t in turns)
 
 
-def _ingest_wiki(turns: list, client, model: str) -> list:
+def _ingest_wiki(turns: list) -> list:
     """Hand the session to the wiki layer (docs/19-wiki-layer.md).
 
     Runs last inside :func:`save`, still under `_LOCK`, and swallows everything: filing a page
@@ -1583,7 +1574,7 @@ def _ingest_wiki(turns: list, client, model: str) -> list:
     try:
         import wiki
 
-        return wiki.ingest(turns, client, model)
+        return wiki.ingest(turns)
     except Exception as exc:  # noqa: BLE001
         wiki_log.info(f"ingest error: {exc}")
         return []
@@ -1634,17 +1625,17 @@ def forget_source(title: str) -> int:
         return removed
 
 
-def save(session_turns: list, client, model: str, sources=()) -> list | None:
+def save(session_turns: list, sources=()) -> list | None:
     """`_save` plus its `memory_save` event: facts added / dropped and the time (PRD 49)."""
     t0 = time.monotonic()
-    applied = _save(session_turns, client, model, sources)
+    applied = _save(session_turns, sources)
     ops = [op.get("op") for op in applied or []]
     trace.event("memory_save", facts_added=ops.count("ADD"), facts_dropped=ops.count("DELETE"),
                   ms=trace.ms_since(t0), ok=applied is not None)
     return applied
 
 
-def _save(session_turns: list, client, model: str, sources=()) -> list | None:
+def _save(session_turns: list, sources=()) -> list | None:
     """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves.
 
     The one entry point the chat path uses to write memory; returns the applied ops, or None
@@ -1657,8 +1648,8 @@ def _save(session_turns: list, client, model: str, sources=()) -> list | None:
     by a profile that was loaded before the edit.
     """
     with _LOCK:
-        profile = migrate_if_needed(client, model)
-        ops = propose_ops(profile, session_turns, client, model, sources)
+        profile = migrate_if_needed()
+        ops = propose_ops(profile, session_turns, sources)
         if ops is None:
             log.info("save skipped — turns kept for the next attempt")
             return None
@@ -1678,7 +1669,7 @@ def _save(session_turns: list, client, model: str, sources=()) -> list | None:
             if retired:
                 _write_profile(profile)
             log.info("[Nothing new to save]")
-            _ingest_wiki(session_turns, client, model)
+            _ingest_wiki(session_turns)
             return []
 
         meta = profile.setdefault("meta", {})
@@ -1696,12 +1687,12 @@ def _save(session_turns: list, client, model: str, sources=()) -> list | None:
 
         if meta["saves"] % REFLECT_EVERY == 0:
             before = sum(len(profile.get(s, [])) for s in LIST_SECTIONS)
-            profile = reflect(profile, client, model)
+            profile = reflect(profile)
             profile.setdefault("meta", {})["saves"] = meta["saves"]
             _write_profile(profile)
             after = sum(len(profile.get(s, [])) for s in LIST_SECTIONS)
             log.info(f"reflection pass: {before} -> {after} entries")
             _lint_wiki()
 
-        _ingest_wiki(session_turns, client, model)
+        _ingest_wiki(session_turns)
         return applied

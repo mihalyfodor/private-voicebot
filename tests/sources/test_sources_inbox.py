@@ -14,6 +14,7 @@ import sources
 import wiki
 from tests.conftest import FakeClient, commits, read, vault  # noqa: F401 — fixture
 from tests.sources.test_sources import OPS, SUMMARY, fake  # noqa: F401 — fixture
+from core import llm as core_llm
 
 RE_SUMMARY = json.dumps({
     "title": "Falcon status",
@@ -30,7 +31,7 @@ RE_OPS = json.dumps([
 def _file_falcon(monkeypatch) -> dict:
     """The PRD 20 fixture drop: `projects/falcon` is created by the ops, one commit."""
     client = FakeClient(SUMMARY, OPS)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     return sources.ingest_upload(b"# Falcon\nload test: 940 ms p99", "falcon.md")
 
 
@@ -44,7 +45,7 @@ def _sha(filed: dict) -> str:
 def test_list_sources_is_newest_first_with_the_pages_fed(vault, monkeypatch):
     first = _file_falcon(monkeypatch)
     client = FakeClient(json.dumps({"title": "Lunch menu", "summary": "Soup.", "entities": []}), "[]")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     second = sources.ingest_upload(b"soup of the day", "menu.txt")
 
     rows = sources.list_sources()
@@ -71,7 +72,8 @@ def test_reingest_rewrites_the_source_page_adds_notes_and_commits_once(vault, mo
     sha = _sha(filed)
     before = len(commits())
 
-    result = sources.reingest(sha, client=FakeClient(RE_SUMMARY, RE_OPS), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RE_SUMMARY, RE_OPS))
+    result = sources.reingest(sha)
 
     assert result == {"path": "sources/falcon-status", "raw": filed["raw"]}
     page = read("sources/falcon-status.md")
@@ -86,9 +88,10 @@ def test_reingest_rewrites_the_source_page_adds_notes_and_commits_once(vault, mo
     assert "re-ingested [[sources/falcon-status]]" in read("log.md")
 
 
-def test_reingest_of_an_unknown_sha_is_refused(vault):
+def test_reingest_of_an_unknown_sha_is_refused(vault, monkeypatch):
     with pytest.raises(sources.IngestError) as exc:
-        sources.reingest("0" * 64, client=FakeClient(), model="m")
+        monkeypatch.setattr(core_llm, "_client", FakeClient())
+        sources.reingest("0" * 64)
     assert exc.value.status == 404
 
 
@@ -98,7 +101,8 @@ def test_reingest_of_an_unknown_sha_is_refused(vault):
 def test_forget_removes_page_raw_manifest_line_and_only_its_notes(vault, monkeypatch):
     filed = _file_falcon(monkeypatch)
     sha = _sha(filed)
-    sources.reingest(sha, client=FakeClient(RE_SUMMARY, RE_OPS), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RE_SUMMARY, RE_OPS))
+    sources.reingest(sha)
     wiki.apply_page_ops([{"op": "append_note", "path": "projects/falcon",
                           "text": "Kept: said in a meeting.", "source": "session 2026-08-29"}],
                         "session 2026-08-29", commit=True)

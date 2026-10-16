@@ -40,6 +40,7 @@ import subprocess
 
 from core import settings
 import memory
+from core import llm as core_llm
 from core import trace
 from core.untrusted import DOCUMENT_RULE, untrusted
 from core import vault_lock
@@ -169,23 +170,6 @@ Today is %s."""
 
 
 # --- llm ---------------------------------------------------------------------------
-
-
-def _client_model() -> tuple:
-    """The live oMLX client and model. Split out so tests can hand in a fake."""
-    import llm
-
-    return llm.client(), llm.OMLX_MODEL
-
-
-def _ask(client, model: str, system: str, content, max_tokens: int) -> str:
-    """One completion. `content` is a string, or the multimodal content-part list for an image."""
-    messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    with trace.llm_span("ingest", messages, model=model, max_tokens=max_tokens, ttft_ms=None) as span:
-        response = client.chat.completions.create(model=model, messages=messages, temperature=0,
-                                                  max_tokens=max_tokens)
-        span.update(trace.usage_fields(getattr(response, "usage", None)))
-    return response.choices[0].message.content or ""
 
 
 # --- extraction --------------------------------------------------------------------
@@ -857,12 +841,12 @@ def _degraded(reason: str) -> None:
         trace.mark(_degraded=reason)
 
 
-def meeting_from_transcript(client, model: str, text: str, title: str, user_names=()) -> dict | None:
+def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None:
     """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
     summary}``, tidied; None when the model cannot be reached or parsed."""
     try:
         system = MEETING_SYSTEM % (memory.user_note(user_names), memory._today_iso())
-        raw = _ask(client, model, system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900)
+        raw = core_llm.complete(system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
         trace.error("ingest", "meeting_from_transcript", exc)
@@ -920,10 +904,10 @@ def _attendee_ops(meeting: dict, meeting_rel: str, user_names=()) -> list:
     return ops
 
 
-def _file_meeting(client, model: str, extracted, *, raw_rel: str, source_rel: str, title: str,
+def _file_meeting(extracted, *, raw_rel: str, source_rel: str, title: str,
                   names) -> tuple:
     """A transcript's step 5: the meeting page plus the attendee/project ops. ``(meeting, ops)``."""
-    meeting = meeting_from_transcript(client, model, extracted.text, title, names)
+    meeting = meeting_from_transcript(extracted.text, title, names)
     if meeting is None:
         return "", []
     rel = _free_path("meetings", f"{meeting['date']}-{wiki.slugify(meeting['title'])}", ".md")
@@ -1033,7 +1017,7 @@ def _target_allowed(path) -> str | None:
     return None
 
 
-def summarise(client, model: str, kind: str, text: str, image_part, hint: str, title: str,
+def summarise(kind: str, text: str, image_part, hint: str, title: str,
               user_names=(), strict: bool = False) -> dict:
     """One completion -> ``{title, summary, entities, topic, unreadable}``; never raises
     (`strict`, PRD 48: an empty extraction or a failed completion raises instead of filing a stub).
@@ -1062,7 +1046,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     data = None
     for attempt in range(1, SUMMARY_ATTEMPTS + 1):
         try:
-            raw = _ask(client, model, system, content, 700)
+            raw = core_llm.complete(system, content, 700, purpose="ingest")
         except Exception as exc:  # noqa: BLE001
             log.warning(f"summary failed: {exc}")
             trace.error("ingest", "summarise", exc)
@@ -1098,7 +1082,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
     }
 
 
-def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: str,
+def propose_page_ops(source_rel: str, summary: dict, hint: str,
                      hint_page: str = "", user_names=(), kind: str = "") -> list:
     """Ask for page ops about a just-filed source; [] on anything unparseable.
 
@@ -1125,7 +1109,7 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
         if kind in PUBLISHED_KINDS:
             rules += "\n- " + PUBLISHED_NOTE
         system = OPS_SYSTEM % (rules, memory._today_iso())
-        raw = _ask(client, model, system, "\n\n".join(parts), 800)
+        raw = core_llm.complete(system, "\n\n".join(parts), 800, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
         trace.error("ingest", "propose_page_ops", exc)
@@ -1171,7 +1155,7 @@ def is_generic_title(title: str) -> bool:
     return not words or words in GENERIC_TITLES
 
 
-def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
+def _summarise_raw(raw_rel: str, data: bytes, kind: str, hint: str,
                    title: str, names, on_stage=None, strict: bool = False,
                    unreadable: bool = False) -> tuple:
     """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest.
@@ -1190,11 +1174,11 @@ def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hin
     if extracted.kind == "calendar":
         return _calendar_summary(extracted.events, title or stem), extracted
     _stage(on_stage, "summarising")
-    return summarise(client, model, extracted.kind, extracted.text, extracted.image_part,
+    return summarise(extracted.kind, extracted.text, extracted.image_part,
                      hint, label, names, strict), extracted
 
 
-def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, source_rel: str,
+def _file_page(summary: dict, extracted, *, raw_rel: str, source_rel: str,
                digest: str, page_title: str, hint: str, page: str, source: str, names) -> list:
     """Write the source page and apply the proposed ops — step 5. Returns the pages fed.
 
@@ -1223,10 +1207,10 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
                                     names=names)
         meeting = stubs[0] if stubs else ""
     elif kind == "transcript" and not summary.get("unreadable"):
-        meeting, ops = _file_meeting(client, model, extracted, raw_rel=raw_rel,
+        meeting, ops = _file_meeting(extracted, raw_rel=raw_rel,
                                      source_rel=source_rel, title=page_title, names=names)
     elif not summary.get("unreadable"):
-        ops = propose_page_ops(client, model, source_rel, summary, hint, page, names, kind)
+        ops = propose_page_ops(source_rel, summary, hint, page, names, kind)
     else:
         ops = []
     trace.verbose("ingest_text", summary=summary.get("summary", ""), ops=ops)
@@ -1255,7 +1239,7 @@ def _stage(on_stage, stage: str) -> None:
 
 
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
-               page: str = "", client=None, model: str = "", on_stage=None,
+               page: str = "", on_stage=None,
                source: str = "", strict: bool = False, digest: str = "", pages=None,
                unreadable: bool = False, extra: dict | None = None) -> dict:
     """The one ingest path: store, extract, summarise, file, commit once.
@@ -1267,8 +1251,6 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
     pages', not the transcript's), the page PNGs as `pages` — stored next to the raw file under
     `<stem>/page-NN.png` and listed in the manifest — and `extra` manifest fields.
     """
-    if client is None:
-        client, model = _client_model()
     with vault_lock.LOCK:
         wiki.ensure_vault()
         names = memory.user_names()
@@ -1284,7 +1266,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _store(raw_rel, data)
 
         try:
-            summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title,
+            summary, extracted = _summarise_raw(raw_rel, data, kind, hint, title,
                                                 names, on_stage, strict, unreadable)
         except Exception:
             if strict:          # PRD 48: nothing but the stored original exists yet; drop just that file
@@ -1299,7 +1281,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
             _store(page_rels[-1], png)
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
         _stage(on_stage, "filing")
-        fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
+        fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint=hint, page=page, source=source or f"user drop {memory._today_iso()}",
                          names=names)
@@ -1365,14 +1347,12 @@ def _entry_or_raise(digest: str) -> dict:
     return entry
 
 
-def reingest(digest: str, *, client=None, model: str = "") -> dict:
+def reingest(digest: str) -> dict:
     """Re-run summary + ops from the stored raw file; same source page, same sha, one commit.
 
     Touched pages get fresh dated notes (the ops are re-applied, not diffed); the manifest
     line is replaced in place with the union of old and new `pages_touched`.
     """
-    if client is None:
-        client, model = _client_model()
     with vault_lock.LOCK:
         entry = _entry_or_raise(digest)
         raw_rel, source_rel = entry["path"], f"{entry['page']}.md"
@@ -1384,9 +1364,9 @@ def reingest(digest: str, *, client=None, model: str = "") -> dict:
         names = memory.user_names()
         kind = str(entry.get("kind") or KINDS.get(os.path.splitext(raw_rel)[1].lower()) or "txt")
         old_fm = wiki.parse_page(wiki._read(source_rel))[0]
-        summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, "", "", names)
+        summary, extracted = _summarise_raw(raw_rel, data, kind, "", "", names)
         page_title = str(old_fm.get("name") or summary.get("title") or "")
-        fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
+        fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint="", page="",
                          source=str(old_fm.get("source") or f"user drop {memory._today_iso()}"),
@@ -1476,7 +1456,7 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
 
 
 def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title: str = "",
-                  hint: str = "", page: str = "", client=None, model: str = "",
+                  hint: str = "", page: str = "",
                   on_stage=None, source: str = "", strict: bool = False) -> dict:
     """One uploaded file (or pasted image). Raises `IngestError` for size/type refusals."""
     ext, kind = check_upload(filename, len(data), kind_hint)
@@ -1487,7 +1467,7 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     with trace.ingest(kind, raw=raw_rel, bytes=len(data)):
         return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
-                          client=client, model=model, on_stage=on_stage, source=source, strict=strict)
+                          on_stage=on_stage, source=source, strict=strict)
 
 
 def check_note(text: str) -> str:
@@ -1500,8 +1480,7 @@ def check_note(text: str) -> str:
     return body
 
 
-def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
-                client=None, model: str = "", on_stage=None) -> dict:
+def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "", on_stage=None) -> dict:
     """Pasted or spoken free text -> `raw/inbox/<date>-<slug>.md`."""
     body = check_note(text)
     stem = title or "note"
@@ -1510,11 +1489,10 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
     with trace.ingest("note", raw=raw_rel, bytes=len(body.encode())):
         return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
-                          client=client, model=model, on_stage=on_stage)
+                          on_stage=on_stage)
 
 
-def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "",
-                client=None, model: str = "") -> dict:
+def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "") -> dict:
     """A file already on disk (the eval harness's `ingest:` turn, an AppleScript drop)."""
     with trace.ingest("path", raw=os.path.basename(path)):
         try:
@@ -1522,27 +1500,24 @@ def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "",
                 data = f.read()
         except OSError as exc:
             raise IngestError(400, f"cannot read {path}: {exc}") from exc
-        return ingest_upload(data, os.path.basename(path), title=title, hint=hint, page=page,
-                             client=client, model=model)
+        return ingest_upload(data, os.path.basename(path), title=title, hint=hint, page=page)
 
 
-def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = "",
-                 client=None, model: str = "") -> dict:
+def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = "") -> dict:
     """A fetched email -> `raw/email/<id>.md` (headers block + body, already rendered)."""
     ident = wiki.slugify(message_id) or _dated("email")
     subject = next((line[len("Subject: "):] for line in markdown.splitlines()
                     if line.startswith("Subject: ")), "").strip()
     with trace.ingest("email", raw=f"raw/email/{ident}.md", bytes=len(markdown.encode())):
         return file_bytes(markdown.encode(), f"raw/email/{ident}.md", "email",
-                          title=subject, hint=hint, page=page, client=client, model=model)
+                          title=subject, hint=hint, page=page)
 
 
-def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "",
-                client=None, model: str = "") -> dict:
+def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "") -> dict:
     """A flagged news article -> `raw/news/<slug>.md`."""
     with trace.ingest("news", raw=f"raw/news/{wiki.slugify(title)}.md", bytes=len(markdown.encode())):
         return file_bytes(markdown.encode(), f"raw/news/{wiki.slugify(title)}.md", "news",
-                          title=title, hint=hint, page=page, client=client, model=model)
+                          title=title, hint=hint, page=page)
 
 
 def decode_data_url(value: str) -> bytes:

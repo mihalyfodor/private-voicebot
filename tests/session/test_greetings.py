@@ -6,6 +6,7 @@ import chatbot
 import llm
 from session import Session
 from tests.conftest import drain_initial, fake_tts, run_turn
+from core import llm as core_llm
 
 
 FAKE_AVATAR = {
@@ -48,7 +49,7 @@ def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
 
     monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(llm, "_client", BoomClient())
+    monkeypatch.setattr(core_llm, "_client", BoomClient())
 
     sent = []
     monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)

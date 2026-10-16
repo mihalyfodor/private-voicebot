@@ -21,6 +21,7 @@ from tests.conftest import FakeClient, RawStreamClient, stream_chunks, tool_call
 from tools import ALLOWED_HOSTS, READ_TOOLS, TOOLS, run_tool
 from tools import gmail, news, wikipedia
 from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
+from core import llm as core_llm
 
 
 # --------------------------------------------------------------------------- the six documents
@@ -159,7 +160,7 @@ DOC_OPS = json.dumps([
 def _document_turn(monkeypatch, doc: dict, reply: str = "[neutral] It says Falcon is green."):
     """One typed turn whose user message carries `doc` as a recall block (a spoken one bands, PRD 45)."""
     monkeypatch.setattr(llm, "recall_for", lambda text: _recall_block(doc))
-    with patch.object(llm, "_client", RawStreamClient([stream_chunks(reply)])):
+    with patch.object(core_llm, "_client", RawStreamClient([stream_chunks(reply)])):
         return "".join(p for k, p in llm.ask_events("what does the plan say about Falcon?", origin="typed")
                        if k == "delta")
 
@@ -171,7 +172,7 @@ def test_a_session_that_read_a_document_attributes_its_ops(monkeypatch, memory_s
     assert "<document" not in llm.get_session_turns()[0]["content"]      # the turns keep the user's words
 
     client = FakeClient(DOC_OPS, "[]")
-    monkeypatch.setattr(llm, "client", lambda: client)
+    monkeypatch.setattr(core_llm, "_client", client)
     llm.save_memory()
 
     system = client.calls[0]["messages"][0]["content"]
@@ -187,10 +188,10 @@ def test_a_session_that_read_a_document_attributes_its_ops(monkeypatch, memory_s
 def test_a_session_without_documents_gets_no_attribution(monkeypatch, memory_sandbox):
     llm.reset()
     monkeypatch.setattr(llm, "recall_for", lambda text: "")
-    with patch.object(llm, "_client", RawStreamClient([stream_chunks("[happy] Sure.")])):
+    with patch.object(core_llm, "_client", RawStreamClient([stream_chunks("[happy] Sure.")])):
         llm.ask("my coffee is black these days")
     client = FakeClient(DOC_OPS, "[]")
-    monkeypatch.setattr(llm, "client", lambda: client)
+    monkeypatch.setattr(core_llm, "_client", client)
     llm.save_memory()
     assert "This session also read" not in client.calls[0]["messages"][0]["content"]
     assert DOCUMENT_RULE in client.calls[0]["messages"][0]["content"]
@@ -200,7 +201,7 @@ def test_a_session_without_documents_gets_no_attribution(monkeypatch, memory_san
 def test_a_failed_save_keeps_the_sources_seen(monkeypatch, memory_sandbox):
     llm.reset()
     _document_turn(monkeypatch, PLAN)
-    monkeypatch.setattr(llm, "client", lambda: FakeClient(RuntimeError("down")))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RuntimeError("down")))
     llm.save_memory()
     assert llm.get_sources_seen() == ["Falcon plan"] and llm.has_unsaved_turns()
 
@@ -225,7 +226,7 @@ def test_a_scalar_from_a_document_is_stamped_and_a_restatement_clears_it():
 
 def test_forget_of_a_source_removes_the_memory_it_fed(vault, monkeypatch):  # noqa: F811
     summary = json.dumps({"title": "Falcon plan", "summary": "Falcon goes green.", "entities": []})
-    monkeypatch.setattr(sources, "_client_model", lambda: (FakeClient(summary, "[]"), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(summary, "[]"))
     filed = sources.ingest_upload(b"# Falcon plan\nFalcon goes green next week.", "plan.md")
     sha = next(e["sha256"] for e in sources.manifest_entries() if e["path"] == filed["raw"])
     memory.edit_many([{"op": "ADD", "path": "people[]", "value": {"name": "Anna", "rel": "colleague"}}])
@@ -258,21 +259,24 @@ def test_forget_of_a_source_removes_the_memory_it_fed(vault, monkeypatch):  # no
 def test_injected_documents_reach_every_prompt_as_tagged_data(doc, vault, monkeypatch):  # noqa: F811
     # summary prompt
     client = FakeClient(json.dumps({"title": doc["title"], "summary": "Some notes.", "entities": []}))
-    sources.summarise(client, "m", "md", doc["text"], None, "", doc["title"])
+    monkeypatch.setattr(core_llm, "_client", client)
+    sources.summarise("md", doc["text"], None, "", doc["title"])
     system, user = (m["content"] for m in client.calls[0]["messages"])
     assert DOCUMENT_RULE in system
     assert f'<document source="{doc["title"]}">' in user and user.count("</document>") == 1
 
     # page-ops prompt
     client = FakeClient("[]")
-    sources.propose_page_ops(client, "m", "sources/x", {"title": doc["title"], "summary": doc["text"]}, "")
+    monkeypatch.setattr(core_llm, "_client", client)
+    sources.propose_page_ops("sources/x", {"title": doc["title"], "summary": doc["text"]}, "")
     system, user = (m["content"] for m in client.calls[0]["messages"])
     assert DOCUMENT_RULE in system and f'<document source="{doc["title"]}">' in user
     assert user.count("</document>") == 1
 
     # wiki ingest prompt
     client = FakeClient("[]")
-    wiki.ingest([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}], client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    wiki.ingest([{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}])
     assert DOCUMENT_RULE in client.calls[0]["messages"][0]["content"]
 
     # a chat turn whose tool result is the document
@@ -285,7 +289,7 @@ def test_injected_documents_reach_every_prompt_as_tagged_data(doc, vault, monkey
         stream_chunks("[neutral] It is a list of notes."),
     ])
     wrapped = untrusted(f"{doc['title']} · part 1/1\n{doc['text']}", doc["title"])
-    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value=wrapped):
+    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value=wrapped):
         reply = llm.ask("what is in that document?")
     assert reply == "[neutral] It is a list of notes."
     assert llm._conversation[0]["content"] == system_before
@@ -296,7 +300,7 @@ def test_injected_documents_reach_every_prompt_as_tagged_data(doc, vault, monkey
     # the memory proposal for that session is asked to attribute, and a document op keeps its source
     client = FakeClient(json.dumps([{"op": "ADD", "path": "episodic[]", "source": doc["title"],
                                      "value": {"text": "Read the notes", "importance": 2}}]), "[]")
-    monkeypatch.setattr(llm, "client", lambda: client)
+    monkeypatch.setattr(core_llm, "_client", client)
     llm.save_memory()
     system = client.calls[0]["messages"][0]["content"]
     assert DOCUMENT_RULE in system and f'"{doc["title"]}"' in system
@@ -342,7 +346,7 @@ def test_get_news_detail_only_fetches_a_url_the_last_headlines_returned(monkeypa
 
 def _omlx_available() -> bool:
     try:
-        llm.client().with_options(timeout=3.0).models.list()
+        core_llm.client().with_options(timeout=3.0).models.list()
         return True
     except Exception:
         return False
@@ -357,7 +361,7 @@ DENIED = re.compile(r"did not|didn't|no instruction|nothing", re.I)
 def test_live_injected_documents_leave_memory_and_persona_intact(monkeypatch, memory_sandbox, capsys):
     """Each document rides a recall block into one real turn; the session is then saved with the
     real model and asked whether the document tried to tell the assistant something."""
-    llm._client = None
+    core_llm._client = None
     if not _omlx_available():
         pytest.skip("oMLX server not reachable at OMLX_BASE_URL")
     rows, intact, named = [], 0, 0

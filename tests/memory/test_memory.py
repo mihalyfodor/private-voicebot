@@ -8,6 +8,7 @@ import pytest
 
 import memory
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
+from core import llm as core_llm
 
 
 # --------------------------------------------------------------------------- helpers
@@ -221,32 +222,36 @@ def _dup_profile():
     )
 
 
-def test_reflect_merges_duplicates_drops_expired_and_promotes():
-    profile = memory.reflect(_dup_profile(), FakeClient(REFLECTED), "m")
+def test_reflect_merges_duplicates_drops_expired_and_promotes(monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(REFLECTED))
+    profile = memory.reflect(_dup_profile())
     assert [p["name"] for p in profile["people"]] == ["Anna"]
     assert profile["episodic"] == []
     assert undated(profile["recurring"]) == [{"what": "gym", "when": "Tue/Thu"}]
 
 
-def test_reflect_never_rewrites_identity_or_invents_entries():
-    profile = memory.reflect(_dup_profile(), FakeClient(REFLECTED), "m")
+def test_reflect_never_rewrites_identity_or_invents_entries(monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(REFLECTED))
+    profile = memory.reflect(_dup_profile())
     assert profile["identity"] == {"name": "Mihaly"}          # LLM said "IMPOSTOR"
     assert profile["preferences"] == {"coffee": "black"}      # LLM dropped it
     assert all(p["name"] != "Invented Person" for p in profile["people"])
 
 
-def test_reflect_keeps_profile_on_unparseable_output(capsys):
+def test_reflect_keeps_profile_on_unparseable_output(capsys, monkeypatch):
     original = _dup_profile()
-    assert memory.reflect(original, FakeClient("sorry, I can't do that"), "m") == original
+    monkeypatch.setattr(core_llm, "_client", FakeClient("sorry, I can't do that"))
+    assert memory.reflect(original) == original
     assert "could not parse reflection" in capsys.readouterr().out
 
 
 def test_reflect_runs_every_five_saves(monkeypatch):
     calls = []
-    monkeypatch.setattr(memory, "reflect", lambda p, c, m: calls.append(p) or p)
+    monkeypatch.setattr(memory, "reflect", lambda p: calls.append(p) or p)
     for i in range(memory.REFLECT_EVERY):
         client = FakeClient(json.dumps([{"op": "ADD", "path": "preferences.k%d" % i, "value": "v"}]))
-        memory.save(TURNS, client, "m")
+        monkeypatch.setattr(core_llm, "_client", client)
+        memory.save(TURNS)
     assert memory.load_profile()["meta"]["saves"] == memory.REFLECT_EVERY
     assert len(calls) == 1
 
@@ -254,36 +259,39 @@ def test_reflect_runs_every_five_saves(monkeypatch):
 # --------------------------------------------------------------- 4. migration
 
 
-def test_migration_seeds_profile_once_and_keeps_the_text_file(memory_sandbox, capsys):
+def test_migration_seeds_profile_once_and_keeps_the_text_file(memory_sandbox, capsys, monkeypatch):
     short = memory_sandbox / "shortmem.txt"
     short.write_text("\n--- 2026-08-01 12:00 ---\nThe user is named Mihaly.\nThe user lives in Budapest.\n")
     ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"},
                       {"op": "ADD", "path": "identity.location", "value": "Budapest"}])
     client = FakeClient(ops, "[]")
 
-    profile = memory.migrate_if_needed(client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    profile = memory.migrate_if_needed()
     assert profile["identity"] == {"name": "Mihaly", "location": "Budapest"}
     assert short.read_text().startswith("\n--- 2026-08-01")
     assert "migrated 2 facts" in capsys.readouterr().out
     assert "--- 2026-08-01" not in client.calls[0]["messages"][1]["content"]
 
-    memory.migrate_if_needed(client, "m")   # second call is a no-op
+    memory.migrate_if_needed()   # second call is a no-op
     assert len(client.calls) == 1
 
 
-def test_no_migration_without_shortmem():
+def test_no_migration_without_shortmem(monkeypatch):
     client = FakeClient()
-    assert memory.migrate_if_needed(client, "m") == memory._empty_profile()
+    monkeypatch.setattr(core_llm, "_client", client)
+    assert memory.migrate_if_needed() == memory._empty_profile()
     assert client.calls == []
 
 
-def test_save_migrates_before_proposing(memory_sandbox):
+def test_save_migrates_before_proposing(memory_sandbox, monkeypatch):
     (memory_sandbox / "shortmem.txt").write_text("The user is named Mihaly.\n")
     client = FakeClient(
         json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}]),
         json.dumps([{"op": "ADD", "path": "identity.location", "value": "Budapest"}]),
     )
-    memory.save(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    memory.save(TURNS)
     assert memory.load_profile()["identity"] == {"name": "Mihaly", "location": "Budapest"}
     # the second proposal saw the migrated profile
     assert "Mihaly" in client.calls[1]["messages"][1]["content"]
@@ -324,7 +332,8 @@ def test_save_writes_atomically_and_audits_every_applied_op(memory_sandbox, monk
                         lambda s, d: (replaces.append((s, d)), real_replace(s, d))[1])
     ops = [{"op": "ADD", "path": "identity.name", "value": "Mihaly", "reason": "said so"},
            {"op": "ADD", "path": "people[]", "value": {"name": "Anna"}, "reason": "new colleague"}]
-    applied = memory.save(TURNS, FakeClient(json.dumps(ops)), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(json.dumps(ops)))
+    applied = memory.save(TURNS)
 
     assert replaces == [(memory.MEMORY_PATH + ".tmp", memory.MEMORY_PATH)]
     assert not os.path.exists(memory.MEMORY_PATH + ".tmp")
@@ -337,19 +346,21 @@ def test_save_writes_atomically_and_audits_every_applied_op(memory_sandbox, monk
     assert "[Memory] 2 ops applied (2 add, 0 update, 0 delete)" in capsys.readouterr().out
 
 
-def test_save_with_nothing_new_writes_nothing(capsys):
-    assert memory.save(TURNS, FakeClient("[]"), "m") == []
+def test_save_with_nothing_new_writes_nothing(capsys, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
+    assert memory.save(TURNS) == []
     assert not os.path.exists(memory.MEMORY_PATH)
     assert not os.path.exists(memory.OPS_LOG_PATH)
     assert "[Nothing new to save]" in capsys.readouterr().out
 
 
-def test_save_counts_updates_and_deletes(capsys):
+def test_save_counts_updates_and_deletes(capsys, monkeypatch):
     memory._write_profile(empty_profile(identity={"occupation": "software engineer"},
                                    people=[{"name": "Anna"}]))
     ops = [{"op": "UPDATE", "path": "identity.occupation", "value": "engineering manager"},
            {"op": "DELETE", "path": "people[]", "value": {"name": "Anna"}}]
-    memory.save(TURNS, FakeClient(json.dumps(ops)), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(json.dumps(ops)))
+    memory.save(TURNS)
     assert "1 update, 1 delete" in capsys.readouterr().out
 
 
@@ -361,42 +372,48 @@ def test_save_counts_updates_and_deletes(capsys):
     'Sure! Here are the ops:\n[{"op": "ADD", "path": "identity.name", "value": "Mihaly"}]\nHope that helps.',
     '[{"op": "ADD", "path": "identity.name", "value": "Mihaly"}]',
 ])
-def test_propose_ops_tolerates_fences_and_prose(content):
-    ops = memory.propose_ops(memory._empty_profile(), TURNS, FakeClient(content), "m")
+def test_propose_ops_tolerates_fences_and_prose(content, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(content))
+    ops = memory.propose_ops(memory._empty_profile(), TURNS)
     assert ops == [{"op": "ADD", "path": "identity.name", "value": "Mihaly"}]
 
 
-def test_propose_ops_uses_temperature_zero_and_a_token_cap():
+def test_propose_ops_uses_temperature_zero_and_a_token_cap(monkeypatch):
     client = FakeClient("[]")
-    memory.propose_ops(memory._empty_profile(), TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    memory.propose_ops(memory._empty_profile(), TURNS)
     assert client.calls[0]["temperature"] == 0
     assert client.calls[0]["max_tokens"] == 600
     assert "User: I'm Mihaly" in client.calls[0]["messages"][1]["content"]
 
 
 @pytest.mark.parametrize("content", ["NOTHING", "", None, "{}"])
-def test_propose_ops_returns_empty_on_unparseable_output(content, capsys):
-    assert memory.propose_ops(memory._empty_profile(), TURNS, FakeClient(content), "m") == []
+def test_propose_ops_returns_empty_on_unparseable_output(content, capsys, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(content))
+    assert memory.propose_ops(memory._empty_profile(), TURNS) == []
     assert "could not parse ops" in capsys.readouterr().out
 
 
-def test_propose_ops_returns_none_when_the_call_fails(capsys):
+def test_propose_ops_returns_none_when_the_call_fails(capsys, monkeypatch):
     client = FakeClient(RuntimeError("connection refused"))
-    assert memory.propose_ops(memory._empty_profile(), TURNS, client, "m") is None
+    monkeypatch.setattr(core_llm, "_client", client)
+    assert memory.propose_ops(memory._empty_profile(), TURNS) is None
     assert "op proposal failed" in capsys.readouterr().out
 
 
-def test_save_leaves_the_file_alone_when_the_call_fails(memory_sandbox):
+def test_save_leaves_the_file_alone_when_the_call_fails(memory_sandbox, monkeypatch):
     seed(identity={"name": "Michael"})
     before = on_disk()
-    assert memory.save(TURNS, FakeClient(RuntimeError("connection refused")), "m") is None
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RuntimeError("connection refused")))
+    assert memory.save(TURNS) is None
     assert on_disk() == before
     assert audit_log() == []
 
 
-def test_propose_ops_skips_the_call_for_an_empty_transcript():
+def test_propose_ops_skips_the_call_for_an_empty_transcript(monkeypatch):
     client = FakeClient("[]")
-    assert memory.propose_ops(memory._empty_profile(), [], client, "m") == []
+    monkeypatch.setattr(core_llm, "_client", client)
+    assert memory.propose_ops(memory._empty_profile(), []) == []
     assert client.calls == []
 
 
@@ -416,8 +433,8 @@ def test_shutdown_hook_saves_memory(monkeypatch):
 def test_save_memory_is_idempotent(monkeypatch):
     import llm
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, client, model, **kw: (saved.append(list(turns)), [])[1])
-    monkeypatch.setattr(llm, "client", lambda: object())
+    monkeypatch.setattr(memory, "save", lambda turns, **kw: (saved.append(list(turns)), [])[1])
+    monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
     llm.save_memory(); llm.save_memory()
@@ -426,8 +443,8 @@ def test_save_memory_is_idempotent(monkeypatch):
 
 def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
     import llm
-    monkeypatch.setattr(memory, "save", lambda turns, client, model, **kw: None)
-    monkeypatch.setattr(llm, "client", lambda: object())
+    monkeypatch.setattr(memory, "save", lambda turns, **kw: None)
+    monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
     llm.save_memory()
@@ -438,11 +455,11 @@ def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
 def test_save_memory_keeps_the_turns_when_the_save_raises(monkeypatch):
     import llm
 
-    def boom(turns, client, model, **kw):
+    def boom(turns, **kw):
         raise RuntimeError("disk full")
 
     monkeypatch.setattr(memory, "save", boom)
-    monkeypatch.setattr(llm, "client", lambda: object())
+    monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
     with pytest.raises(RuntimeError):
@@ -548,14 +565,14 @@ def test_is_user_is_false_without_a_profile():
 
 
 # Scenario 4: the extraction guard.
-def test_an_extracted_name_that_is_only_an_alias_never_overwrites_the_real_name(memory_sandbox, capsys):
+def test_an_extracted_name_that_is_only_an_alias_never_overwrites_the_real_name(memory_sandbox, capsys, monkeypatch):
     memory._write_profile(memory._normalise({"identity": dict(ALIAS_IDENTITY)}))
     client = FakeClient(json.dumps([
         {"op": "UPDATE", "path": "identity.name", "value": "Michael", "reason": "they said so"},
         {"op": "ADD", "path": "identity.aliases", "value": "Miki", "reason": "also called Miki"},
     ]))
-    applied = memory.save([{"role": "user", "content": "Michael here again, some call me Miki"}],
-                          client, "fake-model")
+    monkeypatch.setattr(core_llm, "_client", client)
+    applied = memory.save([{"role": "user", "content": "Michael here again, some call me Miki"}])
 
     assert [op["path"] for op in applied] == ["identity.aliases"]
     profile = memory.load_profile()

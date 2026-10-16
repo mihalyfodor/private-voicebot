@@ -19,6 +19,7 @@ import notebooks
 import sources
 import wiki
 from tests.conftest import SENTINEL, FakeClient, commits, read, trace_lines, trace_text, vault, write_page  # noqa: F401 — fixture
+from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -30,7 +31,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 def fake(monkeypatch):
     """A FakeClient wired in as the module's client: summary call first, page ops second."""
     client = FakeClient(SUMMARY, OPS)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "fake-model"))
+    monkeypatch.setattr(core_llm, "_client", client)
     return client
 
 
@@ -158,7 +159,7 @@ def test_the_same_bytes_twice_file_nothing_the_second_time(vault, fake, monkeypa
     first = sources.ingest_upload(data, "falcon.md")
     after_first = (len(commits()), raw_files(), len(fake.calls))
 
-    monkeypatch.setattr(sources, "_client_model", lambda: (FakeClient(SUMMARY, OPS), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, OPS))
     again = sources.ingest_upload(data, "falcon.md")
 
     assert again == {"path": first["path"], "raw": first["raw"], "already": True}
@@ -167,8 +168,7 @@ def test_the_same_bytes_twice_file_nothing_the_second_time(vault, fake, monkeypa
 
 
 def test_a_second_document_with_the_same_name_gets_its_own_files(vault, fake, monkeypatch):
-    monkeypatch.setattr(sources, "_client_model",
-                        lambda: (FakeClient(SUMMARY, OPS, SUMMARY, "[]"), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, OPS, SUMMARY, "[]"))
     first = sources.ingest_upload(b"one", "falcon.md")
     second = sources.ingest_upload(b"two", "falcon.md")
 
@@ -216,7 +216,7 @@ def test_ops_outside_the_index_and_people_projects_are_rejected(vault, monkeypat
          "summary": "not allowed either"},
     ])
     client = FakeClient(SUMMARY, ops)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
 
     filed = sources.ingest_upload(b"a document", "doc.md")
 
@@ -492,8 +492,7 @@ def test_ingest_of_pasted_text_files_a_note(http):
 
 def test_ingest_files_several_uploads_in_one_request(http, monkeypatch):
     client, _ws = http
-    monkeypatch.setattr(sources, "_client_model",
-                        lambda: (FakeClient(SUMMARY, "[]", SUMMARY, "[]"), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]", SUMMARY, "[]"))
     response = client.post("/ingest", data={"confirm": "true", "kind": "file"}, files=[
         ("file", ("one.md", b"one", "text/markdown")),
         ("file", ("two.md", b"two", "text/markdown")),
@@ -528,7 +527,7 @@ def test_a_document_naming_the_user_files_no_page_about_them(vault, monkeypatch,
     memory._write_profile(memory._normalise(
         {"identity": {"name": "Mihaly Fodor", "nickname": "Michael", "aliases": ["Misi"]}}))
     client = FakeClient(USER_SUMMARY, USER_OPS)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
 
     filed = sources.ingest_upload(b"Mihay Fodor and Elena met.", "screens.md")
 
@@ -584,8 +583,7 @@ def _drain_until(ws, kind: str) -> list:
 def test_ingest_pushes_a_progress_message_per_stage_and_item(http, monkeypatch):
     """PRD 36 scenario 1: extracting -> summarising -> filing per item, all before the wiki push."""
     client, ws = http
-    monkeypatch.setattr(sources, "_client_model",
-                        lambda: (FakeClient(SUMMARY, "[]", SUMMARY, "[]"), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]", SUMMARY, "[]"))
     response = client.post("/ingest", data={"confirm": "true", "kind": "file"}, files=[
         ("file", ("one.md", b"one", "text/markdown")),
         ("file", ("two.md", b"two", "text/markdown")),
@@ -670,7 +668,8 @@ def test_the_page_ops_prompt_lists_a_page_the_index_cut(vault, monkeypatch):
     monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
     client = FakeClient("[]")
 
-    sources.propose_page_ops(client, "m", "sources/zephyr-plan",
+    monkeypatch.setattr(core_llm, "_client", client)
+    sources.propose_page_ops("sources/zephyr-plan",
                              {"title": "Zephyr rollout", "summary": "Plan.", "entities": []}, "")
 
     user = client.calls[0]["messages"][1]["content"]
@@ -725,7 +724,8 @@ def put(folder, rel: str, data: bytes) -> None:
 
 def run_batch(folder, client=None, **kw) -> tuple:
     lines = []
-    res = batch_import.ingest_batch(str(folder), client=client, model="fake-model", out=lines.append, **kw)
+    core_llm._client = client
+    res = batch_import.ingest_batch(str(folder), out=lines.append, **kw)
     return res, lines
 
 
@@ -819,10 +819,11 @@ def test_resume_skips_what_failed_and_a_plain_rerun_retries_it(vault, idle_port,
     assert len(sources.manifest_entries()) == 2
 
 
-def test_a_dry_run_lists_states_and_writes_nothing(vault, idle_port, export):
+def test_a_dry_run_lists_states_and_writes_nothing(vault, idle_port, export, monkeypatch):
     three_files(export)
     put(export, "ink.pdf", pdf_bytes([["x"]], with_text=False))
-    sources.ingest_upload(text_pdf(1), "a.pdf", client=FakeClient(SUMMARY, OPS), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, OPS))
+    sources.ingest_upload(text_pdf(1), "a.pdf")
     head, entries, raw = commits(), sources.manifest_entries(), raw_files()
     client = FakeClient()
 
@@ -918,7 +919,8 @@ def test_a_strict_failure_removes_only_the_stored_original(vault, idle_port, mon
 
     monkeypatch.setattr(sources, "summarise", boom)
     with pytest.raises(RuntimeError):
-        sources.ingest_upload(text_pdf(1), "a.pdf", strict=True, client=FakeClient(), model="m")
+        monkeypatch.setattr(core_llm, "_client", FakeClient())
+        sources.ingest_upload(text_pdf(1), "a.pdf", strict=True)
 
     assert (vault / "scratch.md").exists() and (vault / "notes.md").exists()
     assert raw_files() == [] and sources.manifest_entries() == []
@@ -956,7 +958,8 @@ def notebook_client(pages: int, ops: str = "[]") -> FakeClient:
 
 
 def file_notebook(pages: list, client, **kw) -> dict:
-    return notebooks.ingest_notebook(pages, title=kw.pop("title", "Standup"), client=client, model="m", **kw)
+    core_llm._client = client
+    return notebooks.ingest_notebook(pages, title=kw.pop("title", "Standup"), **kw)
 
 
 def test_a_notebook_is_transcribed_page_by_page_and_filed_once(vault):
@@ -1048,7 +1051,7 @@ def test_more_than_50_pages_is_413_before_any_model_call(vault):
 def test_ingest_endpoint_files_a_notebook(http, monkeypatch):
     client, _ws = http
     fake = notebook_client(2)
-    monkeypatch.setattr(sources, "_client_model", lambda: (fake, "m"))
+    monkeypatch.setattr(core_llm, "_client", fake)
     pages = notebook_pages(2)
     files = [("file", (f"page-0{i}.png", data, "image/png")) for i, data in enumerate(pages, 1)]
     response = _post(client, kind="notebook", title="Standup", ocr=json.dumps(["", ""]),
@@ -1092,9 +1095,9 @@ def test_a_failed_replace_is_retried_when_the_same_pages_come_again(vault, monke
     assert [e["sha256"] for e in sources.manifest_entries()] == [sources.sha256(b"".join(v2_pages))]
 
 
-def test_replaces_must_name_a_notebook_from_the_same_device(vault):
-    drop = sources.ingest_upload(b"# Falcon\n\nFalcon is amber.\n", "falcon.md",
-                                 client=FakeClient(SUMMARY, "[]"), model="m")
+def test_replaces_must_name_a_notebook_from_the_same_device(vault, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]"))
+    drop = sources.ingest_upload(b"# Falcon\n\nFalcon is amber.\n", "falcon.md")
     sha = sources.manifest_entries()[0]["sha256"]
     other = file_notebook(notebook_pages(1), notebook_client(1), device_id="n2")
     for bad in (sha, other["sha256"], "f" * 64):
@@ -1125,9 +1128,9 @@ def test_a_notebook_page_without_the_png_magic_is_415(vault):
 # --------------------------------------------------------------------------- PRD 49 scenario 4: the ingest trace
 
 
-def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault):
-    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status",
-                              client=FakeClient(SUMMARY, RuntimeError("ops model down")), model="m")
+def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, RuntimeError("ops model down")))
+    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status")
     (start,) = trace_lines(kind="ingest_start")
     (end,) = trace_lines(kind="ingest_end")
     (err,) = trace_lines(kind="error")
@@ -1140,15 +1143,15 @@ def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault):
     assert "amber" not in trace_text()
 
 
-def test_a_degraded_ingest_says_so_in_its_result(vault):
-    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status",
-                              client=FakeClient(SUMMARY, RuntimeError("ops model down")), model="m")
+def test_a_degraded_ingest_says_so_in_its_result(vault, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, RuntimeError("ops model down")))
+    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status")
     assert res["degraded"] == "ops"
-    summary = sources.ingest_note("Charlie is red.", title="Charlie status",
-                                  client=FakeClient(RuntimeError("down"), RuntimeError("down")), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RuntimeError("down"), RuntimeError("down")))
+    summary = sources.ingest_note("Charlie is red.", title="Charlie status")
     assert summary["degraded"] == "summary"
-    ok = sources.ingest_note("Bravo is green.", title="Bravo status",
-                             client=FakeClient(SUMMARY, "[]"), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]"))
+    ok = sources.ingest_note("Bravo is green.", title="Bravo status")
     assert ok["degraded"] is None
 
 
@@ -1175,10 +1178,11 @@ def test_ingest_run_id_from_the_form_groups_a_host_scripts_ingests(http):
     assert all(e["pages"] and all(isinstance(p, str) for p in e["pages"]) for e in ends)
 
 
-def test_a_rejected_op_is_logged_by_kind_and_reason_code_only(vault):
+def test_a_rejected_op_is_logged_by_kind_and_reason_code_only(vault, monkeypatch):
     ops = json.dumps([{"op": "new_page", "path": f"secrets/{SENTINEL.lower()}-plans", "type": "topic",
                        "name": f"{SENTINEL} plans", "summary": f"{SENTINEL} said this in the doc."}])
-    sources.ingest_note("Falcon is amber.", title="Falcon status", client=FakeClient(SUMMARY, ops), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, ops))
+    sources.ingest_note("Falcon is amber.", title="Falcon status")
     (end,) = trace_lines(kind="ingest_end")
     assert end["ops_rejected"] == [{"kind": "new_page", "reason_code": "bad_path"}]
     text = trace_text()

@@ -18,6 +18,7 @@ import memory
 import wiki
 from tests.conftest import RawStreamClient, StreamClient, ask_turn, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
 from tests.conftest import fallout, both  # noqa: F401  (fixtures)
+from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")   # no mocked turn may leak into another test's session replay
 QUESTION = "I'm at Covenant and Honest Dan keeps attacking me, what now"
@@ -34,7 +35,7 @@ def _offer_turn(reply: str = OFFER_REPLY) -> StreamClient:
     """One recall turn whose mocked reply ends with the offer; returns the fake."""
     llm.reset()
     fake = StreamClient(reply)
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         llm.ask(QUESTION)
     return fake
 
@@ -86,7 +87,7 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
         [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
         stream_chunks("[neutral] Sunny, 21 degrees."),
     ])
-    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
+    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
         events = list(llm.ask_events("how is the weather today?"))
     assert events[0] == ("tool_calls", ["get_weather"])
     assert [tc["name"] for tc in llm.get_last_tool_calls()] == ["get_weather"]
@@ -248,7 +249,7 @@ def _neighbour_names(offer: dict) -> set:
 
 
 @pytest.mark.live
-def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys):
+def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys, monkeypatch):
     """The three real guides in a temp vault, six questions through `llm.ask` against oMLX:
     ≥ 5 cite a guide, ≥ 4 end with the offer, and ≥ 4 "yes" answers are ≥ 2× as long and mention
     a name from a neighbouring chunk (sampling varies); a weather question calls get_weather. Prints every pair."""
@@ -263,9 +264,9 @@ def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys):
             pytest.skip(f"{path} not available")
         with open(path, "rb") as f:
             data = f.read()
-        sources.file_bytes(data, f"raw/inbox/{name}", "md", client=FakeClient(summary_json(title), "[]"),
-                           model="m")
-    llm._client = None
+        monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json(title), "[]"))
+        sources.file_bytes(data, f"raw/inbox/{name}", "md")
+    core_llm._client = None
     llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
     pairs = []
     for question in LIVE_QUESTIONS:

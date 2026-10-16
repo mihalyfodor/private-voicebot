@@ -28,6 +28,7 @@ import session as session_mod
 import wiki
 from session import Session, TurnController
 from tests.conftest import Blocker, FakeClient, days_ago, fake_asr, log_ops, run_turn, write_page
+from core import llm as core_llm
 
 
 def fake_tts(text):
@@ -460,7 +461,7 @@ def changes(ts: str = None) -> None:
 def brief(text: str = "what's new?", *replies, llm_up: bool = True) -> tuple:
     """One typed turn through `handle_text` at the gather-time stamp NOW: (sent, fake)."""
     fake = FakeClient(*replies)
-    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
+    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
             patch.object(memory, "_stamp", lambda fmt: NOW), patch.object(services, "llm_ok", lambda: llm_up):
         sent = run_turn(chatbot.handle_text, Session(), 1, text)
     return sent, fake
@@ -597,9 +598,10 @@ MEETING_OPS = json.dumps([{"op": "new_page", "path": f"meetings/{date.today().is
     ([{"role": "assistant", "content": "briefed: 1 pages, 0 sources, 0 memory changes"},
       {"role": "user", "content": "Ben is leaving Falcon on Friday, write it up"},
       {"role": "assistant", "content": "wrote up: Briefing"}], True)])
-def test_a_session_of_stand_ins_only_is_not_ingested(vault, turns, filed):
+def test_a_session_of_stand_ins_only_is_not_ingested(vault, turns, filed, monkeypatch):
     fake = FakeClient("[]", MEETING_OPS)
-    memory.save(turns, fake, "m")
+    monkeypatch.setattr(core_llm, "_client", fake)
+    memory.save(turns)
     assert wiki.page_exists(f"meetings/{date.today().isoformat()}.md") is filed
     assert len(fake.calls) == (2 if filed else 1)
 

@@ -3,6 +3,7 @@ import warnings
 import pytest
 
 import llm
+from core import llm as core_llm
 
 pytestmark = pytest.mark.live  # needs a running oMLX server
 
@@ -14,7 +15,7 @@ SAMPLES = 3  # runs per phrase; a phrase "hits" on a majority (>= 2/3)
 def omlx_available():
     """One lazy probe per module run: nothing touches the network at collection time."""
     try:
-        llm.client().with_options(timeout=3.0).models.list()
+        core_llm.client().with_options(timeout=3.0).models.list()
     except Exception:
         pytest.skip("oMLX server not reachable at OMLX_BASE_URL")
 

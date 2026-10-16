@@ -25,6 +25,7 @@ import wiki
 from tests.conftest import (FakeClient, RawStreamClient, StreamClient, commits, fake_asr, fake_tts, last_user, read,  # noqa: F401
                             run_turn, stream_chunks, vault)
 from tests.conftest import fallout  # noqa: F401  (fixtures)
+from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -43,7 +44,7 @@ def card_response(markdown: str = CARD_MD):
 def grounded_turn(origin: str = "user", reply: str = OFFER_REPLY) -> RawStreamClient:
     """One recall turn on the Fallout FAQ; returns the fake so the call can be inspected."""
     fake = RawStreamClient([stream_chunks(reply)])
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         list(llm.ask_events(QUESTION, origin=origin))
     return fake
 
@@ -51,7 +52,7 @@ def grounded_turn(origin: str = "user", reply: str = OFFER_REPLY) -> RawStreamCl
 def turn(text: str, responses: list, spoken: bool = False) -> list:
     """One typed (or spoken) turn through chatbot with the queued fake responses; the messages sent."""
     fake = RawStreamClient(responses)
-    patches = [patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts)]
+    patches = [patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts)]
     if spoken:
         patches.append(patch.object(chatbot, "asr", fake_asr(text)))
     with patches[0], patches[1]:
@@ -93,7 +94,7 @@ def test_a_typed_grounded_content_question_runs_long_without_the_offer(fallout):
 
 def test_typed_small_talk_keeps_the_normal_budget(fallout):
     fake = StreamClient("[happy] Hi!")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         list(llm.ask_events("hi", origin="typed"))
     assert fake.calls[0]["max_tokens"] == llm._effective_max_tokens() == 400
     assert "<recall>" not in last_user(fake) and llm.WRITTEN_CLAUSE not in fake.calls[0]["messages"][0]["content"]
@@ -111,7 +112,7 @@ def test_the_same_question_spoken_stays_short_and_offers_to_write_it_up(fallout)
 
 def test_a_typed_question_with_no_grounding_is_not_written(fallout):
     fake = StreamClient("[neutral] Boil it for three minutes.")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         list(llm.ask_events("how long should I boil an egg for breakfast today?", origin="typed"))
     assert fake.calls[0]["max_tokens"] == 400 and "<recall>" not in last_user(fake)
 
@@ -162,7 +163,7 @@ def test_the_card_completion_reuses_the_last_answers_context(fallout):
     fake = grounded_turn()
     recall = last_user(fake)
     fake2 = RawStreamClient([card_response()])
-    with patch.object(llm, "_client", fake2):
+    with patch.object(core_llm, "_client", fake2):
         llm.write_up("/write")
     call = fake2.calls[0]
     assert call["max_tokens"] == llm.CARD_MAX_TOKENS and not call.get("stream")
@@ -191,7 +192,7 @@ def test_write_it_up_before_any_answer_is_a_turn_error():
 def test_an_empty_card_is_refused_and_leaves_no_trace(fallout):
     grounded_turn()
     before = list(llm._conversation), list(llm._session_turns)
-    with patch.object(llm, "_client", RawStreamClient([card_response("")])):
+    with patch.object(core_llm, "_client", RawStreamClient([card_response("")])):
         with pytest.raises(ValueError):
             llm.write_up("write it up")
     assert (llm._conversation, llm._session_turns) == before and llm.last_card is None
@@ -226,7 +227,7 @@ def test_card_renders_collapsed_copies_and_saves(r):
 def card(vault, fallout):
     """A written card in the session (a grounded turn + write-up), ready to save."""
     grounded_turn()
-    with patch.object(llm, "_client", RawStreamClient([card_response()])):
+    with patch.object(core_llm, "_client", RawStreamClient([card_response()])):
         return llm.write_up("write it up")
 
 
@@ -320,7 +321,7 @@ def test_save_that_before_any_card_is_a_wiki_error(vault):
 
 
 def test_new_topic_clears_the_last_card(card):
-    with patch.object(llm, "_client", RawStreamClient([card_response("Covenant and its key.")])):
+    with patch.object(core_llm, "_client", RawStreamClient([card_response("Covenant and its key.")])):
         llm.new_thread()
     assert llm.last_card is None and llm._cards == {}
     sent = turn("save that as a note", [])
@@ -362,7 +363,7 @@ BRIEF_DIGEST = {"since": "2026-10-10T12:00:00",
 
 def test_write_it_up_after_a_briefing_is_the_digest_card_without_a_completion(vault):
     fake = FakeClient("[happy] Anna is new and Falcon changed.")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         reply, card_md = llm.briefing(BRIEF_DIGEST, "what's new?")
     assert len(fake.calls) == 1 and reply.endswith(llm.DEEPER_OFFERS[0])
     sent = turn("write it up", [])                              # no response queued: a completion would fail

@@ -9,11 +9,12 @@ import llm
 from core import trace
 from session import Session
 from tests.conftest import ROOT, StreamClient, fake_tts, run_turn, trace_lines
+from core import llm as core_llm
 
 
 def test_prod_turn_never_creates_verbose_and_starts_with_service_start(vault, prod_profile):
     llm.reset()
-    with patch.object(llm, "_client", StreamClient("[neutral] Sure.")), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", StreamClient("[neutral] Sure.")), patch.object(chatbot, "synthesize", fake_tts):
         run_turn(chatbot.handle_text, Session(), 1, "remind me to call Anna tomorrow")
     rows = trace_lines()
     assert rows[0]["kind"] == "service" and rows[0]["event"] == "start" and rows[0]["profile"] == "prod"

@@ -1,4 +1,5 @@
 import sys, os
+import contextlib
 import copy
 import functools
 import random
@@ -8,6 +9,7 @@ import json
 import time
 from datetime import date, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +19,7 @@ import chatbot
 import llm
 import memory
 import sources
+from core import llm as core_llm
 from core import settings, trace
 import wiki
 from tools import gmail as gmail_tool
@@ -112,6 +115,12 @@ def reset_chatbot_session():
     chatbot.session = None
 
 
+@pytest.fixture(autouse=True)
+def model_client_restored(monkeypatch):
+    """Whatever a test or helper plants at `core.llm._client` is undone after it."""
+    monkeypatch.setattr(core_llm, "_client", core_llm._client)
+
+
 def untagged(msg: dict) -> dict:
     """A received message without its turn id (for equality asserts that don't care)."""
     return {k: v for k, v in msg.items() if k != "turn"}
@@ -158,15 +167,19 @@ def fake_asr(reply="", prompts=None) -> SimpleNamespace:
 
 
 class FakeClient:
-    """A stand-in OpenAI client: returns the queued completion contents, one per call.
+    """The one stand-in OpenAI client: answers each call with the next queued reply ("[]" once empty).
 
-    A queued `Exception` is raised instead of returned. `delay` sleeps inside the call and
-    `entered` is set as soon as it starts — that is how the concurrency tests park a save
-    inside the memory lock.
+    A str (or None) reply comes back as streamed chunks to a `stream=True` call and as a plain completion
+    otherwise; anything else (a `stream_chunks` / `tool_call_chunk` list or iterator, a built
+    response) is handed back as-is — iterated for a streamed call — so tool-call round trips can be
+    scripted chunk by chunk. A queued `Exception` is raised instead. `delay` sleeps inside the call
+    and `entered` is set as soon as it starts — that is how the concurrency tests park a save inside
+    the memory lock. `.calls` holds a deep-copied snapshot of every call's kwargs. Patch it in at
+    `core.llm._client` (`fake_model`).
     """
 
-    def __init__(self, *contents, delay: float = 0.0, entered=None):
-        self._contents = list(contents)
+    def __init__(self, *replies, delay: float = 0.0, entered=None):
+        self._replies = list(replies)
         self.delay = delay
         self.entered = entered
         self.calls = []
@@ -178,10 +191,32 @@ class FakeClient:
             self.entered.set()
         if self.delay:
             time.sleep(self.delay)
-        content = self._contents.pop(0) if self._contents else "[]"
-        if isinstance(content, Exception):
-            raise content
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+        reply = self._replies.pop(0) if self._replies else "[]"
+        if isinstance(reply, Exception):
+            raise reply
+        text = reply is None or isinstance(reply, str)      # None: a completion with no content
+        if kw.get("stream"):
+            return iter(stream_chunks(reply)) if text else iter(reply)
+        if text:
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply))])
+        return reply
+
+
+#: legacy spellings of the one fake (docs/50-modular-layout.md, step 4)
+StreamClient = FakeClient
+
+
+def RawStreamClient(responses) -> FakeClient:
+    """`FakeClient` over a list of scripted responses (chunk lists, built completions)."""
+    return FakeClient(*responses)
+
+
+@contextlib.contextmanager
+def fake_model(*replies, **kw):
+    """A `FakeClient(*replies, **kw)` patched in at `core.llm._client` for the block; yields it."""
+    fake = FakeClient(*replies, **kw)
+    with patch.object(core_llm, "_client", fake):
+        yield fake
 
 
 @pytest.fixture
@@ -284,33 +319,6 @@ def tool_call_chunk(index=0, id=None, name=None, arguments=None, finish_reason=N
     frag = SimpleNamespace(index=index, id=id, function=SimpleNamespace(name=name, arguments=arguments))
     return SimpleNamespace(choices=[SimpleNamespace(
         delta=SimpleNamespace(content=None, tool_calls=[frag]), finish_reason=finish_reason)])
-
-
-class RawStreamClient:
-    """A stand-in OpenAI client that answers each call with the next queued *response*.
-
-    A response is whatever `stream_chunks` / `tool_call_chunk` built (a list or an iterator of
-    chunks); a streamed call gets it back as an iterator, so tool-call round trips and error
-    paths can be scripted chunk by chunk. A non-streamed call (memory.save's completion) gets
-    the queued object as-is. `StreamClient` below is the short form for plain text replies.
-    """
-
-    def __init__(self, responses):
-        self._responses = list(responses)
-        self.calls = []
-        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
-
-    def _create(self, **kw):
-        self.calls.append(copy.deepcopy(kw))   # a snapshot: the live conversation is stripped after the turn (PRD 39)
-        response = self._responses.pop(0)
-        return iter(response) if kw.get("stream") else response
-
-
-class StreamClient(RawStreamClient):
-    """One streamed text reply per call; records the messages it was given."""
-
-    def __init__(self, *replies):
-        super().__init__([stream_chunks(reply) for reply in replies])
 
 
 @pytest.fixture
@@ -455,8 +463,8 @@ def summary_json(title: str) -> str:
 
 
 def file_faq(text: str, title: str, name: str = "guide.md") -> dict:
-    client = FakeClient(summary_json(title), "[]")
-    return sources.ingest_upload(text.encode(), name, client=client, model="m")
+    with fake_model(summary_json(title), "[]"):
+        return sources.ingest_upload(text.encode(), name)
 
 
 @pytest.fixture
@@ -522,7 +530,7 @@ def typed(text: str, reply: str = "[neutral] Sure.") -> tuple:
     from unittest.mock import patch
     from session import Session
     fake = StreamClient(reply)
-    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, text)
     return sent, fake
 
@@ -533,7 +541,7 @@ def spoken(text: str, reply: str = "[neutral] Sure.") -> tuple:
     import numpy as np
     from session import Session
     fake = StreamClient(reply)
-    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
+    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
             patch.object(chatbot, "asr", fake_asr(text)):
         sent = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
     return sent, fake
@@ -543,7 +551,7 @@ def ask_turn(text: str, *replies, origin: str = "user") -> tuple:
     """One turn through `llm.ask_events` against scripted streamed replies: (events, fake)."""
     from unittest.mock import patch
     fake = StreamClient(*replies)
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         events = list(llm.ask_events(text, origin=origin))
     return events, fake
 

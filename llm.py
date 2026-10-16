@@ -1,26 +1,21 @@
 import json
 import os
 import re
-import time
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterator
 
-from openai import OpenAI
-
 import memory
 import avatars
 from core import settings
-from core import config, trace
+from core import trace
+from core import llm as core_llm
 import wiki
 from splitter import EMOTIONS, strip_tag
 from tools import registry
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
 
-OMLX_BASE_URL = config.OMLX_BASE_URL
-OMLX_API_KEY = config.OMLX_API_KEY
-OMLX_MODEL = config.OMLX_MODEL
 run_tool = registry.run_tool
 TOOLS = registry.schemas()
 trace.vocab("name", [t.name for t in registry.REGISTRY if t.schema] + ["dig_deeper"])
@@ -88,9 +83,9 @@ def model_context_len() -> int | None:
     if _model_context_len_cache is not None:
         return _model_context_len_cache
     try:
-        models = client().models.list()
+        models = core_llm.client().models.list()
         for m in models:
-            if getattr(m, "id", None) == OMLX_MODEL:
+            if getattr(m, "id", None) == core_llm.OMLX_MODEL:
                 max_len = getattr(m, "max_model_len", None)
                 if max_len is None:
                     dumped = m.model_dump() if hasattr(m, "model_dump") else {}
@@ -288,7 +283,6 @@ def _prompt_text(avatar: dict, verbosity: str) -> str:
 
 SYSTEM_PROMPT = build_system_prompt(avatars.current())
 
-_client: OpenAI | None = None
 _conversation: list = []
 _session_turns: list = []
 _last_tool_calls: list = []
@@ -313,44 +307,6 @@ _last_context: dict | None = None
 #: every card this conversation wrote, by id; `last_card` is the one "save that" means
 _cards: dict = {}
 last_card: dict | None = None
-
-
-def client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(base_url=OMLX_BASE_URL, api_key=OMLX_API_KEY)
-    return _client
-
-
-def _stream(purpose: str, fallback_reason: str | None = None, **kw):
-    """A streamed completion (usage asked for) whose chunks pass through; one `llm_call` span when
-    it ends: ms, ttft_ms (first content or tool delta), tokens from the last chunk's usage or null."""
-    with trace.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
-                          fallback_reason=fallback_reason) as span:
-        t0, ttft, usage = time.monotonic(), None, None
-        stream = client().chat.completions.create(stream=True, stream_options={"include_usage": True}, **kw)
-        try:
-            for chunk in stream:
-                usage = getattr(chunk, "usage", None) or usage
-                if ttft is None and chunk.choices:
-                    delta = chunk.choices[0].delta
-                    if getattr(delta, "content", None) or getattr(delta, "tool_calls", None):
-                        ttft = trace.ms_since(t0)
-                yield chunk
-        except GeneratorExit:
-            getattr(stream, "close", lambda: None)()        # an abandoned generation stops at the server
-            raise
-        finally:
-            span.update(ms=trace.ms_since(t0), ttft_ms=ttft, **trace.usage_fields(usage))
-
-
-def _complete(purpose: str, **kw):
-    """A plain completion with its `llm_call` span (no ttft; tokens when the response has usage)."""
-    with trace.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
-                          ttft_ms=None) as span:
-        resp = client().chat.completions.create(**kw)
-        span.update(trace.usage_fields(getattr(resp, "usage", None)))
-        return resp
 
 
 def _offer_kind(recall_offer: bool) -> str:
@@ -814,8 +770,8 @@ def _card_completion(ctx: dict) -> tuple:
     if material:
         user += "\n\nMaterial:\n" + material
     history = [m for m in dialogue()[-CARD_HISTORY_TURNS:] if not card_in(m["content"])]
-    resp = _complete(
-        "card", model=OMLX_MODEL, max_tokens=CARD_MAX_TOKENS,
+    resp = core_llm.completion(
+        "card", model=core_llm.OMLX_MODEL, max_tokens=CARD_MAX_TOKENS,
         messages=[{"role": "system", "content": CARD_PROMPT}] + history + [{"role": "user", "content": user}],
     )
     markdown = strip_tag((resp.choices[0].message.content or "").strip()).strip()
@@ -867,8 +823,8 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     prompt = BRIEFING_PROMPT.format(when=wiki.briefing_when(digest["since"]))
     items = len(digest["pages"]) + len(digest["chat_pages"])
     with trace.span("briefing", items=items, sources=len(digest["sources"])):
-        resp = _complete(
-            "reply", model=OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
+        resp = core_llm.completion(
+            "reply", model=core_llm.OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
             messages=[_conversation[0], {"role": "user", "content": f"{prompt}\n\n{block}"}],
         )
     reply = (resp.choices[0].message.content or "").strip()
@@ -1112,7 +1068,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
         # for the model to name the topic, and get_wikipedia runs either way.
-        first = _stream("reply", model=OMLX_MODEL, messages=_messages(long, written), tools=TOOLS,
+        first = core_llm.stream("reply", model=core_llm.OMLX_MODEL, messages=_messages(long, written), tools=TOOLS,
                         max_tokens=_budget(long))
         parts: list[str] = []
         pending: dict = {}
@@ -1165,7 +1121,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             user_msg["content"] += retry
             _note_documents(retry)
             parts = []
-            stream = _stream("fallback", fallback_reason="not_covered", model=OMLX_MODEL,
+            stream = core_llm.stream("fallback", fallback_reason="not_covered", model=core_llm.OMLX_MODEL,
                              messages=_messages(long, written), max_tokens=_budget(long))
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -1181,7 +1137,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             tool_texts = _tool_round(tool_calls)
             if typed_content and any(tc["name"] in GROUNDING_TOOLS for tc in tool_calls):
                 written = long = True
-            stream = _stream("tool_round", model=OMLX_MODEL, messages=_messages(long, written),
+            stream = core_llm.stream("tool_round", model=core_llm.OMLX_MODEL, messages=_messages(long, written),
                              max_tokens=_budget(long))
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
@@ -1259,7 +1215,7 @@ def save_memory():
         _sources_seen = sources + [s for s in _sources_seen if s not in sources]
 
     try:
-        applied = memory.save(turns, client(), OMLX_MODEL, sources=sources)
+        applied = memory.save(turns, sources=sources)
     except Exception:
         restore()
         raise
@@ -1286,8 +1242,8 @@ def _summarise(turns: list) -> str:
     if not turns:
         return EARLIER_EMPTY
     try:
-        resp = _complete(
-            "summary", model=OMLX_MODEL, messages=turns + [{"role": "user", "content": SUMMARY_PROMPT}],
+        resp = core_llm.completion(
+            "summary", model=core_llm.OMLX_MODEL, messages=turns + [{"role": "user", "content": SUMMARY_PROMPT}],
             max_tokens=SUMMARY_TOKENS,
         )
         summary = strip_tag(resp.choices[0].message.content or "").strip()

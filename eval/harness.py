@@ -439,8 +439,7 @@ def _run_ingest(spec, verbose: bool = True) -> dict:
         filed = sources.ingest_path(str(spec.get("path") or ""),
                                     title=str(spec.get("title") or ""),
                                     hint=str(spec.get("hint") or ""),
-                                    page=str(spec.get("page") or ""),
-                                    client=llm.client(), model=llm.OMLX_MODEL)
+                                    page=str(spec.get("page") or ""))
         error = ""
     except sources.IngestError as exc:
         filed, error = {}, exc.message

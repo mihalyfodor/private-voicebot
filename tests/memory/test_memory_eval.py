@@ -12,6 +12,7 @@ import memory
 from core import trace
 from eval import harness
 from tests.conftest import RawStreamClient, stream_chunks as _chunks, seed as _write_profile
+from core import llm as core_llm
 
 
 # --------------------------------------------------------------------------- fakes
@@ -188,7 +189,7 @@ def test_session_say_strips_tag_and_end_returns_applied_ops():
     fake = RawStreamClient([_chunks("[happy] Hi ", "Mihaly."),
                        _ops({"op": "ADD", "path": "identity.name", "value": "Mihaly",
                              "reason": "said so"})])
-    with harness.Sandbox() as box, patch.object(llm, "_client", fake):
+    with harness.Sandbox() as box, patch.object(core_llm, "_client", fake):
         sess = harness.Session(box).start()
         assert sess.say("hi") == "Hi Mihaly."
         delta = sess.end()
@@ -202,7 +203,7 @@ def test_session_say_strips_tag_and_end_returns_applied_ops():
 
 def test_session_end_with_nothing_new():
     fake = RawStreamClient([_chunks("[neutral] Sure."), _ops()])
-    with harness.Sandbox(), patch.object(llm, "_client", fake):
+    with harness.Sandbox(), patch.object(core_llm, "_client", fake):
         sess = harness.Session().start()
         sess.say("hello")
         assert sess.end() == ""
@@ -267,7 +268,8 @@ def test_run_script_rounds_persist_memory(tmp_path):
             {"op": "ADD", "path": "identity.name", "value": "Mihaly"},
             {"op": "ADD", "path": "people[]", "value": {"name": "Anna %d" % len(saves)}},
         )])
-        memory.save([{"role": "user", "content": "hi"}], client, "m")
+        core_llm._client = client
+        memory.save([{"role": "user", "content": "hi"}])
 
     with patch.object(llm, "ask", side_effect=fake_ask), \
          patch.object(llm, "save_memory", side_effect=fake_save):

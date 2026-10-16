@@ -16,6 +16,7 @@ import chatbot
 import llm
 import services
 from tests.conftest import spoken, typed
+from core import llm as core_llm
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +49,7 @@ class FakeHTTP:
 def probe_with(routes, backend="remote"):
     with patch.object(requests, "get", FakeHTTP(routes)), patch.object(asr, "BACKEND", backend), \
             patch.object(asr, "URL", "http://127.0.0.1:8020"), \
-            patch.object(llm, "OMLX_BASE_URL", "http://localhost:8000/v1"), patch.object(llm, "OMLX_MODEL", "g"):
+            patch.object(core_llm, "OMLX_BASE_URL", "http://localhost:8000/v1"), patch.object(core_llm, "OMLX_MODEL", "g"):
         return services.probe()
 
 
@@ -72,8 +73,8 @@ def test_probe_reports_model_not_loaded():
 
 def test_probe_sends_the_key_to_the_models_list_only():
     fake = FakeHTTP({"/health": None, "/v1/models": {"data": [{"id": "g"}]}})
-    with patch.object(requests, "get", fake), patch.object(llm, "OMLX_MODEL", "g"), \
-            patch.object(llm, "OMLX_API_KEY", "secret"), patch.object(asr, "BACKEND", "mlx"):
+    with patch.object(requests, "get", fake), patch.object(core_llm, "OMLX_MODEL", "g"), \
+            patch.object(core_llm, "OMLX_API_KEY", "secret"), patch.object(asr, "BACKEND", "mlx"):
         got = services.probe()
     assert got["asr"] == {**got["asr"], "ok": True, "label": "ASR (in-process)"}
     by_url = {u.split("/")[-1]: kw for u, kw in fake.calls}
@@ -278,7 +279,7 @@ def model_load(fake, password, monkeypatch):
         monkeypatch.delenv("OMLX_ADMIN_PASSWORD", raising=False)
     else:
         monkeypatch.setenv("OMLX_ADMIN_PASSWORD", password)
-    with patch.object(requests, "Session", lambda: fake), patch.object(llm, "OMLX_MODEL", "g"), \
+    with patch.object(requests, "Session", lambda: fake), patch.object(core_llm, "OMLX_MODEL", "g"), \
             patch.object(services, "probe", lambda: {"llm": ok("llm"), "asr": ok("asr")}):
         client = TestClient(chatbot.app)
         with client.websocket_connect("/ws") as ws:
@@ -295,7 +296,7 @@ def test_model_load_with_the_bearer_accepted_answers_services(monkeypatch):
     msg = model_load(fake, None, monkeypatch)
     assert msg["type"] == "services" and msg["llm"]["ok"]
     assert [u for u, _, _ in fake.calls] == ["http://localhost:8000/admin/api/models/g/load"]
-    assert fake.calls[0][2] == {"Authorization": f"Bearer {llm.OMLX_API_KEY}"}
+    assert fake.calls[0][2] == {"Authorization": f"Bearer {core_llm.OMLX_API_KEY}"}
 
 
 def test_model_load_logs_in_with_the_password_when_the_bearer_is_refused(monkeypatch):

@@ -20,6 +20,7 @@ import sources
 import wiki
 from tests.conftest import FakeClient, commits, r, read, send_setting, vault  # noqa: F401 — fixtures
 from tests.sources.test_sources import SUMMARY, fake, prompts  # noqa: F401 — fixture
+from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 TODAY = memory._today_iso()
@@ -220,7 +221,7 @@ def test_vtt_turns_are_merged_and_timestamps_dropped():
 def test_vtt_files_a_meeting_page_and_notes_the_attendees(vault, monkeypatch):
     be_the_user()
     client = FakeClient(SUMMARY, MEETING)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     before = len(commits())
 
     filed = sources.ingest_upload(VTT.encode(), "falcon-sync.vtt")
@@ -261,7 +262,7 @@ def test_a_teams_docx_export_takes_the_transcript_path(vault, monkeypatch):
     """... and still files the attendees as people (the author rule is for published works only)."""
     be_the_user()
     client = FakeClient(SUMMARY, MEETING)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
 
     filed = sources.ingest_upload(docx_bytes(TEAMS), "teams-export.docx")
 
@@ -289,7 +290,7 @@ def test_a_normal_docx_is_not_a_transcript(vault, fake):
 
 def test_ics_writes_stubs_for_the_horizon_without_the_model(vault, monkeypatch):
     client = FakeClient()
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     today = dt.date.fromisoformat(TODAY)
     before = len(commits())
 
@@ -315,7 +316,7 @@ def test_ics_writes_stubs_for_the_horizon_without_the_model(vault, monkeypatch):
 
 
 def test_ics_expands_recurring_events_to_the_configured_horizon(vault, monkeypatch, file_sandbox):
-    monkeypatch.setattr(sources, "_client_model", lambda: (FakeClient(), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient())
     settings.save_setting("calendar_horizon_days", 28)
 
     sources.ingest_upload(two_events(), "falcon-week.ics")
@@ -324,7 +325,7 @@ def test_ics_expands_recurring_events_to_the_configured_horizon(vault, monkeypat
 
 
 def test_an_updated_invite_notes_the_existing_stub_once(vault, monkeypatch):
-    monkeypatch.setattr(sources, "_client_model", lambda: (FakeClient(), "m"))
+    monkeypatch.setattr(core_llm, "_client", FakeClient())
     sources.ingest_upload(two_events(), "falcon-week.ics")
     stubs = meeting_pages()
     before = len(commits())
@@ -421,7 +422,7 @@ FAQ_SUMMARY = json.dumps({
 
 def test_a_paste_is_named_by_the_model_and_tagged_with_its_topic(vault, monkeypatch):
     client = FakeClient(FAQ_SUMMARY, "[]")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     text = ("Frequently Asked Questions about the Falcon rocket game, version 3, updated August 2026\n"
             "Q: How do I land? A: Slowly.")
 
@@ -435,7 +436,7 @@ def test_a_paste_is_named_by_the_model_and_tagged_with_its_topic(vault, monkeypa
 
 def test_a_generic_file_name_defers_to_the_model_too(vault, monkeypatch):
     client = FakeClient(FAQ_SUMMARY, "[]")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     filed = sources.ingest_upload(b"Q: How do I land? A: Slowly.", "note.txt", title="untitled")
     assert filed["path"] == "sources/falcon-rocket-faq"
     assert filed["raw"].endswith("-falcon-rocket-faq.txt")     # PRD 32: renamed after the title
@@ -564,7 +565,7 @@ def _colleague_anna():
 def test_an_epub_author_gets_no_people_page_but_a_colleague_gets_the_note(vault, monkeypatch, capsys):
     _colleague_anna()
     client = FakeClient(BOOK_SUMMARY, BOOK_OPS)
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     data = _epub([("Preface", "By Eric Evans. Thanks to Anna Kovacs for the review."),
                   ("Chapter One", "Bounded contexts keep models apart.")])
 
@@ -607,7 +608,7 @@ def test_restrict_ops_lets_a_published_work_touch_only_known_people(vault):
 
 def test_a_docx_report_tells_the_model_its_authors_are_not_people(vault, monkeypatch):
     client = FakeClient(SUMMARY, "[]")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
     sources.ingest_upload(docx_bytes([("h1", "Report"), ("p", "Findings by Eric Evans.")]),
                           "report.docx")
     assert "NOT people pages" in client.calls[1]["messages"][0]["content"]
@@ -615,7 +616,7 @@ def test_a_docx_report_tells_the_model_its_authors_are_not_people(vault, monkeyp
 
 def test_a_summary_without_a_title_is_asked_once_more(vault, monkeypatch, capsys):
     client = FakeClient("{{garbled", FAQ_SUMMARY, "[]")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
 
     filed = sources.ingest_note("Q: How do I land? A: Slowly.")
 
@@ -627,7 +628,7 @@ def test_a_summary_without_a_title_is_asked_once_more(vault, monkeypatch, capsys
 
 def test_a_summary_garbled_twice_falls_back_to_the_stem(vault, monkeypatch):
     client = FakeClient("{{garbled", "still {{garbled")
-    monkeypatch.setattr(sources, "_client_model", lambda: (client, "m"))
+    monkeypatch.setattr(core_llm, "_client", client)
 
     filed = sources.ingest_upload(b"Q: How do I land? A: Slowly.", "landing-guide.txt")
 

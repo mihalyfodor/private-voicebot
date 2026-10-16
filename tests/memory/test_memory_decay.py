@@ -14,6 +14,7 @@ import llm
 import memory
 from eval import harness
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
+from core import llm as core_llm
 
 TODAY = date.today().isoformat()
 
@@ -125,10 +126,10 @@ def test_confirm_on_something_that_is_not_there_is_rejected(op, expected, capsys
     assert profile["people"][0]["seen"] == days_ago(5)
 
 
-def test_confirm_is_logged_with_the_confirm_reason():
+def test_confirm_is_logged_with_the_confirm_reason(monkeypatch):
     seed(people=[{"name": "Anna", "seen": days_ago(200), "stale": True}])
-    memory.save([{"role": "user", "content": "had lunch with Anna"}],
-                FakeClient('[{"op":"CONFIRM","path":"people[0]"}]'), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient('[{"op":"CONFIRM","path":"people[0]"}]'))
+    memory.save([{"role": "user", "content": "had lunch with Anna"}])
     logged = audit_log()
     assert [(o["op"], o["path"], o["reason"]) for o in logged] == [("CONFIRM", "people[0]", "confirm")]
     assert on_disk()["people"][0] == {"name": "Anna", "seen": TODAY}
@@ -285,11 +286,12 @@ def test_reflection_dates_a_freshly_promoted_recurring_entry_today():
     assert "stale" not in result["recurring"][0]
 
 
-def test_a_stale_entry_survives_a_reflection_pass_through_save():
+def test_a_stale_entry_survives_a_reflection_pass_through_save(monkeypatch):
     seed(people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True}],
           meta={"saves": memory.REFLECT_EVERY - 1})
     client = FakeClient('[{"op":"ADD","path":"identity.name","value":"Mihaly"}]', MERGED_REFLECTION)
-    memory.save([{"role": "user", "content": "I'm Mihaly"}], client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    memory.save([{"role": "user", "content": "I'm Mihaly"}])
     anna = on_disk()["people"][0]
     assert anna["stale"] is True and anna["seen"] == days_ago(200)
 
@@ -384,32 +386,35 @@ def test_booleans_are_not_accepted_as_ordinary_field_values(capsys):
 # --------------------------------------------------------------- 8. decay end to end (mocked LLM)
 
 
-def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock):
+def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
     """PRD scenario 8 at unit level: introduced, forgotten after 200 days, revived by CONFIRM."""
     intro = '[{"op":"ADD","path":"people[]","value":{"name":"Anna","rel":"colleague"}}]'
-    memory.save([{"role": "user", "content": "Anna joined my team"}], FakeClient(intro), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(intro))
+    memory.save([{"role": "user", "content": "Anna joined my team"}])
     assert "Anna" in memory.render(memory.load_profile())
 
     clock(200)
-    memory.save([{"role": "user", "content": "quiet week, nothing new"}], FakeClient("[]"), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
+    memory.save([{"role": "user", "content": "quiet week, nothing new"}])
 
     profile = memory.load_profile()
     assert profile["people"][0]["stale"] is True
     assert "Anna" not in memory.render(profile)          # out of the prompt, still on disk
     assert memory.fact_count(profile) == 1
 
-    memory.save([{"role": "user", "content": "had lunch with Anna today"}],
-                FakeClient('[{"op":"CONFIRM","path":"people[]","value":{"name":"Anna"}}]'), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient('[{"op":"CONFIRM","path":"people[]","value":{"name":"Anna"}}]'))
+    memory.save([{"role": "user", "content": "had lunch with Anna today"}])
     profile = memory.load_profile()
     assert "stale" not in profile["people"][0]
     assert profile["people"][0]["seen"] == memory._today().isoformat()
     assert "Anna (colleague)" in memory.render(profile)
 
 
-def test_a_save_that_learns_nothing_still_writes_the_retirement(clock, capsys):
+def test_a_save_that_learns_nothing_still_writes_the_retirement(clock, capsys, monkeypatch):
     seed(people=[{"name": "Anna", "seen": days_ago(0)}])
     clock(200)
-    applied = memory.save([{"role": "user", "content": "hi"}], FakeClient("[]"), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
+    applied = memory.save([{"role": "user", "content": "hi"}])
     assert applied == []
     assert on_disk()["people"][0]["stale"] is True
     assert "[Memory] stale — people: Anna" in capsys.readouterr().out
@@ -425,10 +430,10 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     turns since the last save (llm.save_memory clears them), so the next save sees only what
     the user said after the deletion.
     """
-    monkeypatch.setattr(llm, "OMLX_MODEL", "m")
+    monkeypatch.setattr(core_llm, "OMLX_MODEL", "m")
     session_one = FakeClient('[{"op":"ADD","path":"people[]","value":{"name":"Bolt","rel":"dog"}},'
                              '{"op":"ADD","path":"identity.occupation","value":"software engineer"}]')
-    monkeypatch.setattr(llm, "client", lambda: session_one)
+    monkeypatch.setattr(core_llm, "_client", session_one)
     llm._session_turns[:] = [{"role": "user", "content": "I've got a dog called Bolt"}]
     llm.save_memory()
     assert [p["name"] for p in on_disk()["people"]] == ["Bolt"]
@@ -442,7 +447,7 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     # the next session says nothing about the dog, so nothing proposes it again
     session_two = FakeClient('[{"op":"ADD","path":"episodic[]",'
                              '"value":{"text":"presentation next Thursday","importance":2}}]')
-    monkeypatch.setattr(llm, "client", lambda: session_two)
+    monkeypatch.setattr(core_llm, "_client", session_two)
     llm._session_turns[:] = [{"role": "user", "content": "big presentation next Thursday"}]
     llm.save_memory()
 

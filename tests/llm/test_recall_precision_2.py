@@ -22,6 +22,7 @@ import wiki
 from tests.conftest import (FakeClient, RawStreamClient, StreamClient, ask_turn, deltas, last_user, seeded_vault,  # noqa: F401
                             stream_chunks, tool_call_chunk, write_page)
 from tests.conftest import both, fallout, summary_json  # noqa: F401  (fixtures)
+from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -132,7 +133,7 @@ def test_a_tool_call_turn_never_retries(fallout, file_sandbox):
         [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
         stream_chunks(NOT_COVERED_REPLY),
     ])
-    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
+    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
         events = list(llm.ask_events(COVENANT_QUESTION))
     assert len(fake.calls) == 2
     assert events[0] == ("tool_calls", ["get_weather"])
@@ -263,9 +264,10 @@ def test_page_command_strips_a_trailing_please(text, query):
 # --------------------------------------------------------------- 10. the dated raw name
 
 
-def test_an_upload_named_with_a_date_carries_todays_date_once(seeded_vault):
+def test_an_upload_named_with_a_date_carries_todays_date_once(seeded_vault, monkeypatch):
     client = FakeClient(summary_json("Launch note"), "[]")
-    filed = sources.ingest_upload(b"Fuel first.", "2026-08-30-note.md", client=client, model="m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    filed = sources.ingest_upload(b"Fuel first.", "2026-08-30-note.md")
     today = memory._today_iso()
     # "note" is a generic name, so the raw is renamed after the model title (PRD 32) — still
     # `raw/inbox/<today>-…note.md`, dated exactly once

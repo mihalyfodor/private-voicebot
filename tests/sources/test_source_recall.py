@@ -19,6 +19,7 @@ import wiki
 from tests.conftest import (FALLOUT_SECTIONS, SKYRIM_SECTIONS, FakeClient, StreamClient, both, faq_text,  # noqa: F401
                             fallout, file_faq, seeded_vault, send_setting, summary_json, vault)
 from tools import run_tool
+from core import llm as core_llm
 
 
 def cache_files() -> list:
@@ -93,7 +94,8 @@ def test_images_and_calendars_have_no_chunks(seeded_vault, monkeypatch):
     monkeypatch.setattr(sources, "_downscale", lambda full: None)
     monkeypatch.setattr(sources, "_image_part", lambda full: {"type": "image_url"})
     client = FakeClient(summary_json("A screenshot"), "[]")
-    filed = sources.ingest_upload(b"\x89PNG", "shot.png", client=client, model="m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    filed = sources.ingest_upload(b"\x89PNG", "shot.png")
     assert wiki.raw_chunks(filed["raw"])["chunks"] == []
     assert wiki.search_chunks("screenshot") == []
 
@@ -235,7 +237,7 @@ def test_the_recall_block_rides_on_the_user_message_only(fallout):
     system_before = llm._conversation[0]["content"]
     question = "I'm at Covenant and Honest Dan keeps attacking me, what now"
     fake = StreamClient("[thinking] The guide says talk to Jacob Orden.")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         reply = llm.ask(question)
     assert reply.startswith("[thinking]")
     sent = fake.calls[0]["messages"]
@@ -248,7 +250,7 @@ def test_the_recall_block_rides_on_the_user_message_only(fallout):
 
     # the next turn carries its own (empty) recall; nothing from the last one leaks
     fake = StreamClient("[happy] Sure.")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         llm.ask("thanks a lot for that")
     assert "<recall>" not in llm._conversation[3]["content"]
     assert llm._conversation[0]["content"] == system_before
@@ -258,7 +260,7 @@ def test_a_typed_turn_gets_the_same_recall_as_a_spoken_one(fallout):
     llm.reset()
     question = "I'm at Covenant and Honest Dan keeps attacking me, what now"
     fake = StreamClient("[neutral] ok", "[neutral] ok")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         list(llm.ask_events(question, origin="typed"))
         list(llm.ask_events(question, origin="user"))
     typed, spoken = fake.calls[0]["messages"][1], fake.calls[1]["messages"][3]
@@ -307,9 +309,10 @@ def test_refiling_the_same_bytes_builds_nothing_and_forget_drops_the_cache(fallo
 # --------------------------------------------------------------- 10. raw named after the title
 
 
-def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault):
+def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault, monkeypatch):
     client = FakeClient(summary_json("Falcon launch checklist"), "[]")
-    filed = sources.ingest_note("Fuel, then countdown, then launch.", client=client, model="m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    filed = sources.ingest_note("Fuel, then countdown, then launch.")
     assert filed["raw"] == f"raw/inbox/{memory._today_iso()}-falcon-launch-checklist.md"
     assert os.path.isfile(wiki._path(filed["raw"]))
     assert not os.path.exists(wiki._path(f"raw/inbox/{memory._today_iso()}-note.md"))
@@ -320,8 +323,8 @@ def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault):
     assert wiki.raw_chunks(filed["raw"])["raw"] == filed["raw"]
     assert wiki._read(f"{wiki.RAW_INDEX_DIR}/{entry['sha256']}.json")     # cache built under the new name
 
-    again = sources.ingest_note("Fuel, then countdown, then launch.",
-                                client=FakeClient(summary_json("Other"), "[]"), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json("Other"), "[]"))
+    again = sources.ingest_note("Fuel, then countdown, then launch.")
     assert again["already"] and again["raw"] == filed["raw"]
     assert len(sources.manifest_entries()) == 1
 
@@ -330,16 +333,18 @@ def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault):
     assert sources.manifest_entries() == [] and cache_files() == []
 
 
-def test_a_second_paste_with_the_same_title_is_deduped(seeded_vault):
-    first = sources.ingest_note("Fuel first.", client=FakeClient(summary_json("Falcon"), "[]"), model="m")
-    second = sources.ingest_note("Countdown second.", client=FakeClient(summary_json("Falcon"), "[]"),
-                                 model="m")
+def test_a_second_paste_with_the_same_title_is_deduped(seeded_vault, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json("Falcon"), "[]"))
+    first = sources.ingest_note("Fuel first.")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json("Falcon"), "[]"))
+    second = sources.ingest_note("Countdown second.")
     assert first["raw"].endswith("-falcon.md") and second["raw"].endswith("-falcon-2.md")
 
 
-def test_a_real_file_name_is_not_renamed(seeded_vault):
+def test_a_real_file_name_is_not_renamed(seeded_vault, monkeypatch):
     client = FakeClient(summary_json("Falcon launch checklist"), "[]")
-    filed = sources.ingest_upload(b"Fuel, then countdown.", "falcon-plan.txt", client=client, model="m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    filed = sources.ingest_upload(b"Fuel, then countdown.", "falcon-plan.txt")
     assert filed["raw"].endswith("-falcon-plan.txt")
     assert sources.manifest_entries()[0]["path"] == filed["raw"]
 
@@ -363,7 +368,7 @@ LIVE_QUESTIONS = [
 
 
 @pytest.mark.live
-def test_live_answers_cite_the_right_guide(seeded_vault, capsys):
+def test_live_answers_cite_the_right_guide(seeded_vault, capsys, monkeypatch):
     """The two real guides, filed with a mocked summary (the point is recall, not filing), then
     seven questions through `llm.ask` against oMLX. Asserts the source mention; prints the pairs."""
     dev = os.path.expanduser("~/llm-wiki-dev/raw/inbox")
@@ -373,9 +378,9 @@ def test_live_answers_cite_the_right_guide(seeded_vault, capsys):
             pytest.skip(f"{path} not available")
         with open(path, "rb") as f:
             data = f.read()
-        sources.file_bytes(data, f"raw/inbox/{name}", "md", client=FakeClient(summary_json(title), "[]"),
-                           model="m")
-    llm._client = None
+        monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json(title), "[]"))
+        sources.file_bytes(data, f"raw/inbox/{name}", "md")
+    core_llm._client = None
     llm.reset()
     pairs = []
     for question, expect in LIVE_QUESTIONS:

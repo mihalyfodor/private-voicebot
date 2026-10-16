@@ -14,6 +14,7 @@ import llm
 from session import Session
 from tests.conftest import StreamClient, drain_initial, fake_asr, fake_tts, run_turn, trace_lines
 from tests.conftest import spoken as spoken_turn, typed as typed_turn
+from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -51,7 +52,7 @@ def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch
     fake = StreamClient("[happy] Sure thing.")
 
     client = TestClient(chatbot.app)
-    with patch.object(llm, "_client", fake), client.websocket_connect("/ws") as ws:
+    with patch.object(core_llm, "_client", fake), client.websocket_connect("/ws") as ws:
         drain_initial(ws)
         ws.send_json({"action": "text_turn", "text": "  remind me to call Anna  "})
         seen = []

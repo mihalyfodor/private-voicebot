@@ -27,6 +27,7 @@ import memory
 from core import vault_lock
 from core.untrusted import DOCUMENT_RULE
 from core import config, trace
+from core import llm as core_llm
 log = trace.logger("Wiki")
 
 # --- vault -------------------------------------------------------------------------
@@ -1724,7 +1725,7 @@ def reject_user_pages(ops, names) -> tuple:
     return kept, rejected
 
 
-def ingest(turns: list, client, model: str) -> list:
+def ingest(turns: list) -> list:
     """Ask the model for page ops for this session and apply them; returns the applied ops.
 
     Never raises: a wiki failure must not cost the user their profile save (see memory.save).
@@ -1740,7 +1741,7 @@ def ingest(turns: list, client, model: str) -> list:
             + (f"{related}\n\n" if related else "")
             + f"Transcript:\n{transcript}")
     try:
-        raw = memory._complete(client, model, system, user, 800)
+        raw = core_llm.complete(system, user, 800)
     except Exception as exc:  # noqa: BLE001
         log.info(f"ingest failed: {exc}")
         return []

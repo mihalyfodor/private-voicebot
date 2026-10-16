@@ -11,6 +11,7 @@ import pytest
 
 import memory
 import wiki
+from core import llm as core_llm
 from tests.conftest import FakeClient, commits, log_ops, read, seed, write_page
 
 
@@ -461,7 +462,8 @@ def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
     monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
     client = FakeClient("[]")
 
-    wiki.ingest([{"role": "user", "content": "the Zephyr rollout slipped a week"}], client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    wiki.ingest([{"role": "user", "content": "the Zephyr rollout slipped a week"}])
 
     user = client.calls[0]["messages"][1]["content"]
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
@@ -472,7 +474,7 @@ def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
 # --------------------------------------------------------------- 7. ingest
 
 
-def test_ingest_files_the_ops_the_model_proposes(vault):
+def test_ingest_files_the_ops_the_model_proposes(vault, monkeypatch):
     client = FakeClient(json.dumps([
         {"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
          "summary": "Runs the release."},
@@ -480,7 +482,8 @@ def test_ingest_files_the_ops_the_model_proposes(vault):
     ]))
     commits_before = len(commits())
 
-    applied = wiki.ingest(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    applied = wiki.ingest(TURNS)
 
     assert len(applied) == 2
     assert wiki.page_exists("people/anna.md")
@@ -493,35 +496,39 @@ def test_ingest_files_the_ops_the_model_proposes(vault):
 
 
 @pytest.mark.parametrize("content", ["NOTHING AT ALL", "", None, "{}", "[]"])
-def test_ingest_of_garbage_changes_nothing(vault, content):
+def test_ingest_of_garbage_changes_nothing(vault, content, monkeypatch):
     before = {rel: read(rel) for rel in ("index.md", "log.md", "decisions.md")}
     commits_before = len(commits())
 
-    assert wiki.ingest(TURNS, FakeClient(content), "m") == []
+    monkeypatch.setattr(core_llm, "_client", FakeClient(content))
+    assert wiki.ingest(TURNS) == []
 
     assert {rel: read(rel) for rel in before} == before
     assert len(commits()) == commits_before
     assert wiki.page_paths() == []
 
 
-def test_ingest_survives_a_broken_client(vault, capsys):
-    assert wiki.ingest(TURNS, FakeClient(RuntimeError("connection refused")), "m") == []
+def test_ingest_survives_a_broken_client(vault, capsys, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(RuntimeError("connection refused")))
+    assert wiki.ingest(TURNS) == []
     assert "ingest failed" in capsys.readouterr().out
 
 
-def test_ingest_skips_the_call_for_an_empty_transcript(vault):
+def test_ingest_skips_the_call_for_an_empty_transcript(vault, monkeypatch):
     client = FakeClient("[]")
-    assert wiki.ingest([], client, "m") == []
+    monkeypatch.setattr(core_llm, "_client", client)
+    assert wiki.ingest([]) == []
     assert client.calls == []
 
 
-def test_save_ingests_after_the_profile_ops(memory_sandbox, wiki_sandbox):
+def test_save_ingests_after_the_profile_ops(memory_sandbox, wiki_sandbox, monkeypatch):
     profile_ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}])
     page_ops = json.dumps([{"op": "new_page", "path": "people/anna", "type": "person",
                             "name": "Anna", "summary": "Runs the release."}])
     client = FakeClient(profile_ops, page_ops)
 
-    applied = memory.save(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    applied = memory.save(TURNS)
 
     assert [op["path"] for op in applied] == ["identity.name"]
     assert wiki.page_exists("people/anna.md")
@@ -531,7 +538,8 @@ def test_a_wiki_failure_never_loses_the_profile_save(memory_sandbox, wiki_sandbo
     monkeypatch.setattr(wiki, "ingest", lambda *a: (_ for _ in ()).throw(RuntimeError("disk on fire")))
     ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}])
 
-    assert memory.save(TURNS, FakeClient(ops), "m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(ops))
+    assert memory.save(TURNS)
     assert memory.load_profile()["identity"]["name"] == "Mihaly"
 
 
@@ -603,8 +611,9 @@ def test_pull_reports_an_unknown_page(vault, memory_sandbox):
 # --------------------------------------------------------------- 9. user edits
 
 
-def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox):
-    wiki.ingest(TURNS, FakeClient(json.dumps([a_page()])), "m")
+def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox, monkeypatch):
+    monkeypatch.setattr(core_llm, "_client", FakeClient(json.dumps([a_page()])))
+    wiki.ingest(TURNS)
     assert "Anna" in read("index.md")
 
     # the user opens the page in Obsidian and corrects it
@@ -613,7 +622,8 @@ def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox
     wiki._write("people/anna.md", wiki._page_text(fm, body + "\n- she prefers Anna K\n"))
 
     client = FakeClient("[]")
-    wiki.ingest(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    wiki.ingest(TURNS)
     context = client.calls[0]["messages"][1]["content"]
     assert "Anna Kovacs" in context
 
@@ -688,7 +698,7 @@ def test_a_bad_archive_comes_back_as_memory_error(wiki_panel):
 
 
 # PRD 26: the session ingest knows who the user is and never files them as a person.
-def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys):
+def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys, monkeypatch):
     memory._write_profile(memory._normalise(
         {"identity": {"name": "Mihaly Fodor", "nickname": "Michael", "aliases": ["Misi"]}}))
     ops = json.dumps([
@@ -699,7 +709,8 @@ def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys):
     ])
     client = FakeClient(ops)
 
-    applied = wiki.ingest(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    applied = wiki.ingest(TURNS)
 
     assert [op["path"] for op in applied] == ["people/anna"]
     assert not wiki.page_exists("people/michael.md")
@@ -708,9 +719,10 @@ def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys):
     assert "The user (profile owner) is: Mihaly Fodor, Michael, Misi" in system
 
 
-def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault):
+def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault, monkeypatch):
     client = FakeClient("[]")
-    wiki.ingest(TURNS, client, "m")
+    monkeypatch.setattr(core_llm, "_client", client)
+    wiki.ingest(TURNS)
     assert memory.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]
 
 
@@ -845,16 +857,16 @@ def test_the_users_own_editor_saves_and_saved_cards_are_not_news(vault, monkeypa
     assert digest["chat_pages"] == []
 
 
-def test_lint_counts_a_notebooks_page_pngs_as_cited(vault):
+def test_lint_counts_a_notebooks_page_pngs_as_cited(vault, monkeypatch):
     """PRD 47: the manifest's `pages` list cites the notebook's PNGs; a replace leaves none behind."""
     import notebooks
     from tests.conftest import FakeClient
 
     summary = json.dumps({"title": "Standup", "summary": "Standup: notes.", "entities": [], "unreadable": False})
     text = "Standup: Anna ships the load test."
-    old = notebooks.ingest_notebook([b"\x89PNG\r\n\x1a\n1", b"\x89PNG\r\n\x1a\n2"], title="Standup", device_id="n1",
-                                    client=FakeClient(text, text, summary, "[]"), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(text, text, summary, "[]"))
+    old = notebooks.ingest_notebook([b"\x89PNG\r\n\x1a\n1", b"\x89PNG\r\n\x1a\n2"], title="Standup", device_id="n1")
     assert not [f for f in wiki.lint() if ".png" in f]
-    notebooks.ingest_notebook([b"\x89PNG\r\n\x1a\n3"], title="Standup", device_id="n1", replaces=old["sha256"],
-                              client=FakeClient(text, summary, "[]"), model="m")
+    monkeypatch.setattr(core_llm, "_client", FakeClient(text, summary, "[]"))
+    notebooks.ingest_notebook([b"\x89PNG\r\n\x1a\n3"], title="Standup", device_id="n1", replaces=old["sha256"])
     assert not [f for f in wiki.lint() if ".png" in f]

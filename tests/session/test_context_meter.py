@@ -17,6 +17,7 @@ import llm
 import memory
 from session import Session
 from tests.conftest import FakeClient, StreamClient, fake_asr, fake_tts, run_turn, typed
+from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -33,7 +34,7 @@ def spoken_text(sent: list) -> str:
 def recorded_memory(monkeypatch):
     """`memory.save` replaced by a recorder: the turns it was handed, applied ops []."""
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, client, model, sources=(): saved.append(list(turns)) or [])
+    monkeypatch.setattr(memory, "save", lambda turns, sources=(): saved.append(list(turns)) or [])
     return saved
 
 
@@ -118,7 +119,7 @@ def test_recall_blocks_leave_the_history_once_the_turn_is_done(seeded_vault, mon
     monkeypatch.setattr(llm, "recall_for", lambda text: block)
     fake = StreamClient(*["[neutral] Per the guide, yes."] * 10)
     questions = [f"what does the guide say about chapter {i} of the story" for i in range(10)]
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         for q in questions:
             list(llm.ask_events(q, origin="typed"))                             # typed: no recall band
     assert all(q + block in [m for m in call["messages"] if m["role"] == "user"][-1]["content"]
@@ -141,7 +142,7 @@ def test_focus_and_deeper_blocks_are_stripped_too(seeded_vault, monkeypatch):
 
 def three_turns():
     fake = StreamClient("[neutral] Falcon is amber.", "[neutral] Anna runs the deploy.", "[neutral] Friday then.")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         for q in ("how is Falcon doing", "who runs the deploy", "when is it"):
             llm.ask(q)
 
@@ -152,7 +153,7 @@ def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, r
     llm._deeper_offer = {"source": "s", "title": "t", "parts": [1]}
     llm._turn_sources = [("s", "t", 1)]
     summary_client = FakeClient("[neutral] We checked Falcon (amber) and agreed Anna runs Friday's deploy.")
-    with patch.object(llm, "_client", summary_client):
+    with patch.object(core_llm, "_client", summary_client):
         summary = llm.new_thread()
 
     assert summary == "We checked Falcon (amber) and agreed Anna runs Friday's deploy."
@@ -170,7 +171,7 @@ def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, r
 def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memory):
     assert "new_topic" in chatbot.ACTIONS
     three_turns()
-    with patch.object(llm, "_client", FakeClient("[neutral] Falcon and the deploy.")), \
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Falcon and the deploy.")), \
             patch.object(chatbot, "synthesize", fake_tts):
         sent = run_turn(chatbot.new_topic_turn, Session(), 1)
     kinds = [m["type"] for m in sent]
@@ -185,7 +186,7 @@ def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memor
 def new_topic_turn_via(fn, *args) -> tuple:
     """A typed / spoken turn whose model call is the (non-streamed) summary: (sent, fake)."""
     fake = FakeClient("[neutral] Falcon and the deploy.")
-    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
         sent = run_turn(fn, Session(), 1, *args)
     return sent, fake
 
@@ -220,7 +221,7 @@ def test_the_palette_sends_new_topic_and_the_divider_shows_the_summary(r):
 
 def test_summary_failure_falls_back_to_first_sentences(seeded_vault, recorded_memory, capsys):
     three_turns()
-    with patch.object(llm, "_client", FakeClient(RuntimeError("model down"))):
+    with patch.object(core_llm, "_client", FakeClient(RuntimeError("model down"))):
         summary = llm.new_thread()
     assert summary == ("how is Falcon doing Falcon is amber. who runs the deploy Anna runs the deploy. "
                        "when is it Friday then.")
@@ -233,7 +234,7 @@ def test_summary_failure_falls_back_to_first_sentences(seeded_vault, recorded_me
 
 def test_new_thread_on_an_empty_conversation_makes_no_summary_call(seeded_vault, recorded_memory):
     client = FakeClient()
-    with patch.object(llm, "_client", client):
+    with patch.object(core_llm, "_client", client):
         assert llm.new_thread() == llm.EARLIER_EMPTY
     assert client.calls == [] and recorded_memory == []
 
@@ -245,9 +246,9 @@ def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(seede
     three_turns()
     llm.save_memory()                                             # the periodic fold empties the session turns
     assert llm.get_session_turns() == []
-    with patch.object(llm, "_client", FakeClient("[neutral] Falcon and the deploy.")):
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Falcon and the deploy.")):
         llm.new_thread()
-    with patch.object(llm, "_client", StreamClient("[neutral] Sure thing.")):
+    with patch.object(core_llm, "_client", StreamClient("[neutral] Sure thing.")):
         llm.ask("one more question then")
     assert llm.get_session_turns() == [{"role": "user", "content": "one more question then"},
                                        {"role": "assistant", "content": "[neutral] Sure thing."}]

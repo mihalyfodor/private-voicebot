@@ -14,6 +14,7 @@ import tempfile
 
 import memory
 import sources
+from core import llm as core_llm
 from core import trace
 from sources import IngestError
 from core.untrusted import DOCUMENT_RULE
@@ -76,15 +77,15 @@ def check_request(names: list, pages: list, ocr: str, replaces: str, device_id: 
     return {"pages": pages, "ocr": texts, "replaces": replaces, "device_id": device_id}
 
 
-def _transcribe(client, model: str, png: bytes, folder: str, n: int) -> str:
+def _transcribe(png: bytes, folder: str, n: int) -> str:
     """One page -> its markdown, or `[page N: unreadable]` under `MIN_PDF_CHARS`."""
     full = os.path.join(folder, f"page-{n:02d}.png")
     with open(full, "wb") as f:
         f.write(png)
     sources._downscale(full)
-    text = sources._ask(client, model, DOCUMENT_RULE,
-                        [{"type": "text", "text": TRANSCRIBE_PROMPT}, sources._image_part(full)],
-                        TRANSCRIBE_TOKENS).strip()
+    text = core_llm.complete(DOCUMENT_RULE,
+                             [{"type": "text", "text": TRANSCRIBE_PROMPT}, sources._image_part(full)],
+                             TRANSCRIBE_TOKENS, purpose="ingest").strip()
     return text if len(text) >= sources.MIN_PDF_CHARS else f"[page {n}: unreadable]"
 
 
@@ -103,7 +104,7 @@ def _transcript(texts: list, ocr: list) -> str:
 
 
 def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", device_id: str = "",
-                    client=None, model: str = "", on_stage=None) -> dict:
+                    on_stage=None) -> dict:
     """Page PNGs in order -> one transcript source; `sources.file_bytes`'s result plus `sha256`.
 
     `ocr` (one string per page, "" = none) adds an Apple Vision block per page. `replaces` is
@@ -123,17 +124,15 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
             return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
         if replaces:
             check_replaces(replaces, device_id)
-        if client is None:
-            client, model = sources._client_model()
         texts = []
         with tempfile.TemporaryDirectory() as folder:
             for n, png in enumerate(pages, 1):
                 sources._stage(on_stage, f"transcribing {n}/{len(pages)}")
-                texts.append(_transcribe(client, model, png, folder, n))
+                texts.append(_transcribe(png, folder, n))
         unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
         raw_rel = f"raw/remarkable/{sources._dated(title or 'notebook')}.md"
         res = sources.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
-                                 title=title, client=client, model=model, on_stage=on_stage,
+                                 title=title, on_stage=on_stage,
                                  source=f"remarkable {memory._today_iso()}", digest=digest, pages=pages,
                                  unreadable=unreadable, extra={"device_id": device_id} if device_id else None)
         if replaces and sources.manifest_find(replaces):

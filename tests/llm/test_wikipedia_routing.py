@@ -21,6 +21,7 @@ from tools import TOOLS, run_tool
 from tools import wikipedia
 from tests.conftest import RawStreamClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
 from tests.conftest import fallout, both  # noqa: F401  (fixtures)
+from core import llm as core_llm
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 QUESTIONS = json.loads((ROOT / "tests" / "fixtures" / "routing_questions.json").read_text())
@@ -197,7 +198,7 @@ def test_the_prompt_carries_the_four_routing_rules_with_tools_registered():
 
 def _turn(text: str, *replies):
     fake = RawStreamClient(replies)
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         events = list(llm.ask_events(text))
     return events, fake
 
@@ -305,7 +306,7 @@ def test_calibration_mocked(both):
         else:
             replies = [stream_chunks("[happy] Here is the answer.")]
         fake = RawStreamClient(replies)
-        with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="Wikipedia article ..."):
+        with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="Wikipedia article ..."):
             reply = llm.ask(question)
         recalled = "<recall>" in fake.calls[0]["messages"][1]["content"]
         observed = observed_route(reply, llm.get_last_tool_calls(), recalled)
@@ -350,8 +351,8 @@ def _file_guides():
     if all(os.path.isfile(p) for p in paths):
         for path, (name, title) in zip(paths, REAL_GUIDES):
             with open(path, "rb") as f:
-                sources.file_bytes(f.read(), f"raw/inbox/{name}", "md", client=SummaryClient(summary_json(title), "[]"),
-                                   model="m")
+                core_llm._client = SummaryClient(summary_json(title), "[]")
+                sources.file_bytes(f.read(), f"raw/inbox/{name}", "md")
         return "real guides"
     file_faq(faq_text("Fallout 4", FALLOUT_SECTIONS, seed=4), "Fallout 4 guide")
     file_faq(faq_text("Skyrim", SKYRIM_SECTIONS, seed=5), "Skyrim guide", "guide2.md")
@@ -364,7 +365,7 @@ def test_live_calibration(seeded_vault, capsys):
     question with its observed route and the confusion table. ≥ 20/28, and no filed-document
     question may go to Wikipedia. The first offered question also gets a real "yes"."""
     guides = _file_guides()
-    llm._client = None
+    core_llm._client = None
     llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
     rows, lines, follow_up = [], [], None
     for q in QUESTIONS:

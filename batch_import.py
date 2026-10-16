@@ -118,7 +118,7 @@ def _state_line(i: int, n: int, rel: str, row: dict, seconds: float) -> str:
     return f"[{i}/{n}] {label}  {rel}{tail}"
 
 
-def _one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> dict:
+def _one(path: str, rel: str, kinds: set, dry_run: bool) -> dict:
     """One file's outcome `{state, ...}`; only a real filing touches the vault."""
     ext = os.path.splitext(rel)[1].lower()
     if ext not in kinds:
@@ -147,7 +147,6 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> 
             return {"state": "would file", "sha256": digest, "reason": note}
         reached = True
         res = sources.ingest_upload(data, os.path.basename(rel), hint=os.path.dirname(rel),
-                                    client=client, model=model,
                                     source=f"batch import {memory._today_iso()}", strict=True)
         entry = sources.manifest_find(digest) or {}
         fm, _ = wiki.parse_page((wiki._read(res["path"] + ".md") or ""))
@@ -161,7 +160,7 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> 
 
 
 def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dry_run: bool = False,
-                 limit: int = 0, sleep: float = 0, client=None, model: str = "", out=print) -> dict:
+                 limit: int = 0, sleep: float = 0, out=print) -> dict:
     """File every `kinds` file under `folder` through the drop path, one at a time (PRD 48).
 
     Returns the per-state counts plus `exit` (0 clean, 1 something failed, 2 refused start) and
@@ -191,7 +190,7 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
             out(_state_line(i, len(files), rel, {"state": "resume", "reason": last[rel]}, 0))
             continue
         t0 = time.time()
-        row = _one(os.path.join(folder, rel), rel, exts, dry_run, client, model)
+        row = _one(os.path.join(folder, rel), rel, exts, dry_run)
         state, seconds = row["state"], round(time.time() - t0, 1)
         counts[state] += 1
         trace.event("batch_file", rel=rel, state=state, seconds=seconds)

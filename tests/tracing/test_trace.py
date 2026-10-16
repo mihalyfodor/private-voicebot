@@ -11,6 +11,7 @@ import pytest
 
 import chatbot
 import llm
+from core import llm as core_llm
 from core import trace
 from session import Session
 from tests.conftest import (SENTINEL, RawStreamClient, StreamClient, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
@@ -23,12 +24,12 @@ REPLY = f"[neutral] The {SENTINEL} plans look fine to me."
 
 
 def _typed(turn: int, text: str, client):
-    with patch.object(llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts):
         return run_turn(chatbot.handle_text, Session(), turn, text)
 
 
 def _spoken(turn: int, text: str, client):
-    with patch.object(llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts), \
+    with patch.object(core_llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts), \
             patch.object(chatbot, "asr", fake_asr(text)):
         return run_turn(chatbot.handle_utterance, Session(), turn, np.zeros(10, dtype=np.float32))
 
@@ -66,7 +67,7 @@ def test_a_tool_call_records_its_size_not_its_result(vault, capsys, monkeypatch)
         stream_chunks("[neutral] Done."),
     ])
     with trace.turn(7):
-        with patch.object(llm, "_client", client):
+        with patch.object(core_llm, "_client", client):
             list(llm.ask_events("search the wiki for falcon", origin="typed"))
     calls = trace_lines(kind="tool_call")
     assert len(calls) == 1
@@ -86,11 +87,11 @@ def _usage_chunk(prompt: int, completion: int):
 
 def test_llm_call_reads_usage_from_the_last_chunk(vault):
     client = RawStreamClient([stream_chunks("[neutral] ", "Hi there.") + [_usage_chunk(12, 3)]])
-    with trace.turn(3) as root, patch.object(llm, "_client", client):
+    with trace.turn(3) as root, patch.object(core_llm, "_client", client):
         list(llm.ask_events("hello", origin="typed"))
     assert client.calls[0]["stream_options"] == {"include_usage": True}
     (call,) = trace_lines(kind="llm_call")
-    assert call["purpose"] == "reply" and call["model"] == llm.OMLX_MODEL
+    assert call["purpose"] == "reply" and call["model"] == core_llm.OMLX_MODEL
     assert (call["tokens_in"], call["tokens_out"]) == (12, 3)
     assert 0 <= call["ttft_ms"] <= call["ms"]
     assert call["span_id"] and call["parent_id"] == root

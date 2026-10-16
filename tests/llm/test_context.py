@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import llm
 from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
+from core import llm as core_llm
 
 
 def setup_function():
@@ -81,7 +82,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
         [_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")],
         _chunks("[neutral] Noon."),
     ])
-    with patch.object(llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
         list(llm.ask_events("what time is it?"))
     assert len(fake.calls) == 2
     for call in fake.calls:
@@ -91,7 +92,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
 def test_max_tokens_env_override(monkeypatch):
     monkeypatch.setattr(llm, "MAX_TOKENS", 123)
     fake = FakeClient([_chunks("[happy] hi")])
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         llm.ask("hi")
     assert fake.calls[0]["max_tokens"] == 123
 
@@ -107,7 +108,7 @@ def test_model_context_len_failure_falls_back(monkeypatch, capsys):
             def list():
                 raise RuntimeError("connection refused")
 
-    with patch.object(llm, "client", lambda: BoomClient()):
+    with patch.object(core_llm, "_client", BoomClient()):
         result = llm.model_context_len()
         assert result is None
         assert llm.context_budget() == 16000
@@ -117,7 +118,7 @@ def test_model_context_len_failure_falls_back(monkeypatch, capsys):
 
 def test_model_context_len_caps_budget(monkeypatch):
     monkeypatch.setattr(llm, "CONTEXT_BUDGET", 16000)
-    model = SimpleNamespace(id=llm.OMLX_MODEL, max_model_len=4000)
+    model = SimpleNamespace(id=core_llm.OMLX_MODEL, max_model_len=4000)
 
     class OkClient:
         class models:
@@ -125,7 +126,7 @@ def test_model_context_len_caps_budget(monkeypatch):
             def list():
                 return [model]
 
-    with patch.object(llm, "client", lambda: OkClient()):
+    with patch.object(core_llm, "_client", OkClient()):
         assert llm.model_context_len() == 4000
         assert llm.context_budget() == 4000
 

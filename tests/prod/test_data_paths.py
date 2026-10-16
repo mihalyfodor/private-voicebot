@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import chatbot
 import llm
 import memory
+from core import llm as core_llm
 import wiki
 from tests.conftest import ROOT, FakeClient, StreamClient, commits, drain_initial, fake_tts
 
@@ -45,7 +46,7 @@ def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_pat
     fake = StreamClient("[happy] Sure thing.")
 
     client = TestClient(chatbot.app)
-    with patch.object(llm, "_client", fake), client.websocket_connect("/ws") as ws:
+    with patch.object(core_llm, "_client", fake), client.websocket_connect("/ws") as ws:
         drain_initial(ws)
         ws.send_json({"action": "text_turn", "text": "remind me to call Anna"})
         while True:
@@ -55,9 +56,10 @@ def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_pat
             if msg["type"] == "state" and msg["value"] == "idle":
                 break
 
+    monkeypatch.setattr(core_llm, "_client",
+                        FakeClient(json.dumps([{"op": "ADD", "path": "people[]", "value": {"name": "Anna"}}])))
     memory.save([{"role": "user", "content": "remind me to call Anna"},
-                 {"role": "assistant", "content": "Sure thing."}],
-                FakeClient(json.dumps([{"op": "ADD", "path": "people[]", "value": {"name": "Anna"}}])), "m")
+                 {"role": "assistant", "content": "Sure thing."}])
 
     wiki.ensure_vault()
     wiki.apply_page_ops([{"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",

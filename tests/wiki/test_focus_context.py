@@ -19,6 +19,7 @@ import wiki
 from tests.conftest import FakeClient, StreamClient, last_user, spoken, typed, write_page
 from tests.conftest import fallout  # noqa: F401  (fixtures)
 from core.untrusted import DOCUMENT_RULE
+from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -148,7 +149,7 @@ def test_a_focused_source_gives_its_head_and_the_matching_chunk_and_feeds_the_of
     assert llm._turn_sources and llm._turn_sources[0][:2] == (fallout["path"], "Fallout 4 guide")
 
     fake = StreamClient("[thinking] Talk to Jacob Orden, says the guide. Want me to dig deeper?")
-    with patch.object(llm, "_client", fake):
+    with patch.object(core_llm, "_client", fake):
         llm.ask("what about Covenant turrets")
     assert llm._deeper_offer and llm._deeper_offer["source"] == fallout["path"]
 
@@ -166,7 +167,7 @@ def test_an_injected_page_is_wrapped_and_remembers_nothing_from_it(seeded_vault,
     assert llm.get_session_turns()[0]["content"] == "summarise this"
 
     client = FakeClient("[]", "[]")
-    monkeypatch.setattr(llm, "client", lambda: client)
+    monkeypatch.setattr(core_llm, "_client", client)
     llm.save_memory()
     system = client.calls[0]["messages"][0]["content"]
     assert DOCUMENT_RULE in system and '"Evil note"' in system

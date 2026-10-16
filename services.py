@@ -18,7 +18,7 @@ import requests
 
 import asr
 from core import settings
-import llm
+from core import llm as core_llm
 from core import trace
 log = trace.logger("Services")
 
@@ -40,7 +40,7 @@ def _port_label(url: str, name: str) -> str:
 
 def _llm_host() -> str:
     """OMLX_BASE_URL without its /v1 path — where /health lives."""
-    u = urlparse(llm.OMLX_BASE_URL)
+    u = urlparse(core_llm.OMLX_BASE_URL)
     return f"{u.scheme}://{u.netloc}"
 
 
@@ -51,22 +51,22 @@ def _result(ok: bool, label: str, detail: str) -> dict:
 
 def probe_llm() -> dict:
     """GET /health on the oMLX host, then /v1/models with the key: the configured model must be listed."""
-    label = _port_label(llm.OMLX_BASE_URL, "oMLX")
+    label = _port_label(core_llm.OMLX_BASE_URL, "oMLX")
     host = _llm_host()
     try:
         requests.get(f"{host}/health", timeout=TIMEOUT_S).raise_for_status()
     except requests.RequestException as exc:
         return _result(False, label, f"not answering ({exc.__class__.__name__})")
     try:
-        r = requests.get(f"{llm.OMLX_BASE_URL.rstrip('/')}/models", timeout=TIMEOUT_S,
-                         headers={"Authorization": f"Bearer {llm.OMLX_API_KEY}"})
+        r = requests.get(f"{core_llm.OMLX_BASE_URL.rstrip('/')}/models", timeout=TIMEOUT_S,
+                         headers={"Authorization": f"Bearer {core_llm.OMLX_API_KEY}"})
         r.raise_for_status()
         ids = [m.get("id") for m in r.json().get("data", [])]
     except (requests.RequestException, ValueError) as exc:
         return _result(False, label, f"models list failed ({exc.__class__.__name__})")
-    if llm.OMLX_MODEL not in ids:
-        return _result(False, label, f"model {llm.OMLX_MODEL} not loaded")
-    return _result(True, label, f"model {llm.OMLX_MODEL} loaded")
+    if core_llm.OMLX_MODEL not in ids:
+        return _result(False, label, f"model {core_llm.OMLX_MODEL} not loaded")
+    return _result(True, label, f"model {core_llm.OMLX_MODEL} loaded")
 
 
 def probe_asr() -> dict:
@@ -183,8 +183,8 @@ def model_op(op: str) -> None:
     """POST /admin/api/models/<model>/<op> like scripts/voicebot: bearer key first, then a password
     login on a cookie session and a retry. Raises AdminError with the reason."""
     assert op in ("load", "unload"), op
-    url = f"{_llm_host()}/admin/api/models/{llm.OMLX_MODEL}/{op}"
-    headers = {"Authorization": f"Bearer {llm.OMLX_API_KEY}"}
+    url = f"{_llm_host()}/admin/api/models/{core_llm.OMLX_MODEL}/{op}"
+    headers = {"Authorization": f"Bearer {core_llm.OMLX_API_KEY}"}
     s = requests.Session()
     try:
         r = s.post(url, headers=headers, timeout=120)
