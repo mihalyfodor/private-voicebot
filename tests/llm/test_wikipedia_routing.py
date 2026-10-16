@@ -20,7 +20,7 @@ import llm
 from tools import TOOLS, run_tool
 from tools import wikipedia
 from tests.conftest import RawStreamClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
-from tests.sources.test_source_recall import fallout, both  # noqa: F401  (fixtures)
+from tests.conftest import fallout, both  # noqa: F401  (fixtures)
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 QUESTIONS = json.loads((ROOT / "tests" / "fixtures" / "routing_questions.json").read_text())
@@ -342,7 +342,7 @@ def _file_guides():
     """The two real guides from ~/llm-wiki-dev when present (read-only copy into the temp vault),
     else the generated FAQs."""
     from tests.conftest import FakeClient as SummaryClient
-    from tests.sources.test_source_recall import summary_json, file_faq, faq_text, FALLOUT_SECTIONS, SKYRIM_SECTIONS
+    from tests.conftest import summary_json, file_faq, faq_text, FALLOUT_SECTIONS, SKYRIM_SECTIONS
     import sources
 
     dev = os.path.expanduser("~/llm-wiki-dev/raw/inbox")
@@ -370,10 +370,11 @@ def test_live_calibration(seeded_vault, capsys):
     for q in QUESTIONS:
         llm.reset()
         expect, question = q["expect"], q["question"]
-        recalls = []
-        with patch.object(llm, "recall_for", lambda text, _r=llm.recall_for: recalls.append(_r(text)) or recalls[-1]):
+        recalls = []                                            # the recall blocks quoted (spoken: high band only)
+        with patch.object(llm, "_quote_block", lambda tag, *a, _q=llm._quote_block: recalls.append(_q(tag, *a))
+                          or recalls[-1]):
             reply = llm.ask(question)
-        recalled = "<recall>" in recalls[0]
+        recalled = any("<recall>" in r for r in recalls)
         observed = observed_route(reply, llm.get_last_tool_calls(), recalled)
         ok = observed in ACCEPTS[expect]
         rows.append((expect, observed, ok))

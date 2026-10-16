@@ -78,7 +78,7 @@ The server prints to stdout (`[Memory]`, `[WS]`, `[Turn error]` lines); started 
 ```
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, backdrop switching, character-card reload, `set_focus` + deterministic find/open/go-back page commands pushing `wiki_open` (PRD 38), `context` after every turn + the 90 % spoken nudge, the `new_topic` action / "new topic" / `/new` turn with its `thread` divider, reconnect replay from the stripped conversation (PRD 39), the "write it up" / `/write` write-up turn (one spoken line + `card`), "save that as a note" + the `save_card` action filing the last card under `notes/` (PRD 43)
-├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33); the focus state + `focus_block` (open page head + best-matching section/chunk in place of recall, PRD 38); the context meter (`context_usage`, `TOOLS_TOKENS`, `context_notice`), recall/focus blocks stripped from the stored user message once the turn completes, `new_thread` (fold memory → ≤ 150-token summary as `<earlier>` → fixed ack) (PRD 39); length by origin (a typed grounded content question runs `long` with the offer clause swapped out), `wants_writeup`, `write_up` (one card completion over the last answer's context + a Sources line, kept as a marked assistant turn) (PRD 43)
+├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33); the focus state + `focus_block` (open page head + best-matching section/chunk in place of recall, PRD 38); the context meter (`context_usage`, `TOOLS_TOKENS`, `context_notice`), recall/focus blocks stripped from the stored user message once the turn completes, `new_thread` (fold memory → ≤ 150-token summary as `<earlier>` → fixed ack) (PRD 39); length by origin (a typed grounded content question runs `long` with the offer clause swapped out), `wants_writeup`, `write_up` (one card completion over the last answer's context + a Sources line, kept as a marked assistant turn) (PRD 43); `recall_band` on spoken turns (high = grounded, medium = plain reply + server-appended "Want me to check your <title>?" whose "yes" answers the earlier question grounded, low = no recall; band in session.log) (PRD 45)
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker)
@@ -130,7 +130,8 @@ voicebot/
 ├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/
 ├── tests/                # one folder per module; shared fixtures live in conftest.py (see the DX note in process.md)
 │   ├── conftest.py              # sandboxes (wiki/settings/memory paths, chatbot session), fake clients (FakeClient, StreamClient,
-│   │                            # RawStreamClient), vault helpers (vault, seeded_vault, commits, read, write_page), turn helpers
+│   │                            # RawStreamClient), vault helpers (vault, seeded_vault, commits, read, write_page), the generated FAQ
+│   │                            # sources (`fallout`, `both`, faq_text, file_faq, summary_json), turn helpers
 │   │                            # (fake_tts, run_turn, typed, spoken), Panel, send_setting, and the node client fixture run once per session
 │   ├── app_fixture.mjs          # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON of results
 │   │                            # (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake
@@ -146,6 +147,7 @@ voicebot/
 │   │   ├── test_tools.py            # tool schemas/behaviour, needs live oMLX for some cases
 │   │   ├── test_llm_robustness.py   # LLM tool-trigger robustness (single phrases + variants), needs live oMLX
 │   │   ├── test_written_answers.py  # PRD 43: length by origin (typed grounded content → long, no offer; spoken → short + "dig deeper, or write it up?"), the write-up turn + card bookkeeping, the client card (fixture), save_card → notes/ with provenance in one commit, "save that as a note", new topic clears the card, reconnect replays it, protocol rows
+│   │   ├── test_ask_before_lookup.py # PRD 45: the recall band (live band table over a dev-vault copy + fixture rules), the medium offer, yes / no / never twice, typed unchanged, the band in session.log
 │   │   ├── test_recall_precision_2.py # PRD 42: title words never score a chunk, neighbour dedupe, the held-reply lookup fallback, page recall, short proper questions, proper bigrams, summarise-this focus, routing wording, trailing "please", single-dated raw names
 │   │   └── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
 │   ├── memory/
@@ -244,7 +246,7 @@ voicebot/
     ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (done)
     ├── 43-written-answers.md    # PRD: length by origin+groundedness, written cards (Copy / Save to wiki), explicit notes/ save (done)
     ├── 44-vault-health.md       # PRD: lint for dead source refs / uncited raw files / duplicate names; related pages at ingest (done)
-    └── 45-ask-before-lookup.md  # PRD: spoken turns with weak recall evidence ask before looking up; typed unchanged (implementation)
+    └── 45-ask-before-lookup.md  # PRD: spoken turns with weak recall evidence ask before looking up; typed unchanged (refactoring)
 ```
 
 ## Active PRDs

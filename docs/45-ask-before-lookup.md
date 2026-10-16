@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 45 — Ask before lookup (recall calibration)
 
@@ -66,9 +66,12 @@ evidence gets one short offer ("Want me to check your Morrowind guide?"), and a 
   battery then guards against regressions.
 - `CONTENT_WORDS` unchanged; a band-only `ASK_WORDS` (who/where/which/when at the start of the turn) instead: a
   one-name question is almost never chit-chat, so it answers directly, while PRD 43 typed length is untouched.
+- Medium turns are held, not streamed: the short reply is buffered so a model-written deeper/Wikipedia offer can be
+  stripped before TTS and the recall offer is the only offer spoken. Cost: first word a little later on medium turns only.
 - Server-appended offer over prompting the model to end with it: PRD 34 needed per-turn repetition for 6/6, and
   `ends_with_offer` detection is not needed when the server writes the sentence.
 - Risk: offers on chat that mentions a corpus name feel naggy; mitigation: one sentence, never twice in a row.
+- The low gate runs before the named-page rule; a named page in a non-question with no proper match stays low on spoken turns.
 - Risk: real spoken questions land in medium and need a "yes"; mitigation: the band table and the band in
   `session.log`; tune `RECALL_HIGH_SCORE`, not the rules.
 

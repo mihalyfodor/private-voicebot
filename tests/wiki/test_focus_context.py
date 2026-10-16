@@ -16,7 +16,7 @@ import llm
 import memory
 import wiki
 from tests.conftest import FakeClient, StreamClient, last_user, spoken, typed, write_page
-from tests.sources.test_source_recall import fallout  # noqa: F401  (fixture)
+from tests.conftest import fallout  # noqa: F401  (fixtures)
 from untrusted import DOCUMENT_RULE
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")

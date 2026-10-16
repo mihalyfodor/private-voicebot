@@ -136,13 +136,14 @@ class Sandbox:
         llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
         return self
 
-    def _quiet_log(self, user_text: str, tool_calls: list, reply: str, origin: str = "user") -> None:
-        line = "%s | %s: %r | tools: %s | reply_len: %d\n" % (
+    def _quiet_log(self, user_text: str, tool_calls: list, reply: str, origin: str = "user", band: str = "") -> None:
+        line = "%s | %s: %r | tools: %s | reply_len: %d%s\n" % (
             datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             origin,
             user_text,
             ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none",
             len(reply),
+            f" | recall: {band}" if band else "",
         )
         with open(self.log_path, "a") as f:
             f.write(line)

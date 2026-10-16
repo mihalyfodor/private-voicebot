@@ -931,6 +931,9 @@ SNIPPET_CHARS = 600
 MAX_SOURCE_READ = 3000
 #: `recall_min_score` default — BM25 per content word, calibrated in tests/test_source_recall.py
 RECALL_MIN_SCORE = 4.5
+#: a content question matched on plain words only answers grounded from this score (the recall band,
+#: docs/45-ask-before-lookup.md); below it a spoken turn asks first
+RECALL_HIGH_SCORE = 8.0
 #: query words that carry no topic; dropped before scoring so "the" cannot dilute a match
 STOPWORDS = frozenset("""a an the and or but if so of to in on at by for from with about into over
 after before as is are am was were be been being do does did have has had i me my mine we us our you

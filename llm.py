@@ -583,6 +583,16 @@ def ends_with_wikipedia_offer(reply: str) -> bool:
     return ends_with_offer(reply, (WIKIPEDIA_OFFER,))
 
 
+def strip_offer(reply: str) -> str:
+    """`reply` without a trailing DEEPER_OFFERS / WIKIPEDIA_OFFER sentence (the medium turn's own
+    offer replaces it, PRD 45)."""
+    for phrase in DEEPER_OFFERS + (WIKIPEDIA_OFFER,):
+        if ends_with_offer(reply, (phrase,)):
+            cut = reply.lower().rfind(phrase.lower())
+            return reply[:cut].rstrip() if cut >= 0 else reply
+    return reply
+
+
 def _note_tool_sources(name: str, args: dict, result: str) -> None:
     """Remember which source parts a tool call surfaced, for the deeper offer."""
     if name == "read_source":
@@ -766,16 +776,58 @@ def recall_for(user_text: str) -> str:
     COMMAND_WORDS one, "what time is it") never search; otherwise the best raw chunks above
     `recall_min_score` are quoted, at most RECALL_MAX_CHUNKS of them within RECALL_MAX_TOKENS.
     """
+    evidence = _recall_evidence(user_text)
+    return _quote_block("recall", *evidence, RECALL_MAX_TOKENS, RECALL_NOTE) if evidence else ""
+
+
+def _recall_evidence(user_text: str) -> tuple | None:
+    """``(page, hits)`` recall would quote for this turn, or None when the turn never searches."""
     terms = wiki.content_terms(user_text)
     if terms <= COMMAND_WORDS:
-        return ""
+        return None
     proper = wiki.proper_terms(terms)
     words = len(user_text.split())
     if words < RECALL_MIN_WORDS and not (words >= RECALL_MIN_PROPER_WORDS and proper):
-        return ""
+        return None
     page = _page_recall(user_text, terms)
-    hits = _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES)
-    return _quote_block("recall", page, hits, RECALL_MAX_TOKENS, RECALL_NOTE)
+    return page, _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES)
+
+
+# --- ask before lookup (docs/45-ask-before-lookup.md) -----------------------------------
+#: a name question ("Who is Vivec?") answers directly when its top hit has a proper match (band only)
+ASK_WORDS = re.compile(r"^\W*(?:who|where|which|when)\b", re.I)
+RECALL_HIGH_SCORE = wiki.RECALL_HIGH_SCORE
+#: the one sentence a medium spoken turn ends with, and the note that keeps the model from asking too
+RECALL_OFFER = "Want me to check your {title}?"
+RECALL_ASK_NOTE = "Answer briefly as you normally would, do not end with a question."
+RECALL_YES_NOTE = "The user said yes to checking. Answer their earlier question from it: «{question}»"
+
+
+def recall_band(user_text: str, page: dict | None, hits: list) -> str:
+    """"high" (answer grounded), "medium" (answer plainly, offer to check) or "low" (no recall)
+    from the evidence recall found: score per topic word plus the kind of match (PRD 45)."""
+    if not page and not hits:
+        return "low"
+    top = hits[0] if hits else None
+    proper = wiki.proper_terms(wiki.content_terms(user_text))
+    matched = wiki.proper_match(top, proper, wiki.proper_phrases(user_text)) if top else set()
+    content = content_question(user_text)
+    if not (content or matched):
+        return "low"                                            # the gate: chat on plain words
+    if page or top.get("named"):
+        return "high"
+    if content and (matched or top["score"] >= RECALL_HIGH_SCORE):
+        return "high"
+    if ASK_WORDS.search(user_text) and matched:
+        return "high"
+    if not content and (top.get("phrases") or len(matched) >= 2):
+        return "high"
+    return "medium"
+
+
+def offer_title(title: str) -> str:
+    """A source title up to the first ":" or " (" — what the recall offer names."""
+    return re.split(r":| \(", title, maxsplit=1)[0].strip() or title
 
 
 def _recall_hits(question: str, proper: set, floor: float, k: int, exclude: set = frozenset()) -> list:
@@ -867,9 +919,10 @@ def fallback_block(question: str, reply_start: str) -> str:
 def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator[tuple[str, object]]:
     """Yield ("tool_calls", [names]) before tools run, then ("delta", text) chunks.
 
-    `origin` only reaches the session log line; the conversation and memory see typed
-    and spoken input identically (PRD 24). `note` is a one-turn system remark (a page was
-    just opened for the user, PRD 38) appended to this turn's user message only.
+    The conversation and memory see typed and spoken input identically (PRD 24); `origin`
+    tags the session log line, sets the answer length (PRD 43) and, on a spoken turn, the
+    recall band (PRD 45). `note` is a one-turn system remark (a page was just opened for the
+    user, PRD 38) appended to this turn's user message only.
     """
     global _last_tool_calls, _deeper_offer, _turn_sources, _turn_pages, _last_context
 
@@ -879,17 +932,37 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     offer, _deeper_offer = _deeper_offer, None
     yes = bool(offer) and is_affirmative(user_text)
     lookup = offer.get("wikipedia") if yes else None            # the question to look up (PRD 37)
-    deeper = deeper_block(offer) if yes and not lookup else ""
+    asked = offer.get("recall") if yes else None                # the earlier question to check (PRD 45)
+    deeper = deeper_block(offer) if yes and not (lookup or asked) else ""
     _turn_sources = [(offer["source"], offer["title"], p) for p in offer["parts"]] if deeper else []
     _turn_pages = []
     # The recall / source block rides on this turn's user message only; the session turns (what
     # memory and the wiki ingest see) keep the user's own words.
     # A page open in the UI takes the place of recall (PRD 38); Chat and Memory recall as before.
-    focused = "" if deeper or lookup else focus_block(user_text)
-    extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focused or recall_for(user_text))
+    focused = "" if deeper or lookup or asked else focus_block(user_text)
+    band, offer_text, offer_from = "", "", ""
+    if deeper or lookup or focused:
+        extra = deeper or ("\n\n" + WIKIPEDIA_NOTE if lookup else focused)
+    elif asked:                                                 # "yes" to the recall offer: forced high
+        band, extra = "high", recall_for(asked) + "\n\n" + RECALL_YES_NOTE.format(question=asked)
+    elif origin == "typed":
+        extra = recall_for(user_text)
+    else:
+        # A spoken turn asks before it looks up (PRD 45): weak evidence gets one short offer,
+        # never twice in a row.
+        page, hits = _recall_evidence(user_text) or (None, [])
+        band = recall_band(user_text, page, hits)
+        extra = _quote_block("recall", page, hits, RECALL_MAX_TOKENS, RECALL_NOTE) if band == "high" else ""
+        if band != "high":
+            _turn_pages = []
+        if band == "medium" and not (offer or {}).get("recall"):
+            extra = "\n\n" + RECALL_ASK_NOTE
+            offer_from = offer_title(hits[0]["title"])
+            offer_text = RECALL_OFFER.format(title=offer_from)
     # A plain Chat turn may be re-asked once with a server-side lookup when the reply starts by
     # claiming the documents do not cover the question (PRD 42): its first characters are held.
-    holding = not (deeper or lookup or focused) and lookup_worthy(user_text)
+    # A medium turn never is: its offer replaces the fallback.
+    holding = not (deeper or lookup or focused or asked or band == "medium") and lookup_worthy(user_text)
     if focus["view"] == "memory" and not (deeper or lookup):
         extra += "\n\n" + MEMORY_FOCUS_NOTE
     if note:
@@ -911,8 +984,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     tool_texts: list = []
 
     try:
-        if deeper:
-            yield ("tool_calls", ["dig_deeper"])               # a filler while the long answer starts
+        if deeper or asked:
+            yield ("tool_calls", ["dig_deeper"])               # a filler while the grounded answer starts
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
         # for the model to name the topic, and get_wikipedia runs either way.
@@ -931,6 +1004,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             text = getattr(delta, "content", None)
             if text and lookup:
                 parts.append(text)                              # held back: get_wikipedia runs anyway
+            elif text and offer_text:
+                parts.append(text)                              # a medium reply: held whole (short)
             elif text and holding:
                 parts.append(text)
                 held.append(text)
@@ -979,7 +1054,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
                     yield ("delta", delta)
         elif pending:
             tool_calls = [pending[i] for i in sorted(pending)]
-            if parts and not lookup and not held:
+            if parts and not lookup and not held and not offer_text:
                 print("[llm] warning: text before tool call was spoken")
             parts = []  # spoken or held back; never the reply
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
@@ -994,6 +1069,13 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
                 if delta:
                     parts.append(delta)
                     yield ("delta", delta)
+        if offer_text and not pending:
+            # the held medium reply goes out without any offer the model ended it with, then the
+            # recall offer: the turn's only one
+            text = strip_offer("".join(parts))
+            parts = [text, " " + offer_text]
+            yield ("delta", text)
+            yield ("delta", " " + offer_text)
         reply = "".join(parts)
     except Exception:
         del _conversation[conv_len:]
@@ -1007,9 +1089,11 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content": reply})
     _deeper_offer = _offer_from_turn(reply, user_text)
-    _last_context = {"question": user_text, "extra": block, "tools": tool_texts, "reply": reply,
+    if offer_text and not pending:
+        _deeper_offer = {"recall": user_text, "title": offer_from}
+    _last_context = {"question": asked or user_text, "extra": block, "tools": tool_texts, "reply": reply,
                      "sources": list(_turn_sources), "pages": list(_turn_pages)}
-    _log(user_text, _last_tool_calls, reply, origin)
+    _log(user_text, _last_tool_calls, reply, origin, band if origin != "typed" else "")
 
 
 def ask_stream(user_text: str) -> Iterator[str]:
@@ -1127,11 +1211,13 @@ def get_sources_seen() -> list:
     return _sources_seen
 
 
-def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user"):
-    """One session.log line per turn; `origin` is the prefix ("user" spoken, "typed" composer)."""
+def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user", band: str = ""):
+    """One session.log line per turn; `origin` is the prefix ("user" spoken, "typed" composer),
+    `band` the spoken turn's recall band (PRD 45)."""
     tools_str = ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"{timestamp} | {origin}: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}\n"
+    line = f"{timestamp} | {origin}: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}"
+    line += f" | recall: {band}\n" if band else "\n"
     os.makedirs(os.path.dirname(LOG_PATH) or ".", exist_ok=True)
     with open(LOG_PATH, "a") as f:
         f.write(line)

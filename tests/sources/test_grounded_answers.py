@@ -16,7 +16,7 @@ import llm
 import memory
 import wiki
 from tests.conftest import RawStreamClient, StreamClient, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
-from tests.sources.test_source_recall import fallout, both  # noqa: F401  (fixtures)
+from tests.conftest import fallout, both  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")   # no mocked turn may leak into another test's session replay
 QUESTION = "I'm at Covenant and Honest Dan keeps attacking me, what now"
@@ -256,7 +256,7 @@ def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys):
     ≥ 5 cite a guide, ≥ 4 end with the offer, and ≥ 4 "yes" answers are ≥ 2× as long and mention
     a name from a neighbouring chunk (sampling varies); a weather question calls get_weather. Prints every pair."""
     from tests.conftest import FakeClient
-    from tests.sources.test_source_recall import summary_json
+    from tests.conftest import summary_json
     import sources
 
     dev = os.path.expanduser("~/llm-wiki-dev/raw/inbox")

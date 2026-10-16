@@ -1,5 +1,7 @@
 import sys, os
 import copy
+import functools
+import random
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import json
@@ -14,6 +16,7 @@ import avatars
 import chatbot
 import llm
 import memory
+import sources
 import wiki
 from tools import gmail as gmail_tool
 
@@ -338,6 +341,100 @@ def write_page(rel: str, name: str, body: str, source: str = "seed", extra: str 
     full = os.path.join(wiki.WIKI_PATH, rel + ".md")
     os.makedirs(os.path.dirname(full), exist_ok=True)
     open(full, "w").write(text)
+
+
+# --------------------------------------------------------------------------- FAQ source fixtures
+# Generated FAQ-shaped guides (PRD 32) shared by the recall / grounding / routing tests.
+
+FILLER = """the you your and then head north south east west door room stairs take find kill loot
+return talk speak quest reward xp item note area path road bridge lake river hill house town
+inside outside before after again later there here cook meal weather rain time clock meeting
+plan email letter trip summer friday deploy decide joke tell remind said want next""".split()
+
+FALLOUT_SECTIONS = (
+    ("Covenant", ("Honest Dan", "Jacob Orden", "Compound", "SAFE test", "Stockton", "Turrets")),
+    ("Diamond City", ("Piper", "Nick Valentine", "Dugout Inn", "Takahashi")),
+    ("Sanctuary Hills", ("Codsworth", "Preston Garvey", "Red Rocket", "Concord")),
+    ("Goodneighbor", ("Hancock", "Memory Den", "Irma", "Third Rail")),
+    ("Fort Hagen", ("Kellogg", "Dogmeat", "Command Center", "Synth")),
+    ("Vault 81", ("Overseer Gwen", "Austin", "Curie", "Mole Rat")),
+    ("Bunker Hill", ("Kessler", "Deb", "Caravan", "Monument")),
+    ("Salem", ("Barney Rook", "Museum of Witchcraft", "Deathclaw", "Rook Family")),
+    ("Glowing Sea", ("Virgil", "Crater of Atom", "Rocky Cave", "Hazmat Suit")),
+    ("The Castle", ("Ronnie Shaw", "Mirelurk Queen", "Minutemen", "Artillery")),
+    ("Lockpicking", ("Bobby Pin", "Sweet Spot", "Master Lock", "Locksmith")),
+    ("Hacking", ("Terminal", "Robco", "Likeness", "Science Perk")),
+    ("Power Armor", ("Fusion Core", "T-45", "Frame", "Repair Bay")),
+    ("Trinity Tower", ("Strong", "Rex Goodman", "Fist", "Elevator")),
+    ("Hubris Comics", ("Silver Shroud", "Costume", "Kent Connolly", "Feral Ghoul")),
+)
+
+SKYRIM_SECTIONS = (
+    ("Whiterun", ("Jarl Balgruuf", "Dragonsreach", "Companions", "Jorrvaskr")),
+    ("Riverwood", ("Alvor", "Gerdur", "Sleeping Giant", "Golden Claw")),
+    ("Bleak Falls Barrow", ("Draugr", "Arvel", "Word Wall", "Dragon Claw")),
+    ("High Hrothgar", ("Greybeards", "Arngeir", "Unrelenting Force", "Seven Thousand Steps")),
+    ("Winterhold", ("College of Winterhold", "Tolfdir", "Saarthal", "Arch Mage")),
+    ("Riften", ("Thieves Guild", "Brynjolf", "Ragged Flagon", "Maven Black-Briar")),
+    ("Solitude", ("Blue Palace", "Elisif", "Bards College", "Castle Dour")),
+    ("Markarth", ("Cidhna Mine", "Forsworn", "Silver Blood", "Understone Keep")),
+    ("Windhelm", ("Ulfric Stormcloak", "Palace of the Kings", "Grey Quarter", "Butcher")),
+    ("Sovngarde", ("Alduin", "Tsun", "Hall of Valor", "Shor")),
+    ("Lockpicking", ("Lockpick", "Sweet Spot", "Tumbler", "Skeleton Key")),
+    ("Smithing", ("Forge", "Iron Ingot", "Leather Strips", "Warmaidens")),
+    ("Dragon Shouts", ("Word of Power", "Dragon Soul", "Thu'um", "Whirlwind Sprint")),
+    ("Dawnstar", ("Nightcaller Temple", "Erandur", "Vaermina", "Skull of Corruption")),
+    ("Falkreath", ("Dark Brotherhood", "Astrid", "Sanctuary", "Black Door")),
+)
+
+
+@functools.lru_cache(maxsize=None)
+def faq_text(game: str, sections: tuple, seed: int, paragraphs: int = 60) -> str:
+    """A deterministic FAQ (built once per session — it is ~150 k tokens): a contents list, then one `==== Title ====` section per entry whose
+    paragraphs repeat the section's Title-case names between lowercase filler."""
+    rng = random.Random(seed)
+    out = [f"{game} FAQ and Walkthrough", "", "Contents"]
+    out += [f"  {i + 1:02d}. {title}" for i, (title, _) in enumerate(sections)]
+    out.append("")
+    for title, names in sections:
+        out += ["", f"==== {title} ====", ""]
+        for _ in range(paragraphs):
+            words = []
+            for _ in range(rng.randint(90, 130)):
+                roll = rng.random()
+                if roll < 0.06:
+                    words.append(title)
+                elif roll < 0.14:
+                    words.append(rng.choice(names))
+                else:
+                    words.append(rng.choice(FILLER))
+            out.append(" ".join(words) + ".")
+            out.append("")
+    return "\n".join(out)
+
+
+def summary_json(title: str) -> str:
+    return json.dumps({"title": title, "summary": f"{title}: a walkthrough.",
+                       "entities": [], "topic": "gaming", "unreadable": False})
+
+
+def file_faq(text: str, title: str, name: str = "guide.md") -> dict:
+    client = FakeClient(summary_json(title), "[]")
+    return sources.ingest_upload(text.encode(), name, client=client, model="m")
+
+
+@pytest.fixture
+def fallout(seeded_vault):
+    """The Fallout-shaped FAQ filed as `Fallout 4 guide`; returns the ingest result."""
+    return file_faq(faq_text("Fallout 4", FALLOUT_SECTIONS, seed=4), "Fallout 4 guide")
+
+
+@pytest.fixture
+def both(fallout):
+    """Fallout + the Skyrim-shaped FAQ (`Skyrim guide`) in the same vault."""
+    skyrim = file_faq(faq_text("Skyrim", SKYRIM_SECTIONS, seed=5), "Skyrim guide", "guide2.md")
+    return {"fallout": fallout, "skyrim": skyrim}
+
 
 
 # --------------------------------------------------------------------------- turn helpers

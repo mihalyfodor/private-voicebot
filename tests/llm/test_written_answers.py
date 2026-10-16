@@ -22,7 +22,7 @@ import memory
 import wiki
 from tests.conftest import (RawStreamClient, StreamClient, commits, fake_asr, fake_tts, last_user, read,  # noqa: F401
                             run_turn, stream_chunks, vault)
-from tests.sources.test_source_recall import fallout  # noqa: F401  (fixture)
+from tests.conftest import fallout  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 

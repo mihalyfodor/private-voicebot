@@ -21,7 +21,7 @@ import sources
 import wiki
 from tests.conftest import (FakeClient, RawStreamClient, StreamClient, last_user, seeded_vault,  # noqa: F401
                             stream_chunks, tool_call_chunk, write_page)
-from tests.sources.test_source_recall import both, fallout, summary_json  # noqa: F401  (fixtures)
+from tests.conftest import both, fallout, summary_json  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 

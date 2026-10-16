@@ -119,7 +119,7 @@ def test_recall_blocks_leave_the_history_once_the_turn_is_done(seeded_vault, mon
     questions = [f"what does the guide say about chapter {i} of the story" for i in range(10)]
     with patch.object(llm, "_client", fake):
         for q in questions:
-            llm.ask(q)
+            list(llm.ask_events(q, origin="typed"))                             # typed: no recall band
     assert all(q + block in [m for m in call["messages"] if m["role"] == "user"][-1]["content"]
                for q, call in zip(questions, fake.calls))                       # the model saw it
     users = [m["content"] for m in llm._conversation if m["role"] == "user"]
@@ -241,7 +241,6 @@ def test_new_thread_on_an_empty_conversation_makes_no_summary_call(seeded_vault,
 
 
 def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(seeded_vault, recorded_memory, monkeypatch):
-    monkeypatch.setattr(llm, "recall_for", lambda text: "\n\n<recall>\nbig block\n</recall>")
     three_turns()
     llm.save_memory()                                             # the periodic fold empties the session turns
     assert llm.get_session_turns() == []

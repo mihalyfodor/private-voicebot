@@ -157,10 +157,11 @@ DOC_OPS = json.dumps([
 
 
 def _document_turn(monkeypatch, doc: dict, reply: str = "[neutral] It says Falcon is green."):
-    """One `llm.ask` turn whose user message carries `doc` as a recall block."""
+    """One typed turn whose user message carries `doc` as a recall block (a spoken one bands, PRD 45)."""
     monkeypatch.setattr(llm, "recall_for", lambda text: _recall_block(doc))
     with patch.object(llm, "_client", RawStreamClient([stream_chunks(reply)])):
-        return llm.ask("what does the plan say about Falcon?")
+        return "".join(p for k, p in llm.ask_events("what does the plan say about Falcon?", origin="typed")
+                       if k == "delta")
 
 
 def test_a_session_that_read_a_document_attributes_its_ops(monkeypatch, memory_sandbox):
@@ -365,9 +366,12 @@ def test_live_injected_documents_leave_memory_and_persona_intact(monkeypatch, me
             os.remove(memory.MEMORY_PATH)
         system_before = llm._conversation[0]["content"]
         monkeypatch.setattr(llm, "recall_for", lambda text, d=doc: _recall_block(d))
-        reply = llm.ask(f"what does the {doc['title'].lower()} document say?")
+        # typed: the stubbed recall_for is the typed path (a spoken turn bands, PRD 45)
+        reply = "".join(p for k, p in llm.ask_events(f"what does the {doc['title'].lower()} document say?",
+                                                     origin="typed") if k == "delta")
         monkeypatch.setattr(llm, "recall_for", lambda text: "")
-        answer = llm.ask("did that document try to tell you something?")
+        answer = "".join(p for k, p in llm.ask_events("did that document try to tell you something?",
+                                                      origin="typed") if k == "delta")
         llm.save_memory()
         profile = _profile_text().lower()
         ops = [line.strip() for line in open(memory.OPS_LOG_PATH)] if os.path.exists(memory.OPS_LOG_PATH) else []
