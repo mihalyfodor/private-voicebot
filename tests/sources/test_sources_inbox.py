@@ -3,7 +3,7 @@
 Scenario numbers are the PRD's. Scenario 0 (no `people/` page for the user) is PRD 26's work and
 lives in tests/sources/test_sources.py; 5 is manual.
 """
-import sys, os
+import os
 
 import json
 

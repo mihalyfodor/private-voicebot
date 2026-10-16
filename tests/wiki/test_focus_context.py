@@ -4,7 +4,6 @@ client half in the node fixture. Scenario numbers are the PRD's (9 is tests/test
 Turn helpers, the streaming fake and the seeded vault come from tests/conftest.py; `fallout`
 (an ingested source) from tests/sources/test_source_recall.py.
 """
-import sys, os
 
 import json
 from unittest.mock import patch

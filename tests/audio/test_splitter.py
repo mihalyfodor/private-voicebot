@@ -1,4 +1,3 @@
-import sys, os
 
 from splitter import EMOTIONS, SentenceSplitter, split_stream, strip_tag
 

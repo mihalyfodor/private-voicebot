@@ -1,7 +1,7 @@
 """PRD 33 — untrusted text: document tags, the standing rule, memory-op provenance, the read-only
 tool policy and the injection eval. Scenario numbers are the PRD's; scenario 5 is `live`.
 """
-import sys, os
+import os
 
 import importlib
 import json

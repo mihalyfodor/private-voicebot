@@ -26,7 +26,8 @@ scripts/voicebot status         # the one-line-per-service table; `--dev` target
 
 ```bash
 source .venv/bin/activate
-# everything: node --check static/app.js, node DOM fixture, unit suite (no oMLX needed)
+# everything: node --check static/app.js, node DOM fixture, `ruff check .`, unit suite (no oMLX needed)
+# fresh clone: also run `git config core.hooksPath scripts/hooks` once (commit-msg hook)
 scripts/check.sh
 # or just the unit suite — pytest.ini excludes the `live`, `e2e` and `docker` markers by default
 python3 -m pytest tests/
@@ -92,8 +93,11 @@ voicebot/
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags, page sections + best section/chunk for a question (PRD 38), `save_card` — a written answer filed as a note with `source: written answer` + `sources:` in one commit (PRD 43)
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33)
+├── ruff.toml          # lint config (E4/E7/E9/F, compact-style ignores); no formatter
+├── .claude/agents/reviewer.md  # read-only one-pass branch review before the Implementation gate (BLOCKER / MAJOR / backlog)
 ├── scripts/
-│   ├── check.sh         # node --check app.js, node fixture, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
+│   ├── check.sh         # node --check app.js, node fixture, `ruff check .`, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
+│   ├── hooks/commit-msg # rejects AI-attribution trailers in commit messages; enabled via `git config core.hooksPath scripts/hooks`
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
 │   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)

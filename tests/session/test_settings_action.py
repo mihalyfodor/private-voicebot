@@ -4,7 +4,7 @@
 PRD 22b emptied the whitelist (the contextual panel and its `panel_pinned` flag are gone);
 the action and this test file stay so the next persisted preference is a one-line change.
 """
-import sys, os
+import os
 import json
 
 import pytest

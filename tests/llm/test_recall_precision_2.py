@@ -7,7 +7,6 @@ Scenario numbers are the PRD's (11 is the existing suites, 12 the live battery).
 Fixtures: `fallout` / `both` (generated FAQs) from tests/sources/test_source_recall.py, the
 streamed fakes and the seeded vault from tests/conftest.py.
 """
-import sys, os
 
 import re
 from unittest.mock import patch

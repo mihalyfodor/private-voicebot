@@ -11,6 +11,8 @@ echo "== node --check static/app.js"
 node --check static/app.js
 echo "== node tests/app_fixture.mjs"
 node tests/app_fixture.mjs > /dev/null
+echo "== ruff check ."
+"$PY" -m ruff check .
 if [ $# -eq 0 ]; then
   echo "== pytest tests/"
   "$PY" -m pytest tests/ -q

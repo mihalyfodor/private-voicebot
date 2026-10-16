@@ -3,7 +3,6 @@
 
 Turn helpers, the streaming fake and the seeded seeded_vault come from tests/conftest.py.
 """
-import sys, os
 
 import json
 from unittest.mock import patch

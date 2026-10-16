@@ -1,0 +1,9 @@
+# Lint only; no formatter. The code uses a compact style on purpose: one-line multi-imports,
+# imports inside functions, late imports after module-level setup.
+[lint]
+select = ["E4", "E7", "E9", "F"]
+ignore = ["E401", "E402", "E702", "E741"]
+
+[lint.per-file-ignores]
+# tests import fixtures from other test modules and take them as arguments (pytest idiom): F811 false positives
+"tests/**" = ["F811"]

@@ -1,6 +1,4 @@
 """Tests for verbosity resolution, prompt rule text, and the WS set_verbosity action (scenario 4)."""
-import sys, os
-import json
 
 import pytest
 

@@ -3,7 +3,7 @@
 Covers docs/12-turn-controller.md scenarios 1-8, 10 and 12 (2 and 11 live in
 test_hands_free.py, 9 in test_avatars.py).
 """
-import sys, os, io
+import io
 import asyncio
 import threading
 from types import SimpleNamespace

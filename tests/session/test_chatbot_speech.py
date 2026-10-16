@@ -1,4 +1,4 @@
-import sys, os, io, base64
+import io, base64
 
 import pytest
 import soundfile as sf

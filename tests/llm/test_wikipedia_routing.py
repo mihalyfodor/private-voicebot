@@ -3,7 +3,7 @@
 The FAQ fixtures come from tests/sources/test_source_recall.py, the vault and the fakes from conftest; the 28-question
 calibration set lives in tests/fixtures/routing_questions.json.
 """
-import sys, os
+import os
 
 import json
 import pathlib
@@ -17,7 +17,6 @@ import requests
 
 import avatars
 import llm
-import wiki
 from tools import TOOLS, run_tool
 from tools import wikipedia
 from tests.conftest import RawStreamClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture

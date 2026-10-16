@@ -79,7 +79,7 @@ Before writing any code, AI must:
 **When manual testing finds issues:**
 
 Escalate based on symptoms:
-- **Small fix** — discuss in chat, correct, re-run tests
+- **Small fix** — discuss in chat; write a regression test and see it fail first; fix; re-run tests; commit as `Fix: <what>`
 - **Bigger problem** — soft reset, write a focused follow-up PRD. Triggers:
   - Same fix needed twice (regression loop)
   - Can't explain the failure in 1-2 sentences
@@ -90,8 +90,12 @@ Escalate based on symptoms:
   - Repeated regressions after follow-up PRD
   - Requirements still unclear after revision
 
+**Review (one pass, before the gate):**
+Spawn the reviewer agent (`.claude/agents/reviewer.md`) on the branch diff. It never edits; it reports BLOCKER / MAJOR / backlog findings and states what it checked and ruled out. Fix every BLOCKER and MAJOR before the gate; backlog items go into the PRD's Out of scope or a follow-up PRD.
+
 **Gate checklist:**
-- [ ] All automated tests passing locally (`scripts/check.sh`)
+- [ ] `scripts/check.sh` green in this session — quote its passed/skipped/failed counts in the handoff; never report green from memory
+- [ ] Reviewer pass done; no open BLOCKER or MAJOR
 - [ ] User has executed every PRD test scenario once end-to-end
 - [ ] PRD status updated to `refactoring`
 - [ ] `docs/index.md` updated
@@ -108,9 +112,10 @@ Escalate based on symptoms:
 - Run tests after every change — never break green
 - No new features in this phase
 - Must not change externally observable behavior; if it does, it's a PRD change. Observable = user-visible UI/behavior, URL/route behavior, persisted data shape, public component props.
+- Files over ~1000 lines are split candidates (today: memory.py, wiki.py, sources.py, chatbot.py). Judgement call, not a gate.
 
 **Gate checklist:**
-- [ ] All tests passing (`scripts/check.sh`)
+- [ ] `scripts/check.sh` green in this session — quote its passed/skipped/failed counts in the handoff; never report green from memory
 - [ ] No change in externally observable behavior (UI, routes, persisted data, public props)
 - [ ] PRD status updated to `done`
 - [ ] `docs/index.md` updated
@@ -126,6 +131,8 @@ Escalate based on symptoms:
 - Each quality gate = one AI commit on the feature branch (`PRD:` / `Impl:` / `Refactor:` messages, no trailers)
 - User reviews each gate commit and merges to `main` after Phase 3
 - AI never pushes and never merges to `main`
+- Bug fixes outside a PRD phase: `Fix: <what>` commits, each with a regression test that failed before the fix
+- A commit-msg hook (`scripts/hooks/commit-msg`, enabled via `git config core.hooksPath scripts/hooks`) rejects AI-attribution trailers
 
 ## Repo Index
 
@@ -143,7 +150,7 @@ Escalate based on symptoms:
 
 Apply to all projects unless a PRD explicitly overrides.
 
-- **Formatter + linter:** ruff / black (Python)
+- **Linter:** ruff (`ruff.toml`), run by `scripts/check.sh`. No formatter.
 - **Secrets:** Never paste secrets/keys/tokens into prompts or code. Use `.env` + `.gitignore`. Sanitize logs before sharing.
 - **Error handling:** Fail fast with clear messages. No silent swallows.
 - **Test split:** Pure logic → unit tests. API/service boundaries → integration tests. User-critical flows → E2E. Aim for more unit/integration than E2E.

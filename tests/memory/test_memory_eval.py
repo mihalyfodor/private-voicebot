@@ -1,5 +1,5 @@
 """Unit tests for eval/harness.py — no network, no oMLX."""
-import sys, os
+import os
 
 from types import SimpleNamespace
 from unittest.mock import patch

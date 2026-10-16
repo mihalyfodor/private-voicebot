@@ -4,7 +4,6 @@ client routes on that field instead of on the view that happens to be open.
 The server half drives one action per scope through the Panel fixture (which itself asserts a
 scope on every `error` it sees); the client half asserts on tests/app_fixture.mjs.
 """
-import sys, os
 import chatbot
 from tests.conftest import Blocker
 

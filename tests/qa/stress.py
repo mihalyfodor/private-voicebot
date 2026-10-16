@@ -15,7 +15,6 @@ import json
 import os
 import pathlib
 import re
-import shutil
 import socket
 import subprocess
 import sys
@@ -278,7 +277,6 @@ def source_pages(vault: pathlib.Path) -> dict:
 
 def battery(d: Driver, vault: pathlib.Path, only: set):
     pages = source_pages(vault)
-    fallout = next((p for n, p in pages.items() if "note" in n and "note-2" not in n), None)
     morrowind = next((p for n, p in pages.items() if "morrowind" in n), None)
 
     if "A" in only:

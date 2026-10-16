@@ -1,7 +1,5 @@
 import re
 import pytest
-import sys
-import os
 
 from tools import run_tool
 

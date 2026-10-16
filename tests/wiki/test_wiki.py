@@ -3,7 +3,7 @@
 Scenario numbers below are the PRD's test scenarios (1-9); scenario 10 is the live harness
 script eval/scripts/wiki.yaml and 11 is manual.
 """
-import sys, os
+import os
 
 import json
 

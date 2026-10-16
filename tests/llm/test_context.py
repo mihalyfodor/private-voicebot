@@ -1,8 +1,6 @@
 """Tests for context budget, history trimming, and max_tokens (scenarios 1, 2, 3, 6)."""
-import sys, os
 from unittest.mock import patch
 
-import pytest
 
 from types import SimpleNamespace
 

@@ -1,6 +1,6 @@
 """Server-side avatar state and backdrops. Since PRD 23 Wanko is the only avatar, so these
 cover persistence and the fallback; the `set_avatar` action itself is gone."""
-import sys, os
+import os
 import json
 import pytest
 from fastapi.testclient import TestClient

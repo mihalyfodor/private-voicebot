@@ -3,7 +3,7 @@
 The browser half (scenarios 2-4) runs static/app.js in node against a tiny DOM shim —
 see tests/app_fixture.mjs; this file only asserts on the JSON it prints.
 """
-import sys, os
+import os
 from unittest.mock import patch
 
 import numpy as np

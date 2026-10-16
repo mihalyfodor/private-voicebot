@@ -3,7 +3,7 @@
 PRD scenarios 1-7, plus unit versions of the two live harness scenarios (8 and 9) and the
 harness plumbing they need (`edit:` / `clock:` turns).
 """
-import sys, os
+import os
 
 import json
 from datetime import date, timedelta

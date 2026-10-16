@@ -1,4 +1,3 @@
-import sys, os
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient

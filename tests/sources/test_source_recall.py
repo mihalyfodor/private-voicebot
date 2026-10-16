@@ -5,7 +5,7 @@ The fixture is a generated FAQ-shaped text (~150 k tokens, Title-case sections i
 filed with a mocked model; a second generated FAQ covers the cross-source checks. Scenario 8
 (`live`) files the two real guides from ~/llm-wiki-dev into the temp vault and talks to oMLX.
 """
-import sys, os
+import os
 
 import functools
 import json

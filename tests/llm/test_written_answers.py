@@ -5,7 +5,7 @@ Scenario numbers are the PRD's (7 is the live battery in tests/qa/stress.py).
 Fixtures: `fallout` (the generated FAQ) from tests/sources/test_source_recall.py, the streamed
 fakes, the vault and the turn helpers from tests/conftest.py.
 """
-import sys, os
+import os
 
 import re
 from types import SimpleNamespace

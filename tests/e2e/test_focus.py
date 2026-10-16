@@ -61,7 +61,7 @@ def test_summarise_this_names_the_open_guide_and_go_back_reopens_it(page, shot, 
     page.click('.rail-item[data-view="sources"]')
     page.wait_for_selector("#wiki-list .source-row")
     page.evaluate(f"selectWikiPage({PAGE!r})")
-    page.wait_for_function(f"document.getElementById('composer-input').placeholder === 'ask about Morrowind guide…'")
+    page.wait_for_function("document.getElementById('composer-input').placeholder === 'ask about Morrowind guide…'")
     shot("guide-open")
 
     summary = ask(page, "summarise this", shot, "summary")

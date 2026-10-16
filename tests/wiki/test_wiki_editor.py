@@ -3,7 +3,7 @@
 The browser half (7, 8 and the editor flow) runs static/app.js in node against the DOM shim in
 tests/app_fixture.mjs; this file asserts on the JSON it prints.
 """
-import sys, os
+import os
 
 import threading
 import time

@@ -3,7 +3,7 @@
 Scenarios 1-8 of the PRD plus the two unit items from its "Stress" section (random-op fuzz and
 the concurrent hammer). Everything here goes through the same `apply_ops` path an LLM op takes.
 """
-import sys, os
+import os
 
 import json
 import random

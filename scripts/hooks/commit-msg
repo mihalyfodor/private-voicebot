@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Reject AI-attribution in commit messages. Enable: git config core.hooksPath scripts/hooks
+set -euo pipefail
+while IFS= read -r line; do
+  case "$line" in "#"*) continue;; esac
+  low=$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]')
+  rest=${low//claude.md/}; rest=${rest//.claude\//}
+  if [[ "$low" == *co-authored-by:* || "$low" == *claude-session* || "$low" == *"generated with"* \
+        || "$low" == *anthropic* || "$rest" == *claude* ]]; then
+    echo "commit-msg: AI attribution not allowed: $line" >&2
+    exit 1
+  fi
+done < "$1"

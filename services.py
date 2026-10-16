@@ -102,7 +102,8 @@ def llm_ok() -> bool:
 
 def _same(a: dict, b: dict) -> bool:
     """Equal apart from the probe time: what "no change" means for the push."""
-    strip = lambda s: {k: {kk: vv for kk, vv in v.items() if kk != "checked"} for k, v in s.items()}
+    def strip(s):
+        return {k: {kk: vv for kk, vv in v.items() if kk != "checked"} for k, v in s.items()}
     return strip(a) == strip(b)
 
 

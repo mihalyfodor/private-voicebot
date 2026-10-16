@@ -3,7 +3,7 @@
 Scenario numbers are the PRD's test scenarios (0-8); 7b is the live harness script
 eval/scripts/sources.yaml and 9 is manual.
 """
-import sys, os
+import os
 
 import json
 import struct

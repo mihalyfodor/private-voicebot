@@ -4,7 +4,7 @@ Scenario numbers are the PRD's; fixtures are generated here with the same librar
 extractors use (no binaries checked in). 8 is the e2e/fixture render (tests/e2e/test_sources.py
 and the fixture assertions at the bottom), 11 is manual.
 """
-import sys, os
+import os
 
 import datetime as dt
 import io

@@ -3,7 +3,7 @@
 
 The FAQ fixtures come from tests/sources/test_source_recall.py, the vault and the streaming fake from conftest.
 """
-import sys, os
+import os
 
 import re
 from unittest.mock import patch

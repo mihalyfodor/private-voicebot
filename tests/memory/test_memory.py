@@ -1,5 +1,5 @@
 """Unit tests for memory v2 — mocked LLM, no network. Mirrors docs/15-memory-v2.md."""
-import sys, os
+import os
 
 import json
 from datetime import date

@@ -1,5 +1,5 @@
 """PRD 40 scenario 5: prod.sh migrate gathers state into DATA once; compose file validates."""
-import sys, os
+import os
 import shutil
 import subprocess
 
