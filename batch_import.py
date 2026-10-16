@@ -51,6 +51,12 @@ def _refusal(folder: str, exts: set) -> str:
         if dirty:
             return ("the vault has uncommitted changes (a half-filed crash leftover?) — clean them "
                     "first:\n" + "\n".join("  " + line for line in dirty))
+    return running_app()
+
+
+def running_app() -> str:
+    """"app is running — …" when the app answers on prod (8010), dev (8011) or `PORT`; "" otherwise.
+    Also the guard of `python -m wiki reindex` (PRD 53)."""
     import urllib.error
     import urllib.request
 
@@ -174,6 +180,8 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
         out(refuse)
         return {**counts, "exit": 2, "seconds": 0}
 
+    if not dry_run:
+        wiki.startup_check()               # PRD 53: the index matches the vault before anything is filed
     files = _walk(folder)
     log = os.path.join(folder, BATCH_LOG)
     last = _last_states(log) if resume else {}

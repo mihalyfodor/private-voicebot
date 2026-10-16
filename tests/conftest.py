@@ -3,7 +3,12 @@ import contextlib
 import copy
 import functools
 import random
+import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Importing the app builds the system prompt, which reads the vault's index — before any fixture can
+# sandbox WIKI_PATH. Point it at a path that does not exist, so the import never opens the real vault
+# (reading it now opens its search index, docs/53-scalable-index.md). Set before `.env` is loaded.
+os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-tests-{os.getpid()}", "no-vault")
 
 import json
 import time
@@ -16,6 +21,7 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
+import index_db
 import llm
 import memory
 import sources
@@ -36,9 +42,8 @@ def wiki_sandbox(monkeypatch, tmp_path):
     """
     vault = tmp_path / "wiki"
     monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
-    monkeypatch.setattr(wiki, "_index_cache", {"sig": None, "docs": []})
-    monkeypatch.setattr(wiki, "_chunk_cache", {"sig": None, "docs": [], "proper": {}})
-    return vault
+    yield vault
+    index_db.close()           # the search index (PRD 53) is per vault: no handle outlives its test
 
 
 @pytest.fixture(autouse=True)
@@ -386,7 +391,9 @@ def write_page(rel: str, name: str, body: str, source: str = "seed", extra: str 
             f"updated: 2026-08-30\nseen: 2026-08-30\n{extra}---\n{body}")
     full = os.path.join(wiki.WIKI_PATH, rel + ".md")
     os.makedirs(os.path.dirname(full), exist_ok=True)
-    open(full, "w").write(text)
+    with open(full, "w") as f:
+        f.write(text)
+    wiki.index_page(rel + ".md")       # the app's write paths index what they write (PRD 53); so does this one
 
 
 # --------------------------------------------------------------------------- FAQ source fixtures

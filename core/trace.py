@@ -84,7 +84,7 @@ FIELDS = {
     "scope": ANY, "exc_type": ANY, "message": ANY, "code": ANY, "traceback": TAIL, "fatal_for": {"none"},
     "where": {"respond", "briefing", "write_up", "save_note", "new_topic", "ingest", "summarise",
               "propose_page_ops", "meeting_from_transcript", "asr", "canned_turn", "memory_save", "ws",
-              "batch_import"},
+              "batch_import", "sync_sources", "startup_check"},   # the last two: the search index (PRD 53)
     # service / ws
     "event": ANY, "profile": ANY, "version": ANY, "pid": ANY,
     # span shape, run id

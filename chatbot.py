@@ -669,6 +669,20 @@ def greet(sess: Session, turn: int, loop):
 app = FastAPI()
 
 
+@app.on_event("startup")
+async def _on_startup():
+    """The search index's consistency check (docs/53-scalable-index.md): an edit made while the app
+    was down, or a write that missed its hook, is repaired before the first turn."""
+    try:
+        repaired = wiki.startup_check()
+    except Exception as e:      # noqa: BLE001 — the app still starts; search repairs on its next open
+        log.exception("search index check failed")
+        trace.error("index", "startup_check", e, fatal_for="none")
+        return
+    if repaired:
+        log.info(f"search index: repaired {repaired} documents")
+
+
 @app.on_event("shutdown")
 async def _on_shutdown():
     """Runs on graceful shutdown (SIGTERM/SIGINT/UI shutdown) — the place session memory is saved."""

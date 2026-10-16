@@ -87,7 +87,7 @@ def test_an_existing_vault_gets_the_cache_dir_ignored(wiki_sandbox):
     wiki.ensure_vault()
     wiki._write(".gitignore", ".obsidian/\n")
     wiki.ensure_vault()
-    assert wiki._read(".gitignore") == ".obsidian/\nraw/.index/\n"
+    assert wiki._read(".gitignore") == ".obsidian/\nraw/.index/\n"     # `.index/` ignores itself (PRD 53)
 
 
 def test_images_and_calendars_have_no_chunks(seeded_vault, monkeypatch):

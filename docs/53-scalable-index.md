@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 53 — Scalable index: thousands of pages and sources without losing voice latency
 
@@ -86,6 +86,44 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
 - Chose to leave the prompt `index_text` identical here over changing what the prompt sees: PRD 54's map decides that;
   53 only makes it cheap.
 - Chose no Obsidian support (the user does not use it) over staleness sweeps: no mtime sweeps, no fsevents.
+- Chose `index_db.py` as storage + scorer only (stdlib `sqlite3`, no vault reads) over moving `_tokenise`/`_stem` into it:
+  wiki.py tokenises and hands in tokens, so there is no import cycle and the tokeniser stays where it was.
+- Chose to put scenario 6 in `tests/wiki/test_index_db.py` over `tests/test_index.py`, which is the docs/index.md test.
+- Chose a lazy build over a mandatory startup step: the first index open per process runs the consistency check (a
+  vault without a DB answers its first search by building one); the app's startup event and batch import also run it.
+- Chose to stat `raw/manifest.jsonl` on every chunk-index read (`_chunk_index`: about 4–5 stats per `search_chunks` —
+  weights, proper terms, title terms, phrases, the search — and one per `recall_for` proper-term lookup; re-hash and
+  re-sync sources only when the stamp changed) as the "sha check on the manifest": a batch import in another process is
+  searchable without a restart. Pages get no check.
+- Chose to cover batch-import items with the filing hook in `sources.file_bytes` (which `_one` goes through) over a
+  second hook in `batch_import._one`.
+- Chose subset statistics for `filters` (as naming a source does); `tags` keeps pages holding every listed tag, `kind`
+  resolves through the manifest because `chunks` has no kind column.
+- Chose to keep the data model as written: `backlinks` reads only the pages whose postings hold every word of the target
+  (no links column); chunk ids are integer rowids, and "rebuild equals incremental" compares `Index.dump()`, which
+  resolves chunk ids to (sha, n) and leaves out per-file meta (epoch, generation, checked_at, manifest hash).
+- Chose a `*` `.gitignore` inside `.index/` over a `.index/` line in the vault's tracked `.gitignore`: nothing would
+  commit that edit, so every existing vault would go dirty (and batch import refuse it); the inner file keeps git clean
+  from the first index open on (review round 1 dropped the outer line).
+- Chose fail-fast for a failing index write (the hook raises after the page is on disk; the transaction rolls back) over
+  swallowing it; the startup check repairs the row. Writes that move content write the new file before any hook runs
+  (`rename_page`), so a failing hook never loses a page.
+- Chose to point `WIKI_PATH` at a missing tmp path in tests/conftest.py before the app import: importing the app builds
+  the prompt, which reads the index, before any fixture sandboxes the vault (a read now opens the DB).
+- Accept that the first app start after the upgrade builds the index synchronously at import (the prompt build reads
+  `index_text`); every later start only runs the stat check. Whatever imports the app against a vault it does not mean
+  to index guards it: tests/conftest.py and eval/harness.py point `WIKI_PATH` at a missing tmp path first, and
+  `python -m wiki reindex` resolves the vault from the environment, else the checkout's `.env` (dev → ~/llm-wiki-dev).
+- Chose to refuse `python -m wiki reindex` while the app answers on its ports (exit 2, the batch-import guard
+  `batch_import.running_app`) over swapping the file under it; `open_index` also reopens when the file's (device,
+  inode) changed, so a swapped file is picked up instead of writing to an orphan.
+- Chose to skip a source that cannot be chunked (raw file gone, extraction fails, no chunk cache) during a sync, logged
+  and traced (`error`, scope `index`, where `sync_sources`, not fatal), over failing the index: one bad manifest line
+  must not stop search, the prompt index, page writes or app start (whose check is also log-and-continue).
+- Chose to read DF from `terms` for the whole corpus (the PRD data model; kept equal to the postings count per change,
+  asserted by a test) and to count postings only for a subset (named sources, filters).
+- Chose to name the fix in the finding ("… — run python -m wiki reindex") over repairing from `lint`: lint reports,
+  the user decides; the startup check already repairs what a missed hook leaves.
 
 ## Data model
 ```

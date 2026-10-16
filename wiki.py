@@ -14,6 +14,7 @@ PRD 15: ops + validation, never a whole-file rewrite. ``git log`` inside the vau
 
 See docs/19-wiki-layer.md.
 """
+import contextlib
 import hashlib
 import json
 import math
@@ -22,6 +23,7 @@ import re
 import subprocess
 from collections import Counter
 
+import index_db
 import memory
 from core import config, settings, trace, vault_lock
 from core import llm as core_llm
@@ -46,6 +48,8 @@ RAW_DIR = "raw"
 RAW_SUBDIRS = ("inbox", "screens", "email", "news")
 #: per-sha chunk cache for search inside sources (PRD 32); gitignored, rebuilt on demand
 RAW_INDEX_DIR = "raw/.index"
+#: the search index (docs/53-scalable-index.md): `<vault>/.index/search.sqlite`, gitignored
+INDEX_DIR = index_db.INDEX_DIR
 
 #: pages that are machinery, not knowledge — never listed, never searched, never ingested about
 RESERVED = (INDEX_FILE, LOG_FILE, SCHEMA_FILE)
@@ -162,6 +166,8 @@ def _write(rel: str, text: str) -> None:
     with open(tmp, "w") as f:
         f.write(text)
     os.replace(tmp, full)
+    if _is_page(rel):
+        index_page(rel, text)
 
 
 def etag(text: str) -> str:
@@ -205,7 +211,7 @@ def ensure_vault() -> str:
              "updated": memory._today_iso(), "seen": memory._today_iso()},
             "# Decisions\n",
         ))
-    ignore = _read(".gitignore")
+    ignore = _read(".gitignore")     # `.index/` (PRD 53) carries its own `*` .gitignore: no tracked edit here
     if f"{RAW_INDEX_DIR}/" not in ignore.splitlines():
         _write(".gitignore", (ignore or ".obsidian/\n.trash/\n").rstrip("\n") + f"\n{RAW_INDEX_DIR}/\n")
     if not os.path.exists(_path(INDEX_FILE)):
@@ -384,12 +390,11 @@ def _one_liner(fm: dict, body: str) -> str:
 
 
 def index_lines() -> list:
-    lines = []
-    for rel in page_paths():
-        fm, body = parse_page(_read(rel))
-        described = _one_liner(fm, body)
-        lines.append(f"- [[{wikilink(rel)}]]" + (f" — {described}" if described else ""))
-    return lines[:INDEX_MAX_LINES]
+    """`index.md`'s lines, from the search index's `pages` table: no page is read."""
+    if not exists():
+        return []
+    return [f"- [[{wikilink(rel)}]]" + (f" — {described}" if described else "")
+            for rel, described in _db().index_rows(INDEX_MAX_LINES)]
 
 
 def rebuild_index() -> str:
@@ -403,8 +408,8 @@ def rebuild_index() -> str:
 def index_text(max_tokens: int = WIKI_INDEX_TOKENS) -> str:
     """The index trimmed to `max_tokens` — what goes into the prompt and into the ingest call.
 
-    Computed from the pages rather than read from `index.md`, so a page the user edited in
-    Obsidian since the last commit is already reflected. "" when there is nothing to show.
+    Built from the search index's `pages` table (no page read) rather than read from `index.md`,
+    so every write hook's change is already reflected. "" when there is nothing to show.
     """
     if not exists():
         return ""
@@ -817,8 +822,9 @@ def rename_page(path: str, new_path: str) -> tuple:
                 _write(other, _bump_updated(rewritten))
                 touched += 1
         moved = _bump_updated(_read(rel))
+        _write(new_rel, moved)          # the new file first: a failing index hook never loses the page
         os.remove(_path(rel))
-        _write(new_rel, moved)
+        unindex_page(rel)
         _user_commit(f"renamed [[{old}]] → [[{new}]] ({touched} links, source: {USER_SOURCE})",
                      f"wiki: rename {old} → {new} ({touched} links)")
         return {"path": new, "links": touched}, None
@@ -833,6 +839,7 @@ def delete_page(path: str) -> tuple:
         _git("rm", "-q", "-f", "--", rel, quiet=True)
         if os.path.exists(_path(rel)):
             os.remove(_path(rel))
+        unindex_page(rel)
         _user_commit(f"deleted [[{wikilink(rel)}]] (source: {USER_SOURCE})",
                      f"wiki: delete {wikilink(rel)}")
         return wikilink(rel), None
@@ -842,8 +849,7 @@ def delete_page(path: str) -> tuple:
 # BM25 over page bodies + frontmatter. Personal scale (≤ 200 pages), no embeddings, no new
 # dependency, and deterministic — which is what makes it testable.
 
-_K1, _B = 1.5, 0.75
-_index_cache: dict = {"sig": None, "docs": []}
+_K1, _B = index_db.K1, index_db.B
 
 
 def _stem(word: str) -> str:
@@ -861,30 +867,137 @@ def _tokenise(text: str) -> list:
     return [_stem(w) for w in re.findall(r"[a-z0-9]+", str(text).lower())]
 
 
-def _signature() -> tuple:
-    return tuple(sorted((rel, os.path.getmtime(_path(rel))) for rel in page_paths()
-                        if os.path.exists(_path(rel))))
+def _db() -> index_db.Index:
+    """The vault's search index (docs/53-scalable-index.md). The first open in this process runs
+    the consistency check, so a vault without an index file (or with a stale one) gets one."""
+    idx = index_db.open_index(WIKI_PATH)
+    if not idx.checked:
+        idx.checked = True
+        try:
+            _check(idx)
+        except BaseException:
+            idx.checked = False
+            raise
+    return idx
 
 
-def _corpus() -> list:
-    """[(path, text, tokens, links)] — rebuilt only when a page's mtime changed (Obsidian edits count)."""
-    sig = _signature()
-    if _index_cache["sig"] != sig:
-        docs = []
-        for rel, _ in sig:
+def _is_page(rel: str) -> bool:
+    """What :func:`page_paths` would list, by path alone (an empty decisions.md is decided on its text)."""
+    parts = rel.split("/")
+    return (rel.endswith(".md") and rel not in RESERVED and parts[0] != RAW_DIR
+            and not any(p.startswith(".") for p in parts[:-1]))
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _put_page(idx: index_db.Index, rel: str, text: str, mtime: int) -> None:
+    fm, body = parse_page(text)
+    fields = {"type": str(fm.get("type") or ""), "name": str(fm.get("name") or ""),
+              "tags": json.dumps(tags(text)), "updated": str(fm.get("updated") or ""),
+              "one_liner": _one_liner(fm, body)}
+    idx.put_page(rel, mtime, _sha(text), fields, _tokenise(text))
+
+
+def index_page(rel: str, text: str | None = None) -> None:
+    """Write hook: (re)index one page after its file was written (`_write` calls it)."""
+    if not exists() or not _is_page(rel):
+        return
+    idx = _db()
+    text = _read(rel) if text is None else text
+    if not os.path.isfile(_path(rel)) or (rel == DECISIONS_FILE and not _has_decisions(text)):
+        idx.drop_page(rel)
+        return
+    _put_page(idx, rel, text, os.stat(_path(rel)).st_mtime_ns)
+
+
+def unindex_page(rel: str) -> None:
+    """Write hook: a page file was removed (rename, delete, forget); its rows go."""
+    if exists() and _is_page(rel):
+        _db().drop_page(rel)
+
+
+def _check(idx: index_db.Index, *, batch: bool | None = None) -> int:
+    """Compare the index to the vault and repair the difference; returns the documents changed.
+
+    Pages key on (mtime, sha): an unchanged mtime costs one stat, a changed one a read and a hash.
+    Sources key on the manifest: shas gone are dropped, shas new are indexed from their chunk cache.
+    """
+    with idx.write() if (idx.fresh if batch is None else batch) else contextlib.nullcontext():
+        stored = idx.page_stamps()
+        changed = 0
+        for rel in page_paths():
+            mtime = os.stat(_path(rel)).st_mtime_ns
+            known = stored.pop(rel, None)
+            if known and known[0] == mtime:
+                continue
             text = _read(rel)
-            docs.append((rel, text, _tokenise(text), links_in(text)))
-        _index_cache["sig"], _index_cache["docs"] = sig, docs
-    return _index_cache["docs"]
+            if known and known[1] == _sha(text):
+                idx.touch_page(rel, mtime)
+                continue
+            _put_page(idx, rel, text, mtime)
+            changed += 1
+        for rel in stored:
+            idx.drop_page(rel)
+            changed += 1
+        changed += _sync_sources(idx)
+    idx.fresh = False
+    return changed
+
+
+def startup_check() -> int:
+    """The consistency check, run once at app (and batch-import) start; returns the documents
+    repaired. A vault that does not exist yet is left alone (it is created lazily)."""
+    if not exists():
+        return 0
+    idx = index_db.open_index(WIKI_PATH)
+    changed = _check(idx)
+    idx.checked = True                  # only after it ran: a failed check is retried on the next open
+    idx.set_meta("checked_at", memory._stamp("%H:%M:%S"))
+    return changed
+
+
+def reindex(path: str | None = None) -> str:
+    """Rebuild the search index from scratch (pages on disk + the manifest); returns the file.
+
+    `path` builds into another file and leaves the live one alone (the rebuild-equals-incremental
+    test); otherwise the new file replaces the live index. `python -m wiki reindex` runs this.
+    """
+    if not exists():
+        raise FileNotFoundError(f"no vault at {WIKI_PATH}")
+    live = index_db.db_path(WIKI_PATH)
+    target = path or live + ".new"
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(target + suffix):
+            os.remove(target + suffix)
+    idx = index_db.Index(target)
+    try:
+        _check(idx, batch=True)
+    finally:
+        idx.close()
+    if path:
+        return path
+    index_db.replace(WIKI_PATH, target)
+    _db()
+    return live
 
 
 def backlinks(path: str) -> list:
-    """The pages (suffix-less) whose wikilinks point at `path`; alias/heading forms count."""
+    """The pages (suffix-less) whose wikilinks point at `path`; alias/heading forms count.
+
+    Only the pages the index says hold every word of the target are read."""
     rel = normalise_path(path, user=True)
-    if rel is None:
+    if rel is None or not exists():
         return []
     target = wikilink(rel)
-    return [wikilink(r) for r, _, _, links in _corpus() if target in links and r != rel]
+    idx, words = _db(), set(_tokenise(target))
+    candidates = idx.docs_with_all(index_db.PAGE, words) if words else idx.page_paths()
+    found = []
+    for other in sorted(candidates):
+        if other != rel and target in links_in(_read(other)):
+            found.append(wikilink(other))
+    return found
 
 
 _TAG = re.compile(r"(?<![\w/#&])#([A-Za-z][\w/-]*)")
@@ -909,7 +1022,8 @@ def _snippet(text: str, terms: set, width: int = 180) -> str:
 
 def _bm25(docs: list, terms: set, weights: dict | None = None) -> list:
     """BM25 score of `terms` against each token list in `docs` (0.0 where nothing matched);
-    `weights` scales a term's contribution (default 1.0)."""
+    `weights` scales a term's contribution (default 1.0). In memory, for a handful of sections
+    (:func:`best_section`); the vault-wide searches score from the index (`index_db.Index.bm25`)."""
     n = len(docs)
     weights = weights or {}
     avgdl = sum(len(t) for t in docs) / n
@@ -928,20 +1042,46 @@ def _bm25(docs: list, terms: set, weights: dict | None = None) -> list:
     return scores
 
 
-def search(query: str, k: int = 5) -> list:
+def _page_subset(idx: index_db.Index, filters: dict | None):
+    """The pages `filters` keeps — ``{type, tags, updated_from, updated_to}`` — or None (all)."""
+    if not filters:
+        return None
+    want_type = filters.get("type")
+    types = {want_type} if isinstance(want_type, str) else set(want_type or ())
+    want_tags = filters.get("tags")
+    tagset = {want_tags} if isinstance(want_tags, str) else set(want_tags or ())
+    since, until = str(filters.get("updated_from") or ""), str(filters.get("updated_to") or "")
+    keep = set()
+    for rel, (kind, tag_json, updated) in idx.page_fields().items():
+        if types and kind not in types:
+            continue
+        if tagset and not tagset <= set(json.loads(tag_json or "[]")):
+            continue
+        if (since and updated < since) or (until and updated > until):
+            continue
+        keep.add(rel)
+    return keep
+
+
+def search(query: str, k: int = 5, filters: dict | None = None) -> list:
     """Top-`k` pages for `query` as ``[{path, snippet, score}]`` (BM25, best first).
 
     `path` is the suffix-less form the model sees everywhere else (`people/anna`), so a hit can
     be handed straight to :func:`read_page`. Raw sources are a separate index: :func:`search_chunks`.
+    `filters` (``{type, tags, updated_from, updated_to}``) narrows the pages scored; the BM25
+    statistics are then the narrowed set's. Reads the index plus the `k` pages it returns.
     """
-    docs = _corpus()
     terms = set(_tokenise(query))
-    if not docs or not terms:
+    if not exists() or not terms:
         return []
-    scores = _bm25([tokens for _, _, tokens, _ in docs], terms)
-    scored = [{"path": wikilink(rel), "snippet": _snippet(text, terms), "score": round(score, 3)}
-              for (rel, text, _, _), score in zip(docs, scores) if score > 0]
-    return sorted(scored, key=lambda d: (-d["score"], d["path"]))[:k]
+    idx = _db()
+    if not idx.page_lengths():
+        return []
+    scores = idx.bm25(index_db.PAGE, terms, None, _page_subset(idx, filters))
+    ranked = sorted(((round(score, 3), wikilink(rel), rel) for rel, (score, _) in scores.items() if score > 0),
+                    key=lambda r: (-r[0], r[1]))[:k]
+    return [{"path": path, "snippet": _snippet(_read(rel), terms), "score": score}
+            for score, path, rel in ranked]
 
 
 # --- search inside sources (docs/32-source-recall.md) -------------------------------
@@ -970,7 +1110,6 @@ PROPER_BOOST = 2.0
 #: a query word written Title-case at least this often in the sources is a proper noun for the
 #: recall precision rule (PRD 34): one such match may carry a chunk, one plain word may not
 PROPER_RATIO_MIN = 0.5
-_chunk_cache: dict = {"sig": None, "docs": [], "proper": {}}
 _WORD = re.compile(r"[A-Za-z0-9]+")
 
 
@@ -1065,6 +1204,13 @@ def raw_chunks(raw_rel: str) -> dict:
                   if raw_rel in (e.get("path"), e.get("page"))), None)
     if entry is None:
         raise KeyError(f"no such source: {raw_rel}")
+    return _raw_chunks_for(entry)
+
+
+def _raw_chunks_for(entry: dict) -> dict:
+    """:func:`raw_chunks` for a manifest entry already in hand (a rebuild parses the manifest once)."""
+    import sources
+
     sha, raw_rel, source = entry["sha256"], entry["path"], entry.get("page", "")
     cached = _read(_cache_rel(sha))
     if cached:
@@ -1089,25 +1235,108 @@ def drop_raw_chunks(sha: str) -> None:
         os.remove(full)
 
 
-def _chunk_corpus() -> list:
-    """Every chunk of every text-kind source: ``[(source, raw, title, n, N, text, tokens)]``.
+def _record(sha: str) -> dict | None:
+    """A source's chunk record from its `raw/.index/<sha>.json`, or None when there is none.
+    The last few are kept parsed: a hit reads its chunk text from here."""
+    key = (WIKI_PATH, sha)
+    if key in _records:
+        return _records[key]
+    try:
+        record = json.loads(_read(_cache_rel(sha)) or "null")
+    except ValueError:
+        record = None
+    if record is not None and record.get("sha") != sha:
+        record = None
+    if record is not None:
+        _records[key] = record
+        while len(_records) > 16:
+            _records.pop(next(iter(_records)))
+    return record
 
-    Rebuilt when the manifest's set of shas changes; the per-file work is cached on disk.
-    """
+
+_records: dict = {}
+
+
+def index_source(record: dict) -> None:
+    """Write hook: index one filed source's chunks (`record` is :func:`raw_chunks`' result)."""
+    if not exists():
+        return
+    _put_source(_db(), record)
+
+
+def _put_source(idx: index_db.Index, record: dict) -> None:
+    seen, titled = _proper_counts(c["text"] for c in record["chunks"])
+    chunks = [(c["n"], c["start"], _tokenise(c["text"])) for c in record["chunks"]]
+    if chunks:
+        idx.put_source(record["sha"], record["raw"], record["source"], record["title"], chunks, seen, titled)
+    else:
+        idx.drop_source(record["sha"], seen, titled)
+
+
+def unindex_source(sha: str) -> None:
+    """Write hook: a forgotten source's chunks leave the index. Call it before
+    :func:`drop_raw_chunks` — its proper-noun counts come from the chunk cache."""
+    if exists():
+        _drop_source(_db(), sha)
+
+
+def _drop_source(idx: index_db.Index, sha: str) -> None:
+    record = _record(sha)
+    if record is not None:
+        idx.drop_source(sha, *_proper_counts(c["text"] for c in record["chunks"]))
+    elif idx.drop_source(sha, None, None):           # no cache left to subtract: recount the rest
+        idx.replace_proper(*_proper_counts(c["text"] for other in idx.source_shas()
+                                           for c in (_record(other) or {"chunks": []})["chunks"]))
+
+
+def _sync_sources(idx: index_db.Index) -> int:
+    """Bring the chunk index in line with the manifest; returns the sources changed. Skipped when the
+    manifest bytes hash to what the last sync saw."""
     import sources
 
-    entries = [e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)]
-    sig = (WIKI_PATH, tuple(sorted((e["sha256"], e["path"]) for e in entries)))
-    if _chunk_cache["sig"] != sig:
-        docs = []
-        for entry in entries:
-            record = raw_chunks(entry["path"])
-            total = len(record["chunks"])
-            docs += [(record["source"], record["raw"], record["title"], c["n"], total,
-                      c["text"], _tokenise(c["text"])) for c in record["chunks"]]
-        _chunk_cache["proper"] = _proper_ratios(text for *_, text, _ in docs)
-        _chunk_cache["sig"], _chunk_cache["docs"] = sig, docs
-    return _chunk_cache["docs"]
+    digest = _sha(_read(sources.MANIFEST))
+    if idx.get_meta("manifest") == digest:
+        return 0
+    entries = {e["sha256"]: e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)}
+    have = idx.source_shas()
+    changed = 0
+    for sha, raw in have.items():
+        if sha not in entries or entries[sha]["path"] != raw:
+            _drop_source(idx, sha)
+            changed += 1
+    for sha, entry in entries.items():
+        if have.get(sha) == entry["path"]:
+            continue
+        try:
+            record = _raw_chunks_for(entry)
+        except Exception as exc:    # noqa: BLE001 — one unreadable source must not take the index down
+            log.exception(f"search index: skipped {entry.get('path')} (cannot be chunked)")
+            trace.error("index", "sync_sources", exc, fatal_for="none")
+            continue
+        if record["chunks"]:
+            _put_source(idx, record)
+            changed += 1
+    idx.set_meta("manifest", digest)
+    return changed
+
+
+def _chunk_index() -> index_db.Index | None:
+    """The index, with its sources in line with the manifest: one stat per call, a re-read and a
+    sync only when the manifest file changed (a batch import in another process, a hand edit)."""
+    import sources
+
+    if not exists():
+        return None
+    idx = _db()
+    try:
+        st = os.stat(_path(sources.MANIFEST))
+        mark = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        mark = None
+    if getattr(idx, "manifest_mark", None) != mark:
+        _sync_sources(idx)
+        idx.manifest_mark = mark
+    return idx
 
 
 def _proper_noun(text: str, m) -> bool:
@@ -1119,10 +1348,10 @@ def _proper_noun(text: str, m) -> bool:
     return prev.isalnum() or prev in ",;:"
 
 
-def _proper_ratios(texts) -> dict:
-    """stem -> share of its occurrences that are proper nouns, over every chunk text; every
-    stem the sources contain has an entry (0.0 when never Title-case), so the dict doubles as
-    the corpus vocabulary (:func:`proper_phrases`)."""
+def _proper_counts(texts) -> tuple:
+    """``(seen, titled)``: stem -> occurrences, and how many of them are proper nouns, over `texts`.
+    The index sums them per source; a stem's ratio is ``titled / seen`` over every chunk, and every
+    stem the sources contain has a row, so the table doubles as the vocabulary (:func:`proper_phrases`)."""
     seen, titled = Counter(), Counter()
     for text in texts:
         for m in _WORD.finditer(text):
@@ -1130,12 +1359,18 @@ def _proper_ratios(texts) -> dict:
             seen[stem] += 1
             if _proper_noun(text, m):
                 titled[stem] += 1
-    return {w: titled[w] / seen[w] for w in seen}
+    return dict(seen), dict(titled)
+
+
+def _proper_ratios(terms) -> dict:
+    """stem -> share of its occurrences that are proper nouns, for the `terms` the sources hold."""
+    idx = _chunk_index()
+    return idx.proper_ratios(terms) if idx is not None else {}
 
 
 def _term_weights(terms: set) -> dict:
     """1 + PROPER_BOOST × (share of the word's occurrences written Title-case)."""
-    proper = _chunk_cache["proper"]
+    proper = _proper_ratios(terms)
     return {t: 1.0 + PROPER_BOOST * proper.get(t, 0.0) for t in terms}
 
 
@@ -1146,8 +1381,7 @@ def content_terms(query: str) -> set:
 
 def proper_terms(terms: set) -> set:
     """The query terms the sources write Title-case at least `PROPER_RATIO_MIN` of the time."""
-    _chunk_corpus()                                   # the ratios are built with the corpus
-    proper = _chunk_cache["proper"]
+    proper = _proper_ratios(terms)
     return {t for t in terms if proper.get(t, 0.0) >= PROPER_RATIO_MIN}
 
 
@@ -1166,8 +1400,12 @@ def topic_terms(query: str) -> set:
 
 
 def _title_terms() -> dict:
-    """source page -> the content tokens of its title, over the chunk corpus."""
-    return {source: content_terms(title) for source, _, title, *_ in _chunk_corpus()}
+    """source page -> the content tokens of its title, over the indexed chunks."""
+    idx = _chunk_index()
+    if idx is None:
+        return {}
+    return idx.cached("title_terms", lambda: {source: content_terms(title)
+                                              for source, _, title, *_ in idx.chunk_meta().values()})
 
 
 def split_title_terms(terms: set) -> tuple:
@@ -1193,9 +1431,8 @@ def proper_phrases(query: str) -> list:
     proper term and the other is a proper term, a word the sources never use ("Lovelace"),
     or both are written Title-case ("Ada Lovelace"). A chunk must contain the pair whole for
     the proper term to count (docs/42-recall-precision-2.md §5)."""
-    _chunk_corpus()
-    vocab = _chunk_cache["proper"]
     words = re.findall(r"[A-Za-z0-9]+", str(query))
+    vocab = _proper_ratios({_stem(w.lower()) for w in words})
     pairs = []
     for first, second in zip(words, words[1:]):
         a, b = _stem(first.lower()), _stem(second.lower())
@@ -1211,15 +1448,38 @@ def proper_phrases(query: str) -> list:
     return pairs
 
 
-def _phrases_in(tokens: list, pairs: list) -> list:
-    """The `pairs` that occur adjacent in `tokens`."""
-    if not pairs:
-        return []
-    adjacent = set(zip(tokens, tokens[1:]))
-    return [p for p in pairs if p in adjacent]
+def _chunk_subset(meta: dict, named: set, filters: dict | None):
+    """The chunk ids scored: the named sources' (all when none is named or they hold none),
+    narrowed by `filters` ``{source, kind}``; None means every chunk."""
+    import sources
+
+    subset = {i for i, m in meta.items() if m[0] in named} or None if named else None
+    if not filters:
+        return subset
+    keep = set(meta) if subset is None else subset
+    want = filters.get("source")
+    if want:
+        want = {want} if isinstance(want, str) else set(want)
+        keep = {i for i in keep if meta[i][0] in want or meta[i][1] in want}
+    kind = filters.get("kind")
+    if kind:
+        kinds = {kind} if isinstance(kind, str) else set(kind)
+        shas = {e.get("sha256") for e in sources.manifest_entries() if e.get("kind") in kinds}
+        keep = {i for i in keep if meta[i][5] in shas}
+    return keep
 
 
-def search_chunks(query: str, k: int = 3) -> list:
+def _phrases_at(idx: index_db.Index, doc: int, pairs: list) -> list:
+    """The `pairs` that occur adjacent in chunk `doc`, from the stored token positions."""
+    found = []
+    for a, b in pairs:
+        after = {p - 1 for p in idx.positions(index_db.CHUNK, b, doc)}
+        if after and after.intersection(idx.positions(index_db.CHUNK, a, doc)):
+            found.append((a, b))
+    return found
+
+
+def search_chunks(query: str, k: int = 3, filters: dict | None = None) -> list:
     """Top-`k` raw chunks for `query`: ``[{source, raw, title, n, total, text, score, matched, phrases}]``.
 
     The query's title words never score a chunk (:func:`split_title_terms`): they only pick the
@@ -1227,23 +1487,31 @@ def search_chunks(query: str, k: int = 3) -> list:
     the same for a three-word and a twelve-word question (see :func:`recall_min_score`); `matched`
     lists the distinct topic words found in the chunk (the PRD 34 precision rule), `phrases`
     the query's proper bigrams the chunk holds whole, `named` whether the question named the
-    chunk's source by title.
+    chunk's source by title. `filters` (``{source, kind}``) narrows the chunks scored, with the
+    narrowed set's BM25 statistics, as naming a source does.
     """
-    docs = _chunk_corpus()
+    idx = _chunk_index()
     terms = content_terms(query)
-    if not docs or not terms:
+    if idx is None or not terms:
+        return []
+    meta = idx.chunk_meta()
+    if not meta:
         return []
     terms, named = split_title_terms(terms)
     terms = terms - GENERIC_WORDS or terms                  # "what does it say about X": X scores
-    if named:
-        docs = [d for d in docs if d[0] in named] or docs
+    subset = _chunk_subset(meta, named, filters)
     pairs = proper_phrases(query)
-    scores = _bm25([tokens for *_, tokens in docs], terms, _term_weights(terms))
-    hits = [{"source": source, "raw": raw, "title": title, "n": n, "total": total, "text": text,
-             "score": round(score / len(terms), 3), "matched": sorted(terms & set(tokens)),
-             "phrases": _phrases_in(tokens, pairs), "named": source in named}
-            for (source, raw, title, n, total, text, tokens), score in zip(docs, scores) if score > 0]
-    return sorted(hits, key=lambda h: (-h["score"], h["raw"], h["n"]))[:k]
+    scores = idx.bm25(index_db.CHUNK, terms, _term_weights(terms), subset)
+    ranked = sorted(((round(score / len(terms), 3), doc, matched) for doc, (score, matched) in scores.items()
+                     if score > 0), key=lambda r: (-r[0], meta[r[1]][1], meta[r[1]][3]))[:k]
+    hits = []
+    for score, doc, matched in ranked:
+        source, raw, title, n, total, sha = meta[doc]
+        record = _record(sha) or _raw_chunks_for({"sha256": sha, "path": raw, "page": source})
+        hits.append({"source": source, "raw": raw, "title": title, "n": n, "total": total,
+                     "text": record["chunks"][n - 1]["text"], "score": score, "matched": sorted(matched),
+                     "phrases": _phrases_at(idx, doc, pairs), "named": source in named})
+    return hits
 
 
 def proper_match(hit: dict, proper: set, pairs: list) -> set:
@@ -1594,9 +1862,14 @@ def pages() -> list:
     return listing
 
 
+REINDEX_HINT = " — run `python -m wiki reindex`"
+
+
 def lint() -> list:
-    """Findings, worst first: per page broken links, missing from the index, bad frontmatter,
-    size, a `source: raw/…` whose file is gone; then raw files nothing cites, then duplicate names.
+    """Findings, worst first: per page broken links, missing from the search index, bad frontmatter,
+    size, a `source: raw/…` whose file is gone; then index rows whose page is gone (both mean
+    `python -m wiki reindex`), raw files nothing cites, then duplicate names. `index.md` is a capped
+    human view (200 lines), so it is not what a page is checked against (docs/53-scalable-index.md).
 
     A finding names its page the way the rest of the layer does, `people/anna`, or its raw file.
     """
@@ -1608,7 +1881,7 @@ def lint() -> list:
     cited, labels = set(), []
     paths = page_paths()
     known = {wikilink(rel) for rel in paths} | {wikilink(r) for r in RESERVED}
-    indexed = set(links_in(_read(INDEX_FILE)))
+    indexed = set(_db().page_paths())
     for rel in paths:
         text = _read(rel)
         fm, _ = parse_page(text)
@@ -1616,8 +1889,8 @@ def lint() -> list:
         for target in links_in(text):
             if target not in known:
                 findings.append(f"{name}: broken link [[{target}]]")
-        if name not in indexed:
-            findings.append(f"{name}: missing from index.md")
+        if rel not in indexed:
+            findings.append(f"{name}: missing from the search index{REINDEX_HINT}")
         missing = [key for key in FIELDS if key not in fm]
         if missing:
             findings.append(f"{name}: frontmatter missing {', '.join(missing)}")
@@ -1628,6 +1901,8 @@ def lint() -> list:
             findings.append(f"{name}: source {source} no longer exists")
         cited |= {str(fm.get(key) or "") for key in ("source", "raw")}
         labels.append((name, " ".join(str(fm.get("name") or "").split())))
+    findings += [f"{wikilink(rel)}: in the search index but not on disk{REINDEX_HINT}"
+                 for rel in sorted(indexed - set(paths))]
     cited |= {e.get("path") for e in sources.manifest_entries()}
     cited |= {rel for e in sources.manifest_entries() for rel in e.get("pages") or []}   # PRD 47 PNGs
     for root, dirs, files in os.walk(_path(RAW_DIR)):
@@ -1819,3 +2094,43 @@ def entry_from_page(path: str, section: str) -> tuple:
         if summary:
             entry["note"] = summary[:200]
     return entry, None
+
+
+def cli_vault(env_file: str) -> str:
+    """The vault `python -m wiki` works on: WIKI_PATH from the environment, else from `env_file`
+    (the checkout's `.env`, so a dev checkout targets its dev vault), else the default."""
+    from dotenv import dotenv_values
+
+    value = os.environ.get("WIKI_PATH") or dotenv_values(env_file).get("WIKI_PATH") or "~/llm-wiki"
+    return os.path.expanduser(value)
+
+
+def main(argv) -> int:
+    """`python -m wiki reindex`: rebuild the search index; refused (exit 2) while the app runs,
+    because swapping the file under a running app would orphan its open handle."""
+    import sys
+
+    import batch_import
+
+    if list(argv) != ["reindex"]:
+        print("usage: python -m wiki reindex", file=sys.stderr)
+        return 2
+    running = batch_import.running_app()
+    if running:
+        print(f"refusing to reindex: {running}", file=sys.stderr)
+        return 2
+    print(f"reindexed {WIKI_PATH} -> {reindex()}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+
+    from dotenv import load_dotenv
+
+    import wiki as _wiki      # the imported module, not this __main__ copy: the index handle lives there
+
+    _env = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    load_dotenv(_env)         # the app's ports for the running-app guard
+    _wiki.WIKI_PATH = _wiki.cli_vault(_env)
+    sys.exit(_wiki.main(sys.argv[1:]))

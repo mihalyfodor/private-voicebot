@@ -27,8 +27,12 @@ import tempfile
 from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+# Importing the app builds the system prompt, which reads (and opens the search index of, PRD 53) the vault
+# WIKI_PATH names — before a Sandbox swaps the path. Point it at a path that does not exist first.
+os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{os.getpid()}", "no-vault")
 
 import avatars  # noqa: E402
+import index_db  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
 import sources  # noqa: E402
@@ -124,7 +128,7 @@ class Sandbox:
 
         memory.MEMORY_PATH = self.memory_path
         wiki.WIKI_PATH = self.wiki_path        # a live run must never touch the real ~/llm-wiki
-        wiki._index_cache = {"sig": None, "docs": []}
+        index_db.close()
         memory.OPS_LOG_PATH = self.ops_path
         memory.SHORTMEM_PATH = self.shortmem_path
         settings.SETTINGS_PATH = self.settings_path
@@ -150,7 +154,7 @@ class Sandbox:
     def __exit__(self, *exc) -> bool:
         memory.MEMORY_PATH = self._saved["memory"]
         wiki.WIKI_PATH = self._saved["wiki"]
-        wiki._index_cache = {"sig": None, "docs": []}
+        index_db.close()
         memory.OPS_LOG_PATH = self._saved["ops"]
         memory.SHORTMEM_PATH = self._saved["shortmem"]
         settings.SETTINGS_PATH = self._saved["settings"]

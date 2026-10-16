@@ -1289,7 +1289,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                           "ingested_at": memory._stamp("%H:%M:%S"),
                           "page": wiki.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
-        wiki.raw_chunks(raw_rel)          # PRD 32: the chunk cache, built while the bytes are hot
+        wiki.index_source(wiki.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
         wiki.rebuild_index()
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
@@ -1417,10 +1417,12 @@ def forget(digest: str) -> dict:
             wiki._git("rm", "-q", "-f", "--", rel, quiet=True)
             if os.path.exists(wiki._path(rel)):
                 os.remove(wiki._path(rel))
+            wiki.unindex_page(rel)
         for folder in {os.path.dirname(rel) for rel in entry.get("pages") or []}:
             if os.path.isdir(wiki._path(folder)) and not os.listdir(wiki._path(folder)):
                 os.rmdir(wiki._path(folder))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
+        wiki.unindex_source(digest)
         wiki.drop_raw_chunks(digest)
         wiki.rebuild_index()
         wiki._log([f"forgot [[{page}]] and {raw_rel}"

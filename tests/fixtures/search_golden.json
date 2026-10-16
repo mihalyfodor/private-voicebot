@@ -1,0 +1,1295 @@
+{
+ "Anna runs the Friday deploy": {
+  "search": [
+   {
+    "path": "people/anna",
+    "score": 7.822,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "deploy",
+     "friday"
+    ],
+    "n": 2,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.004,
+    "source": "sources/fallout-4-guide",
+    "text_head": "Jacob Orden xp inside you Compound time inside your letter area note xp bridge b",
+    "text_len": 3008,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "deploy",
+     "friday"
+    ],
+    "n": 3,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.004,
+    "source": "sources/fallout-4-guide",
+    "text_head": "SAFE test river friday quest town cook area deploy hill return path path north t",
+    "text_len": 3031,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "deploy",
+     "friday"
+    ],
+    "n": 4,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.004,
+    "source": "sources/fallout-4-guide",
+    "text_head": "here house note Stockton stairs time east email Covenant before speak after Cove",
+    "text_len": 3073,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "Dark Brotherhood Astrid Falkreath black door": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "astrid",
+     "black",
+     "brotherhood",
+     "dark",
+     "door",
+     "falkreath"
+    ],
+    "n": 246,
+    "named": false,
+    "phrases": [
+     [
+      "dark",
+      "brotherhood"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 17.61,
+    "source": "sources/skyrim-guide",
+    "text_head": "path path stairs item deploy outside Dark Brotherhood take said east next there ",
+    "text_len": 2450,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "astrid",
+     "black",
+     "brotherhood",
+     "dark",
+     "door",
+     "falkreath"
+    ],
+    "n": 237,
+    "named": false,
+    "phrases": [
+     [
+      "dark",
+      "brotherhood"
+     ],
+     [
+      "astrid",
+      "falkreath"
+     ],
+     [
+      "falkreath",
+      "black"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 17.569,
+    "source": "sources/skyrim-guide",
+    "text_head": "Dark Brotherhood plan email said decide email meeting Astrid before inside Black",
+    "text_len": 2577,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "astrid",
+     "black",
+     "brotherhood",
+     "dark",
+     "door",
+     "falkreath"
+    ],
+    "n": 241,
+    "named": false,
+    "phrases": [
+     [
+      "dark",
+      "brotherhood"
+     ],
+     [
+      "astrid",
+      "falkreath"
+     ],
+     [
+      "falkreath",
+      "black"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 17.467,
+    "source": "sources/skyrim-guide",
+    "text_head": "tell loot meeting road Black Door south meeting remind next meeting friday north",
+    "text_len": 2657,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "Dragonsreach Companions Jorrvaskr": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "companion",
+     "dragonsreach",
+     "jorrvaskr"
+    ],
+    "n": 2,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.33,
+    "source": "sources/skyrim-guide",
+    "text_head": "Companions bridge and said room there inside remind north Dragonsreach friday la",
+    "text_len": 3060,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "companion",
+     "dragonsreach",
+     "jorrvaskr"
+    ],
+    "n": 7,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.056,
+    "source": "sources/skyrim-guide",
+    "text_head": "meal email cook north town here Companions weather find joke meal later north su",
+    "text_len": 3034,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "companion",
+     "dragonsreach",
+     "jorrvaskr"
+    ],
+    "n": 17,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.038,
+    "source": "sources/skyrim-guide",
+    "text_head": "north xp area here your there Companions plan item Jorrvaskr here north town tal",
+    "text_len": 3175,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "Falcon load test amber": {
+  "search": [
+   {
+    "path": "projects/falcon",
+    "score": 6.337,
+    "snippet": "# Falcon ## Summary Load-test project, amber. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "test"
+    ],
+    "n": 7,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 1.887,
+    "source": "sources/fallout-4-guide",
+    "text_head": "stairs cook note rain deploy there outside south area north Covenant deploy spea",
+    "text_len": 2978,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "test"
+    ],
+    "n": 10,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 1.864,
+    "source": "sources/fallout-4-guide",
+    "text_head": "item area your you decide weather before east head Covenant after remind your ar",
+    "text_len": 3070,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "test"
+    ],
+    "n": 14,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 1.861,
+    "source": "sources/fallout-4-guide",
+    "text_head": "door return summer road head want after lake town you road Covenant your head Co",
+    "text_len": 3119,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "I'm at Covenant, what about Honest Dan?": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "covenant",
+     "dan",
+     "honest"
+    ],
+    "n": 5,
+    "named": false,
+    "phrases": [
+     [
+      "honest",
+      "dan"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 23.067,
+    "source": "sources/fallout-4-guide",
+    "text_head": "loot inside you item room friday Covenant loot south want want there item hill q",
+    "text_len": 2474,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "covenant",
+     "dan",
+     "honest"
+    ],
+    "n": 7,
+    "named": false,
+    "phrases": [
+     [
+      "honest",
+      "dan"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 22.573,
+    "source": "sources/fallout-4-guide",
+    "text_head": "stairs cook note rain deploy there outside south area north Covenant deploy spea",
+    "text_len": 2978,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "covenant",
+     "dan",
+     "honest"
+    ],
+    "n": 11,
+    "named": false,
+    "phrases": [
+     [
+      "honest",
+      "dan"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 22.254,
+    "source": "sources/fallout-4-guide",
+    "text_head": "Covenant clock Covenant joke hill road next cook Honest Dan take outside house C",
+    "text_len": 3136,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "Preston Garvey at the Red Rocket": {
+  "search": [
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "garvey",
+     "preston",
+     "red",
+     "rocket"
+    ],
+    "n": 47,
+    "named": false,
+    "phrases": [
+     [
+      "preston",
+      "garvey"
+     ],
+     [
+      "red",
+      "rocket"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 21.619,
+    "source": "sources/fallout-4-guide",
+    "text_head": "kill meeting speak meeting Red Rocket trip clock trip want road river head head ",
+    "text_len": 2595,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "garvey",
+     "preston",
+     "red",
+     "rocket"
+    ],
+    "n": 46,
+    "named": false,
+    "phrases": [
+     [
+      "preston",
+      "garvey"
+     ],
+     [
+      "red",
+      "rocket"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 21.506,
+    "source": "sources/fallout-4-guide",
+    "text_head": "here weather tell tell before outside talk road area Concord later here clock sa",
+    "text_len": 3047,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "garvey",
+     "preston",
+     "red",
+     "rocket"
+    ],
+    "n": 49,
+    "named": false,
+    "phrases": [
+     [
+      "preston",
+      "garvey"
+     ],
+     [
+      "red",
+      "rocket"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 21.403,
+    "source": "sources/fallout-4-guide",
+    "text_head": "want item the Red Rocket xp south door later Red Rocket hill room here Sanctuary",
+    "text_len": 2981,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "Riverwood and the Golden Claw from Alvor": {
+  "search": [
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "alvor",
+     "claw",
+     "golden",
+     "riverwood"
+    ],
+    "n": 25,
+    "named": false,
+    "phrases": [
+     [
+      "golden",
+      "claw"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 21.475,
+    "source": "sources/skyrim-guide",
+    "text_head": "here again after door trip east outside head town trip there path reward weather",
+    "text_len": 2580,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "alvor",
+     "claw",
+     "golden",
+     "riverwood"
+    ],
+    "n": 24,
+    "named": false,
+    "phrases": [
+     [
+      "golden",
+      "claw"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 21.371,
+    "source": "sources/skyrim-guide",
+    "text_head": "letter talk after your then weather talk reward Riverwood Golden Claw here River",
+    "text_len": 3124,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "alvor",
+     "claw",
+     "golden",
+     "riverwood"
+    ],
+    "n": 19,
+    "named": false,
+    "phrases": [
+     [
+      "golden",
+      "claw"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 21.355,
+    "source": "sources/skyrim-guide",
+    "text_head": "outside Golden Claw deploy Riverwood time time take Riverwood speak and Gerdur s",
+    "text_len": 2987,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "how do I get to Sanctuary Hills with Codsworth": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "codsworth",
+     "hill",
+     "sanctuary"
+    ],
+    "n": 36,
+    "named": false,
+    "phrases": [
+     [
+      "sanctuary",
+      "hill"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 13.488,
+    "source": "sources/fallout-4-guide",
+    "text_head": "head town talk plan outside head road path Sanctuary Hills river xp Codsworth ea",
+    "text_len": 2690,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "codsworth",
+     "hill",
+     "sanctuary"
+    ],
+    "n": 44,
+    "named": false,
+    "phrases": [
+     [
+      "sanctuary",
+      "hill"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 13.457,
+    "source": "sources/fallout-4-guide",
+    "text_head": "loot stairs Red Rocket Codsworth reward decide inside the tell meeting Preston G",
+    "text_len": 2598,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "codsworth",
+     "hill",
+     "sanctuary"
+    ],
+    "n": 38,
+    "named": false,
+    "phrases": [
+     [
+      "sanctuary",
+      "hill"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 13.39,
+    "source": "sources/fallout-4-guide",
+    "text_head": "river rain take Sanctuary Hills Sanctuary Hills loot after note time north meal ",
+    "text_len": 2848,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "how does the tumbler work when lockpicking in Skyrim": {
+  "search": [
+   {
+    "path": "sources/skyrim-guide",
+    "score": 1.875,
+    "snippet": "# Skyrim guide ## Summary Skyrim guide: a walkthrough. ## Entities ## Fed"
+   },
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "lockpick",
+     "tumbler"
+    ],
+    "n": 173,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 11.984,
+    "source": "sources/skyrim-guide",
+    "text_head": "and said before inside talk tell then letter there weather outside weather lette",
+    "text_len": 3079,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "lockpick",
+     "tumbler"
+    ],
+    "n": 178,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 11.978,
+    "source": "sources/skyrim-guide",
+    "text_head": "decide Lockpicking return then room south Sweet Spot Lockpick take cook the Tumb",
+    "text_len": 2613,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "lockpick",
+     "tumbler"
+    ],
+    "n": 175,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 11.952,
+    "source": "sources/skyrim-guide",
+    "text_head": "take tell hill Sweet Spot next xp return south find the kill Lockpick Skeleton K",
+    "text_len": 2758,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "joining the Thieves Guild in Riften with Brynjolf": {
+  "search": [
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "brynjolf",
+     "guild",
+     "riften",
+     "thieve"
+    ],
+    "n": 97,
+    "named": false,
+    "phrases": [
+     [
+      "thieve",
+      "guild"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 18.226,
+    "source": "sources/skyrim-guide",
+    "text_head": "plan Riften room head friday rain next reward room note find joke quest decide c",
+    "text_len": 3101,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "brynjolf",
+     "guild",
+     "riften",
+     "thieve"
+    ],
+    "n": 94,
+    "named": false,
+    "phrases": [
+     [
+      "thieve",
+      "guild"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 18.142,
+    "source": "sources/skyrim-guide",
+    "text_head": "stairs friday south road want clock the west Riften weather meeting Brynjolf mea",
+    "text_len": 3091,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "brynjolf",
+     "guild",
+     "riften",
+     "thieve"
+    ],
+    "n": 91,
+    "named": false,
+    "phrases": [
+     [
+      "thieve",
+      "guild"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 18.101,
+    "source": "sources/skyrim-guide",
+    "text_head": "Ragged Flagon path friday stairs before the meal Riften Riften house letter take",
+    "text_len": 2962,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "lockpicking sweet spot bobby pin": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "bobby",
+     "lockpick",
+     "pin",
+     "spot",
+     "sweet"
+    ],
+    "n": 167,
+    "named": false,
+    "phrases": [
+     [
+      "lockpick",
+      "sweet"
+     ],
+     [
+      "sweet",
+      "spot"
+     ],
+     [
+      "bobby",
+      "pin"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 19.561,
+    "source": "sources/fallout-4-guide",
+    "text_head": "\n\n==== Lockpicking ====\n\nyou Lockpicking and area talk Master Lock clock inside ",
+    "text_len": 3182,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "bobby",
+     "lockpick",
+     "pin",
+     "spot",
+     "sweet"
+    ],
+    "n": 173,
+    "named": false,
+    "phrases": [
+     [
+      "lockpick",
+      "sweet"
+     ],
+     [
+      "sweet",
+      "spot"
+     ],
+     [
+      "spot",
+      "bobby"
+     ],
+     [
+      "bobby",
+      "pin"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 19.369,
+    "source": "sources/fallout-4-guide",
+    "text_head": "Lockpicking meal and hill quest note kill west remind find after bridge letter t",
+    "text_len": 3142,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "bobby",
+     "lockpick",
+     "pin",
+     "spot",
+     "sweet"
+    ],
+    "n": 182,
+    "named": false,
+    "phrases": [
+     [
+      "sweet",
+      "spot"
+     ],
+     [
+      "spot",
+      "bobby"
+     ],
+     [
+      "bobby",
+      "pin"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 19.283,
+    "source": "sources/fallout-4-guide",
+    "text_head": "again house Bobby Pin rain email meal talk stairs you west plan next clock tell ",
+    "text_len": 3175,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "power armor fusion core repair bay": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "armor",
+     "bay",
+     "core",
+     "fusion",
+     "power",
+     "repair"
+    ],
+    "n": 203,
+    "named": false,
+    "phrases": [
+     [
+      "power",
+      "armor"
+     ],
+     [
+      "armor",
+      "fusion"
+     ],
+     [
+      "fusion",
+      "core"
+     ],
+     [
+      "repair",
+      "bay"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 22.437,
+    "source": "sources/fallout-4-guide",
+    "text_head": "your weather Fusion Core river plan then after find door meeting remind road lat",
+    "text_len": 3094,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "armor",
+     "bay",
+     "core",
+     "fusion",
+     "power",
+     "repair"
+    ],
+    "n": 211,
+    "named": false,
+    "phrases": [
+     [
+      "power",
+      "armor"
+     ],
+     [
+      "armor",
+      "fusion"
+     ],
+     [
+      "fusion",
+      "core"
+     ],
+     [
+      "repair",
+      "bay"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 21.983,
+    "source": "sources/fallout-4-guide",
+    "text_head": "path email Fusion Core cook area town Power Armor letter trip said plan meal let",
+    "text_len": 3113,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "armor",
+     "bay",
+     "core",
+     "fusion",
+     "power",
+     "repair"
+    ],
+    "n": 209,
+    "named": false,
+    "phrases": [
+     [
+      "power",
+      "armor"
+     ],
+     [
+      "fusion",
+      "core"
+     ],
+     [
+      "repair",
+      "bay"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 21.898,
+    "source": "sources/fallout-4-guide",
+    "text_head": "tell then meal Repair Bay Power Armor north west east Power Armor river stairs c",
+    "text_len": 2891,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "quantum chromodynamics lecture": {
+  "search": [],
+  "search_chunks": []
+ },
+ "summarise the Fallout 4 guide": {
+  "search": [
+   {
+    "path": "sources/fallout-4-guide",
+    "score": 4.856,
+    "snippet": "# Fallout 4 guide ## Summary Fallout 4 guide: a walkthrough. ## Entities ## Fed"
+   },
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   },
+   {
+    "path": "sources/skyrim-guide",
+    "score": 1.08,
+    "snippet": "# Skyrim guide ## Summary Skyrim guide: a walkthrough. ## Entities ## Fed"
+   }
+  ],
+  "search_chunks": []
+ },
+ "what does the Fallout guide say about hacking a terminal": {
+  "search": [
+   {
+    "path": "sources/fallout-4-guide",
+    "score": 3.611,
+    "snippet": "# Fallout 4 guide ## Summary Fallout 4 guide: a walkthrough. ## Entities ## Fed"
+   },
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   },
+   {
+    "path": "sources/skyrim-guide",
+    "score": 1.695,
+    "snippet": "# Skyrim guide ## Summary Skyrim guide: a walkthrough. ## Entities ## Fed"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "hack",
+     "terminal"
+    ],
+    "n": 190,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 18.233,
+    "source": "sources/fallout-4-guide",
+    "text_head": "next note item hill later time trip cook cook Hacking Terminal Hacking Terminal ",
+    "text_len": 2443,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "hack",
+     "terminal"
+    ],
+    "n": 184,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 18.219,
+    "source": "sources/fallout-4-guide",
+    "text_head": "room Hacking friday outside road remind Hacking Hacking and hill Terminal kill n",
+    "text_len": 2961,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "hack",
+     "terminal"
+    ],
+    "n": 195,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 18.118,
+    "source": "sources/fallout-4-guide",
+    "text_head": "again before said later here head Robco kill here you trip time find reward west",
+    "text_len": 2906,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "what does the Skyrim guide say about the Sanctuary": {
+  "search": [
+   {
+    "path": "sources/skyrim-guide",
+    "score": 2.955,
+    "snippet": "# Skyrim guide ## Summary Skyrim guide: a walkthrough. ## Entities ## Fed"
+   },
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   },
+   {
+    "path": "sources/fallout-4-guide",
+    "score": 1.174,
+    "snippet": "# Fallout 4 guide ## Summary Fallout 4 guide: a walkthrough. ## Entities ## Fed"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "sanctuary"
+    ],
+    "n": 239,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 18.059,
+    "source": "sources/skyrim-guide",
+    "text_head": "decide remind your Black Door inside meal Black Door cook later road then there ",
+    "text_len": 3175,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "sanctuary"
+    ],
+    "n": 240,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 17.455,
+    "source": "sources/skyrim-guide",
+    "text_head": "your hill hill here letter hill cook loot you Falkreath house item west tell fin",
+    "text_len": 2983,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "sanctuary"
+    ],
+    "n": 237,
+    "named": true,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 17.253,
+    "source": "sources/skyrim-guide",
+    "text_head": "Dark Brotherhood plan email said decide email meeting Astrid before inside Black",
+    "text_len": 2577,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "what should we cook tonight": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "cook"
+    ],
+    "n": 44,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.006,
+    "source": "sources/fallout-4-guide",
+    "text_head": "loot stairs Red Rocket Codsworth reward decide inside the tell meeting Preston G",
+    "text_len": 2598,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "cook"
+    ],
+    "n": 54,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.006,
+    "source": "sources/fallout-4-guide",
+    "text_head": "next speak reward xp friday take cook item then here remind here reward stairs H",
+    "text_len": 2561,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "cook"
+    ],
+    "n": 56,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 0.006,
+    "source": "sources/fallout-4-guide",
+    "text_head": "Irma Irma Irma path email want meal Goodneighbor Goodneighbor south Third Rail T",
+    "text_len": 2974,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "where is Jarl Balgruuf in Whiterun": {
+  "search": [],
+  "search_chunks": [
+   {
+    "matched": [
+     "balgruuf",
+     "jarl",
+     "whiterun"
+    ],
+    "n": 8,
+    "named": false,
+    "phrases": [
+     [
+      "jarl",
+      "balgruuf"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.914,
+    "source": "sources/skyrim-guide",
+    "text_head": "your east Jarl Balgruuf reward Companions rain area Whiterun Jorrvaskr find insi",
+    "text_len": 2861,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "balgruuf",
+     "jarl",
+     "whiterun"
+    ],
+    "n": 16,
+    "named": false,
+    "phrases": [
+     [
+      "jarl",
+      "balgruuf"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.914,
+    "source": "sources/skyrim-guide",
+    "text_head": "clock here reward tell east joke kill Whiterun Dragonsreach Whiterun meal Jarl B",
+    "text_len": 3127,
+    "title": "Skyrim guide",
+    "total": 251
+   },
+   {
+    "matched": [
+     "balgruuf",
+     "jarl",
+     "whiterun"
+    ],
+    "n": 6,
+    "named": false,
+    "phrases": [
+     [
+      "jarl",
+      "balgruuf"
+     ]
+    ],
+    "raw": "raw/inbox/DATE-guide2.md",
+    "score": 22.615,
+    "source": "sources/skyrim-guide",
+    "text_head": "remind room area deploy rain note time outside kill plan speak Whiterun after la",
+    "text_len": 3105,
+    "title": "Skyrim guide",
+    "total": 251
+   }
+  ]
+ },
+ "where is the SAFE test in Covenant": {
+  "search": [
+   {
+    "path": "people/anna",
+    "score": 1.872,
+    "snippet": "# Anna ## Summary Colleague on the platform team; runs the Friday deploy. ## Notes ## Related"
+   },
+   {
+    "path": "projects/falcon",
+    "score": 1.458,
+    "snippet": "# Falcon ## Summary Load-test project, amber. ## Notes ## Related"
+   }
+  ],
+  "search_chunks": [
+   {
+    "matched": [
+     "covenant",
+     "safe",
+     "test"
+    ],
+    "n": 10,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 13.102,
+    "source": "sources/fallout-4-guide",
+    "text_head": "item area your you decide weather before east head Covenant after remind your ar",
+    "text_len": 3070,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "covenant",
+     "safe",
+     "test"
+    ],
+    "n": 14,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 12.959,
+    "source": "sources/fallout-4-guide",
+    "text_head": "door return summer road head want after lake town you road Covenant your head Co",
+    "text_len": 3119,
+    "title": "Fallout 4 guide",
+    "total": 248
+   },
+   {
+    "matched": [
+     "covenant",
+     "safe",
+     "test"
+    ],
+    "n": 13,
+    "named": false,
+    "phrases": [],
+    "raw": "raw/inbox/DATE-guide.md",
+    "score": 12.94,
+    "source": "sources/fallout-4-guide",
+    "text_head": "there before remind want email joke Covenant note Covenant you clock find outsid",
+    "text_len": 2500,
+    "title": "Fallout 4 guide",
+    "total": 248
+   }
+  ]
+ },
+ "who is Ada Lovelace": {
+  "search": [],
+  "search_chunks": []
+ }
+}

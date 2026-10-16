@@ -1,0 +1,6 @@
+# Index
+
+- [[people/anna]] — Anna, person — Colleague on the platform team; runs the Friday deploy.
+- [[projects/falcon]] — Falcon, project — Load-test project, amber.
+- [[sources/fallout-4-guide]] — Fallout 4 guide, source — Fallout 4 guide: a walkthrough.
+- [[sources/skyrim-guide]] — Skyrim guide, source — Skyrim guide: a walkthrough.

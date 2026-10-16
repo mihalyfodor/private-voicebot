@@ -337,17 +337,34 @@ def test_the_index_block_is_trimmed_to_its_budget(vault, memory_sandbox, monkeyp
 def test_lint_flags_a_broken_link_and_a_page_missing_from_the_index(vault):
     wiki.apply_page_ops([a_page()], "s")
     wiki._write("people/anna.md", read("people/anna.md") + "\n- see [[projects/ghost]]\n")
-    wiki._write("index.md", "# Index\n\n(no pages yet)\n")
+    wiki._db().drop_page("people/anna.md")           # a write that missed its hook (PRD 53)
 
     findings = wiki.lint()
     assert any("broken link [[projects/ghost]]" in f for f in findings)
-    assert any("missing from index.md" in f for f in findings)
+    assert any("missing from the search index" in f for f in findings)
     assert all(f.startswith("people/anna:") for f in findings)   # suffix-less, like wikilinks
 
-    wiki.rebuild_index()
+    wiki.reindex()
     findings = wiki.lint()
-    assert not any("missing from index.md" in f for f in findings)
+    assert not any("search index" in f for f in findings)
     assert any("broken link" in f for f in findings)
+
+
+def test_lint_checks_the_search_index_not_the_capped_index_md(vault):
+    """PRD 53 scenario 5: 250 pages are no lint finding; index.md stays at 200 lines; a page on
+    disk the index lacks, and an index row whose page is gone, are reported."""
+    wiki.apply_page_ops([a_page(f"notes/n{i:03d}", f"Note {i:03d}", f"Note number {i}.")
+                         for i in range(250)], "s")
+    assert len(wiki.page_paths()) == 250
+    assert not [f for f in wiki.lint() if "index" in f]
+    assert len([line for line in read("index.md").splitlines() if line.startswith("- [[")]) == wiki.INDEX_MAX_LINES
+
+    write_page("notes/stray", "Stray", "## Summary\nWritten past the hooks.\n")
+    wiki._db().drop_page("notes/stray.md")
+    os.remove(os.path.join(wiki.WIKI_PATH, "notes/n000.md"))
+    findings = [f for f in wiki.lint() if "index" in f]
+    assert findings == ["notes/stray: missing from the search index — run `python -m wiki reindex`",
+                        "notes/n000: in the search index but not on disk — run `python -m wiki reindex`"]
 
 
 def test_lint_flags_missing_frontmatter_keys(vault):
