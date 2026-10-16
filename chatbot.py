@@ -507,7 +507,7 @@ def card_path(card: dict, folder: str = "") -> str:
 def save_card(card_id: str | None, folder: str = "") -> list:
     """File a card as a note and return the messages to send (`wiki_open`, `card_saved`, the
     refreshed `wiki` + `sources`); raises ValueError with the refusal reason (scope wiki)."""
-    card = llm._cards.get(str(card_id)) if card_id else llm.last_card
+    card = llm.get_card(card_id) if card_id else llm.last_card
     if not card or not card.get("markdown"):            # a running / failed run card has no body (PRD 51)
         raise ValueError(NOTHING_TO_SAVE)
     if card.get("saved"):
@@ -597,7 +597,7 @@ def _propose(ctx: Ctx, kind: str, target: str) -> None:
         if ctx.text:
             llm.record_user(ctx.text)
         pending = approvals.propose(sess, kind, target)
-        send_sync(card_msg(llm._cards[pending["card_id"]]))
+        send_sync(card_msg(llm.get_card(pending["card_id"])))
         llm.record_assistant(say_canned(approvals.KINDS[kind].spoken(pending["proposal"]), send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except (ValueError, sources.IngestError) as e:
@@ -665,6 +665,13 @@ def _settle_pending(ctx: Ctx) -> bool:
     return True
 
 
+def _fold_card(send_sync, card: dict, status: str, steps: list | None = None, commit: str = "") -> None:
+    """Fold an approval's card to `status` (no Approve / Reject left, Open run kept; `steps` when given)
+    and send the `card_update`, with the `commit` when there is one."""
+    card.update(status=status, actions=[runs.OPEN], **({"steps": steps} if steps is not None else {}))
+    send_sync(card_update(card, **({"commit": commit} if commit else {})))
+
+
 def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: str | None = None) -> None:
     """Decide the pending approval (voice, typed or a button) and tell the page: `card_update` (done
     + the commit, or rejected; no Approve / Reject left), the refreshed lists after a forget, one
@@ -672,20 +679,17 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
     taken = sess.pending
     try:
         out = approvals.resolve_pending(sess, decision, via, run_id)
-        card = llm._cards.get(out.pending["card_id"]) if out.pending else None
+        card = llm.get_card(out.pending["card_id"]) if out.pending else None
         if out.error and out.pending is None and run_id:     # a stale click: that card stops asking too
-            stale = next((c for c in llm._cards.values() if c.get("run_id") == run_id and c.get("actions")
+            stale = next((c for c in llm.cards_for_run(run_id) if c.get("actions")
                           and any(a.get("kind") in approvals.DECISIONS for a in c["actions"])
-                          or c.get("run_id") == run_id and c.get("status") == "expired"), None)
+                          or c.get("status") == "expired"), None)
             if stale is not None:
-                stale.update(status=stale["status"] if stale["status"] != "awaiting" else "expired",
-                             actions=[runs.OPEN])
-                send_sync(card_update(stale))
+                _fold_card(send_sync, stale, "expired" if stale["status"] == "awaiting" else stale["status"])
         if out.error:
             if card is not None:              # changed: the card stops asking
-                card.update(status="failed", actions=[runs.OPEN], steps=out.pending["steps"] + [
+                _fold_card(send_sync, card, "failed", out.pending["steps"] + [
                     {"label": "not applied", "status": "error", "detail": runs.reason_sentence("changed")}])
-                send_sync(card_update(card))
             send_sync({"type": "error", "scope": "turn", "text": out.error})
             send_sync({"type": "state", "value": "idle"})
             return
@@ -693,23 +697,19 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
         if out.decision == "approve":
             facts = approvals.KINDS[out.pending["kind"]].applied(out.pending["proposal"])
             step = {"label": "applied", "status": "ok", "detail": f"{facts} · commit {commit}" if commit else facts}
-            card.update(status="done", actions=[runs.OPEN], steps=out.pending["steps"] + [step])
-            send_sync(card_update(card, **({"commit": commit} if commit else {})))
+            _fold_card(send_sync, card, "done", out.pending["steps"] + [step], commit)
             if out.pending["kind"] == "forget":
                 llm.refresh_context()
                 send_sync(_wiki_msg())
                 send_sync(_sources_msg())
         else:
-            card.update(status="rejected", actions=[runs.OPEN],
-                        steps=out.pending["steps"] + [{"label": "rejected", "status": "skipped"}])
-            send_sync(card_update(card))
+            _fold_card(send_sync, card, "rejected", out.pending["steps"] + [{"label": "rejected", "status": "skipped"}])
         _say_line(sess, turn, send_sync, out.line)
     except Exception as e:
-        card = llm._cards.get(taken["card_id"]) if taken is not None and sess.pending is None else None
+        card = llm.get_card(taken["card_id"]) if taken is not None and sess.pending is None else None
         if card is not None and card.get("status") == "awaiting":      # the write itself failed
-            card.update(status="failed", actions=[runs.OPEN], steps=taken["steps"] + [
+            _fold_card(send_sync, card, "failed", taken["steps"] + [
                 {"label": "applied", "status": "error", "detail": runs.reason_sentence(runs.failure_reason(e))}])
-            send_sync(card_update(card))
         _turn_failed(send_sync, "approval", e, "That did not work.")
 
 

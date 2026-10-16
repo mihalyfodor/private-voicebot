@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 52 — Approvals: confirm writes by voice or card button
 

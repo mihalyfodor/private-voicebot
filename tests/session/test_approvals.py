@@ -553,3 +553,77 @@ def test_the_palette_new_topic_clears_the_pending(morrowind):
     with patch.object(core_llm, "_client", FakeClient("A short summary.")):
         button_turn(chatbot.new_topic_turn, sess, 2)
     assert sess.pending is None and _decisions()[-1]["decision"] == "expired"
+
+
+# --------------------------------------------------------------- refactor 52: slot lock, sweep, rows
+
+
+def _notebook(vault, pages: int = 2) -> dict:
+    from tests.conftest import FakeClient, notebook_pages
+    from core import llm as core_llm
+    import json as _json
+    summary = _json.dumps({"title": "Standup", "summary": "Notes.", "entities": [], "unreadable": False})
+    texts = [f"Page text {i}." for i in range(pages)]
+    with patch.object(core_llm, "_client", FakeClient(*texts, summary, "[]")):
+        return notebooks.ingest_notebook(notebook_pages(pages), title="Standup")
+
+
+def test_a_stray_file_in_a_notebooks_page_folder_is_not_swept(vault):
+    filed = _notebook(vault)
+    sha, stem = filed["sha256"], filed["raw"][:-len(".md")]
+    clean = sources.forget_plan(sha)
+    stray = wiki._path(f"{stem}/.DS_Store")
+    with open(stray, "wb") as f:
+        f.write(b"junk")
+    plan = sources.forget_plan(sha)
+    assert plan["images"] == clean["images"] and not any("DS_Store" in i for i in plan["images"])
+    assert approvals.digest(plan) == approvals.digest(clean)
+    sess = Session()
+    button_turn(chatbot.propose_turn, sess, 1, "forget", sha)
+    button_turn(chatbot.resolve_turn, sess, 2, sess.pending["run_id"], "approve")
+    assert os.path.exists(stray) and not os.path.exists(wiki._path(f"{stem}/page-01.png"))
+
+
+def test_the_run_page_lists_the_page_images_the_card_counts(vault):
+    filed = _notebook(vault)
+    sess = Session()
+    sent = button_turn(chatbot.propose_turn, sess, 1, "forget", filed["sha256"])
+    card = _of(sent, "card")[0]
+    stem = filed["raw"][:-len(".md")]
+    html = TestClient(chatbot.app).get(card["run_url"]).text
+    assert "2 page images" in card["markdown"]
+    assert f"{stem}/page-01.png" in html and f"{stem}/page-02.png" in html
+
+
+def test_a_disconnect_expire_racing_a_resolve_yields_one_decision(morrowind):
+    import threading
+    gate = threading.Event()
+    resolver = {}
+
+    class Racy(Session):
+        """Its first `pending` read on the resolving thread parks, so an expire can try to slip in."""
+        @property
+        def pending(self):
+            value = self.__dict__.get("_p")
+            if value is not None and threading.current_thread() is resolver.get("t") and not gate.is_set():
+                gate.set()
+                threading.Event().wait(0.3)
+            return value
+
+        @pending.setter
+        def pending(self, value):
+            self.__dict__["_p"] = value
+
+    sess = Racy()
+    _ask(sess)
+    out = {}
+
+    def resolve():
+        out["o"] = approvals.resolve_pending(sess, "approve", "button")
+
+    resolver["t"] = t = threading.Thread(target=resolve)
+    t.start()
+    assert gate.wait(5)
+    approvals.expire(sess, "disconnect")
+    t.join(10)
+    assert len(_decisions()) == 1

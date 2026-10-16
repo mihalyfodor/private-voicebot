@@ -776,6 +776,16 @@ def issue_card(card: dict) -> dict:
     return card
 
 
+def get_card(card_id) -> dict | None:
+    """The issued / filed card with this id, or None — the one reader of the card store."""
+    return _cards.get(str(card_id or ""))
+
+
+def cards_for_run(run_id: str) -> list:
+    """The cards that belong to run `run_id` (a run card, or an approval's awaiting card)."""
+    return [c for c in _cards.values() if c.get("run_id") == run_id]
+
+
 def loose_cards() -> list:
     """``(position, card)`` of the issued cards that are not conversation turns, in issue order."""
     return [(pos, _cards[cid]) for cid, pos in _loose.items() if cid in _cards]

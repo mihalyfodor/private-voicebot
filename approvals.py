@@ -13,6 +13,7 @@ A root module for now; it moves to `agent/approvals.py` at PRD 50 step 9.
 import hashlib
 import json
 import re
+import threading
 import time
 from typing import Callable, NamedTuple
 
@@ -23,6 +24,10 @@ import sources
 import wiki
 from core import trace
 from tools import commands
+
+#: guards every pop / replace of `sess.pending`: the turn worker (propose, resolve) and the event loop
+#: (expire on reconnect / disconnect) both write it
+_SLOT = threading.Lock()
 
 EXPIRED = "that request expired"
 CHANGED = "that changed since I asked — ask again"
@@ -184,7 +189,8 @@ def _forget_facts(p: dict, cleaned: str, removed: str) -> str:
 FORGET = Kind(
     plan=lambda sha: sources.forget_plan(sha), apply=_forget_apply, spoken=_forget_spoken, key="sha",
     title=lambda p: f"Forget {p['title']}", body=_forget_body,
-    rows=lambda p: [{"path": p["page"], "title": p["title"]}, {"path": p["raw"]}] + [{"path": c} for c in p["cleaned"]],
+    rows=lambda p: ([{"path": p["page"], "title": p["title"]}, {"path": p["raw"]}]
+                    + [{"path": i} for i in p.get("images") or []] + [{"path": c} for c in p["cleaned"]]),
     detail=lambda p: _forget_facts(p, "to clean", ""),
     applied=lambda p: _forget_facts(p, "cleaned", " removed"),
     done="Forgotten.")
@@ -194,7 +200,7 @@ FORGET = Kind(
 
 
 def _card(card_id: str) -> dict:
-    card = llm._cards.get(str(card_id or ""))
+    card = llm.get_card(card_id)
     if not card or not card.get("markdown"):
         raise ValueError(NOTHING_TO_SEND)
     return card
@@ -246,23 +252,31 @@ def propose(sess, kind: str, target: str) -> dict:
     card = llm.issue_card({"id": llm.next_card_id(), "markdown": spec.body(proposal), "sources": [],
                            "title": spec.title(proposal), **run.card([APPROVE, REJECT, runs.OPEN]),
                            "status": "awaiting"})
-    sess.pending = {"run_id": run.run_id, "kind": kind, "proposal": proposal, "hash": digest(proposal),
-                    "created": time.time(), "card_id": card["id"], "steps": list(run.steps)}
-    return sess.pending
+    pending = {"run_id": run.run_id, "kind": kind, "proposal": proposal, "hash": digest(proposal),
+               "created": time.time(), "card_id": card["id"], "steps": list(run.steps)}
+    with _SLOT:
+        older, sess.pending = sess.pending, pending
+    if older is not None:                  # one slipped in since the expire above
+        _expired(older, "button")
+    return pending
 
 
 def expire(sess, via: str) -> dict | None:
     """The one-turn pop's silent branch: drop the pending approval (a `decision expired`); the old
     card keeps its buttons, and a later click on them is "that request expired"."""
-    pending = getattr(sess, "pending", None)
-    if sess is not None:
-        sess.pending = None
+    with _SLOT:
+        pending, sess.pending = getattr(sess, "pending", None), None
     if pending is not None:
-        _end(pending, "expired", via, "expired", "expired")
-        card = llm._cards.get(pending.get("card_id"))
-        if card is not None and card.get("status") == "awaiting":      # a replay shows it folded
-            card.update(status="expired", actions=[runs.OPEN])
+        _expired(pending, via)
     return pending
+
+
+def _expired(pending: dict, via: str) -> None:
+    """End an emptied slot's run as expired and fold its card (a replay shows it folded)."""
+    _end(pending, "expired", via, "expired", "expired")
+    card = llm.get_card(pending.get("card_id"))
+    if card is not None and card.get("status") == "awaiting":
+        card.update(status="expired", actions=[runs.OPEN])
 
 
 class Outcome(NamedTuple):
@@ -278,10 +292,11 @@ def resolve_pending(sess, decision: str, via: str, run_id: str | None = None) ->
     pending → "that request expired", `sess.pending` untouched. Else the slot is emptied; reject →
     "Left it."; approve recomputes the plan, a different hash (or a target gone) → "changed", nothing
     written; else the write (its one commit) in an `apply` step under the proposing run."""
-    pending = sess.pending
-    if pending is None or (run_id is not None and run_id != pending["run_id"]):
-        return Outcome("expired", None, error=EXPIRED)
-    sess.pending = None
+    with _SLOT:
+        pending = sess.pending
+        if pending is None or (run_id is not None and run_id != pending["run_id"]):
+            return Outcome("expired", None, error=EXPIRED)
+        sess.pending = None
     spec = KINDS[pending["kind"]]
     if decision != "approve":
         _end(pending, "reject", via, "rejected", "rejected")

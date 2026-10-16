@@ -1399,6 +1399,10 @@ def _without_source_notes(body: str, raw_rel: str) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
+#: the notebook writer's page file name (`<stem>/page-NN.png`)
+_PAGE_IMAGE = re.compile(r"page-\d{2,}\.png")
+
+
 def _forget_targets(entry: dict) -> dict:
     """What forgetting `entry` touches, read-only: the source page, the raw file, its stored page
     files, the pages whose notes cite it and the source title the memory entries carry."""
@@ -1412,8 +1416,8 @@ def _forget_targets(entry: dict) -> dict:
             cleaned.append(rel)
     files = set(entry.get("pages") or [])
     for folder in {os.path.dirname(rel) for rel in files}:          # a notebook's page folder, as it is now
-        if os.path.isdir(wiki._path(folder)):
-            files |= {f"{folder}/{name}" for name in os.listdir(wiki._path(folder))}
+        if os.path.isdir(wiki._path(folder)):                        # its page images only: a stray file stays
+            files |= {f"{folder}/{name}" for name in os.listdir(wiki._path(folder)) if _PAGE_IMAGE.fullmatch(name)}
     return {"page": entry["page"], "raw": raw_rel, "files": sorted(files),
             "cleaned": cleaned, "title": _source_meta(entry)["title"]}
 
@@ -1423,6 +1427,7 @@ CHANGED_STATUS = 409
 
 
 def _plan(digest: str, targets: dict) -> dict:
+    """The proposal dict `forget_plan` returns (and `forget` compares with the approved one)."""
     return {"sha": digest, "title": targets["title"], "page": targets["page"], "raw": targets["raw"],
             "images": targets["files"], "cleaned": [wiki.wikilink(rel) for rel in targets["cleaned"]],
             "memory": memory.source_entries(targets["title"])}
