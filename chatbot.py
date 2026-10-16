@@ -393,8 +393,7 @@ def briefing(ctx: Ctx):
         stage = "phrased"
         empty = wiki.digest_empty(digest)
         if not empty and not services.llm_ok():
-            run.fail("phrased", "failed-offline")
-            send_sync(_run_card(run))
+            _run_failed(run, "phrased", "failed-offline", send_sync)
             send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
             send_sync({"type": "state", "value": "idle"})
             return
@@ -417,9 +416,7 @@ def briefing(ctx: Ctx):
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        if run is not None and run.status == "running":
-            run.fail(stage, runs.failure_reason(e))
-            send_sync(_run_card(run))
+        _run_failed(run, stage, runs.failure_reason(e), send_sync)
         _turn_failed(send_sync, "briefing", e, "The briefing failed.", recheck=True)
 
 
@@ -459,6 +456,19 @@ def _run_card(run) -> dict:
                      "title": runs.WORKFLOWS[run.workflow], **run.card([runs.OPEN])})
 
 
+def _run_failed(run, step: str, reason: str, send_sync, card=None) -> None:
+    """End a still-running `run` failed at `step`, then send its card: `card_update` on the card that
+    already went out (it keeps the failed status for a replay), else a fresh run card. No-op otherwise."""
+    if run is None or run.status != "running":
+        return
+    run.fail(step, reason)
+    if card is None:
+        send_sync(_run_card(run))
+    else:
+        card.update(run.card([runs.OPEN]))
+        send_sync(card_update(card))
+
+
 def context_msg() -> dict:
     return {"type": "context", **llm.context_usage()}
 
@@ -476,6 +486,7 @@ CARD_RUN_FIELDS = ("run_id", "workflow", "status", "steps", "actions", "run_url"
 
 
 def card_msg(card: dict) -> dict:
+    """`card` message: a card's body plus its run fields (if any)."""
     return {"type": "card", "id": card["id"], "markdown": card["markdown"], "sources": card["sources"],
             "title": card["title"], **{k: card[k] for k in CARD_RUN_FIELDS if k in card}}
 
@@ -543,22 +554,12 @@ def write_up(ctx: Ctx):
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except ValueError as e:
-        if run is not None and run.status == "running":
-            _write_up_failed(card, run, "failed-model", send_sync)
+        _run_failed(run, "write", "failed-model", send_sync, card)
         send_sync({"type": "error", "scope": "turn", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
-        if run is not None and run.status == "running":
-            _write_up_failed(card, run, runs.failure_reason(e), send_sync)
+        _run_failed(run, "write", runs.failure_reason(e), send_sync, card)
         _turn_failed(send_sync, "write_up", e, "The write-up failed.", recheck=True)
-
-
-def _write_up_failed(card, run, reason: str, send_sync) -> None:
-    """The write-up run failed: its card (if it went out) keeps the failed status for a replay."""
-    run.fail("write", reason)
-    if card is not None:
-        card.update(run.card([runs.OPEN]))
-        send_sync(card_update(card))
 
 
 @registry.handler("save_note")

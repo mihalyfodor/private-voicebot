@@ -20,8 +20,9 @@ from datetime import datetime
 
 from core import trace
 
-WORKFLOWS = {"briefing": "Briefing", "write-up": "Write-up", "remarkable": "reMarkable pull",
-             "batch": "Batch import", "ingest": "Ingest"}
+_LABELS = {"remarkable": "reMarkable pull", "batch": "Batch import"}      # the rest: capitalised
+#: workflow -> label; the keys are `trace.FIELDS["workflow"]` (the JS `RUN_WORKFLOWS` is the other copy)
+WORKFLOWS = {w: _LABELS.get(w, w.capitalize()) for w in sorted(trace.FIELDS["workflow"])}
 #: reason code -> the sentence the card's failed step and the page's outcome line show
 REASONS = {
     "ok": "Finished.",
