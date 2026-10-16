@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 53 — Scalable index: thousands of pages and sources without losing voice latency
 
@@ -88,6 +88,10 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
 - Chose no Obsidian support (the user does not use it) over staleness sweeps: no mtime sweeps, no fsevents.
 - Chose `index_db.py` as storage + scorer only (stdlib `sqlite3`, no vault reads) over moving `_tokenise`/`_stem` into it:
   wiki.py tokenises and hands in tokens, so there is no import cycle and the tokeniser stays where it was.
+- Chose to store the manifest hash only when no source was skipped over remembering skipped shas: a skipped source is
+  retried by the next sync (startup check, or a manifest change) at the cost of one failed read each, no extra state.
+- Chose one pure `index_db.bm25_term` over two copies of the formula: the indexed scorer and `best_section`'s in-memory
+  scorer share it, so the math exists once.
 - Chose to put scenario 6 in `tests/wiki/test_index_db.py` over `tests/test_index.py`, which is the docs/index.md test.
 - Chose a lazy build over a mandatory startup step: the first index open per process runs the consistency check (a
   vault without a DB answers its first search by building one); the app's startup event and batch import also run it.

@@ -336,6 +336,20 @@ def test_a_source_that_cannot_be_chunked_is_skipped_not_fatal(seeded_vault):
     assert [e for e in trace_lines(kind="error") if e["scope"] == "index" and e["where"] == "sync_sources"]
 
 
+def test_a_skipped_source_is_retried_once_its_raw_file_is_restored(seeded_vault):
+    file_faq(ZYX, "Marsh notes", "marsh.md")
+    sha = "e" * 64
+    sources._manifest_append({"sha256": sha, "path": "raw/inbox/later.md", "kind": "md", "page": "sources/later"})
+    index_db.close()
+    assert wiki.search_chunks("quokkaword") == []
+    assert sha not in wiki._db().source_shas()             # skipped, and the manifest hash was not stored
+    wiki._write("raw/inbox/later.md", "The quokkaword lives on the island.")
+    index_db.close()                                       # the next startup check retries it
+    assert wiki.startup_check() == 1
+    assert wiki.search_chunks("quokkaword")
+    assert sha in wiki._db().source_shas()
+
+
 def test_the_startup_event_logs_an_index_failure_and_carries_on(monkeypatch):
     import asyncio
 

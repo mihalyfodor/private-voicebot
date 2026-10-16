@@ -17,7 +17,6 @@ See docs/19-wiki-layer.md.
 import contextlib
 import hashlib
 import json
-import math
 import os
 import re
 import subprocess
@@ -849,9 +848,6 @@ def delete_page(path: str) -> tuple:
 # BM25 over page bodies + frontmatter. Personal scale (≤ 200 pages), no embeddings, no new
 # dependency, and deterministic — which is what makes it testable.
 
-_K1, _B = index_db.K1, index_db.B
-
-
 def _stem(word: str) -> str:
     """A light stem so "lockpick" finds "lockpicking" and "turret" "turrets" — no dependency."""
     if len(word) > 5 and word.endswith("ing"):
@@ -881,6 +877,11 @@ def _db() -> index_db.Index:
     return idx
 
 
+def _hook_db() -> index_db.Index | None:
+    """The index for a write hook; None when the vault does not exist yet (nothing to index)."""
+    return _db() if exists() else None
+
+
 def _is_page(rel: str) -> bool:
     """What :func:`page_paths` would list, by path alone (an empty decisions.md is decided on its text)."""
     parts = rel.split("/")
@@ -889,10 +890,12 @@ def _is_page(rel: str) -> bool:
 
 
 def _sha(text: str) -> str:
+    """Hex SHA-256 of a text."""
     return hashlib.sha256(text.encode()).hexdigest()
 
 
 def _put_page(idx: index_db.Index, rel: str, text: str, mtime: int) -> None:
+    """Write one page's row and postings from its text."""
     fm, body = parse_page(text)
     fields = {"type": str(fm.get("type") or ""), "name": str(fm.get("name") or ""),
               "tags": json.dumps(tags(text)), "updated": str(fm.get("updated") or ""),
@@ -902,9 +905,8 @@ def _put_page(idx: index_db.Index, rel: str, text: str, mtime: int) -> None:
 
 def index_page(rel: str, text: str | None = None) -> None:
     """Write hook: (re)index one page after its file was written (`_write` calls it)."""
-    if not exists() or not _is_page(rel):
+    if not _is_page(rel) or (idx := _hook_db()) is None:
         return
-    idx = _db()
     text = _read(rel) if text is None else text
     if not os.path.isfile(_path(rel)) or (rel == DECISIONS_FILE and not _has_decisions(text)):
         idx.drop_page(rel)
@@ -914,8 +916,8 @@ def index_page(rel: str, text: str | None = None) -> None:
 
 def unindex_page(rel: str) -> None:
     """Write hook: a page file was removed (rename, delete, forget); its rows go."""
-    if exists() and _is_page(rel):
-        _db().drop_page(rel)
+    if _is_page(rel) and (idx := _hook_db()) is not None:
+        idx.drop_page(rel)
 
 
 def _check(idx: index_db.Index, *, batch: bool | None = None) -> int:
@@ -1035,9 +1037,7 @@ def _bm25(docs: list, terms: set, weights: dict | None = None) -> list:
             freq = counts.get(term, 0)
             if not freq:
                 continue
-            idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-            score += (weights.get(term, 1.0) * idf * freq * (_K1 + 1)
-                      / (freq + _K1 * (1 - _B + _B * dl / avgdl)))
+            score += index_db.bm25_term(weights.get(term, 1.0), freq, dl, avgdl, df[term], n)
         scores.append(score)
     return scores
 
@@ -1259,12 +1259,12 @@ _records: dict = {}
 
 def index_source(record: dict) -> None:
     """Write hook: index one filed source's chunks (`record` is :func:`raw_chunks`' result)."""
-    if not exists():
-        return
-    _put_source(_db(), record)
+    if (idx := _hook_db()) is not None:
+        _put_source(idx, record)
 
 
 def _put_source(idx: index_db.Index, record: dict) -> None:
+    """Write one source's chunk rows (or drop it when it has no chunks)."""
     seen, titled = _proper_counts(c["text"] for c in record["chunks"])
     chunks = [(c["n"], c["start"], _tokenise(c["text"])) for c in record["chunks"]]
     if chunks:
@@ -1276,11 +1276,12 @@ def _put_source(idx: index_db.Index, record: dict) -> None:
 def unindex_source(sha: str) -> None:
     """Write hook: a forgotten source's chunks leave the index. Call it before
     :func:`drop_raw_chunks` — its proper-noun counts come from the chunk cache."""
-    if exists():
-        _drop_source(_db(), sha)
+    if (idx := _hook_db()) is not None:
+        _drop_source(idx, sha)
 
 
 def _drop_source(idx: index_db.Index, sha: str) -> None:
+    """Remove one source's chunk rows, keeping the proper-noun counts right."""
     record = _record(sha)
     if record is not None:
         idx.drop_source(sha, *_proper_counts(c["text"] for c in record["chunks"]))
@@ -1299,7 +1300,7 @@ def _sync_sources(idx: index_db.Index) -> int:
         return 0
     entries = {e["sha256"]: e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)}
     have = idx.source_shas()
-    changed = 0
+    changed, skipped = 0, False
     for sha, raw in have.items():
         if sha not in entries or entries[sha]["path"] != raw:
             _drop_source(idx, sha)
@@ -1312,11 +1313,13 @@ def _sync_sources(idx: index_db.Index) -> int:
         except Exception as exc:    # noqa: BLE001 — one unreadable source must not take the index down
             log.exception(f"search index: skipped {entry.get('path')} (cannot be chunked)")
             trace.error("index", "sync_sources", exc, fatal_for="none")
+            skipped = True
             continue
         if record["chunks"]:
             _put_source(idx, record)
             changed += 1
-    idx.set_meta("manifest", digest)
+    if not skipped:                 # a skipped source keeps its chance: the next sync retries it
+        idx.set_meta("manifest", digest)
     return changed
 
 

@@ -41,7 +41,14 @@ CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT);
 TABLES = ("pages", "chunks", "terms", "postings", "proper", "meta")
 
 
+def bm25_term(weight: float, freq: int, dl: int, avgdl: float, df: int, n: int) -> float:
+    """One term's BM25 contribution to one document (the one formula; the in-memory and the indexed scorer share it)."""
+    idf = math.log(1 + (n - df + 0.5) / (df + 0.5))
+    return weight * idf * freq * (K1 + 1) / (freq + K1 * (1 - B + B * dl / avgdl))
+
+
 def db_path(vault: str) -> str:
+    """Where a vault keeps its index file."""
     return os.path.join(vault, INDEX_DIR, DB_NAME)
 
 
@@ -103,6 +110,7 @@ class Index:
         return conn
 
     def close(self) -> None:
+        """Close and forget the open handle (tests, and before a file swap)."""
         with self.lock:
             self.conn.close()
 
@@ -132,6 +140,7 @@ class Index:
                 self._depth = 0
 
     def stamp(self) -> tuple:
+        """The index's epoch/generation stamp, to tell whether another process changed it."""
         with self.lock:
             rows = dict(self.conn.execute("SELECT key, value FROM meta WHERE key IN ('epoch', 'generation')"))
         return rows.get("epoch"), rows.get("generation")
@@ -147,11 +156,13 @@ class Index:
         return value
 
     def get_meta(self, key: str, default=None):
+        """One meta value, or None."""
         with self.lock:
             row = self.conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
         return row[0] if row else default
 
     def set_meta(self, key: str, value: str) -> None:
+        """Store one meta value."""
         with self.write() as db:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, str(value)))
 
@@ -187,6 +198,7 @@ class Index:
             self._add_doc(db, PAGE, path, tokens, positions=False)
 
     def drop_page(self, path: str) -> None:
+        """Remove one page's row and postings."""
         with self.write() as db:
             self._drop_doc(db, PAGE, path)
             db.execute("DELETE FROM pages WHERE path=?", (path,))
@@ -202,6 +214,7 @@ class Index:
             return {p: (m, s) for p, m, s in self.conn.execute("SELECT path, mtime, sha FROM pages")}
 
     def page_paths(self) -> list:
+        """Every indexed page path."""
         with self.lock:
             return [p for (p,) in self.conn.execute("SELECT path FROM pages ORDER BY path")]
 
@@ -217,6 +230,7 @@ class Index:
             return {p: (t, g, u) for p, t, g, u in self.conn.execute("SELECT path, type, tags, updated FROM pages")}
 
     def page_lengths(self) -> dict:
+        """path -> token count of every indexed page."""
         def build():
             with self.lock:
                 return dict(self.conn.execute("SELECT path, length FROM pages"))
@@ -257,6 +271,7 @@ class Index:
             return True
 
     def replace_proper(self, seen: dict, titled: dict) -> None:
+        """Overwrite the proper-noun counts (a recount after a source went without its cache)."""
         with self.write() as db:
             db.execute("DELETE FROM proper")
             db.executemany("INSERT INTO proper VALUES (?, ?, ?)", [(t, c, titled.get(t, 0)) for t, c in seen.items()])
@@ -275,6 +290,7 @@ class Index:
         return self.cached("chunk_meta", build)
 
     def chunk_lengths(self) -> dict:
+        """chunk id -> token count of every indexed chunk."""
         def build():
             with self.lock:
                 return dict(self.conn.execute("SELECT id, length FROM chunks"))
@@ -293,6 +309,7 @@ class Index:
     # --- scoring --------------------------------------------------------------------
 
     def postings(self, corpus: str, term: str) -> list:
+        """(doc, term frequency) rows of one term in a corpus."""
         with self.lock:
             return self.conn.execute("SELECT doc, tf FROM postings WHERE corpus=? AND term=?",
                                      (corpus, term)).fetchall()
@@ -304,6 +321,7 @@ class Index:
         return row[0] if row else 0
 
     def positions(self, corpus: str, term: str, doc) -> list:
+        """Token positions of a term in one chunk."""
         with self.lock:
             row = self.conn.execute("SELECT positions FROM postings WHERE corpus=? AND term=? AND doc=?",
                                     (corpus, term, doc)).fetchone()
@@ -354,9 +372,7 @@ class Index:
                 freq = freqs[term].get(doc, 0)
                 if not freq:
                     continue
-                idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
-                score += (weights.get(term, 1.0) * idf * freq * (K1 + 1)
-                          / (freq + K1 * (1 - B + B * dl / avgdl)))
+                score += bm25_term(weights.get(term, 1.0), freq, dl, avgdl, df[term], n)
                 matched.add(term)
             out[doc] = (score, matched)
         return out
@@ -364,6 +380,7 @@ class Index:
     # --- inspection -----------------------------------------------------------------
 
     def integrity(self) -> str:
+        """SQLite's integrity check result ("ok" when sound)."""
         with self.lock:
             return self.conn.execute("PRAGMA integrity_check").fetchone()[0]
 
@@ -395,6 +412,7 @@ _open_lock = threading.Lock()
 
 
 def open_index(vault: str) -> Index:
+    """The process-wide handle on the vault's index (reopened when the file was swapped)."""
     path = db_path(vault)
     with _open_lock:
         current = _open["index"]
@@ -407,6 +425,7 @@ def open_index(vault: str) -> Index:
 
 
 def close() -> None:
+    """Close and forget the open handle (tests, and before a file swap)."""
     """Close the cached handle (the next `open_index` reopens; tests call this between vaults)."""
     with _open_lock:
         if _open["index"] is not None:
