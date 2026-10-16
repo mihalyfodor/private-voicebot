@@ -11,7 +11,7 @@ import pytest
 
 import memory
 import wiki
-from tests.conftest import FakeClient, commits, read, seed
+from tests.conftest import FakeClient, commits, read, seed, write_page
 
 
 TURNS = [{"role": "user", "content": "we agreed to deploy on Fridays; Anna runs the release"}]
@@ -364,6 +364,110 @@ def test_lint_and_log_only_writes_when_there_are_findings(vault):
     wiki._write("people/anna.md", read("people/anna.md") + "\n- see [[projects/ghost]]\n")
     assert wiki.lint_and_log()
     assert "lint:" in read("log.md")
+
+
+# PRD 44: dead source refs, uncited raw files, duplicate names
+
+
+def stamped(rel, source, name="Anna", extra=""):
+    wiki._write(rel + ".md", f"---\ntype: note\nname: {name}\ntags: []\nsource: {source}\n"
+                f"updated: 2026-08-30\nseen: 2026-08-30\n{extra}---\n\n## Summary\nx\n")
+    wiki.rebuild_index()
+
+
+def test_lint_ignores_sources_that_are_not_raw_paths(vault):
+    stamped("people/anna", "session 2026-08-29")
+    stamped("projects/answer", "written answer", "Answer",
+            "sources:\n  - Falcon status · part 1/2\n")
+    assert wiki.lint() == []
+
+
+def test_lint_flags_an_uncited_raw_file_only(vault):
+    stray = "raw/inbox/stray.pdf"
+    wiki._write(stray, "x")
+    wiki._write("raw/manifest.jsonl", "")
+    wiki._write("raw/.index/abc.json", "{}")
+    finding = f"{stray}: not in the manifest and cited by no page"
+    assert wiki.lint() == [finding]
+
+    wiki._write("raw/manifest.jsonl", json.dumps({"path": stray, "sha256": "a"}) + "\n")
+    assert wiki.lint() == []
+    wiki._write("raw/manifest.jsonl", "")
+    stamped("projects/falcon", stray, "Falcon")
+    assert wiki.lint() == []
+
+
+def test_lint_counts_a_source_page_raw_key_as_a_citation(vault):
+    stray = "raw/inbox/stray.pdf"
+    wiki._write(stray, "x")
+    wiki._write("raw/manifest.jsonl", "")
+    assert wiki.lint() == [f"{stray}: not in the manifest and cited by no page"]
+    stamped("sources/stray", "upload", "Stray", f"raw: {stray}\n")
+    assert wiki.lint() == []
+
+
+def test_lint_exempts_meetings_from_duplicate_names(vault):
+    stamped("meetings/2026-10-16-falcon-weekly", "s", "Falcon weekly")
+    stamped("meetings/2026-10-23-falcon-weekly", "s", "Falcon weekly")
+    assert wiki.lint() == []
+
+
+def test_lint_flags_a_duplicate_name_once_and_groups_sources_apart(vault):
+    stamped("people/anna", "s", " anna ")
+    stamped("people/anna-2", "s", "Anna")
+    stamped("sources/falcon", "s", "Falcon")
+    stamped("projects/falcon", "s", "Falcon")
+    assert wiki.lint() == ['people/anna-2: duplicate name "Anna" (also people/anna)']
+
+
+def test_lint_and_log_commits_a_duplicate_name_and_the_wiki_message_lists_it(wiki_panel):
+    stamped("people/anna", "s")
+    stamped("people/anna-2", "s")
+    before, log = len(commits()), read("log.md")
+
+    findings = wiki.lint_and_log()
+
+    assert findings == ['people/anna-2: duplicate name "Anna" (also people/anna)']
+    assert read("log.md").count("lint:") == log.count("lint:") + 1
+    assert len(commits()) == before + 1 and "wiki: lint" in commits()[0]
+    assert wiki_panel.send({"action": "get_wiki"})["lint"] == findings
+
+
+# PRD 44: related pages
+
+
+def test_related_context_lists_non_source_hits_and_is_empty_without_any(vault):
+    assert wiki.related_context("Falcon launch") == ""
+    write_page("projects/falcon", "Falcon", "\n## Summary\nThe Falcon launch project.\n")
+    write_page("sources/falcon-plan", "Falcon plan", "\n## Summary\nFalcon launch plan.\n")
+    block = wiki.related_context("Falcon launch", k=5)
+    assert block.startswith("Existing related pages (update these rather than duplicating):")
+    assert "- projects/falcon: Falcon — The Falcon launch project." in block
+    assert "sources/" not in block
+
+
+def test_related_context_stays_within_its_token_cap(vault):
+    for i in range(50):
+        write_page(f"projects/falcon-{i}", f"Falcon launch {i}",
+                   "\n## Summary\n" + "Falcon launch details. " * 20 + "\n")
+    block = wiki.related_context("Falcon launch", k=50)
+    assert block and memory.tokens_est(block) <= wiki.RELATED_TOKENS
+
+
+def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
+    for i in range(10):
+        write_page(f"people/p{i}", f"Person number {i}", "\n## Summary\na colleague of the user\n")
+    write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr rollout.\n")
+    wiki.rebuild_index()
+    monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
+    client = FakeClient("[]")
+
+    wiki.ingest([{"role": "user", "content": "the Zephyr rollout slipped a week"}], client, "m")
+
+    user = client.calls[0]["messages"][1]["content"]
+    index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
+    assert "projects/zephyr" not in index_part
+    assert "(update these rather than duplicating):" in block and "projects/zephyr" in block
 
 
 # --------------------------------------------------------------- 7. ingest

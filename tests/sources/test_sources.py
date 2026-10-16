@@ -16,7 +16,7 @@ import chatbot
 import memory
 import sources
 import wiki
-from tests.conftest import FakeClient, commits, read, vault  # noqa: F401 — fixture
+from tests.conftest import FakeClient, commits, read, vault, write_page  # noqa: F401 — fixture
 
 
 # --------------------------------------------------------------------------- fixtures
@@ -644,3 +644,32 @@ def test_downscale_leaves_small_images_alone(tmp_path, monkeypatch):
     before = open(path, "rb").read()
     sources._downscale(path)
     assert open(path, "rb").read() == before
+
+
+# --------------------------------------------------------------- PRD 44: vault health
+
+
+def test_forgetting_a_source_leaves_a_dead_source_ref_for_lint(vault, fake):
+    filed = sources.ingest_upload(b"# Falcon\n\nFalcon is amber.\n", "falcon-status.md")
+    assert not any("no longer exists" in f for f in wiki.lint())
+
+    sources.forget(sources.sha256(b"# Falcon\n\nFalcon is amber.\n"))
+
+    assert f"projects/falcon: source {filed['raw']} no longer exists" in wiki.lint()
+
+
+def test_the_page_ops_prompt_lists_a_page_the_index_cut(vault, monkeypatch):
+    for i in range(10):
+        write_page(f"people/p{i}", f"Person number {i}", "\n## Summary\na colleague of the user\n")
+    write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr rollout.\n")
+    wiki.rebuild_index()
+    monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
+    client = FakeClient("[]")
+
+    sources.propose_page_ops(client, "m", "sources/zephyr-plan",
+                             {"title": "Zephyr rollout", "summary": "Plan.", "entities": []}, "")
+
+    user = client.calls[0]["messages"][1]["content"]
+    index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
+    assert "projects/zephyr" not in index_part
+    assert "(update these rather than duplicating):" in block and "projects/zephyr" in block

@@ -91,8 +91,8 @@ voicebot/
 ├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
 ├── untrusted.py        # PRD 33: `untrusted(text, source)` → `<document source="…">` (nested tags neutralised), `documents_in`, the standing DOCUMENT_RULE every prompt carries
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
-├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user), lint, archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags, page sections + best section/chunk for a question (PRD 38), `save_card` — a written answer filed as a note with `source: written answer` + `sources:` in one commit (PRD 43)
-├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33)
+├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user; the prompt names the pages most related to the transcript, PRD 44), lint (also dead `source: raw/…` refs, uncited raw files, duplicate names, PRD 44), archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags, page sections + best section/chunk for a question (PRD 38), `save_card` — a written answer filed as a note with `source: written answer` + `sources:` in one commit (PRD 43)
+├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (the prompt lists related pages the index cut, PRD 44; published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33)
 ├── ruff.toml          # lint config (E4/E7/E9/F, compact-style ignores); no formatter
 ├── .claude/agents/reviewer.md  # read-only one-pass branch review before the Implementation gate (BLOCKER / MAJOR / backlog)
 ├── scripts/
@@ -151,11 +151,11 @@ voicebot/
 │   │   ├── test_memory_editor.py    # memory panel actions: get_memory/memory_op/memory_reset, locking, fuzz
 │   │   └── test_memory_eval.py      # PRD 14: eval harness scripts, Sandbox isolation, scoring
 │   ├── wiki/
-│   │   ├── test_wiki.py             # wiki layer: vault, page ops, search, ingest, lint, archive/pull, actions
+│   │   ├── test_wiki.py             # wiki layer: vault, page ops, search, ingest, lint (PRD 44: dead source refs, uncited raw files, duplicate names), related_context, archive/pull, actions
 │   │   ├── test_wiki_editor.py      # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
 │   │   └── test_focus_context.py    # PRD 38: `set_focus` → the page block on typed and spoken turns, head + matching section cap, Chat drops focus / "go back", find/open + no-match notes, a focused source feeds the offer, injected page text wrapped, client fixture assertions
 │   ├── sources/
-│   │   ├── test_sources.py          # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest
+│   │   ├── test_sources.py          # raw ingestion: raw/ + manifest, pdf/eml/image extraction, restricted ops, file_source, POST /ingest, PRD 44 dead ref after forget + related pages in the ops prompt
 │   │   ├── test_sources_inbox.py    # PRD 25: list_sources newest-first, reingest, forget (only matching notes), get_sources/reingest_source/forget_source actions
 │   │   ├── test_office_formats.py   # PRD 31: docx/pptx/xlsx/vtt/ics extraction (fixtures generated in-test), Teams detection, meeting pages + attendee notes, calendar stubs + horizon setting, unreadable files, 10 MB text sampling, model-titled pastes, client fixture assertions, epub, book authors are not people pages + the summary retry
 │   │   ├── test_source_recall.py    # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
@@ -240,7 +240,7 @@ voicebot/
     ├── 41-service-health.md      # PRD: service health banner + Settings rows, scripts/voicebot start/stop/status (done)
     ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (done)
     ├── 43-written-answers.md    # PRD: length by origin+groundedness, written cards (Copy / Save to wiki), explicit notes/ save (done)
-    └── 44-vault-health.md       # PRD: lint for dead source refs / uncited raw files / duplicate names; related pages at ingest (exploration)
+    └── 44-vault-health.md       # PRD: lint for dead source refs / uncited raw files / duplicate names; related pages at ingest (refactoring)
 ```
 
 ## Active PRDs

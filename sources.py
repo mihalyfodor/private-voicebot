@@ -1082,7 +1082,11 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     """
     index = wiki.index_text(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
-    parts = [f"Index:\n{index}", f"Source page: {wiki.wikilink(source_rel)}",
+    related = wiki.related_context(" ".join(
+        [str(summary.get("title") or ""), str(summary.get("summary") or "")]
+        + [str(e.get("name") or "") for e in summary.get("entities", [])]))
+    parts = [f"Index:\n{index}"] + ([related] if related else [])
+    parts += [f"Source page: {wiki.wikilink(source_rel)}",
              f"Title: {summary.get('title')}",
              f"Summary:\n{untrusted(summary.get('summary'), summary.get('title'))}"]
     if entities:

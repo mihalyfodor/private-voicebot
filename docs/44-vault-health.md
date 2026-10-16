@@ -1,4 +1,4 @@
-Status: exploration
+Status: refactoring
 
 # 44 — Vault health: three more lint findings; related pages at ingest
 
@@ -34,7 +34,8 @@ changes.
   `import sources`, as `raw_chunks` does at `wiki.py:1014`) nor any page's `source:` or `raw:` frontmatter →
   `raw/inbox/notes.pdf: not in the manifest and cited by no page`.
 - **Duplicate name** (after the loop): pages grouped by `name:` (casefolded, whitespace collapsed), `sources/` pages
-  grouped apart from the rest (a source titled "Falcon" next to `projects/falcon` is expected); each page after the
+  grouped apart from the rest (a source titled "Falcon" next to `projects/falcon` is expected), `meetings/` exempt
+  (recurring `.ics` stubs share a name by design); each page after the
   first, in path order → `people/anna-2: duplicate name "Anna" (also people/anna)`.
 - Order: existing findings first, then dead refs (with their page), uncited raw files, duplicate names. The
   docstring is updated: a finding names its page, or its raw file.

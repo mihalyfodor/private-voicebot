@@ -117,7 +117,7 @@ def test_forget_removes_page_raw_manifest_line_and_only_its_notes(vault, monkeyp
     assert "Kept: said in a meeting. (source: session 2026-08-29)" in falcon
     assert "## Summary\nPlatform project, amber." in falcon       # the page itself survives
     assert len(commits()) == before + 1
-    assert wiki.lint() == []
+    assert wiki.lint() == [f"projects/falcon: source {filed['raw']} no longer exists"]   # PRD 44
     assert "[[sources/falcon-status]]" not in read("index.md")
 
 

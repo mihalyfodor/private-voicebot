@@ -62,6 +62,7 @@ MAX_NOTE_CHARS = 600            # one `## Notes` bullet
 MAX_READ_BYTES = 4 * 1024       # read_page() ceiling
 TRUNCATED = "\n\n[... truncated]"
 WIKI_INDEX_TOKENS = int(os.getenv("WIKI_INDEX_TOKENS", "600"))
+RELATED_TOKENS = int(os.getenv("WIKI_RELATED_TOKENS", "200"))
 INDEX_MAX_LINES = 200
 
 SECTIONS = ("## Summary", "## Notes", "## Related", "## History")
@@ -412,6 +413,25 @@ def index_text(max_tokens: int = WIKI_INDEX_TOKENS) -> str:
     while lines and memory.tokens_est("\n".join(lines)) > max_tokens:
         lines.pop()
     return "\n".join(lines).strip()
+
+
+def related_context(text: str, k: int = 5) -> str:
+    """The pages most related to `text`, as a prompt block for the ingest calls (PRD 44).
+
+    The index is trimmed to `WIKI_INDEX_TOKENS`, so a page it cut is still named here; `sources/`
+    pages are left out. Trimmed line by line to `RELATED_TOKENS`; "" when there is no hit.
+    """
+    hits = [h for h in search(text, k + 3) if not h["path"].startswith("sources/")][:k]
+    lines = []
+    for hit in hits:
+        fm, body = parse_page(_read(hit["path"] + ".md"))
+        line = f"- {hit['path']}: {fm.get('name') or hit['path'].rsplit('/', 1)[-1]}"
+        summary = _summary_line(body)[:120]
+        lines.append(line + (f" — {summary}" if summary else ""))
+    head = "Existing related pages (update these rather than duplicating):"
+    while lines and memory.tokens_est("\n".join([head] + lines)) > RELATED_TOKENS:
+        lines.pop()
+    return "\n".join([head] + lines) if lines else ""
 
 
 def _log(entries: list) -> None:
@@ -1378,13 +1398,17 @@ def pages() -> list:
 
 
 def lint() -> list:
-    """Findings, worst first: broken links, pages missing from the index, bad frontmatter, size.
+    """Findings, worst first: per page broken links, missing from the index, bad frontmatter,
+    size, a `source: raw/…` whose file is gone; then raw files nothing cites, then duplicate names.
 
-    Each finding names its page the way the rest of the layer does, `people/anna`.
+    A finding names its page the way the rest of the layer does, `people/anna`, or its raw file.
     """
+    import sources
+
     if not exists():
         return []
     findings = []
+    cited, labels = set(), []
     paths = page_paths()
     known = {wikilink(rel) for rel in paths} | {wikilink(r) for r in RESERVED}
     indexed = set(links_in(_read(INDEX_FILE)))
@@ -1402,6 +1426,26 @@ def lint() -> list:
             findings.append(f"{name}: frontmatter missing {', '.join(missing)}")
         if len(text.encode()) > MAX_PAGE_BYTES:
             findings.append(f"{name}: larger than {MAX_PAGE_BYTES // 1024} kB")
+        source = str(fm.get("source") or "")
+        if source.startswith(RAW_DIR + "/") and not os.path.isfile(_path(source)):
+            findings.append(f"{name}: source {source} no longer exists")
+        cited |= {str(fm.get(key) or "") for key in ("source", "raw")}
+        labels.append((name, " ".join(str(fm.get("name") or "").split())))
+    cited |= {e.get("path") for e in sources.manifest_entries()}
+    for root, dirs, files in os.walk(_path(RAW_DIR)):
+        dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+        for fname in sorted(files):
+            rel = os.path.relpath(os.path.join(root, fname), WIKI_PATH).replace(os.sep, "/")
+            if not fname.startswith(".") and rel != sources.MANIFEST and rel not in cited:
+                findings.append(f"{rel}: not in the manifest and cited by no page")
+    first = {}
+    for name, label in sorted(labels):
+        if not label or name.startswith("meetings/"):   # recurring invites share a name
+            continue
+        group = (name.startswith("sources/"), label.casefold())
+        if group in first:
+            findings.append(f'{name}: duplicate name "{label}" (also {first[group]})')
+        first.setdefault(group, name)
     return findings
 
 
@@ -1491,9 +1535,11 @@ def ingest(turns: list, client, model: str) -> list:
         return []
     names = memory.user_names()
     system = INGEST_SYSTEM % (memory.user_note(names), memory._today_iso())
+    related = related_context(transcript)
     user = (f"Schema:\n{_read(SCHEMA_FILE) or SCHEMA_TEXT}\n\n"
             f"Index:\n{index_text(WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
-            f"Transcript:\n{transcript}")
+            + (f"{related}\n\n" if related else "")
+            + f"Transcript:\n{transcript}")
     try:
         raw = memory._complete(client, model, system, user, 800)
     except Exception as exc:  # noqa: BLE001
