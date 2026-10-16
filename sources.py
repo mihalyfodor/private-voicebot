@@ -235,8 +235,8 @@ def pdf_text(data: bytes) -> str:
 
         reader = pypdf.PdfReader(io.BytesIO(data))
         pages = [(page.extract_text() or "") for page in reader.pages]
-    except Exception as exc:  # noqa: BLE001 — a broken PDF is "unreadable", not a crash
-        log.info(f"pdf extraction failed: {exc}")
+    except Exception:  # noqa: BLE001 — a broken PDF is "unreadable", not a crash
+        log.warning("pdf extraction failed")
         return ""
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     return text if len(text.strip()) >= MIN_PDF_CHARS else ""
@@ -246,8 +246,8 @@ def eml_text(data: bytes) -> str:
     """`.eml` -> a headers block plus the text/plain part (falling back to stripped html)."""
     try:
         msg = email.message_from_bytes(data, policy=email.policy.default)
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"eml parse failed: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("eml parse failed")
         return ""
     plain, html = "", ""
     for part in (msg.walk() if msg.is_multipart() else [msg]):
@@ -257,6 +257,7 @@ def eml_text(data: bytes) -> str:
         try:
             body = part.get_content()
         except Exception:  # noqa: BLE001
+            log.warning("eml part skipped")
             continue
         if ctype == "text/plain" and not plain:
             plain = str(body)
@@ -277,8 +278,8 @@ def msg_text(path: str) -> str:
             headers = {"From": msg.sender or "", "To": msg.to or "",
                        "Date": str(msg.date or ""), "Subject": msg.subject or ""}
             body = msg.body or ""
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"msg extraction failed: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("msg extraction failed")
         return ""
     return _headers_block(headers, str(body).strip())
 
@@ -304,8 +305,8 @@ def _downscale(full: str) -> None:
             if max(im.size) > IMAGE_LONG_EDGE:
                 im.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
                 im.save(full)
-    except Exception as exc:
-        log.info(f"downscale skipped: {exc}")
+    except Exception:
+        log.warning("image downscale skipped")
 
 
 def _image_part(full: str) -> dict:
@@ -400,8 +401,8 @@ def docx_text(data: bytes) -> tuple:
     """``(markdown, kind)`` — `kind` is "transcript" for a Teams export, else "docx"."""
     try:
         items = docx_paragraphs(data)
-    except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
-        log.info(f"docx extraction failed: {exc}")
+    except Exception:  # noqa: BLE001 — a broken file is "unreadable", not a crash
+        log.warning("docx extraction failed")
         return "", "docx"
     turns = teams_turns(items)
     if turns:
@@ -438,8 +439,8 @@ def pptx_text(data: bytes) -> str:
                 if notes:
                     lines.append(f"Notes: {notes}")
             sections.append("\n".join(lines))
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"pptx extraction failed: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("pptx extraction failed")
         return ""
     return "\n\n".join(sections)
 
@@ -464,8 +465,8 @@ def xlsx_text(data: bytes) -> str:
         if len(book.worksheets) > XLSX_MAX_SHEETS:
             sections.append(f"({XLSX_MAX_SHEETS} of {len(book.worksheets)} sheets shown)")
         book.close()
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"xlsx extraction failed: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("xlsx extraction failed")
         return ""
     return "\n\n".join(sections)
 
@@ -559,8 +560,8 @@ def _occurrences(component, today: dt.date, horizon: int) -> list:
     lo, hi = dt.datetime.combine(today, dt.time.min), dt.datetime.combine(today + dt.timedelta(days=horizon), dt.time.max)
     try:
         rules = du.rrulestr(rule.to_ical().decode(), dtstart=naive, forceset=True)
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"rrule skipped: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("ics recurrence rule skipped")
         return [start]
     exdates = component.get("EXDATE")
     exdates = exdates if isinstance(exdates, list) else [exdates] if exdates else []
@@ -581,8 +582,8 @@ def ics_events(data: bytes, today: dt.date | None = None, horizon: int | None = 
         import icalendar
 
         cal = icalendar.Calendar.from_ical(data)
-    except Exception as exc:  # noqa: BLE001
-        log.info(f"ics parse failed: {exc}")
+    except Exception:  # noqa: BLE001
+        log.warning("ics parse failed")
         return []
     events = []
     for component in cal.walk("VEVENT"):
@@ -680,8 +681,8 @@ def epub_text(data: bytes) -> str:
                 if text:
                     chapters.append(text)
             return "\n\n".join(chapters)
-    except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
-        log.info(f"epub extraction failed: {exc}")
+    except Exception:  # noqa: BLE001 — a broken file is "unreadable", not a crash
+        log.warning("epub extraction failed")
         return ""
 
 
@@ -849,6 +850,13 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
     wiki._write(rel, wiki._page_text(fm, "\n".join(lines)))
 
 
+def _degraded(reason: str) -> None:
+    """Note a degraded ingest: `ingest_end.degraded`, and why ("summary" beats "ops") for the reply."""
+    tracing.mark(degraded=True)
+    if reason == "summary" or tracing.marked("_degraded") is None:
+        tracing.mark(_degraded=reason)
+
+
 def meeting_from_transcript(client, model: str, text: str, title: str, user_names=()) -> dict | None:
     """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
     summary}``, tidied; None when the model cannot be reached or parsed."""
@@ -858,11 +866,12 @@ def meeting_from_transcript(client, model: str, text: str, title: str, user_name
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
         tracing.error("ingest", "meeting_from_transcript", exc)
-        tracing.mark(degraded=True)
+        _degraded("ops")
         return None
     data = memory._extract_json(raw, "{", "}")
     if not isinstance(data, dict):
         log.info("could not parse the meeting; filing the transcript only")
+        _degraded("ops")
         return None
 
     def strings(key, limit=8):
@@ -1057,7 +1066,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
         except Exception as exc:  # noqa: BLE001
             log.warning(f"summary failed: {exc}")
             tracing.error("ingest", "summarise", exc)
-            tracing.mark(degraded=True)
+            _degraded("summary")
             if strict:
                 raise
             fallback["summary"] = "the summary model could not be reached; the raw file is filed."
@@ -1071,6 +1080,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
             log.info("summary came back without a title; asking once more")
     if not isinstance(data, dict):
         log.info("could not parse the summary; filing the raw file only")
+        _degraded("summary")
         if strict:
             raise IngestError(422, "the summary could not be parsed")
         fallback["summary"] = "the summary could not be parsed; the raw file is filed."
@@ -1119,10 +1129,14 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
         tracing.error("ingest", "propose_page_ops", exc)
-        tracing.mark(degraded=True)
+        _degraded("ops")
         return []
     ops = memory._extract_json(raw)
-    return ops if isinstance(ops, list) else []
+    if not isinstance(ops, list):
+        log.info("could not parse the page ops; filing the source page only")
+        _degraded("ops")
+        return []
+    return ops
 
 
 # --- the ingest ---------------------------------------------------------------------
@@ -1299,7 +1313,8 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                    + (f" -> {', '.join(fed)}" if fed else "")])
         wiki._commit(f"wiki: filed {raw_rel}")
         tracing.mark(path=wiki.wikilink(source_rel), title=page_title)
-        return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False}
+        return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False,
+                "degraded": tracing.marked("_degraded")}
 
 
 # --- the inbox (docs/25-sources-inbox.md) --------------------------------------------

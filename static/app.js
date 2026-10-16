@@ -2281,12 +2281,14 @@ function intakePageTitle(path) {
   return (page && page.title) || path;
 }
 
+const INTAKE_DEGRADED = { summary: 'filed raw only → ', ops: 'filed without page updates → ' };
+
 function intakeStateEl(it) {
   const state = it.state || '';
   const node = el('div', 'intake-item-state');
   if (!state) return node;
   if (state === 'filed') {
-    node.append('filed → ');
+    node.append(INTAKE_DEGRADED[it.result && it.result.degraded] || 'filed → ');
     if (it.result && it.result.path) {
       const link = el('span', 'intake-link', intakePageTitle(it.result.path));
       link.onclick = () => { intakeOpenPage(it.result.path); };
@@ -2547,7 +2549,7 @@ async function submitIntake() {
   renderIntakeBatch();
   // A single clean filing closes itself, as it always did; a batch stays open with its rows.
   const first = usable[0];
-  if (usable.length === 1 && first.state === 'filed' && first.result.path) {
+  if (usable.length === 1 && first.state === 'filed' && first.result.path && !first.result.degraded) {
     const path = first.result.path;
     closeIntake();
     intakeToast(`filed as ${path}`);

@@ -737,6 +737,18 @@ await batch2;
 results.batch_error = { rows: rowStates(), status: t.intakeStatus.textContent, open: !t.intake.hidden };
 t.intakeCancel.dispatch('click');
 
+// a degraded single filing says why and keeps the popup open (a clean one closes itself)
+results.degraded_rows = [];
+for (const [i, why] of [[4, 'summary'], [5, 'ops']]) {
+  t.intakeFromFiles([new sandbox.File(['d'], `${why}.md`)]);
+  const run = t.submitIntake();
+  await tick();
+  posts[i].resolve(200, { filed: [{ path: `sources/${why}`, raw: `raw/inbox/${why}.md`, already: false, degraded: why }], errors: [] });
+  await run;
+  results.degraded_rows.push({ rows: rowStates(), open: !t.intake.hidden });
+  t.intakeCancel.dispatch('click');
+}
+
 // ---------------------------------------------------------------- scenarios (PRD 33)
 // ---- scenario 3: memory entries carry a `source` tag; `identity.sources` renders the same
 // tag on the scalar row instead of a `sources` fact row, and never as an editable field.

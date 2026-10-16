@@ -154,6 +154,9 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool, client, model: str) -> 
         return {"state": "filed", "sha256": digest, "page": res["path"],
                 "title": fm.get("name", ""), "pages_touched": len(entry.get("pages_touched") or [])}
     except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch
+        tracing.logger("Batch").exception("filing a file failed")
+        if not reached:                     # past that point the ingest span already traced it
+            tracing.error("ingest", "batch_import", exc, fatal_for="none")
         return {"state": "failed", "reason": str(exc) or type(exc).__name__, "reached": reached}
 
 

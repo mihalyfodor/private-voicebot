@@ -79,9 +79,10 @@ FIELDS = {
     # memory_save
     "facts_added": ANY, "facts_dropped": ANY,
     # error
-    "scope": ANY, "exc_type": ANY, "message": ANY, "code": ANY, "traceback": TAIL,
+    "scope": ANY, "exc_type": ANY, "message": ANY, "code": ANY, "traceback": TAIL, "fatal_for": {"none"},
     "where": {"respond", "briefing", "write_up", "save_note", "new_topic", "ingest", "summarise",
-              "propose_page_ops", "meeting_from_transcript"},
+              "propose_page_ops", "meeting_from_transcript", "asr", "canned_turn", "memory_save", "ws",
+              "batch_import"},
     # service / ws
     "event": ANY, "profile": ANY, "version": ANY, "pid": ANY,
     # span shape, run id
@@ -166,6 +167,16 @@ def decide(env=None) -> tuple:
 # ------------------------------------------------------------------ stdout logging
 
 
+def _exc_text(exc_info) -> str:
+    """dev: the full traceback; prod: the type and frame locations only (the events' policy, no text)."""
+    if profile() == "dev":
+        return "".join(traceback.format_exception(*exc_info)).rstrip()
+    exc = exc_info[1]
+    frames = "".join(f'  File "{f.filename}", line {f.lineno}, in {f.name}\n'
+                     for f in traceback.extract_tb(exc.__traceback__, limit=-TRACEBACK_FRAMES))
+    return f"{frames}{type(exc).__name__}"
+
+
 class _Stdout(logging.Handler):
     """`[name] message` to whatever sys.stdout is now (so pytest's capsys sees it)."""
 
@@ -173,7 +184,7 @@ class _Stdout(logging.Handler):
         try:
             text = f"[{record.name.split('.', 1)[-1]}] {record.getMessage()}"
             if record.exc_info:
-                text += "\n" + "".join(traceback.format_exception(*record.exc_info)).rstrip()
+                text += "\n" + _exc_text(record.exc_info)
             sys.stdout.write(text + "\n")
             sys.stdout.flush()
         except Exception:  # noqa: BLE001 — a closed stdout must not break a turn
@@ -359,21 +370,22 @@ def verbose(kind: str, /, **fields) -> None:
     _emit("verbose", kind, fields)
 
 
-def error(scope: str, where: str, exc: BaseException | None = None) -> None:
+def error(scope: str, where: str, exc: BaseException | None = None, fatal_for: str | None = None) -> None:
     """An `error` event for `exc` (default: the one being handled): its type as `message` and
-    `code`, the frame locations (no source lines). The exception text goes to verbose.jsonl in dev."""
+    `code`, the frame locations (no source lines). The exception text goes to verbose.jsonl in dev.
+    `fatal_for="none"`: a background failure nothing waited on (it never fails a turn)."""
     exc = exc or sys.exc_info()[1]
     if exc is None:
         return
     if _ingest.get() is not None:
         _ingest.get()[1].setdefault("_seen", set()).add(id(exc))
-    if scope == "turn":
+    if scope == "turn" and fatal_for is None:
         fail_turn()
     frames = "".join(f'  File "{f.filename}", line {f.lineno}, in {f.name}\n'
                      for f in traceback.extract_tb(exc.__traceback__, limit=-TRACEBACK_FRAMES))
     code = type(exc).__name__
     event("error", scope=scope, where=where, exc_type=code, message=code, code=code,
-          traceback=frames[-TRACEBACK_CAP:])
+          traceback=frames[-TRACEBACK_CAP:], **({"fatal_for": fatal_for} if fatal_for else {}))
     verbose("error_text", scope=scope, where=where, message=str(exc))
 
 
@@ -444,6 +456,12 @@ def llm_span(purpose: str, messages, /, **fields):
 def usage_fields(usage) -> dict:
     """`tokens_in` / `tokens_out` from a completion's `usage` (null when there is none)."""
     return {"tokens_in": getattr(usage, "prompt_tokens", None), "tokens_out": getattr(usage, "completion_tokens", None)}
+
+
+def marked(key: str, default=None):
+    """What `mark` noted under `key` on the current ingest (`default` outside one)."""
+    current = _ingest.get()
+    return current[1].get(key, default) if current is not None else default
 
 
 def mark(**fields) -> None:

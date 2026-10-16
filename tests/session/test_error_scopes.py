@@ -39,7 +39,7 @@ def test_intake_scope(panel, monkeypatch):
         raise RuntimeError("oMLX is down")
     monkeypatch.setattr(chatbot, "_ingest_now", boom)
     reply = panel.send({"action": "wiki_ingest"})
-    assert reply == {"type": "error", "scope": "intake", "text": "oMLX is down", "action": "wiki_ingest"}
+    assert reply == {"type": "error", "scope": "intake", "text": "Something went wrong (RuntimeError).", "action": "wiki_ingest"}
 
 
 def test_turn_scope_for_a_malformed_frame(panel):

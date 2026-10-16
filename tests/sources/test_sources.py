@@ -440,7 +440,7 @@ def test_ingest_files_the_upload_and_pushes_the_wiki(http):
     body = response.json()
     assert body["errors"] == []
     assert body["filed"] == [{"path": "sources/falcon-status",
-                              "raw": body["filed"][0]["raw"], "already": False}]
+                              "raw": body["filed"][0]["raw"], "already": False, "degraded": None}]
     assert body["filed"][0]["raw"].startswith("raw/inbox/")
 
     pushed = ws.receive_json()
@@ -1138,6 +1138,30 @@ def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault):
     assert start["ingest_id"] == end["ingest_id"] == err["ingest_id"]
     assert start["span_id"] == end["span_id"] and start["run_id"] == end["run_id"] == err["run_id"]
     assert "amber" not in trace_text()
+
+
+def test_a_degraded_ingest_says_so_in_its_result(vault):
+    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status",
+                              client=FakeClient(SUMMARY, RuntimeError("ops model down")), model="m")
+    assert res["degraded"] == "ops"
+    summary = sources.ingest_note("Charlie is red.", title="Charlie status",
+                                  client=FakeClient(RuntimeError("down"), RuntimeError("down")), model="m")
+    assert summary["degraded"] == "summary"
+    ok = sources.ingest_note("Bravo is green.", title="Bravo status",
+                             client=FakeClient(SUMMARY, "[]"), model="m")
+    assert ok["degraded"] is None
+
+
+def test_an_extractor_fallback_warns_with_the_kind_only(capsys, monkeypatch):
+    import pypdf
+
+    def boom(*a, **k):
+        raise RuntimeError(SENTINEL)
+
+    monkeypatch.setattr(pypdf, "PdfReader", boom)
+    assert sources.pdf_text(b"%PDF-1.4") == ""
+    out = capsys.readouterr().out
+    assert "pdf extraction failed" in out and SENTINEL not in out
 
 
 def test_ingest_run_id_from_the_form_groups_a_host_scripts_ingests(http):

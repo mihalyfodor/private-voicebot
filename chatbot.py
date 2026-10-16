@@ -204,6 +204,23 @@ def llm_offline_text() -> str:
     return f"LLM offline ({label}) — run {services.START_HINT}"
 
 
+def _turn_failed(send_sync, where: str, exc: BaseException, text: str, scope: str = "turn",
+                 recheck: bool = False) -> None:
+    """A turn-level handler failed: log it, trace it (type + code only), tell the client, idle."""
+    log.exception(f"{where} failed")
+    tracing.error("turn", where, exc)         # marks the turn failed (PRD 49)
+    if recheck:
+        services.recheck()                    # a failed completion: find out now whether oMLX is gone
+    send_sync({"type": "error", "scope": scope, "text": text})
+    send_sync({"type": "state", "value": "idle"})
+
+
+def _memory_failed(exc: BaseException) -> None:
+    """A background memory save failed: log + trace it; nothing waits on it."""
+    mem_log.exception("memory save failed")
+    tracing.error("memory", "memory_save", exc, fatal_for="none")
+
+
 def _periodic_memory(count: int) -> None:
     """Every N completed turns (on the controller's hook thread, not the turn worker): fold
     the session into the memory profile (memory.json)."""
@@ -212,7 +229,7 @@ def _periodic_memory(count: int) -> None:
     try:
         llm.save_memory()
     except Exception as e:
-        mem_log.warning(f"error: {e}")
+        _memory_failed(e)
     finally:
         _push_saving(False)
     # an open panel refreshes itself after a background save; the Wiki tab only when the
@@ -414,10 +431,7 @@ def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = 
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        log.warning(f"briefing failed: {type(e).__name__}")
-        tracing.error("turn", "briefing", e)      # marks the turn failed (PRD 49)
-        services.recheck()
-        send_sync({"type": "state", "value": "idle"})
+        _turn_failed(send_sync, "briefing", e, "The briefing failed.", recheck=True)
 
 
 def context_msg() -> dict:
@@ -483,10 +497,7 @@ def write_up(sess: Session, turn: int, user_text: str, send_sync):
         send_sync({"type": "error", "scope": "turn", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
-        log.warning(f"write_up failed: {type(e).__name__}")
-        tracing.error("turn", "write_up", e)      # marks the turn failed (PRD 49)
-        services.recheck()
-        send_sync({"type": "state", "value": "idle"})
+        _turn_failed(send_sync, "write_up", e, "The write-up failed.", recheck=True)
 
 
 def save_note(sess: Session, turn: int, send_sync):
@@ -502,9 +513,7 @@ def save_note(sess: Session, turn: int, send_sync):
         send_sync({"type": "error", "scope": "wiki", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
-        log.warning(f"save_note failed: {type(e).__name__}")
-        tracing.error("turn", "save_note", e)      # marks the turn failed (PRD 49)
-        send_sync({"type": "state", "value": "idle"})
+        _turn_failed(send_sync, "save_note", e, "Saving the note failed.", scope="wiki")
 
 
 def _with_context_notice(events):
@@ -526,9 +535,7 @@ def new_topic(sess: Session, turn: int, send_sync):
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        log.warning(f"new_topic failed: {type(e).__name__}")
-        tracing.error("turn", "new_topic", e)      # marks the turn failed (PRD 49)
-        send_sync({"type": "state", "value": "idle"})
+        _turn_failed(send_sync, "new_topic", e, "Starting a new topic failed.")
 
 
 def new_topic_turn(sess: Session, turn: int, loop):
@@ -616,13 +623,8 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        log.error(f"reply failed: {type(e).__name__}")       # the text only at DEBUG (dev)
-        log.debug(f"reply failed: {e}", exc_info=True)
-        tracing.error("turn", "respond", e)
         end["outcome"] = "error"
-        services.recheck()   # a failed completion: find out now whether oMLX is gone
-        send_sync({"type": "error", "scope": "turn", "text": f"The reply failed: {str(e) or type(e).__name__}"})
-        send_sync({"type": "state", "value": "idle"})
+        _turn_failed(send_sync, "respond", e, "The reply failed.", recheck=True)
 
 
 def say_canned(text: str, send_sync, tts=None):
@@ -656,8 +658,9 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
         if getattr(asr, "last_error", None):
             services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
-        log.warning(f"error: {e}")
-        text = ""
+        with tracing.turn(turn):
+            _turn_failed(send_sync, "asr", e, "I could not transcribe that.")
+        return
     if not text:
         send_sync({"type": "state", "value": "idle"})
         return
@@ -676,8 +679,8 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
         llm.record_assistant(say_canned(text, send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        log.warning(f"error: {e}")
-        send_sync({"type": "state", "value": "idle"})
+        with tracing.turn(turn):
+            _turn_failed(send_sync, "canned_turn", e, "I could not say that.")
 
 
 def greet(sess: Session, turn: int, loop):
@@ -697,7 +700,7 @@ async def _on_shutdown():
     try:
         llm.save_memory()
     except Exception as e:
-        mem_log.warning(f"error: {e}")
+        _memory_failed(e)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -788,9 +791,10 @@ def _ingest_items(items: list) -> dict:
                 item, lambda stage, name=name, i=i: _push_ingest_progress(name, stage, i, len(items))))
         except sources.IngestError as exc:
             errors.append(exc.message)
-        except Exception as exc:  # noqa: BLE001 — one bad drop must not 500 the popup
-            tracing.logger("Ingest").warning(f"{item.get('filename') or 'text'}: {exc}")
-            errors.append(f"{item.get('filename') or 'the text'}: {exc}")
+        except Exception:  # noqa: BLE001 — one bad drop must not 500 the popup
+            # the ingest span already traced it (type + code); only the log gets the traceback
+            tracing.logger("Ingest").exception("filing a drop failed")
+            errors.append(f"{item.get('filename') or 'the text'}: filing failed")
     return {"filed": filed, "errors": errors}
 
 
@@ -1033,7 +1037,7 @@ def _ingest_now() -> None:
     try:
         llm.save_memory()
     except Exception as e:
-        mem_log.warning(f"error: {e}")
+        _memory_failed(e)
 
 
 async def _save_session_memory() -> None:
@@ -1401,8 +1405,11 @@ async def websocket_endpoint(websocket: WebSocket):
             except WebSocketDisconnect:
                 raise
             except Exception as e:
-                ws_log.warning(f"error: {e}")
-                await _error(_scope_of(msg.get("action")), str(e), action=msg.get("action"))
+                ws_log.exception("handler failed")
+                tracing.error("ws", "ws", e, fatal_for="none")
+                # a ValueError is a validation message written for the user; anything else is type only
+                text = str(e) if isinstance(e, ValueError) else f"Something went wrong ({type(e).__name__})."
+                await _error(_scope_of(msg.get("action")), text, action=msg.get("action"))
     except WebSocketDisconnect as e:
         code = e.code
     finally:

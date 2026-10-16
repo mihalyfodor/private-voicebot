@@ -50,6 +50,12 @@ def test_a_failed_request_marks_its_row_and_the_batch_goes_on(r):
     assert err["status"].startswith("1 filed, 1 error ·") and err["open"] is True
 
 
+def test_a_degraded_filing_says_why_and_keeps_the_popup_open(r):
+    summary, ops = r["degraded_rows"]
+    assert states(summary["rows"]) == ["filed raw only → sources/summary"] and summary["open"] is True
+    assert states(ops["rows"]) == ["filed without page updates → sources/ops"] and ops["open"] is True
+
+
 def test_the_popup_says_that_re_dropping_is_a_no_op():
     html = open(os.path.join(ROOT, "static", "index.html")).read()
     assert 'id="intake-note"' in html and "already filed is a no-op" in html

@@ -1300,7 +1300,8 @@ def _summarise(turns: list) -> str:
         if not summary:
             raise ValueError("empty summary")
     except Exception as e:
-        log.warning(f"summary failed ({e}); keeping the turns' first sentences")
+        log.exception("summary failed; keeping the turns' first sentences")
+        tracing.error("memory", "new_topic", e, fatal_for="none")
         summary = " ".join(_first_sentence(strip_tag(t["content"])) for t in turns)
     return summary[:SUMMARY_TOKENS * 4].strip()
 
@@ -1324,7 +1325,8 @@ def new_thread() -> str:
     try:
         save_memory()
     except Exception as e:
-        log.warning(f"memory save failed: {e}")
+        log.exception("memory save failed")
+        tracing.error("memory", "memory_save", e, fatal_for="none")
     summary = _summarise(turns)
     _conversation[1:] = [{"role": "user", "content": f"<earlier>{summary}</earlier>"},
                          {"role": "assistant", "content": NEW_TOPIC_ACK}]

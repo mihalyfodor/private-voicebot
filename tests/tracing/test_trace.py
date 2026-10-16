@@ -243,3 +243,54 @@ def test_a_briefing_whose_completion_raises_ends_the_turn_in_error(vault, monkey
     (err,) = trace_lines(kind="error")
     assert err["scope"] == "turn" and err["where"] == "briefing" and err["turn_id"] == 9
     assert [m for m in sent if m["type"] == "state"][-1]["value"] == "idle"
+
+
+# --------------------------------------------------------------- exception sweep
+
+
+def test_an_asr_failure_is_an_error_event_and_an_error_message(vault, prod_profile):
+    def broken(audio, prompt=None):
+        raise RuntimeError(f"asr down {SENTINEL}")
+
+    with patch.object(chatbot, "asr", SimpleNamespace(transcribe=broken)):
+        sent = run_turn(chatbot.handle_utterance, Session(), 6, np.zeros(10, dtype=np.float32))
+    (err,) = trace_lines(kind="error")
+    assert err["scope"] == "turn" and err["where"] == "asr" and err["exc_type"] == "RuntimeError"
+    assert any(m["type"] == "error" and m["scope"] == "turn" and SENTINEL not in m["text"] for m in sent)
+    assert [m for m in sent if m["type"] == "state"][-1]["value"] == "idle"
+    assert SENTINEL not in trace_text()
+
+
+def test_a_failed_background_memory_save_is_a_non_fatal_error_event(vault, prod_profile, monkeypatch):
+    def broken():
+        raise RuntimeError(f"model down {SENTINEL}")
+
+    monkeypatch.setattr(llm, "save_memory", broken)
+    monkeypatch.setattr(chatbot, "_push_saving", lambda on: None)
+    monkeypatch.setattr(chatbot, "push_memory", lambda **k: None)
+    chatbot._periodic_memory(3)
+    (err,) = trace_lines(kind="error")
+    assert err["where"] == "memory_save" and err["fatal_for"] == "none" and err["exc_type"] == "RuntimeError"
+    assert SENTINEL not in trace_text()
+
+
+def test_a_background_error_during_a_turn_does_not_fail_it(vault):
+    with tracing.turn(7):
+        try:
+            raise RuntimeError("memory down")
+        except RuntimeError as exc:
+            tracing.error("memory", "memory_save", exc, fatal_for="none")
+            tracing.error("turn", "memory_save", exc, fatal_for="none")
+        assert not tracing.turn_failed()
+
+
+@pytest.mark.parametrize("profile, shown", [("prod", False), ("dev", True)])
+def test_stdout_tracebacks_carry_the_exception_text_only_in_dev(vault, monkeypatch, capsys, profile, shown):
+    monkeypatch.setenv("TRACE_PROFILE", profile)
+    tracing.reset()
+    try:
+        raise RuntimeError(SENTINEL)
+    except RuntimeError as exc:
+        chatbot._turn_failed(lambda msg: None, "respond", exc, "The reply failed.")
+    out = capsys.readouterr().out
+    assert "RuntimeError" in out and (SENTINEL in out) is shown
