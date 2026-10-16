@@ -1,6 +1,7 @@
 """PRD 43 — written answers: length by origin + groundedness, the "write it up" card, Copy /
 Save to wiki, the explicit `notes/` save, "save that as a note", new topic + reconnect replay.
-Scenario numbers are the PRD's (7 is the live battery in tests/qa/stress.py).
+Scenario numbers are the PRD's (7 is the live battery in tests/qa/stress.py). The briefing card is
+docs/46-briefing.md scenario 7.
 
 Fixtures: `fallout` (the generated FAQ) from tests/sources/test_source_recall.py, the streamed
 fakes, the vault and the turn helpers from tests/conftest.py.
@@ -20,7 +21,7 @@ import chatbot
 import llm
 import memory
 import wiki
-from tests.conftest import (RawStreamClient, StreamClient, commits, fake_asr, fake_tts, last_user, read,  # noqa: F401
+from tests.conftest import (FakeClient, RawStreamClient, StreamClient, commits, fake_asr, fake_tts, last_user, read,  # noqa: F401
                             run_turn, stream_chunks, vault)
 from tests.conftest import fallout  # noqa: F401  (fixtures)
 
@@ -343,3 +344,34 @@ def test_the_protocol_names_the_card_messages():
     doc = open(os.path.join(ROOT, "docs", "protocol.md")).read()
     assert all(f"`{name}`" in doc for name in ("card", "card_saved", "save_card"))
     assert "save_card" in chatbot.ACTIONS and chatbot._scope_of("save_card") == "wiki"
+
+
+# --------------------------------------------------------------- PRD 46: the briefing card
+
+BRIEF_DIGEST = {"since": "2026-10-10T12:00:00",
+                "pages": [{"path": "people/anna", "title": "Anna", "change": "new"},
+                          {"path": "projects/falcon", "title": "Falcon", "change": "edited"}],
+                "chat_pages": ["people/ben"],
+                "sources": [{"page": "sources/guide", "path": "raw/inbox/guide.md", "kind": "text",
+                             "at": "2026-10-11T08:00:00"}],
+                "memory": {"added": 2, "updated": 0, "removed": 1,
+                           "examples": [{"op": "ADD", "path": "people[]", "value": {"name": "Wife"}},
+                                        {"op": "DELETE", "path": "people[0]", "value": None}]}}
+
+
+def test_write_it_up_after_a_briefing_is_the_digest_card_without_a_completion(vault):
+    fake = FakeClient("[happy] Anna is new and Falcon changed.")
+    with patch.object(llm, "_client", fake):
+        reply, card_md = llm.briefing(BRIEF_DIGEST, "what's new?")
+    assert len(fake.calls) == 1 and reply.endswith(llm.DEEPER_OFFERS[0])
+    sent = turn("write it up", [])                              # no response queued: a completion would fail
+    cards = [m for m in sent if m["type"] == "card"]
+    assert len(cards) == 1 and cards[0]["markdown"] == card_md
+    md = cards[0]["markdown"]
+    assert md.startswith("# Briefing ") and cards[0]["title"] == md.splitlines()[0][2:]
+    for section in ("## Pages", "## Sources", "## Memory"):
+        assert section in md
+    assert "[[people/anna|Anna]]" in md and "[[projects/falcon|Falcon]]" in md and "[[sources/guide]]" in md
+    path = chatbot.save_card(None)[0]["path"]
+    fm, body = wiki.parse_page(read(path + ".md"))
+    assert path.startswith("notes/") and fm["source"] == "written answer" and "## Memory" in body

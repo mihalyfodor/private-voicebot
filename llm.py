@@ -300,7 +300,8 @@ _sources_seen: list = []
 #: the wiki / Wikipedia page titles this turn drew on (page recall, the focused page, get_wikipedia)
 _turn_pages: list = []
 #: what the last answer was built from, for `write_up` (docs/43-written-answers.md):
-#: {"question", "extra" (the recall/deeper/focus block), "tools" (tool result texts), "sources", "pages"}
+#: {"question", "extra" (the recall/deeper/focus block), "tools" (tool result texts), "sources", "pages"},
+#: plus "card" (ready markdown) after a briefing (docs/46-briefing.md)
 _last_context: dict | None = None
 #: every card this conversation wrote, by id; `last_card` is the one "save that" means
 _cards: dict = {}
@@ -735,13 +736,33 @@ def write_up(request: str = "") -> dict:
     deeper / focus block and the tool results) and ends with a `Sources:` line. Returns the card
     `{id, markdown, sources, title}`; the conversation keeps the card text as an assistant turn
     (marked, so a reconnect replays it as a card) while the session turns get "wrote up: <title>".
-    Raises ValueError when nothing has been answered yet.
+    Raises ValueError when nothing has been answered yet. After a briefing the context carries
+    its ready `card` and no completion is made (PRD 46).
     """
     global last_card, _deeper_offer
     ctx = _last_context
     if not ctx:
         raise ValueError("nothing to write up yet")
     _deeper_offer = None                                        # the offer's "write it up" reply takes it
+    if ctx.get("card"):                                         # a briefing: its card is already built (PRD 46)
+        markdown, sources = ctx["card"].strip(), []
+    else:
+        markdown, sources = _card_completion(ctx)
+    card = {"id": f"card{len(_cards) + 1}", "markdown": markdown, "sources": sources,
+            "title": _card_title(markdown, ctx["question"])}
+    _cards[card["id"]] = card
+    last_card = card
+    if request:
+        _conversation.append({"role": "user", "content": request})
+        _session_turns.append({"role": "user", "content": request})
+    _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{markdown}\n</card>'})
+    _session_turns.append({"role": "assistant", "content": f"{memory.STAND_INS[0]}{card['title']}"})
+    _log(request or "/write", [], markdown, "card")
+    return card
+
+
+def _card_completion(ctx: dict) -> tuple:
+    """``(markdown, sources)``: one `long` completion over the last answer's context + its Sources line."""
     material = "\n\n".join(p for p in [ctx["extra"].strip()] + ctx["tools"] if p)
     material = "".join(_fit([material], CARD_CONTEXT_TOKENS, CARD_PROMPT)) if material else ""
     user = f"Question: {ctx['question']}\n\nThe answer you gave: {strip_tag(ctx['reply'])}"
@@ -758,17 +779,70 @@ def write_up(request: str = "") -> dict:
     sources = card_sources(ctx["sources"], ctx["pages"])
     if sources:
         markdown += "\n\nSources: " + "; ".join(sources)
-    card = {"id": f"card{len(_cards) + 1}", "markdown": markdown, "sources": sources,
-            "title": _card_title(markdown, ctx["question"])}
-    _cards[card["id"]] = card
-    last_card = card
-    if request:
-        _conversation.append({"role": "user", "content": request})
-        _session_turns.append({"role": "user", "content": request})
-    _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{markdown}\n</card>'})
-    _session_turns.append({"role": "assistant", "content": f"wrote up: {card['title']}"})
-    _log(request or "/write", [], markdown, "card")
-    return card
+    return markdown, sources
+
+
+# --- briefing (docs/46-briefing.md) ----------------------------------------------------
+BRIEFING_MAX_TOKENS = 200
+BRIEFING_PROMPT = ("The document below lists what changed in the user's wiki, sources and memory since {when}. "
+                   "Tell the user about it in two or three short spoken sentences: name the most notable items, "
+                   "give counts for the rest. Only what the list says; no question and no offer at the end.")
+
+
+def _digest_text(digest: dict) -> str:
+    """The digest as plain lines for the recap prompt, capped like the card."""
+    cap = wiki.BRIEFING_CAP
+    lines = []
+    for change in ("new", "edited", "deleted"):
+        titles = [p["title"] for p in digest["pages"] if p["change"] == change]
+        if titles:
+            more = f" (+{len(titles) - cap} more)" if len(titles) > cap else ""
+            lines.append(f"Pages {change}: " + ", ".join(titles[:cap]) + more)
+    if digest["chat_pages"]:
+        lines.append(f"Pages noted from our chats: {len(digest['chat_pages'])} ("
+                     + ", ".join(wiki.page_title(p) or p for p in digest["chat_pages"][:cap]) + ")")
+    if digest["sources"]:
+        lines.append("New sources: " + ", ".join(
+            f"{wiki.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in digest["sources"][:cap]))
+    mem = digest["memory"]
+    if mem["added"] or mem["updated"] or mem["removed"]:
+        lines.append(f"Memory: {mem['added']} added, {mem['updated']} updated, {mem['removed']} removed"
+                     + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {wiki.memory_value(e['value'])}"
+                               for e in mem["examples"]))
+    return "\n".join(lines)
+
+
+def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user") -> tuple:
+    """One short completion phrasing the digest (wrapped as `<document source="briefing">`);
+    returns ``(reply, card_md)``. The reply ends with DEEPER_OFFERS[0]; `_last_context` holds the
+    card so "write it up" needs no completion; the session turns get one "briefed: …" stand-in.
+    Raises on a failed or empty completion, leaving no trace."""
+    global _deeper_offer, _last_context
+    _deeper_offer = None
+    block = untrusted(_digest_text(digest), "briefing")
+    prompt = BRIEFING_PROMPT.format(when=wiki.briefing_when(digest["since"]))
+    resp = client().chat.completions.create(
+        model=OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
+        messages=[_conversation[0], {"role": "user", "content": f"{prompt}\n\n{block}"}],
+    )
+    reply = (resp.choices[0].message.content or "").strip()
+    if not strip_tag(reply).strip():
+        raise ValueError("the model wrote nothing")
+    if not ends_with_offer(reply):
+        reply += " " + DEEPER_OFFERS[0]
+    card_md = wiki.briefing_card(digest)
+    titles = [p["title"] for p in digest["pages"]]
+    _conversation.append({"role": "user", "content": user_text})
+    _conversation.append({"role": "assistant", "content": reply})
+    mem = digest["memory"]
+    _session_turns.append({"role": "assistant", "content":
+                           f"{memory.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
+                           f"{len(digest['sources'])} sources, {mem['added'] + mem['updated'] + mem['removed']} "
+                           "memory changes"})
+    _last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
+                     "pages": titles, "card": card_md}
+    _log(user_text, [], reply, origin)
+    return reply, card_md
 
 
 def card_in(content: str) -> dict | None:

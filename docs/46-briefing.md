@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 46 — Briefing ("what's new?")
 
@@ -61,6 +61,12 @@ up" turns it into a card with Pages / Sources / Memory sections. Tight version o
   `now` is taken with `memory._stamp("%H:%M:%S")` (`memory.py:197`) at gather time — the same clock as `ingested_at`
   and the ops `ts`; unset → `now − 24 h`. Saved as `max(old, now)` only after `speak_stream` returned for the
   recap; nothing new, LLM offline or a failed completion leave it unchanged.
+- **No self-feeding**: a session whose turns are only stand-ins (`briefed: …`, `wrote up: …`) is not ingested at
+  save time, so a briefing never files a meetings page that the next briefing then reports. A user line counts as a
+  stand-in only when the whole line is a write-up request; a real statement that ends in "write it up" is a real turn.
+  Pages: commits made by the user's own editor saves (`_user_commit`) and by PRD 43 `save_card` are skipped like
+  memory's `UI_REASONS` — your own edits are not news. Vault-creation commits
+  (`wiki: initial vault`, `wiki: vault layout`) are skipped like `wiki: lint`.
 - **PRD 45 coexistence**: the briefing is a deterministic command matched before `llm.ask_events`, so it bypasses
   `recall_for`, `recall_band` and the medium-band offer entirely. It clears any pending `_deeper_offer` (offers live
   one turn anyway) and writes `_last_context` in the PRD 43 shape plus the optional `card` key, which PRD 45 does not
@@ -106,6 +112,13 @@ up" turns it into a card with Pages / Sources / Memory sections. Tight version o
 7. `tests/llm/test_written_answers.py`: "write it up" after a briefing → a `card` with `## Pages`, `## Sources`,
    `## Memory`, the page titles as `[[wikilinks]]`, and no extra completion; Save to wiki files it as a PRD 43 note.
 8. Smoke pass (`/smoke`) with one live "what's new?" turn on a vault with a fresh ingest: 2–3 sentences + offer.
+
+9. `tests/session/test_turns.py`: a session with only "briefed: …" / "wrote up: …" stand-ins → no session ingest,
+   no `meetings/<date>` page; a session with one real turn plus a stand-in → ingested as today.
+
+10. `tests/session/test_turns.py`: briefing, then "Ben is leaving Falcon on Friday, write it up" → the session is
+    ingested (one real turn). `tests/wiki/test_wiki.py`: a page saved through the editor and a saved briefing card after
+    the cutoff → neither appears in the next digest; a page-op commit does.
 
 ## Out of scope
 Recent questions (session.log holds only user text), explicit windows ("this week", "since Monday"), a palette

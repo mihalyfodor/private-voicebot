@@ -1,12 +1,15 @@
 """PRD 12 scenarios: turn controller, session lifecycle, protocol hardening.
 
 Covers docs/12-turn-controller.md scenarios 1-8, 10 and 12 (2 and 11 live in
-test_hands_free.py, 9 in test_avatars.py).
+test_hands_free.py, 9 in test_avatars.py), and the briefing turn (docs/46-briefing.md scenarios 3-6).
 """
 import io
+import json
 import asyncio
 import threading
+from datetime import date, timedelta
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -17,9 +20,12 @@ from starlette.websockets import WebSocketDisconnect
 import avatars
 import chatbot
 import llm
+import memory
+import services
 import session as session_mod
+import wiki
 from session import Session, TurnController
-from tests.conftest import Blocker, fake_asr
+from tests.conftest import Blocker, FakeClient, days_ago, fake_asr, run_turn, write_page
 
 
 def fake_tts(text):
@@ -432,3 +438,150 @@ def test_allowed_origins_env_extends_the_loopback_pair(monkeypatch):
     assert chatbot._origin_allowed(f"http://localhost:{chatbot.PORT}") is True
     assert chatbot._origin_allowed(f"http://127.0.0.1:{chatbot.PORT}") is True
     assert chatbot._origin_allowed(None) is True
+
+
+# --------------------------------------------------------------- PRD 46: the briefing turn
+
+NOW = f"{date.today().isoformat()}T12:00:00"
+RECAP = "[happy] You added Anna, and I learned two things about you."
+
+
+def changes(ts: str = None) -> None:
+    """One page committed now and two memory ADDs at `ts` (default: just now)."""
+    write_page("people/anna", "Anna", "Runs the Friday deploy.\n")
+    wiki._commit("wiki: created people/anna")
+    ts = ts or f"{date.today().isoformat()}T11:00:00"
+    with open(memory.OPS_LOG_PATH, "a") as f:
+        for name in ("Wife", "Ben"):
+            f.write(json.dumps({"ts": ts, "op": "ADD", "path": "people[]", "value": {"name": name},
+                                "reason": "said"}) + "\n")
+
+
+def brief(text: str = "what's new?", *replies, llm_up: bool = True) -> tuple:
+    """One typed turn through `handle_text` at the gather-time stamp NOW: (sent, fake)."""
+    fake = FakeClient(*replies)
+    with patch.object(llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
+            patch.object(memory, "_stamp", lambda fmt: NOW), patch.object(services, "llm_ok", lambda: llm_up):
+        sent = run_turn(chatbot.handle_text, Session(), 1, text)
+    return sent, fake
+
+
+def spoken_text(sent: list) -> list:
+    return [m["text"] for m in sent if m["type"] == "transcript" and m["role"] == "assistant"]
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("what's new?", True), ("Brief me.", True), ("what did I miss", True), ("/brief", True),
+    ("anything new?", True), ("please, what has changed?", True), ("What is new, please?", True),
+    ("what changed", True), ("what's new with you", False), ("brief me on Falcon", False), ("new topic", False)])
+def test_briefing_command(text, expected):
+    assert chatbot.briefing_command(text) is expected
+
+
+def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():
+    started, asked = [], []
+    with patch.object(chatbot, "briefing", lambda sess, turn, text, send, origin="user": started.append(text)), \
+            patch.object(llm, "ask_events", lambda text, **kw: asked.append(text) or iter([("delta", "Fine.")])), \
+            patch.object(chatbot, "synthesize", fake_tts):
+        for text in ("what's new?", "Brief me.", "what did I miss", "/brief", "what's new with you"):
+            chatbot.respond(Session(), 1, text, lambda msg: None)
+    assert started == ["what's new?", "Brief me.", "what did I miss", "/brief"]
+    assert asked == ["what's new with you"]
+
+
+def test_a_briefing_with_changes_is_one_completion_ending_with_the_offer(vault, fresh_llm):
+    avatars.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
+    changes()
+    sent, fake = brief("what's new?", RECAP)
+    assert len(fake.calls) == 1
+    user = fake.calls[0]["messages"][-1]["content"]
+    assert '<document source="briefing">' in user and "Anna" in user and "2 added" in user
+    reply = spoken_text(sent)
+    assert len(reply) == 1 and reply[0].endswith("Want me to dig deeper, or write it up?")
+    assert avatars.load_settings()["briefing_at"] == NOW
+    assert sent[-1] == {"type": "state", "value": "idle"} and any(m["type"] == "context" for m in sent)
+
+
+@pytest.mark.parametrize("llm_up", [True, False])
+def test_nothing_new_answers_without_the_model(vault, fresh_llm, llm_up):
+    seeded = f"{date.today().isoformat()}T09:30:00"
+    avatars.save_setting("briefing_at", seeded)
+    sent, fake = brief("brief me", llm_up=llm_up)
+    assert spoken_text(sent) == ["Nothing new since 09:30."]
+    assert fake.calls == [] and avatars.load_settings()["briefing_at"] == seeded
+    assert not [m for m in sent if m["type"] == "error"]
+
+
+def test_first_briefing_looks_back_one_day(vault, fresh_llm):
+    sent, fake = brief("/brief")
+    assert spoken_text(sent) == ["Nothing new since yesterday at 12:00."] and fake.calls == []
+    assert "briefing_at" not in avatars.load_settings()
+
+
+def test_changes_with_the_llm_offline_are_the_composer_error(vault, fresh_llm):
+    seeded = f"{days_ago(1)}T00:00:00"
+    avatars.save_setting("briefing_at", seeded)
+    changes()
+    sent, fake = brief("what's new?", RECAP, llm_up=False)
+    assert [m for m in sent if m["type"] == "error"] == [
+        {"type": "error", "scope": "turn", "text": chatbot.llm_offline_text()}]
+    assert fake.calls == [] and spoken_text(sent) == [] and not [m for m in sent if m["type"] == "speech"]
+    assert avatars.load_settings()["briefing_at"] == seeded
+
+
+def test_a_failed_recap_goes_idle_and_keeps_the_cutoff(vault, fresh_llm):
+    seeded = f"{days_ago(1)}T00:00:00"
+    avatars.save_setting("briefing_at", seeded)
+    changes()
+    sent, fake = brief("what's new?", RuntimeError("oMLX gone"))
+    assert len(fake.calls) == 1 and spoken_text(sent) == []
+    assert sent[-1] == {"type": "state", "value": "idle"}
+    assert avatars.load_settings()["briefing_at"] == seeded and llm._session_turns == []
+
+
+def test_a_later_cutoff_is_never_moved_back(vault, fresh_llm):
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    later = f"{tomorrow}T07:00:00"
+    avatars.save_setting("briefing_at", later)
+    changes(f"{tomorrow}T08:00:00")
+    sent, fake = brief("what's new?", RECAP)
+    assert len(fake.calls) == 1 and spoken_text(sent)
+    assert avatars.load_settings()["briefing_at"] == later
+
+
+def test_a_briefing_clears_the_offer_skips_recall_and_files_one_stand_in(vault, fresh_llm):
+    avatars.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
+    changes()
+    llm._deeper_offer = {"recall": "who is Anna?", "title": "notes"}
+    sent, fake = brief("what's new?", RECAP)
+    assert llm._deeper_offer is None
+    assert all("<recall>" not in m["content"] for m in fake.calls[0]["messages"])
+    assert llm._session_turns == [{"role": "assistant", "content": "briefed: 1 pages, 0 sources, 2 memory changes"}]
+    assert llm._conversation[-2]["content"] == "what's new?" and llm._conversation[-1]["role"] == "assistant"
+
+
+MEETING_OPS = json.dumps([{"op": "new_page", "path": f"meetings/{date.today().isoformat()}", "type": "meeting",
+                           "name": "Briefing", "summary": "We went over what changed."}])
+
+
+@pytest.mark.parametrize("turns, filed", [
+    ([{"role": "assistant", "content": "briefed: 1 pages, 0 sources, 2 memory changes"},
+      {"role": "user", "content": "write it up"}, {"role": "assistant", "content": "wrote up: Briefing 16 Oct"}],
+     False),
+    ([{"role": "user", "content": "we ship Falcon on Friday"}, {"role": "assistant", "content": "Noted."},
+      {"role": "assistant", "content": "briefed: 1 pages, 0 sources, 0 memory changes"}], True),
+    ([{"role": "assistant", "content": "briefed: 1 pages, 0 sources, 0 memory changes"},
+      {"role": "user", "content": "yes, write it up please"}, {"role": "assistant", "content": "wrote up: Briefing"}],
+     False),
+    ([{"role": "assistant", "content": "briefed: 1 pages, 0 sources, 0 memory changes"},
+      {"role": "user", "content": "Ben is leaving Falcon on Friday, write it up"},
+      {"role": "assistant", "content": "wrote up: Briefing"}], True)])
+def test_a_session_of_stand_ins_only_is_not_ingested(vault, turns, filed):
+    fake = FakeClient("[]", MEETING_OPS)
+    memory.save(turns, fake, "m")
+    assert wiki.page_exists(f"meetings/{date.today().isoformat()}.md") is filed
+    assert len(fake.calls) == (2 if filed else 1)
+
+
+def test_an_empty_session_is_not_stand_ins_only():
+    assert memory.stand_ins_only([]) is False

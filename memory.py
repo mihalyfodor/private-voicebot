@@ -1548,6 +1548,22 @@ def migrate_if_needed(client, model: str) -> dict:
 # --------------------------------------------------------------------------- save
 
 
+#: the one-line assistant turns that stand in for a card / a briefing (PRD 43, PRD 46): never news
+STAND_INS = ("wrote up: ", "briefed: ")
+#: a user line that is nothing but a write-up request ("yes, write it up please", `/write`)
+WRITEUP_REQUEST = re.compile(
+    r"^(?:(?:yes|yeah|ok(?:ay)?|sure|please|just)[,\s]+)*(?:(?:please\s+)?write\s+(?:it|that|this)\s+(?:up|out)"
+    r"|(?:give\s+me\s+)?(?:the\s+|a\s+)?written\s+version|/write)(?:,?\s+please)?[\s?.!]*$", re.I)
+
+
+def stand_ins_only(turns: list) -> bool:
+    """True for a non-empty session of stand-ins only (and the bare write-up requests that asked for them)."""
+    def stand_in(t):
+        text = " ".join(str(t.get("content") or "").split())
+        return text.startswith(STAND_INS) if t.get("role") == "assistant" else bool(WRITEUP_REQUEST.match(text))
+    return bool(turns) and all(stand_in(t) for t in turns)
+
+
 def _ingest_wiki(turns: list, client, model: str) -> list:
     """Hand the session to the wiki layer (docs/19-wiki-layer.md).
 
@@ -1555,6 +1571,8 @@ def _ingest_wiki(turns: list, client, model: str) -> list:
     is a bonus, and a broken vault, a missing git or a garbled ingest must never cost the user
     the profile save that just succeeded.
     """
+    if stand_ins_only(turns):                 # no self-feeding (docs/46-briefing.md)
+        return []
     try:
         import wiki
 

@@ -1,7 +1,7 @@
 """Unit tests for the wiki layer — tmp vault, mocked LLM. Mirrors docs/19-wiki-layer.md.
 
 Scenario numbers below are the PRD's test scenarios (1-9); scenario 10 is the live harness
-script eval/scripts/wiki.yaml and 11 is manual.
+script eval/scripts/wiki.yaml and 11 is manual. The briefing digest + card are docs/46-briefing.md scenarios 1-2.
 """
 import os
 
@@ -728,3 +728,119 @@ def test_a_page_filed_mid_session_reaches_the_next_turn(vault, memory_sandbox):
 
     assert "[[people/anna]]" in llm._conversation[0]["content"]
     assert llm._conversation[1] == {"role": "user", "content": "hi"}   # history kept
+
+
+# --------------------------------------------------------------- PRD 46: the briefing digest
+
+CUTOFF = "2026-10-10T12:00:00"
+
+
+def at(monkeypatch, when: str) -> None:
+    """Every vault commit from here on is dated `when` (`wiki._git` inherits the env)."""
+    monkeypatch.setenv("GIT_COMMITTER_DATE", when)
+    monkeypatch.setenv("GIT_AUTHOR_DATE", when)
+
+
+def test_briefing_lists_only_the_pages_changed_after_the_cutoff(vault, monkeypatch):
+    at(monkeypatch, "2026-10-09T09:00:00")
+    wiki.apply_page_ops([a_page(), a_page("projects/falcon", "Falcon"), a_page("notes/old", "Old")], "seed")
+    at(monkeypatch, "2026-10-11T09:00:00")
+    write_page("people/anna", "Anna", "Runs the Friday deploy.\n")
+    wiki._commit("wiki: edited people/anna")
+    write_page("notes/plan", "Plan", "Ship it.\n")
+    wiki._commit("wiki: created notes/plan")
+    os.remove(os.path.join(wiki.WIKI_PATH, "notes/old.md"))
+    wiki._commit("wiki: tidy notes/old")
+    wiki.apply_page_ops([a_page("people/ben", "Ben")], "session 2026-10-11")
+    wiki._log(["lint: 1 finding"])
+    wiki._commit("wiki: lint")
+
+    digest = wiki.changes_since(CUTOFF)
+
+    assert {(p["path"], p["title"], p["change"]) for p in digest["pages"]} == {
+        ("notes/plan", "Plan", "new"), ("people/anna", "Anna", "edited"), ("notes/old", "old", "deleted")}
+    assert digest["chat_pages"] == ["people/ben"]
+    paths = [p["path"] for p in digest["pages"]] + digest["chat_pages"]
+    assert not any(p in ("index", "log", "schema") or p.startswith(("raw/", "sources/")) for p in paths)
+    assert digest["since"] == CUTOFF and not wiki.digest_empty(digest)
+
+
+def test_briefing_with_git_missing_has_no_pages(wiki_sandbox):
+    digest = wiki.changes_since(CUTOFF)
+    assert digest["pages"] == [] and digest["chat_pages"] == [] and wiki.digest_empty(digest)
+
+
+def test_briefing_counts_later_sources_and_memory_ops_but_not_hand_edits(vault):
+    import sources
+    write_page("sources/old-split", "Old split", "x\n", source="user drop 2026-10-11")
+    write_page("sources/older-split", "Older split", "x\n", source="user drop 2026-10-01")
+    entries = [
+        {"sha256": "a", "path": "raw/inbox/a.md", "kind": "text", "ingested_at": "2026-10-09T08:00:00",
+         "page": "sources/a"},
+        {"sha256": "b", "path": "raw/inbox/b.pdf", "kind": "pdf", "ingested_at": "2026-10-11T08:00:00",
+         "page": "sources/b"},
+        {"sha256": "c", "path": "raw/inbox/c.md", "kind": "text", "ingested_at": "09:30:00",
+         "page": "sources/old-split"},
+        {"sha256": "d", "path": "raw/inbox/d.md", "kind": "text", "ingested_at": "09:30:00",
+         "page": "sources/older-split"},
+    ]
+    wiki._write(sources.MANIFEST, "".join(json.dumps(e) + "\n" for e in entries))
+    ops = [
+        {"ts": "2026-10-09T08:00:00", "op": "ADD", "path": "people[]", "value": {"name": "Old"}, "reason": "said"},
+        {"ts": "2026-10-11T08:00:00", "op": "ADD", "path": "people[]", "value": {"name": "Wife", "rel": "spouse"},
+         "reason": "said"},
+        {"ts": "2026-10-11T08:01:00", "op": "ADD", "path": "preferences.coffee", "value": "black", "reason": "said"},
+        {"ts": "2026-10-11T08:02:00", "op": "DELETE", "path": "people[0]", "value": None, "reason": "ui"},
+        {"ts": "2026-10-11T08:03:00", "op": "CONFIRM", "path": "people[1]", "value": None, "reason": "again"},
+        {"ts": "2026-10-11T08:04:00", "op": "UPDATE", "path": "identity.city", "value": "Bern", "reason": "moved"},
+    ]
+    with open(memory.OPS_LOG_PATH, "w") as f:
+        f.writelines(json.dumps(o) + "\n" for o in ops)
+
+    digest = wiki.changes_since(CUTOFF)
+
+    assert [(s["page"], s["kind"], s["at"]) for s in digest["sources"]] == [
+        ("sources/b", "pdf", "2026-10-11T08:00:00"), ("sources/old-split", "text", "2026-10-11T09:30:00")]
+    mem = digest["memory"]
+    assert (mem["added"], mem["updated"], mem["removed"]) == (2, 1, 0)
+    assert [(e["op"], e["path"]) for e in mem["examples"]] == [("ADD", "people[]"), ("ADD", "preferences.coffee")]
+    card = wiki.briefing_card(digest)
+    assert "## Sources\n- [[sources/b]] · pdf\n" in card and "## Pages" not in card
+    assert "## Memory\n- 2 added, 1 updated, 0 removed\n" in card and "Wife · spouse" in card
+
+
+def test_the_briefing_card_caps_a_section_at_eight_items():
+    digest = {"since": CUTOFF, "pages": [{"path": f"notes/p{i}", "title": f"P{i}", "change": "edited"}
+                                         for i in range(10)],
+              "chat_pages": ["people/a", "people/b", "people/c"], "sources": [],
+              "memory": {"added": 0, "updated": 0, "removed": 0, "examples": []}}
+    card = wiki.briefing_card(digest)
+    pages = card.split("## Pages\n", 1)[1]
+    assert pages.count("- edited: [[notes/p") == 8 and "- +2 more" in pages
+    assert "- notes from our chats: [[people/a]], [[people/b]] (+1)" in pages
+    assert card.startswith("# Briefing ") and "## Sources" not in card and "## Memory" not in card
+
+
+@pytest.mark.parametrize("delta, expected", [
+    (0, "14:05"), (1, "yesterday at 14:05"), (4, None)])
+def test_briefing_when_reads_like_speech(delta, expected):
+    from datetime import date, timedelta
+    day = date.today() - timedelta(days=delta)
+    got = wiki.briefing_when(f"{day.isoformat()}T14:05:09")
+    assert got == (expected or f"{day.day} {day.strftime('%b')}")
+
+
+def test_the_users_own_editor_saves_and_saved_cards_are_not_news(vault, monkeypatch):
+    at(monkeypatch, "2026-10-09T09:00:00")
+    wiki.apply_page_ops([a_page()], "seed")
+    at(monkeypatch, "2026-10-11T09:00:00")
+    text = read("people/anna.md")
+    assert wiki.save_page("people/anna", text + "\nMore.\n", wiki.etag(text))[1] is None
+    assert wiki.create_page("notes/mine")[1] is None
+    assert wiki.save_card("notes/2026-10-11-briefing-11-oct", "Briefing 11 Oct", "# Briefing 11 Oct\n", [])[1] is None
+    wiki.apply_page_ops([a_page("projects/falcon", "Falcon")], "seed")
+
+    digest = wiki.changes_since(CUTOFF)
+
+    assert [(p["path"], p["change"]) for p in digest["pages"]] == [("projects/falcon", "new")]
+    assert digest["chat_pages"] == []

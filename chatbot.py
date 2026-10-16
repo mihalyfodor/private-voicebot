@@ -6,6 +6,7 @@ import signal
 import base64
 import asyncio
 import contextlib
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 load_dotenv()
 import threading
@@ -367,6 +368,47 @@ def new_topic_command(text: str) -> bool:
     return bool(_NEW_TOPIC.match(" ".join(str(text or "").split())))
 
 
+# --- briefing (docs/46-briefing.md) ---------------------------------------------------
+_BRIEF = re.compile(
+    r"^(?:please,?\s+)?(?:what(?:['’]?s|\s+is)\s+new|anything\s+new|brief\s+me|what\s+(?:has\s+)?changed"
+    r"|what\s+did\s+i\s+miss|/brief)(?:,?\s+please)?[\s?.!]*$", re.I)
+BRIEFING_HOURS = 24          # the look-back of the very first briefing
+
+
+def briefing_command(text: str) -> bool:
+    """True for "what's new?", "brief me", "anything new", "what changed", "what did I miss", `/brief`."""
+    return bool(_BRIEF.match(" ".join(str(text or "").split())))
+
+
+def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
+    """The briefing turn: "Nothing new since <when>." without the model, else one spoken recap;
+    `briefing_at` moves forward only once the recap was spoken."""
+    try:
+        now = memory._stamp("%H:%M:%S")
+        since = avatars.load_settings().get("briefing_at") or \
+            (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
+        digest = wiki.changes_since(since)
+        if not wiki.digest_empty(digest) and not services.llm_ok():
+            send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
+            send_sync({"type": "state", "value": "idle"})
+            return
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        if wiki.digest_empty(digest):
+            say_canned(f"Nothing new since {wiki.briefing_when(since)}.", send_sync)
+        else:
+            reply, _ = llm.briefing(digest, user_text, origin)
+            print(f"Bot: {reply}")
+            say_canned(reply, send_sync)
+            avatars.save_setting("briefing_at", max(str(avatars.load_settings().get("briefing_at") or ""), now))
+        send_sync(context_msg())
+        _wait_for_playback_then_idle(sess, send_sync)
+    except Exception as e:
+        print(f"[Error] {e}")
+        services.recheck()
+        send_sync({"type": "state", "value": "idle"})
+
+
 def context_msg() -> dict:
     return {"type": "context", **llm.context_usage()}
 
@@ -508,7 +550,8 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
     tags the session log line ("user" spoken, "typed" from the composer); the conversation,
     tools and memory see them identically. Always ends in the idle state, errors included.
     A find/open/go-back turn first opens the page (PRD 38), then reaches the model with a note.
-    "new topic" / `/new` never reaches the model: it is the new-topic turn (PRD 39). Every
+    "new topic" / `/new` never reaches the model: it is the new-topic turn (PRD 39); "what's new?" /
+    `/brief` is the briefing turn, offline-safe when nothing changed (PRD 46). Every
     completed turn ends with a `context` message; the 90 % crossing adds one spoken sentence.
     """
     if new_topic_command(user_text):
@@ -516,6 +559,9 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         return
     if save_note_command(user_text):
         save_note(sess, turn, send_sync)
+        return
+    if briefing_command(user_text):
+        briefing(sess, turn, user_text, send_sync, origin)
         return
     if not services.llm_ok():
         # PRD 41: no thinking state, no timeout — the composer line says what to run
