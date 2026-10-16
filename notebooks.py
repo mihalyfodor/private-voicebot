@@ -14,9 +14,9 @@ import tempfile
 
 import memory
 import sources
-import tracing
+from core import trace
 from sources import IngestError
-from untrusted import DOCUMENT_RULE
+from core.untrusted import DOCUMENT_RULE
 
 #: PNG pages, each under `sources.MAX_IMAGE_BYTES`
 MAX_NOTEBOOK_PAGES = 50
@@ -111,7 +111,7 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
     retried by the next pull; there an sha already gone is done, not an error.
     """
     check_notebook(pages)
-    with tracing.ingest("notebook", bytes=sum(len(p) for p in pages), pages=len(pages)):
+    with trace.ingest("notebook", bytes=sum(len(p) for p in pages), pages=len(pages)):
         digest = sources.sha256(b"".join(pages))
         replaces = "" if replaces == digest else replaces
         seen = sources.manifest_find(digest)
@@ -119,7 +119,7 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
             if replaces and sources.manifest_find(replaces):
                 check_replaces(replaces, device_id)
                 sources.forget(replaces)
-            tracing.mark(already=True, path=seen.get("page", ""))
+            trace.mark(already=True, path=seen.get("page", ""))
             return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
         if replaces:
             check_replaces(replaces, device_id)

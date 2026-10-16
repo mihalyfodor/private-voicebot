@@ -33,10 +33,11 @@ import time
 import unicodedata
 from datetime import date, datetime
 
-from untrusted import DOCUMENT_RULE
+from core import config, trace
+from core.untrusted import DOCUMENT_RULE
 
 # --- files -------------------------------------------------------------------------
-_DIR = os.getenv("MEMORY_DIR") or os.path.dirname(__file__)   # MEMORY_DIR env: e2e tests use a temp dir
+_DIR = config.MEMORY_DIR   # MEMORY_DIR env: e2e tests use a temp dir
 MEMORY_PATH = os.path.join(_DIR, "memory.json")            # the profile
 OPS_LOG_PATH = os.path.join(_DIR, "memory_ops.jsonl")      # append-only audit log
 SHORTMEM_PATH = os.path.join(_DIR, "shortmem.txt")         # v1, read once for migration
@@ -75,15 +76,13 @@ STALE_DAYS = {
 STALE_FIELD = "stale"      # the one entry field that holds a boolean
 SEEN_FIELD = "seen"        # "YYYY-MM-DD", last time the user confirmed the entry
 
-import tracing
-
-log = tracing.logger("Memory")
-wiki_log = tracing.logger("Wiki")
+log = trace.logger("Memory")
+wiki_log = trace.logger("Wiki")
 
 #: One process-wide writer lock. `save()` (worker thread) and `edit()` / `reset()` (UI actions,
 #: run in an executor) all hold it across load -> apply -> write -> log, so a background
 #: extraction pass and a hand edit can never clobber each other. See docs/16-memory-editor.md.
-import vault_lock
+from core import vault_lock
 
 _LOCK = vault_lock.LOCK   # the vault-wide lock; wiki.py and sources.py take the same one
 
@@ -1640,8 +1639,8 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
     t0 = time.monotonic()
     applied = _save(session_turns, client, model, sources)
     ops = [op.get("op") for op in applied or []]
-    tracing.event("memory_save", facts_added=ops.count("ADD"), facts_dropped=ops.count("DELETE"),
-                  ms=tracing.ms_since(t0), ok=applied is not None)
+    trace.event("memory_save", facts_added=ops.count("ADD"), facts_dropped=ops.count("DELETE"),
+                  ms=trace.ms_since(t0), ok=applied is not None)
     return applied
 
 

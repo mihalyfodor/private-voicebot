@@ -11,7 +11,7 @@ import pytest
 
 import chatbot
 import llm
-import tracing
+from core import trace
 from session import Session
 from tests.conftest import (SENTINEL, RawStreamClient, StreamClient, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
                             tool_call_chunk, trace_lines, trace_text)
@@ -65,7 +65,7 @@ def test_a_tool_call_records_its_size_not_its_result(vault, capsys, monkeypatch)
         [tool_call_chunk(id="c1", name="search_wiki", arguments='{"query": "falcon"}')],
         stream_chunks("[neutral] Done."),
     ])
-    with tracing.turn(7):
+    with trace.turn(7):
         with patch.object(llm, "_client", client):
             list(llm.ask_events("search the wiki for falcon", origin="typed"))
     calls = trace_lines(kind="tool_call")
@@ -86,7 +86,7 @@ def _usage_chunk(prompt: int, completion: int):
 
 def test_llm_call_reads_usage_from_the_last_chunk(vault):
     client = RawStreamClient([stream_chunks("[neutral] ", "Hi there.") + [_usage_chunk(12, 3)]])
-    with tracing.turn(3) as root, patch.object(llm, "_client", client):
+    with trace.turn(3) as root, patch.object(llm, "_client", client):
         list(llm.ask_events("hello", origin="typed"))
     assert client.calls[0]["stream_options"] == {"include_usage": True}
     (call,) = trace_lines(kind="llm_call")
@@ -98,7 +98,7 @@ def test_llm_call_reads_usage_from_the_last_chunk(vault):
 
 
 def test_llm_call_without_usage_leaves_tokens_null(vault):
-    with tracing.turn(4):
+    with trace.turn(4):
         events, _ = ask_turn("hello", "[neutral] Hi.")
     (call,) = trace_lines(kind="llm_call")
     assert call["tokens_in"] is None and call["tokens_out"] is None
@@ -127,11 +127,11 @@ def test_a_turn_raising_mid_stream_is_an_error_event_and_an_error_message(vault)
 
 
 def test_rotation_keeps_at_most_five_backups(monkeypatch):
-    monkeypatch.setattr(tracing, "MAX_BYTES", 512 * 1024)
+    monkeypatch.setattr(trace, "MAX_BYTES", 512 * 1024)
     pad = "x" * 190
     for i in range(30_000):                          # ~11 MB of events
-        tracing.event("batch_file", rel=pad, state="filed", seconds=i)
-    folder = os.path.dirname(tracing.paths()["events"])
+        trace.event("batch_file", rel=pad, state="filed", seconds=i)
+    folder = os.path.dirname(trace.paths()["events"])
     names = sorted(n for n in os.listdir(folder) if n.startswith("events.jsonl"))
     assert names == ["events.jsonl"] + [f"events.jsonl.{i}" for i in range(1, 6)]
 
@@ -139,26 +139,26 @@ def test_rotation_keeps_at_most_five_backups(monkeypatch):
 def test_an_unwritable_dir_does_not_raise(tmp_path, monkeypatch, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("not a dir")
-    monkeypatch.setattr(tracing, "TRACE_DIR", str(blocker / "logs"))
-    tracing.reset()
-    tracing.event("turn_start", origin="typed", text_len=3, words=1)
-    tracing.event("turn_end", ms=1, outcome="ok")
+    monkeypatch.setattr(trace, "TRACE_DIR", str(blocker / "logs"))
+    trace.reset()
+    trace.event("turn_start", origin="typed", text_len=3, words=1)
+    trace.event("turn_end", ms=1, outcome="ok")
     assert capsys.readouterr().err.count("[Trace] write failed") == 1      # rate-limited
 
 
 def test_a_free_text_field_never_reaches_events(vault):
-    tracing.event("turn_start", origin="typed", text=SENTINEL, reply=SENTINEL, words=1,
+    trace.event("turn_start", origin="typed", text=SENTINEL, reply=SENTINEL, words=1,
                 where="x" * 500, title="t" * 500)
     (row,) = trace_lines(kind="turn_start")
     assert "text" not in row and "reply" not in row and row["where"] == "other"
-    assert row["title"] == "t" * tracing.CAP
+    assert row["title"] == "t" * trace.CAP
 
 
 # --------------------------------------------------------------- 8. dev verbose file
 
 
 def test_dev_turn_writes_prompt_and_turn_text_to_verbose_only(vault):
-    assert tracing.profile() == "dev"
+    assert trace.profile() == "dev"
     _typed(8, QUESTION, StreamClient(REPLY))
     rows = trace_lines("verbose")
     kinds = {r["kind"] for r in rows}
@@ -197,7 +197,7 @@ def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch, prod_pr
     assert len(errors) == 2 and all(e["message"] == e["code"] == "ValueError" for e in errors)
     assert [r["status"] for r in trace_lines(kind="tool_call")] == ["error"]
     assert SENTINEL not in trace_text()
-    assert not os.path.exists(tracing.paths()["verbose"])
+    assert not os.path.exists(trace.paths()["verbose"])
 
 
 def test_an_exception_text_goes_to_dev_verbose_only(vault, monkeypatch):
@@ -210,10 +210,10 @@ def test_an_exception_text_goes_to_dev_verbose_only(vault, monkeypatch):
 
 
 def test_vocabulary_fields_outside_their_values_become_other(vault):
-    tracing.event("batch_file", rel="a.pdf", state=f"filed {SENTINEL}", seconds=1)
-    tracing.event("error", scope="turn", where=SENTINEL, exc_type="X", message="X", code="X")
-    tracing.event("tool_call", name=SENTINEL, arg_keys=["query", f"q {SENTINEL}"], ok=True)
-    tracing.event("llm_call", purpose="reply", fallback_reason=SENTINEL)
+    trace.event("batch_file", rel="a.pdf", state=f"filed {SENTINEL}", seconds=1)
+    trace.event("error", scope="turn", where=SENTINEL, exc_type="X", message="X", code="X")
+    trace.event("tool_call", name=SENTINEL, arg_keys=["query", f"q {SENTINEL}"], ok=True)
+    trace.event("llm_call", purpose="reply", fallback_reason=SENTINEL)
     assert trace_lines(kind="batch_file")[0]["state"] == "other"
     assert trace_lines(kind="error")[0]["where"] == "other"
     call = trace_lines(kind="tool_call")[0]
@@ -275,19 +275,19 @@ def test_a_failed_background_memory_save_is_a_non_fatal_error_event(vault, prod_
 
 
 def test_a_background_error_during_a_turn_does_not_fail_it(vault):
-    with tracing.turn(7):
+    with trace.turn(7):
         try:
             raise RuntimeError("memory down")
         except RuntimeError as exc:
-            tracing.error("memory", "memory_save", exc, fatal_for="none")
-            tracing.error("turn", "memory_save", exc, fatal_for="none")
-        assert not tracing.turn_failed()
+            trace.error("memory", "memory_save", exc, fatal_for="none")
+            trace.error("turn", "memory_save", exc, fatal_for="none")
+        assert not trace.turn_failed()
 
 
 @pytest.mark.parametrize("profile, shown", [("prod", False), ("dev", True)])
 def test_stdout_tracebacks_carry_the_exception_text_only_in_dev(vault, monkeypatch, capsys, profile, shown):
     monkeypatch.setenv("TRACE_PROFILE", profile)
-    tracing.reset()
+    trace.reset()
     try:
         raise RuntimeError(SENTINEL)
     except RuntimeError as exc:

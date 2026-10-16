@@ -16,6 +16,7 @@ Usage:
     python -m eval.harness eval/scripts/basic.yaml --rounds 2 --keep-memory /tmp/memory.json
     python -m eval.harness --chat
 """
+from core import settings
 import argparse
 import difflib
 import json
@@ -32,7 +33,7 @@ import avatars  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
 import sources  # noqa: E402
-import tracing  # noqa: E402
+from core import trace  # noqa: E402
 import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
 
@@ -113,9 +114,9 @@ class Sandbox:
             "wiki": wiki.WIKI_PATH,
             "ops": memory.OPS_LOG_PATH,
             "shortmem": memory.SHORTMEM_PATH,
-            "settings": avatars.SETTINGS_PATH,
+            "settings": settings.SETTINGS_PATH,
             "tools": llm.TOOLS,
-            "trace_dir": tracing.TRACE_DIR,
+            "trace_dir": trace.TRACE_DIR,
             "avatar": avatars._current,
             "system_prompt": llm.SYSTEM_PROMPT,
             "today": memory._today,
@@ -127,12 +128,12 @@ class Sandbox:
         wiki._index_cache = {"sig": None, "docs": []}
         memory.OPS_LOG_PATH = self.ops_path
         memory.SHORTMEM_PATH = self.shortmem_path
-        avatars.SETTINGS_PATH = self.settings_path
+        settings.SETTINGS_PATH = self.settings_path
         avatars._current = None
         if not self.tools:
             llm.TOOLS = []
-        tracing.reset()
-        tracing.TRACE_DIR = self.trace_dir      # the run's events land in the throwaway dir (PRD 49)
+        trace.reset()
+        trace.TRACE_DIR = self.trace_dir      # the run's events land in the throwaway dir (PRD 49)
         llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
         return self
 
@@ -153,10 +154,10 @@ class Sandbox:
         wiki._index_cache = {"sig": None, "docs": []}
         memory.OPS_LOG_PATH = self._saved["ops"]
         memory.SHORTMEM_PATH = self._saved["shortmem"]
-        avatars.SETTINGS_PATH = self._saved["settings"]
+        settings.SETTINGS_PATH = self._saved["settings"]
         llm.TOOLS = self._saved["tools"]
-        tracing.reset()
-        tracing.TRACE_DIR = self._saved["trace_dir"]
+        trace.reset()
+        trace.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
         llm.SYSTEM_PROMPT = self._saved["system_prompt"]
         memory._today = self._saved["today"]

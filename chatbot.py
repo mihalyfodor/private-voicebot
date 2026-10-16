@@ -9,9 +9,9 @@ import contextlib
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 load_dotenv()
-import tracing
+from core import trace
 if __name__ == "__main__":
-    tracing.configure()      # PRD 49: a dev process never starts against prod data; before anything loads
+    trace.configure()      # PRD 49: a dev process never starts against prod data; before anything loads
 import time
 import threading
 import webbrowser
@@ -24,6 +24,7 @@ import splitter
 import sources
 import fillers
 import avatars
+from core import settings
 import services
 from tools import weather as weather_tool
 import backdrops
@@ -39,9 +40,9 @@ import vad
 import asr
 from session import Session, TurnController
 
-log = tracing.logger("App")
-ws_log = tracing.logger("WS")
-mem_log = tracing.logger("Memory")
+log = trace.logger("App")
+ws_log = trace.logger("WS")
+mem_log = trace.logger("Memory")
 
 KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/models/kokoro/kokoro-v1.0.onnx"))
 KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/voices-v1.0.bin"))
@@ -208,7 +209,7 @@ def _turn_failed(send_sync, where: str, exc: BaseException, text: str, scope: st
                  recheck: bool = False) -> None:
     """A turn-level handler failed: log it, trace it (type + code only), tell the client, idle."""
     log.exception(f"{where} failed")
-    tracing.error("turn", where, exc)         # marks the turn failed (PRD 49)
+    trace.error("turn", where, exc)         # marks the turn failed (PRD 49)
     if recheck:
         services.recheck()                    # a failed completion: find out now whether oMLX is gone
     send_sync({"type": "error", "scope": scope, "text": text})
@@ -218,7 +219,7 @@ def _turn_failed(send_sync, where: str, exc: BaseException, text: str, scope: st
 def _memory_failed(exc: BaseException) -> None:
     """A background memory save failed: log + trace it; nothing waits on it."""
     mem_log.exception("memory save failed")
-    tracing.error("memory", "memory_save", exc, fatal_for="none")
+    trace.error("memory", "memory_save", exc, fatal_for="none")
 
 
 def _periodic_memory(count: int) -> None:
@@ -240,7 +241,7 @@ def _periodic_memory(count: int) -> None:
 controller = TurnController(on_turn_complete=_periodic_memory)
 
 greeted = False
-hands_free = bool(avatars.load_settings().get("hands_free", False))
+hands_free = bool(settings.load_settings().get("hands_free", False))
 
 #: message types that carry the turn id (assistant transcripts only)
 _TURN_TAGGED = {"state", "speech", "speech_end"}
@@ -411,7 +412,7 @@ def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = 
     `briefing_at` moves forward only once the recap was spoken."""
     try:
         now = memory._stamp("%H:%M:%S")
-        since = avatars.load_settings().get("briefing_at") or \
+        since = settings.load_settings().get("briefing_at") or \
             (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
         digest = wiki.changes_since(since)
         if not wiki.digest_empty(digest) and not services.llm_ok():
@@ -425,9 +426,9 @@ def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = 
         else:
             reply, _ = llm.briefing(digest, user_text, origin)
             log.debug(f"Bot: {reply}")
-            tracing.verbose("turn_text", user=user_text, reply=reply)
+            trace.verbose("turn_text", user=user_text, reply=reply)
             say_canned(reply, send_sync)
-            avatars.save_setting("briefing_at", max(str(avatars.load_settings().get("briefing_at") or ""), now))
+            settings.save_setting("briefing_at", max(str(settings.load_settings().get("briefing_at") or ""), now))
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
@@ -566,10 +567,10 @@ def open_page_for(text: str, send_sync) -> str:
 
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """One turn between its `turn_start` and `turn_end` events (docs/49-event-trace.md); see `_respond`."""
-    with tracing.turn(turn):
+    with trace.turn(turn):
         label = ("briefing" if briefing_command(user_text) else "card" if llm.wants_writeup(user_text)
                  else "typed" if origin == "typed" else "spoken")
-        tracing.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
+        trace.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
         t0, end = time.monotonic(), {"outcome": "ok", "reply_len": 0, "tools": [], "band": None}
         try:
             _respond(sess, turn, user_text, send_sync, origin, end)
@@ -577,9 +578,9 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
             end["outcome"] = "error"
             raise
         finally:
-            if tracing.turn_failed():
+            if trace.turn_failed():
                 end["outcome"] = "error"
-            tracing.event("turn_end", ms=tracing.ms_since(t0), ctx_pct=llm.context_usage()["pct"], **end)
+            trace.event("turn_end", ms=trace.ms_since(t0), ctx_pct=llm.context_usage()["pct"], **end)
 
 
 def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict):
@@ -618,7 +619,7 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
         reply = speak_stream(events, send_sync)
         end.update(reply_len=len(reply), tools=[tc["name"] for tc in llm.get_last_tool_calls()], band=llm.last_band)
         log.debug(f"Bot: {reply}")
-        tracing.verbose("turn_text", user=user_text, reply=reply)
+        trace.verbose("turn_text", user=user_text, reply=reply)
         send_sync({"type": "transcript", "role": "assistant", "text": reply})
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
@@ -658,7 +659,7 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
         if getattr(asr, "last_error", None):
             services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
-        with tracing.turn(turn):
+        with trace.turn(turn):
             _turn_failed(send_sync, "asr", e, "I could not transcribe that.")
         return
     if not text:
@@ -679,7 +680,7 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
         llm.record_assistant(say_canned(text, send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        with tracing.turn(turn):
+        with trace.turn(turn):
             _turn_failed(send_sync, "canned_turn", e, "I could not say that.")
 
 
@@ -715,7 +716,7 @@ async def _no_static_cache(request: Request, call_next):
 
 def current_backdrop() -> str:
     try:
-        return backdrops.validate(avatars.load_settings().get("backdrop") or backdrops.DEFAULT)
+        return backdrops.validate(settings.load_settings().get("backdrop") or backdrops.DEFAULT)
     except ValueError:
         return backdrops.DEFAULT
 
@@ -778,7 +779,7 @@ def _ingest_all(items: list, run_id: str = "") -> dict:
     Each stage of each item is pushed to the popup as `ingest_progress` (PRD 36); a host
     script's `run_id` groups the items' trace events under its run (PRD 49).
     """
-    with tracing.run(run_id):
+    with trace.run(run_id):
         return _ingest_items(items)
 
 
@@ -793,7 +794,7 @@ def _ingest_items(items: list) -> dict:
             errors.append(exc.message)
         except Exception:  # noqa: BLE001 — one bad drop must not 500 the popup
             # the ingest span already traced it (type + code); only the log gets the traceback
-            tracing.logger("Ingest").exception("filing a drop failed")
+            trace.logger("Ingest").exception("filing a drop failed")
             errors.append(f"{item.get('filename') or 'the text'}: filing failed")
     return {"filed": filed, "errors": errors}
 
@@ -900,7 +901,7 @@ async def _action_set_focus(sess, msg, loop):
 async def _action_set_hands_free(sess, msg, loop):
     global hands_free
     value = bool(msg.get("value"))
-    avatars.save_setting("hands_free", value)
+    settings.save_setting("hands_free", value)
     hands_free = value
     if sess.endpointer is not None:
         sess.endpointer.gated = False
@@ -926,7 +927,7 @@ _action_playback_blocked = _action_playback_done
 
 async def _action_set_backdrop(sess, msg, loop):
     key = backdrops.validate(msg.get("key", ""))
-    avatars.save_setting("backdrop", key)
+    settings.save_setting("backdrop", key)
     await send({"type": "backdrop", "key": key})
 
 
@@ -964,13 +965,13 @@ async def _action_set_location(sess, msg, loop):
     if not (-90 <= lat <= 90 and -180 <= lon <= 180) or not tz:
         await _error("settings", "location out of range or missing tz")
         return
-    saved = avatars.load_settings().get("location")
+    saved = settings.load_settings().get("location")
     if weather_tool.needs_geocode(saved, lat, lon):
         name = await asyncio.to_thread(weather_tool.reverse_geocode, lat, lon)   # "" when Nominatim fails
     else:
         name = saved["name"]
     value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser", "name": name}
-    avatars.save_setting("location", value)
+    settings.save_setting("location", value)
     await asyncio.to_thread(llm.refresh_context)   # the next turn knows the place
     await send({"type": "setting", "key": "location", "value": weather_tool.location()})
 
@@ -996,7 +997,7 @@ async def _action_set_setting(sess, msg, loop):
         _save_admin_password(value)
         await send({"type": "setting", "key": key, **services.admin_password_status()})
         return
-    avatars.save_setting(key, value)
+    settings.save_setting(key, value)
     await send({"type": "setting", "key": key, "value": value})
 
 
@@ -1004,12 +1005,12 @@ def _save_admin_password(value: str) -> None:
     """Store the password (or drop the key for ""); the value itself is never echoed or printed."""
     value = value.strip()
     if value:
-        avatars.save_setting(services.PASSWORD_KEY, value)
+        settings.save_setting(services.PASSWORD_KEY, value)
         return
-    data = avatars.load_settings()
+    data = settings.load_settings()
     if services.PASSWORD_KEY in data:
         del data[services.PASSWORD_KEY]
-        avatars.save_settings(data)
+        settings.save_settings(data)
 
 
 async def _action_model_load(sess, msg, loop):
@@ -1371,11 +1372,11 @@ async def websocket_endpoint(websocket: WebSocket):
     global session, _loop
     if not _origin_allowed(websocket.headers.get("origin")):
         ws_log.warning(f"refused origin {websocket.headers.get('origin')!r}")
-        tracing.event("ws", event="refused_origin", origin=websocket.headers.get("origin"))
+        trace.event("ws", event="refused_origin", origin=websocket.headers.get("origin"))
         await websocket.close(code=4003)
         return
     await websocket.accept()
-    tracing.event("ws", event="connect")
+    trace.event("ws", event="connect")
     code = None
     previous, session = session, Session(websocket)
     sess = session
@@ -1406,14 +1407,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 raise
             except Exception as e:
                 ws_log.exception("handler failed")
-                tracing.error("ws", "ws", e, fatal_for="none")
+                trace.error("ws", "ws", e, fatal_for="none")
                 # a ValueError is a validation message written for the user; anything else is type only
                 text = str(e) if isinstance(e, ValueError) else f"Something went wrong ({type(e).__name__})."
                 await _error(_scope_of(msg.get("action")), text, action=msg.get("action"))
     except WebSocketDisconnect as e:
         code = e.code
     finally:
-        tracing.event("ws", event="disconnect", code=code)
+        trace.event("ws", event="disconnect", code=code)
         sess.websocket = None
         sess.playback_done.set()  # never leave a turn blocked on a dead socket
         if session is sess:
@@ -1445,4 +1446,4 @@ if __name__ == "__main__":
         threading.Thread(target=open_browser, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
     log.info("Exiting...")
-    tracing.event("service", event="stop")
+    trace.event("service", event="stop")

@@ -11,7 +11,7 @@ import shutil
 
 import pytest
 
-import avatars
+from core import settings
 import llm
 import wiki
 from tests.conftest import ask_turn, deltas, fallout, last_user, trace_lines  # noqa: F401  (fixtures)
@@ -127,7 +127,7 @@ PLAIN_QUESTION = "how do I cook a meal by the lake"     # a content question on 
 
 
 def test_a_content_question_on_plain_words_below_the_high_score_is_medium(fallout, file_sandbox, monkeypatch):
-    avatars.save_setting("recall_min_score", 0.0)
+    settings.save_setting("recall_min_score", 0.0)
     page, hits = llm._recall_evidence(PLAIN_QUESTION)
     assert hits and not page and not hits[0]["named"] and llm.content_question(PLAIN_QUESTION)
     assert not wiki.proper_terms(wiki.content_terms(PLAIN_QUESTION))
@@ -223,7 +223,7 @@ def test_two_weak_turns_offer_once(fallout):
 
 
 def test_a_chat_turn_carried_by_two_plain_words_is_low(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 0.0)
+    settings.save_setting("recall_min_score", 0.0)
     text = "remind me to cook a meal"
     page, hits = llm._recall_evidence(text)
     assert hits and not llm.content_question(text)            # kept hits, plain words only

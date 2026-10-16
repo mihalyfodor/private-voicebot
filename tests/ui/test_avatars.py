@@ -1,5 +1,6 @@
 """Server-side avatar state and backdrops. Since PRD 23 Wanko is the only avatar, so these
 cover persistence and the fallback; the `set_avatar` action itself is gone."""
+from core import settings
 import os
 import json
 import pytest
@@ -27,7 +28,7 @@ def _via_env(monkeypatch, key):
 
 
 def _via_settings(monkeypatch, key):
-    with open(avatars.SETTINGS_PATH, "w") as f:
+    with open(settings.SETTINGS_PATH, "w") as f:
         json.dump({"avatar": key}, f)
     return avatars.current()
 
@@ -49,7 +50,7 @@ def test_unknown_or_retired_avatar_key_resolves_to_wanko(monkeypatch, capsys, so
     out = capsys.readouterr().out.strip().splitlines()
     assert len(out) == 1 and key in out[0]
     if source is _via_set_current:
-        assert json.load(open(avatars.SETTINGS_PATH))["avatar"] == "wanko"
+        assert json.load(open(settings.SETTINGS_PATH))["avatar"] == "wanko"
 
 
 def test_reload_keeps_working():
@@ -92,7 +93,7 @@ def test_set_avatar_action_no_longer_exists():
 def test_set_current_persists():
     avatars.set_current("wanko")
     assert avatars.current()["name"] == "Wanko"
-    assert json.load(open(avatars.SETTINGS_PATH)) == {"avatar": "wanko", "version": 1}
+    assert json.load(open(settings.SETTINGS_PATH)) == {"avatar": "wanko", "version": 1}
     avatars._current = None  # simulate restart
     assert avatars.current_key() == "wanko"
 
@@ -107,23 +108,23 @@ def test_save_setting_is_atomic_and_versioned(monkeypatch):
         real_replace(src, dst)
 
     monkeypatch.setattr(avatars.os, "replace", spy)
-    avatars.save_setting("hands_free", True)
+    settings.save_setting("hands_free", True)
 
-    assert replaces == [(avatars.SETTINGS_PATH + ".tmp", avatars.SETTINGS_PATH)]
-    assert not os.path.exists(avatars.SETTINGS_PATH + ".tmp")
-    assert json.load(open(avatars.SETTINGS_PATH)) == {"hands_free": True, "version": 1}
-    assert avatars.load_settings()["version"] == avatars.SETTINGS_VERSION
+    assert replaces == [(settings.SETTINGS_PATH + ".tmp", settings.SETTINGS_PATH)]
+    assert not os.path.exists(settings.SETTINGS_PATH + ".tmp")
+    assert json.load(open(settings.SETTINGS_PATH)) == {"hands_free": True, "version": 1}
+    assert settings.load_settings()["version"] == settings.SETTINGS_VERSION
 
 
 def test_truncated_settings_file_loads_as_empty_with_a_warning(capsys):
-    with open(avatars.SETTINGS_PATH, "w") as f:
+    with open(settings.SETTINGS_PATH, "w") as f:
         f.write('{"avatar": "nat')
-    assert avatars.load_settings() == {}
+    assert settings.load_settings() == {}
     assert "warning" in capsys.readouterr().out.lower()
 
 
 def test_missing_settings_file_is_silently_empty(capsys):
-    assert avatars.load_settings() == {}
+    assert settings.load_settings() == {}
     assert capsys.readouterr().out == ""
 
 
@@ -149,7 +150,7 @@ def test_ws_set_backdrop_persists_and_survives_avatar_switch():
         assert ws.receive_json() == {"type": "backdrop", "key": key}
         ws.send_json({"action": "set_backdrop", "key": "mars"})
         assert ws.receive_json()["type"] == "error"
-    assert avatars.load_settings() == {"backdrop": key, "version": 1}
+    assert settings.load_settings() == {"backdrop": key, "version": 1}
     assert client.get("/api/config").json()["backdrop"] == key
 
 
@@ -163,4 +164,4 @@ def test_unknown_action_is_ignored_and_the_socket_stays_open():
         ws.send_json({"action": "set_avatar", "key": "wanko"})
         ws.send_json({"action": "set_backdrop", "key": "none"})
         assert ws.receive_json() == {"type": "backdrop", "key": "none"}
-    assert "avatar" not in avatars.load_settings()
+    assert "avatar" not in settings.load_settings()

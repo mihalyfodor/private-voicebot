@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import chatbot
 import llm
-import tracing
+from core import trace
 from session import Session
 from tests.conftest import ROOT, StreamClient, fake_tts, run_turn, trace_lines
 
@@ -19,7 +19,7 @@ def test_prod_turn_never_creates_verbose_and_starts_with_service_start(vault, pr
     assert rows[0]["kind"] == "service" and rows[0]["event"] == "start" and rows[0]["profile"] == "prod"
     assert {r["profile"] for r in rows} == {"prod"}
     assert any(r["kind"] == "turn_end" for r in rows)
-    assert not os.path.exists(tracing.paths()["verbose"])
+    assert not os.path.exists(trace.paths()["verbose"])
 
 
 def test_dev_against_prod_data_refuses_to_start(tmp_path):
@@ -70,7 +70,7 @@ def test_a_host_script_writes_to_trace_dir_never_beside_the_vault(tmp_path):
 
 def test_dev_defaults_to_a_repo_local_logs_folder():
     import subprocess as sp
-    out = sp.run([sys.executable, "-c", "import tracing; print(tracing.TRACE_DIR)"], cwd=ROOT, capture_output=True,
+    out = sp.run([sys.executable, "-c", "from core import trace; print(trace.TRACE_DIR)"], cwd=ROOT, capture_output=True,
                  text=True, env={k: v for k, v in os.environ.items() if k != "TRACE_DIR"})
     assert out.stdout.strip() == os.path.join(ROOT, "logs")
 
@@ -78,17 +78,17 @@ def test_dev_defaults_to_a_repo_local_logs_folder():
 def test_dev_inside_a_container_is_refused(tmp_path, monkeypatch):
     marker = tmp_path / ".dockerenv"
     marker.write_text("")
-    monkeypatch.setattr(tracing, "DOCKERENV", str(marker))
-    assert "container" in tracing.decide({"TRACE_PROFILE": "dev"})[1]
-    assert tracing.decide({"TRACE_PROFILE": "prod"}) == ("prod", "")
-    assert "unknown" in tracing.decide({"TRACE_PROFILE": "debug"})[1]
+    monkeypatch.setattr(trace, "DOCKERENV", str(marker))
+    assert "container" in trace.decide({"TRACE_PROFILE": "dev"})[1]
+    assert trace.decide({"TRACE_PROFILE": "prod"}) == ("prod", "")
+    assert "unknown" in trace.decide({"TRACE_PROFILE": "debug"})[1]
 
 
 def test_an_unknown_profile_fails_closed_to_prod(monkeypatch):
     monkeypatch.setenv("TRACE_PROFILE", "verbose-please")
-    tracing.reset()
-    tracing.verbose("prompt", messages=["x"])
-    assert tracing.profile() == "prod" and not os.path.exists(tracing.paths()["verbose"])
+    trace.reset()
+    trace.verbose("prompt", messages=["x"])
+    assert trace.profile() == "prod" and not os.path.exists(trace.paths()["verbose"])
 
 
 def test_compose_forces_prod_and_caps_the_container_log():

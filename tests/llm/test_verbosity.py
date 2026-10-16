@@ -2,7 +2,7 @@
 
 import pytest
 
-import avatars
+from core import settings
 import llm
 
 
@@ -35,12 +35,12 @@ def test_resolve_verbosity_env_beats_card(monkeypatch):
 
 def test_resolve_verbosity_settings_beats_env(monkeypatch):
     monkeypatch.setenv("VERBOSITY", "long")
-    avatars.save_setting("verbosity", "short")
+    settings.save_setting("verbosity", "short")
     assert llm.resolve_verbosity(_fake_avatar("normal")) == "short"
 
 
 def test_resolve_verbosity_invalid_saved_value_ignored(monkeypatch, capsys):
-    avatars.save_setting("verbosity", "loud")
+    settings.save_setting("verbosity", "loud")
     assert llm.resolve_verbosity(_fake_avatar("short")) == "short"
     assert "warning" in capsys.readouterr().out.lower()
 
@@ -77,7 +77,7 @@ def test_set_verbosity_invalid_raises():
 def test_set_verbosity_persists_and_rebuilds_prompt():
     llm.reset()
     llm.set_verbosity("long")
-    assert avatars.load_settings()["verbosity"] == "long"
+    assert settings.load_settings()["verbosity"] == "long"
     assert llm.current_verbosity() == "long"
     assert llm.VERBOSITY_RULES["long"] in llm._conversation[0]["content"]
 

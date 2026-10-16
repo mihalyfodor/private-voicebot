@@ -12,6 +12,7 @@ import requests
 from fastapi.testclient import TestClient
 
 import avatars
+from core import settings
 import chatbot
 import memory
 import wiki
@@ -128,13 +129,13 @@ def test_weather_location_prefers_browser_over_env_over_default(isolated_setting
     env = weather.location()
     assert (env["source"], env["name"], env["lat"]) == ("env", "Budapest", 47.5)
 
-    avatars.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest", "source": "browser"})
+    settings.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest", "source": "browser"})
     got = weather.location()
     assert (got["source"], got["lat"], got["lon"], got["tz"]) == ("browser", 46.771, 23.624, "Europe/Bucharest")
     assert got["name"] == "Budapest"       # .env LOCATION_NAME wins over the geocoded name
     monkeypatch.delenv("LOCATION_NAME")
     assert weather.location()["name"] == ""
-    avatars.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest",
+    settings.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest",
                                       "source": "browser", "name": "Cluj-Napoca, Romania"})
     assert weather.location()["name"] == "Cluj-Napoca, Romania"
 
@@ -256,7 +257,7 @@ def test_the_system_prompt_names_the_place_after_set_location(isolated_settings,
 
 def test_weather_text_uses_the_geocoded_name(isolated_settings, monkeypatch):
     from tools import weather
-    avatars.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest",
+    settings.save_setting("location", {"lat": 46.771, "lon": 23.624, "tz": "Europe/Bucharest",
                                       "source": "browser", "name": "Cluj-Napoca, Romania"})
     forecast = {"current": {"temperature_2m": 21.4, "apparent_temperature": 20.0, "weathercode": 1,
                             "windspeed_10m": 8.0, "wind_direction_10m": 90},

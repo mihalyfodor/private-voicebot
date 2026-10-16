@@ -8,7 +8,7 @@ __pycache__
 docs
 eval
 tests
-workflows
+scripts/classification*
 static/models
 static/backdrops
 static/vendor/*.js

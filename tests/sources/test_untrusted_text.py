@@ -20,7 +20,7 @@ import tools
 from tests.conftest import FakeClient, RawStreamClient, stream_chunks, tool_call_chunk, vault  # noqa: F401 — fixture
 from tools import ALLOWED_HOSTS, READ_TOOLS, TOOLS, run_tool
 from tools import gmail, news, wikipedia
-from untrusted import DOCUMENT_RULE, documents_in, untrusted
+from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
 
 
 # --------------------------------------------------------------------------- the six documents

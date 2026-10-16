@@ -13,9 +13,10 @@ import wiki
 from tests.conftest import ROOT, FakeClient, StreamClient, commits, drain_initial, fake_tts
 
 MODULE_PATHS = """
-import json, avatars, memory, tracing, wiki
+import json, memory, wiki
+from core import settings, trace
 from tools import gmail
-print(json.dumps([avatars.SETTINGS_PATH, tracing.TRACE_DIR, memory.MEMORY_PATH, memory.OPS_LOG_PATH,
+print(json.dumps([settings.SETTINGS_PATH, trace.TRACE_DIR, memory.MEMORY_PATH, memory.OPS_LOG_PATH,
                   memory.SHORTMEM_PATH, wiki.WIKI_PATH, gmail.GMAIL_CREDENTIALS_PATH, gmail.GMAIL_TOKEN_PATH]))
 """
 

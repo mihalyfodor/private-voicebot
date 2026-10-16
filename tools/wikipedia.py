@@ -10,7 +10,7 @@ import urllib.parse
 
 import requests
 
-from untrusted import untrusted
+from core.untrusted import untrusted
 
 #: the only hosts this module ever talks to (the PRD 33 read-only policy test checks this list)
 HOSTS = ("en.wikipedia.org",)

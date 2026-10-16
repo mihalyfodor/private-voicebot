@@ -86,10 +86,16 @@ only as DEBUG in dev); started as `nohup python3 chatbot.py > /tmp/voicebot.log 
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, backdrop switching, character-card reload, `set_focus` + deterministic find/open/go-back page commands pushing `wiki_open` (PRD 38), `context` after every turn + the 90 % spoken nudge, the `new_topic` action / "new topic" / `/new` turn with its `thread` divider, reconnect replay from the stripped conversation (PRD 39), the "write it up" / `/write` write-up turn (one spoken line + `card`), "save that as a note" + the `save_card` action filing the last card under `notes/` (PRD 43), the "what's new?" / `/brief` briefing turn ("Nothing new since <when>." without the model, else one spoken recap; `briefing_at` in settings.json) (PRD 46)
 ├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33); the focus state + `focus_block` (open page head + best-matching section/chunk in place of recall, PRD 38); the context meter (`context_usage`, `TOOLS_TOKENS`, `context_notice`), recall/focus blocks stripped from the stored user message once the turn completes, `new_thread` (fold memory → ≤ 150-token summary as `<earlier>` → fixed ack) (PRD 39); length by origin (a typed grounded content question runs `long` with the offer clause swapped out), `wants_writeup`, `write_up` (one card completion over the last answer's context + a Sources line, kept as a marked assistant turn) (PRD 43); `recall_band` on spoken turns (high = grounded, medium = plain reply + server-appended "Want me to check your <title>?" whose "yes" answers the earlier question grounded, low = no recall; band in the `recall` event) (PRD 45); `briefing` (one short recap completion over the `<document source="briefing">` digest, its card kept in `_last_context` so "write it up" makes none) (PRD 46)
+├── core/               # PRD 50 layer 1: imports only stdlib/third-party and other core modules
+│   ├── config.py        # the one place env paths and oMLX settings are read (ROOT, WIKI_PATH, MEMORY_DIR, SETTINGS_PATH, TRACE_DIR, OMLX_*)
+│   ├── settings.py      # settings.json: `load_settings` / `save_setting` / `save_settings` (atomic tmp + os.replace, version stamp)
+│   ├── trace.py         # PRD 49 event trace (moved from tracing.py): `FIELDS` (one table: allow-list, per-field vocabularies, 200-char cap), `event` / `verbose` (dev only) via one writer, `decide` (profile + refusal), `span` / `turn` / `ingest` / `run` contexts (turn_id, ingest_id, run_id, span ids), `error`, `configure`, `llm_span` / `usage_fields` / `ms_since` call-site helpers, 10 MB × 5 rotation, the `[Module]` stdout loggers
+│   ├── untrusted.py     # PRD 33: `untrusted(text, source)` → `<document source="…">` (nested tags neutralised), `documents_in`, the standing DOCUMENT_RULE every prompt carries
+│   └── vault_lock.py    # the one RLock over memory.json + the vault, shared by memory/wiki/sources
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker; `submit(..., turn_id=)` opens the turn's trace context)
-├── tracing.py        # PRD 49 event trace (stdlib; not trace.py, which would shadow the stdlib module): `FIELDS` (one table: allow-list, per-field vocabularies, 200-char cap), `event` / `verbose` (dev only) via one writer, `decide` (profile + refusal), `span` / `turn` / `ingest` / `run` contexts (turn_id, ingest_id, run_id, span ids), `error`, `configure`, `llm_span` / `usage_fields` / `ms_since` call-site helpers, 10 MB × 5 rotation, the `[Module]` stdout loggers
+├── tracing.py        # shim → core/trace.py (PRD 50)
 ├── vad.py            # Silero VAD endpointer (hands-free); Recorder is an unused PTT leftover
 ├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing; `last_error` after a failed remote call (PRD 41)
 ├── services.py       # PRD 41: oMLX / ASR health probe (`probe`, `refresh`, 30 s daemon + `recheck` after a failed call), `START_HINT`, the `services` payload; addendum: `admin_password()` (env, else settings.json; `python -m services --admin-password` for the script), `model_op` load/unload via the admin API
@@ -97,8 +103,8 @@ voicebot/
 ├── backdrops.py        # backdrop catalogue (key, name, file, credit, url, license), validate/listing
 ├── fillers.py           # short spoken fillers played while a tool call (or a `dig_deeper` turn) is in flight, no immediate repeats
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
-├── vault_lock.py       # the one RLock over memory.json + the vault, shared by memory/wiki/sources
-├── untrusted.py        # PRD 33: `untrusted(text, source)` → `<document source="…">` (nested tags neutralised), `documents_in`, the standing DOCUMENT_RULE every prompt carries
+├── vault_lock.py       # shim → core/vault_lock.py (PRD 50)
+├── untrusted.py        # shim → core/untrusted.py (PRD 50)
 ├── memory.py           # structured profile memory: load/render, LLM-proposed ops (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset)
 ├── wiki.py             # wiki layer: ~/llm-wiki vault, page ops + git commits, BM25 search, raw chunking + `raw/.index/` cache + chunk search (with matched terms + `proper_terms`) / read_source / recall threshold (PRD 32), ingest (never a people page about the user; the prompt names the pages most related to the transcript, PRD 44), lint (also dead `source: raw/…` refs, uncited raw files, duplicate names, PRD 44), archive/pull bridge, editor writes (save with etag / create / rename / delete under vault_lock.LOCK), backlinks, tags, page sections + best section/chunk for a question (PRD 38), `save_card` — a written answer filed as a note with `source: written answer` + `sources:` in one commit (PRD 43), `changes_since` + `briefing_card` — pages from git subjects (lint / index / log / raw / sources skipped, chat batches grouped), new sources, memory ops; 8 per section (PRD 46)
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (the prompt lists related pages the index cut, PRD 44; published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; `strict=` for the batch (PRD 48: a failed extraction/summary raises, the stored original is removed; pdf now has the 50 MB text cap); inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33; and a notebook's page PNGs); `file_bytes` takes a notebook's own `digest`, its page PNGs (stored beside the raw file, listed in the manifest) and `extra` manifest fields (PRD 47)
@@ -118,6 +124,8 @@ voicebot/
 │   ├── trace_report.py  # PRD 49 (stdlib): events.jsonl (+ rotated files) → turn table, ingest table, errors; `--since`, `--turn ID|pid:ID`, `--ingest ID`, `--errors` (exit 1 when any)
 │   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 │   ├── remarkable_sync.py  # PRD 47: `pull` (stdlib, host venv) — tablet USB web interface (`--device`, default http://10.11.99.1) → changed `wiki-inbox` notebooks → `pdftoppm` PNGs (+ optional `scripts/vision_ocr` / `$REMARKABLE_OCR_BIN`, `REMARKABLE_OCR=0` off) → one `kind=notebook` POST /ingest (`--app`, default :8010); state `--state` ~/.cache/voicebot/remarkable.json, written per filed notebook (atomic temp + `os.replace`); one function per step (`list_changed`, `download`, `rasterise`, `post_notebook`, `record`), every printed line in `LINES`
+│   ├── email_classification.py  # Gmail triage dashboard (category/urgency via local LLM); moved from workflows/ (PRD 50); data files classification_* beside it are gitignored
+│   ├── classification_rules.example.py
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
 │   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
 │   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API (password from .env, else the one saved in Settings)
@@ -138,9 +146,6 @@ voicebot/
 │   ├── wiki.py          # search_wiki (pages + document passages) / read_page / read_source — the model's way into the vault
 │   ├── sources.py       # file_source(email|news|note) — voice ingestion of the last email/headline/a note
 │   └── wikipedia.py     # get_wikipedia (search + summary) / read_wikipedia (one section): en.wikipedia.org only, 5 s timeouts, 1 req/s, per-title cache, error strings never exceptions
-├── workflows/
-│   ├── email_classification.py       # Gmail triage dashboard (category/urgency via local LLM)
-│   └── classification_rules.example.py
 ├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/
 ├── tests/                # one folder per module; shared fixtures live in conftest.py (see the DX note in process.md)
 │   ├── conftest.py              # sandboxes (wiki/settings/memory paths, chatbot session), fake clients (FakeClient, StreamClient,
@@ -153,6 +158,7 @@ voicebot/
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
 │   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else
+│   ├── test_layers.py           # PRD 50: layer ratchet — app code imports only downward (`ALLOWED` may only shrink), no imports of the root shims, stale allow-list entries fail
 │   ├── llm/
 │   │   ├── test_llm_unit.py         # llm.py with a mocked OpenAI client: ask/ask_events, PRD 13 streamed first call, tool-call detection mid-stream
 │   │   ├── test_context.py          # PRD 11: context budget, history trimming
@@ -271,7 +277,7 @@ voicebot/
     ├── 47b-remarkable-push.md   # PRD: "send this to my reMarkable" — host push service on :8021, markdown→PDF, approval via PRD 52 (exploration)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
     ├── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
-    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation)
+    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation; step 1 done: core/, workflows → scripts, tests/test_layers.py)
     ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)

@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 import avatars
+from core import settings
 import fillers
 import llm
 import memory
@@ -49,7 +50,7 @@ def test_small_talk_injects_nothing_and_guide_questions_still_do(both):
 
 
 def test_the_precision_rule_holds_even_with_the_threshold_at_zero(both, file_sandbox):
-    avatars.save_setting("recall_min_score", 0.0)
+    settings.save_setting("recall_min_score", 0.0)
     assert wiki.search_chunks("what should we cook tonight?")     # would have matched before the rule
     for q in SMALL_TALK:
         assert llm.recall_for(q) == "", q

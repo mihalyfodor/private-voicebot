@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import pytest
 
-import avatars
+from core import settings
 import llm
 import memory
 import sources
@@ -169,7 +169,7 @@ def test_recall_for_quotes_the_covenant_chunk_and_nothing_for_chit_chat(fallout)
 
 
 def test_recall_for_can_quote_two_chunks_within_the_budget(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 0.0)
+    settings.save_setting("recall_min_score", 0.0)
     block = llm.recall_for("how do I pass the SAFE test at Covenant with Honest Dan")
     assert block.count("From \"Fallout 4 guide\"") == llm.RECALL_MAX_CHUNKS
     assert memory.tokens_est(block) <= llm.RECALL_MAX_TOKENS + 40

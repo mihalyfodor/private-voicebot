@@ -11,7 +11,7 @@ import time
 import pytest
 
 import memory
-import vault_lock
+from core import vault_lock
 import wiki
 from tests.conftest import commits, read
 

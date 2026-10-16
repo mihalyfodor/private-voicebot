@@ -17,7 +17,7 @@ import chatbot
 import llm
 import memory
 import sources
-import tracing
+from core import settings, trace
 import wiki
 from tools import gmail as gmail_tool
 
@@ -46,19 +46,19 @@ def file_sandbox(monkeypatch, tmp_path):
     reset so settings start from a clean slate. `memory_sandbox` below is the same thing
     under the name the memory tests use.
     """
-    monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
+    monkeypatch.setattr(settings, "SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setattr(avatars, "_current", None)
     monkeypatch.delenv("AVATAR", raising=False)
-    monkeypatch.setattr(tracing, "TRACE_DIR", str(tmp_path))
+    monkeypatch.setattr(trace, "TRACE_DIR", str(tmp_path))
     monkeypatch.delenv("TRACE_PROFILE", raising=False)
-    tracing.reset()
+    trace.reset()
     monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
     monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
     monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
     monkeypatch.setattr(gmail_tool, "GMAIL_CREDENTIALS_PATH", str(tmp_path / "credentials.json"))
     monkeypatch.setattr(gmail_tool, "GMAIL_TOKEN_PATH", str(tmp_path / "token.json"))
     yield tmp_path
-    tracing.reset()
+    trace.reset()
 
 
 #: text no prod event may carry: a fixture puts it in what the user said or read, a test greps for it
@@ -69,12 +69,12 @@ SENTINEL = "ZQX-SENTINEL"
 def prod_profile(monkeypatch):
     """This test's process runs the prod trace profile (no verbose.jsonl, no text)."""
     monkeypatch.setenv("TRACE_PROFILE", "prod")
-    tracing.reset()
+    trace.reset()
 
 
 def trace_lines(stream: str = "events", kind: str | None = None) -> list:
     """The parsed lines of this test's events.jsonl (or `stream="verbose"`), optionally one kind."""
-    path = tracing.paths()[stream]
+    path = trace.paths()[stream]
     if not os.path.exists(path):
         return []
     rows = [json.loads(line) for line in open(path) if line.strip()]
@@ -83,7 +83,7 @@ def trace_lines(stream: str = "events", kind: str | None = None) -> list:
 
 def trace_text(stream: str = "events") -> str:
     """The raw text of this test's events.jsonl — what a sentinel check greps."""
-    path = tracing.paths()[stream]
+    path = trace.paths()[stream]
     return open(path).read() if os.path.exists(path) else ""
 
 

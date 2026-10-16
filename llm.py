@@ -10,19 +10,20 @@ from openai import OpenAI
 
 import memory
 import avatars
-import tracing
+from core import settings
+from core import config, trace
 import wiki
 from splitter import EMOTIONS, strip_tag
 from tools import TOOLS, run_tool
 from tools import weather as _weather
-from untrusted import DOCUMENT_RULE, documents_in, untrusted
+from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
 
-OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
-OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
-OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
-tracing.vocab("name", [t["function"]["name"] for t in TOOLS] + ["dig_deeper"])
-log = tracing.logger("llm")
-tool_log = tracing.logger("Tool")
+OMLX_BASE_URL = config.OMLX_BASE_URL
+OMLX_API_KEY = config.OMLX_API_KEY
+OMLX_MODEL = config.OMLX_MODEL
+trace.vocab("name", [t["function"]["name"] for t in TOOLS] + ["dig_deeper"])
+log = trace.logger("llm")
+tool_log = trace.logger("Tool")
 
 CONTEXT_BUDGET = int(os.getenv("CONTEXT_BUDGET", "16000"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "0"))  # 0 = derive from verbosity
@@ -42,7 +43,7 @@ _model_context_len_warned = False
 def resolve_verbosity(avatar: dict) -> str:
     """settings.json > VERBOSITY env > avatar card > 'normal'. Invalid values warn and fall through."""
     sources = (
-        ("saved verbosity", avatars.load_settings().get("verbosity")),
+        ("saved verbosity", settings.load_settings().get("verbosity")),
         ("VERBOSITY env value", os.getenv("VERBOSITY")),
         ("card verbosity", avatar.get("verbosity")),
     )
@@ -64,7 +65,7 @@ def set_verbosity(value: str) -> None:
     if value not in VERBOSITY_RULES:
         raise ValueError(f"Unknown verbosity {value!r}; valid: {', '.join(VERBOSITY_RULES)}")
     _verbosity = value
-    avatars.save_setting("verbosity", value)
+    settings.save_setting("verbosity", value)
     _rebuild_system_prompt()
 
 
@@ -324,7 +325,7 @@ def client() -> OpenAI:
 def _stream(purpose: str, fallback_reason: str | None = None, **kw):
     """A streamed completion (usage asked for) whose chunks pass through; one `llm_call` span when
     it ends: ms, ttft_ms (first content or tool delta), tokens from the last chunk's usage or null."""
-    with tracing.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+    with trace.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
                           fallback_reason=fallback_reason) as span:
         t0, ttft, usage = time.monotonic(), None, None
         stream = client().chat.completions.create(stream=True, stream_options={"include_usage": True}, **kw)
@@ -334,21 +335,21 @@ def _stream(purpose: str, fallback_reason: str | None = None, **kw):
                 if ttft is None and chunk.choices:
                     delta = chunk.choices[0].delta
                     if getattr(delta, "content", None) or getattr(delta, "tool_calls", None):
-                        ttft = tracing.ms_since(t0)
+                        ttft = trace.ms_since(t0)
                 yield chunk
         except GeneratorExit:
             getattr(stream, "close", lambda: None)()        # an abandoned generation stops at the server
             raise
         finally:
-            span.update(ms=tracing.ms_since(t0), ttft_ms=ttft, **tracing.usage_fields(usage))
+            span.update(ms=trace.ms_since(t0), ttft_ms=ttft, **trace.usage_fields(usage))
 
 
 def _complete(purpose: str, **kw):
     """A plain completion with its `llm_call` span (no ttft; tokens when the response has usage)."""
-    with tracing.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+    with trace.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
                           ttft_ms=None) as span:
         resp = client().chat.completions.create(**kw)
-        span.update(tracing.usage_fields(getattr(resp, "usage", None)))
+        span.update(trace.usage_fields(getattr(resp, "usage", None)))
         return resp
 
 
@@ -419,11 +420,11 @@ def _tool_round(tool_calls: list[dict], content: str = "") -> list:
             args = {}
         _last_tool_calls.append({"name": name, "args": args})
         keys = sorted(args) if isinstance(args, dict) else []
-        with tracing.span("tool_call", name=name, arg_keys=keys, ok=False) as span:
+        with trace.span("tool_call", name=name, arg_keys=keys, ok=False) as span:
             result = run_tool(name, args)
             span.update(result_len=len(str(result)), ok=True)
         tool_log.info(f"{name}({', '.join(keys)})")          # never the result (PRD 49)
-        tracing.verbose("tool_result", name=name, args=args, result=str(result))
+        trace.verbose("tool_result", name=name, args=args, result=str(result))
         _note_tool_sources(name, args, str(result))
         _note_documents(str(result))
         results.append(str(result))
@@ -872,7 +873,7 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     block = untrusted(_digest_text(digest), "briefing")
     prompt = BRIEFING_PROMPT.format(when=wiki.briefing_when(digest["since"]))
     items = len(digest["pages"]) + len(digest["chat_pages"])
-    with tracing.span("briefing", items=items, sources=len(digest["sources"])):
+    with trace.span("briefing", items=items, sources=len(digest["sources"])):
         resp = _complete(
             "reply", model=OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
             messages=[_conversation[0], {"role": "user", "content": f"{prompt}\n\n{block}"}],
@@ -1217,7 +1218,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     _last_context = {"question": asked or user_text, "extra": block, "tools": tool_texts, "reply": reply,
                      "sources": list(_turn_sources), "pages": list(_turn_pages)}
     last_band = band or None
-    tracing.event("recall", band=last_band, page=(_evidence[0] or {}).get("path"),
+    trace.event("recall", band=last_band, page=(_evidence[0] or {}).get("path"),
                 offer=_offer_kind(bool(offer_text and not pending)),
                 hits=[{"source": h.get("source"), "n": h.get("n"), "score": round(float(h.get("score") or 0), 3),
                        "named": bool(h.get("named"))} for h in _evidence[1][:5]])
@@ -1301,7 +1302,7 @@ def _summarise(turns: list) -> str:
             raise ValueError("empty summary")
     except Exception as e:
         log.exception("summary failed; keeping the turns' first sentences")
-        tracing.error("memory", "new_topic", e, fatal_for="none")
+        trace.error("memory", "new_topic", e, fatal_for="none")
         summary = " ".join(_first_sentence(strip_tag(t["content"])) for t in turns)
     return summary[:SUMMARY_TOKENS * 4].strip()
 
@@ -1326,7 +1327,7 @@ def new_thread() -> str:
         save_memory()
     except Exception as e:
         log.exception("memory save failed")
-        tracing.error("memory", "memory_save", e, fatal_for="none")
+        trace.error("memory", "memory_save", e, fatal_for="none")
     summary = _summarise(turns)
     _conversation[1:] = [{"role": "user", "content": f"<earlier>{summary}</earlier>"},
                          {"role": "assistant", "content": NEW_TOPIC_ACK}]

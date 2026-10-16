@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-import avatars
+from core import settings
 import chatbot
 from tests.conftest import Blocker, drain_initial, fake_asr
 
@@ -55,7 +55,7 @@ def test_set_hands_free_true_persists_and_announces_and_reflects_in_config():
         ws.send_json({"action": "set_hands_free", "value": True})
         assert ws.receive_json() == {"type": "hands_free", "value": True}
 
-    assert avatars.load_settings()["hands_free"] is True
+    assert settings.load_settings()["hands_free"] is True
     assert chatbot.hands_free is True
     assert client.get("/api/config").json()["hands_free"] is True
 

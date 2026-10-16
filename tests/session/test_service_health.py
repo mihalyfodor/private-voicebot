@@ -1,5 +1,6 @@
 """PRD 41 scenarios 1–4: the service probe, the `services` push, the turn refusal while the LLM is
 down, and the client banner / Settings rows (node fixture)."""
+from core import settings
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import json
@@ -214,8 +215,7 @@ def test_client_backend_down_banner_on_close_1006_but_not_on_a_takeover(r):
 
 
 def settings_file():
-    import avatars
-    return json.load(open(avatars.SETTINGS_PATH)) if os.path.exists(avatars.SETTINGS_PATH) else {}
+    return json.load(open(settings.SETTINGS_PATH)) if os.path.exists(settings.SETTINGS_PATH) else {}
 
 
 def test_set_and_clear_the_password_without_ever_echoing_it(monkeypatch):
@@ -240,10 +240,9 @@ def test_set_and_clear_the_password_without_ever_echoing_it(monkeypatch):
 
 def test_env_password_wins_over_settings(monkeypatch):
     """Scenario 8."""
-    import avatars
     monkeypatch.delenv("OMLX_ADMIN_PASSWORD", raising=False)
     assert services.admin_password() == "" and services.admin_password_source() is None
-    avatars.save_setting("omlx_admin_password", "from-settings")
+    settings.save_setting("omlx_admin_password", "from-settings")
     assert services.admin_password() == "from-settings" and services.admin_password_source() == "settings"
     monkeypatch.setenv("OMLX_ADMIN_PASSWORD", "from-env")
     assert services.admin_password() == "from-env" and services.admin_password_source() == "env"

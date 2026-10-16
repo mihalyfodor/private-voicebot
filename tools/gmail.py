@@ -5,7 +5,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
-from untrusted import untrusted
+from core.untrusted import untrusted
 
 #: the Google endpoints the client library talks to (docs/33-untrusted-text.md read-only policy)
 HOSTS = ("gmail.googleapis.com", "oauth2.googleapis.com", "accounts.google.com")

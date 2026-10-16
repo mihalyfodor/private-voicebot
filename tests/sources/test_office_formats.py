@@ -13,7 +13,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import avatars
+from core import settings
 import chatbot
 import memory
 import sources
@@ -316,7 +316,7 @@ def test_ics_writes_stubs_for_the_horizon_without_the_model(vault, monkeypatch):
 
 def test_ics_expands_recurring_events_to_the_configured_horizon(vault, monkeypatch, file_sandbox):
     monkeypatch.setattr(sources, "_client_model", lambda: (FakeClient(), "m"))
-    avatars.save_setting("calendar_horizon_days", 28)
+    settings.save_setting("calendar_horizon_days", 28)
 
     sources.ingest_upload(two_events(), "falcon-week.ics")
 

@@ -10,9 +10,8 @@ import os
 import queue
 import threading
 
-import tracing
-
-log = tracing.logger("Turn")
+from core import trace
+log = trace.logger("Turn")
 
 #: how many completed turns between periodic hook calls (the session-memory save).
 #: Override with MEMORY_SAVE_EVERY=<n> in the environment.
@@ -108,7 +107,7 @@ class TurnController:
         while True:
             fn, args, turn_id = self._queue.get()
             try:
-                with tracing.turn(turn_id) if turn_id is not None else contextlib.nullcontext():
+                with trace.turn(turn_id) if turn_id is not None else contextlib.nullcontext():
                     fn(*args)
             except Exception as e:  # a broken turn must never kill the worker
                 log.warning(f"error: {e}")

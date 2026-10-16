@@ -5,9 +5,8 @@ reference against what the assistant last read out (gmail / news), or takes the 
 and hands the bytes to sources.py, which stores them under `raw/` and files a source page.
 """
 import sources
-import tracing
-
-log = tracing.logger("Sources")
+from core import trace
+log = trace.logger("Sources")
 
 #: the vault only; the email / news bodies come from the tools that read them
 HOSTS = ()

@@ -6,10 +6,10 @@ from unittest.mock import patch
 
 import pytest
 
-import avatars
+from core import settings
 import llm
 import memory
-import tracing
+from core import trace
 from eval import harness
 from tests.conftest import RawStreamClient, stream_chunks as _chunks, seed as _write_profile
 
@@ -110,8 +110,8 @@ def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
     save inside harness.Sandbox never reaches the outer file, and that it is untouched after exit.
     """
     outer_mem = memory.MEMORY_PATH
-    outer_settings = avatars.SETTINGS_PATH
-    outer_trace = tracing.TRACE_DIR
+    outer_settings = settings.SETTINGS_PATH
+    outer_trace = trace.TRACE_DIR
     _write_profile(identity={"name": "outer marker"})
     marker = open(outer_mem).read()
 
@@ -120,19 +120,19 @@ def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
         assert "memeval-" in memory.MEMORY_PATH
         assert "memeval-" in memory.OPS_LOG_PATH
         assert "memeval-" in memory.SHORTMEM_PATH
-        assert avatars.SETTINGS_PATH != outer_settings
-        assert tracing.TRACE_DIR != outer_trace
+        assert settings.SETTINGS_PATH != outer_settings
+        assert trace.TRACE_DIR != outer_trace
         assert "outer marker" not in box.read_memory()
         _write_profile(identity={"name": "sandboxed fact"})
-        avatars.save_setting("verbosity", "short")
-        tracing.event("turn_end", ms=1, outcome="ok")
+        settings.save_setting("verbosity", "short")
+        trace.event("turn_end", ms=1, outcome="ok")
         assert "sandboxed fact" in box.read_memory()
         assert os.path.exists(os.path.join(box.trace_dir, "events.jsonl"))
         sandbox_mem = box.memory_path
 
     assert memory.MEMORY_PATH == outer_mem
-    assert avatars.SETTINGS_PATH == outer_settings
-    assert tracing.TRACE_DIR == outer_trace
+    assert settings.SETTINGS_PATH == outer_settings
+    assert trace.TRACE_DIR == outer_trace
     assert not os.path.exists(sandbox_mem)
     assert open(outer_mem).read() == marker
     assert not os.path.exists(outer_settings)

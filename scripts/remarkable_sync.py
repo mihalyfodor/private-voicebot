@@ -29,7 +29,7 @@ import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-import tracing  # noqa: E402 — the repo's tracing.py (stdlib only)
+from core import trace  # noqa: E402 — the repo's core/trace.py (stdlib only)
 DEFAULT_STATE = os.path.join("~", ".cache", "voicebot", "remarkable.json")
 
 #: every line `pull` prints, in one place
@@ -256,7 +256,7 @@ def main(argv=None) -> int:
                     help="the voicebot app (default $VOICEBOT_URL or http://127.0.0.1:8010)")
     ap.add_argument("--state", default=DEFAULT_STATE, help=f"state file (default {DEFAULT_STATE})")
     args = ap.parse_args(argv)
-    tracing.configure(out=sys.stderr)                   # PRD 49: the app's profile rule
+    trace.configure(out=sys.stderr)                   # PRD 49: the app's profile rule
     return pull(args.device.rstrip("/"), args.app.rstrip("/"), os.path.expanduser(args.state))
 
 

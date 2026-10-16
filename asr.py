@@ -12,9 +12,8 @@ A dead service is an error line and an empty transcript, never a crash.
 import io
 import os
 import re
-import tracing
-
-log = tracing.logger("ASR")
+from core import trace
+log = trace.logger("ASR")
 
 MODEL = os.getenv("WHISPER_MLX_MODEL", "mlx-community/whisper-small-mlx")
 BACKEND = os.getenv("ASR_BACKEND", "mlx")

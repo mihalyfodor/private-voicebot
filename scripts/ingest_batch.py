@@ -36,8 +36,8 @@ def main(argv=None) -> int:
         return 0 if exc.code == 0 else 2
     if args.vault:
         os.environ["WIKI_PATH"] = args.vault        # before wiki / sources are imported
-    import tracing
-    tracing.configure(out=sys.stderr)                # PRD 49: the app's profile rule
+    from core import trace
+    trace.configure(out=sys.stderr)                # PRD 49: the app's profile rule
     import batch_import
 
     res = batch_import.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),

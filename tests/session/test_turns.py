@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 import avatars
+from core import settings
 import chatbot
 import llm
 import memory
@@ -488,7 +489,7 @@ def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():
 
 
 def test_a_briefing_with_changes_is_one_completion_ending_with_the_offer(vault, fresh_llm):
-    avatars.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
+    settings.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
     changes()
     sent, fake = brief("what's new?", RECAP)
     assert len(fake.calls) == 1
@@ -496,59 +497,59 @@ def test_a_briefing_with_changes_is_one_completion_ending_with_the_offer(vault, 
     assert '<document source="briefing">' in user and "Anna" in user and "2 added" in user
     reply = spoken_text(sent)
     assert len(reply) == 1 and reply[0].endswith("Want me to dig deeper, or write it up?")
-    assert avatars.load_settings()["briefing_at"] == NOW
+    assert settings.load_settings()["briefing_at"] == NOW
     assert sent[-1] == {"type": "state", "value": "idle"} and any(m["type"] == "context" for m in sent)
 
 
 @pytest.mark.parametrize("llm_up", [True, False])
 def test_nothing_new_answers_without_the_model(vault, fresh_llm, llm_up):
     seeded = f"{date.today().isoformat()}T09:30:00"
-    avatars.save_setting("briefing_at", seeded)
+    settings.save_setting("briefing_at", seeded)
     sent, fake = brief("brief me", llm_up=llm_up)
     assert spoken_text(sent) == ["Nothing new since 09:30."]
-    assert fake.calls == [] and avatars.load_settings()["briefing_at"] == seeded
+    assert fake.calls == [] and settings.load_settings()["briefing_at"] == seeded
     assert not [m for m in sent if m["type"] == "error"]
 
 
 def test_first_briefing_looks_back_one_day(vault, fresh_llm):
     sent, fake = brief("/brief")
     assert spoken_text(sent) == ["Nothing new since yesterday at 12:00."] and fake.calls == []
-    assert "briefing_at" not in avatars.load_settings()
+    assert "briefing_at" not in settings.load_settings()
 
 
 def test_changes_with_the_llm_offline_are_the_composer_error(vault, fresh_llm):
     seeded = f"{days_ago(1)}T00:00:00"
-    avatars.save_setting("briefing_at", seeded)
+    settings.save_setting("briefing_at", seeded)
     changes()
     sent, fake = brief("what's new?", RECAP, llm_up=False)
     assert [m for m in sent if m["type"] == "error"] == [
         {"type": "error", "scope": "turn", "text": chatbot.llm_offline_text()}]
     assert fake.calls == [] and spoken_text(sent) == [] and not [m for m in sent if m["type"] == "speech"]
-    assert avatars.load_settings()["briefing_at"] == seeded
+    assert settings.load_settings()["briefing_at"] == seeded
 
 
 def test_a_failed_recap_goes_idle_and_keeps_the_cutoff(vault, fresh_llm):
     seeded = f"{days_ago(1)}T00:00:00"
-    avatars.save_setting("briefing_at", seeded)
+    settings.save_setting("briefing_at", seeded)
     changes()
     sent, fake = brief("what's new?", RuntimeError("oMLX gone"))
     assert len(fake.calls) == 1 and spoken_text(sent) == []
     assert sent[-1] == {"type": "state", "value": "idle"}
-    assert avatars.load_settings()["briefing_at"] == seeded and llm._session_turns == []
+    assert settings.load_settings()["briefing_at"] == seeded and llm._session_turns == []
 
 
 def test_a_later_cutoff_is_never_moved_back(vault, fresh_llm):
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     later = f"{tomorrow}T07:00:00"
-    avatars.save_setting("briefing_at", later)
+    settings.save_setting("briefing_at", later)
     changes(f"{tomorrow}T08:00:00")
     sent, fake = brief("what's new?", RECAP)
     assert len(fake.calls) == 1 and spoken_text(sent)
-    assert avatars.load_settings()["briefing_at"] == later
+    assert settings.load_settings()["briefing_at"] == later
 
 
 def test_a_briefing_clears_the_offer_skips_recall_and_files_one_stand_in(vault, fresh_llm):
-    avatars.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
+    settings.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
     changes()
     llm._deeper_offer = {"recall": "who is Anna?", "title": "notes"}
     sent, fake = brief("what's new?", RECAP)

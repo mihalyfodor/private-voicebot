@@ -17,11 +17,10 @@ from urllib.parse import urlparse
 import requests
 
 import asr
-import avatars
+from core import settings
 import llm
-import tracing
-
-log = tracing.logger("Services")
+from core import trace
+log = trace.logger("Services")
 
 PROBE_INTERVAL_S = 30
 TIMEOUT_S = 3
@@ -120,7 +119,7 @@ def refresh(on_change=None) -> dict:
     if changed:
         for name, svc in fresh.items():
             log.info(f"{name}: {'ok' if svc['ok'] else 'DOWN'} — {svc['label']} {svc['detail']}")
-            tracing.event("service", event="health", name=name, ok=svc["ok"])
+            trace.event("service", event="health", name=name, ok=svc["ok"])
         if on_change is not None:
             on_change(message())
     return fresh
@@ -160,14 +159,14 @@ def admin_password_source() -> str | None:
     """Where the admin password comes from: "env", "settings", or None when there is none."""
     if os.getenv("OMLX_ADMIN_PASSWORD"):
         return "env"
-    if avatars.load_settings().get(PASSWORD_KEY):
+    if settings.load_settings().get(PASSWORD_KEY):
         return "settings"
     return None
 
 
 def admin_password() -> str:
     """The one resolver: the env value, else settings.json, else "". Never log or print it."""
-    return os.getenv("OMLX_ADMIN_PASSWORD") or str(avatars.load_settings().get(PASSWORD_KEY) or "")
+    return os.getenv("OMLX_ADMIN_PASSWORD") or str(settings.load_settings().get(PASSWORD_KEY) or "")
 
 
 def admin_password_status() -> dict:

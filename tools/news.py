@@ -3,7 +3,7 @@ import xml.etree.ElementTree as ET
 from html.parser import HTMLParser
 import urllib.parse
 
-from untrusted import untrusted
+from core.untrusted import untrusted
 
 #: the BBC feed and article hosts (docs/33-untrusted-text.md read-only policy)
 HOSTS = ("feeds.bbci.co.uk", "www.bbc.com", "www.bbc.co.uk", "bbc.com", "bbc.co.uk")

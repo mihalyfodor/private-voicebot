@@ -14,6 +14,7 @@ PRD 15: ops + validation, never a whole-file rewrite. ``git log`` inside the vau
 
 See docs/19-wiki-layer.md.
 """
+from core import settings
 import hashlib
 import json
 import math
@@ -23,15 +24,14 @@ import subprocess
 from collections import Counter
 
 import memory
-import vault_lock
-from untrusted import DOCUMENT_RULE
-import tracing
-
-log = tracing.logger("Wiki")
+from core import vault_lock
+from core.untrusted import DOCUMENT_RULE
+from core import config, trace
+log = trace.logger("Wiki")
 
 # --- vault -------------------------------------------------------------------------
 
-WIKI_PATH = os.path.expanduser(os.getenv("WIKI_PATH", "~/llm-wiki"))
+WIKI_PATH = config.WIKI_PATH
 
 INDEX_FILE = "index.md"
 LOG_FILE = "log.md"
@@ -596,7 +596,7 @@ OPS = {
     "link": link,
 }
 
-tracing.vocab("kind", OPS)
+trace.vocab("kind", OPS)
 
 
 def op_kind(op) -> str:
@@ -610,7 +610,7 @@ def log_rejected(bad_ops: list, out) -> list:
     trace's `ops_rejected` shape `[{kind, reason_code}]`."""
     shape = []
     for bad in bad_ops:
-        short = {"kind": op_kind(bad.get("op")), "reason_code": tracing.reason_code(bad.get("reason"))}
+        short = {"kind": op_kind(bad.get("op")), "reason_code": trace.reason_code(bad.get("reason"))}
         out.info(f"rejected {short['kind']}: {short['reason_code']}")
         out.debug(f"rejected {bad['op']}: {bad['reason']}")
         shape.append(short)
@@ -1282,9 +1282,8 @@ def read_source(path: str, part) -> str:
 
 def recall_min_score() -> float:
     """`recall_min_score` from settings.json (default `RECALL_MIN_SCORE`)."""
-    import avatars
 
-    value = avatars.load_settings().get("recall_min_score")
+    value = settings.load_settings().get("recall_min_score")
     return float(value) if isinstance(value, (int, float)) and value >= 0 else RECALL_MIN_SCORE
 
 

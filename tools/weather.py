@@ -1,10 +1,9 @@
 import os
 import requests
 
-import avatars
-import tracing
-
-log = tracing.logger("Location")
+from core import settings
+from core import trace
+log = trace.logger("Location")
 
 #: the hosts this tool talks to (docs/33-untrusted-text.md read-only policy): the forecast, and Nominatim
 #: for one reverse-geocode per new position (PRD 35 addendum) — a fixed endpoint, never a free URL
@@ -19,7 +18,7 @@ DEFAULT_LOCATION = {"name": "Seychelles", "lat": -4.6796, "lon": 55.4920, "tz": 
 def location() -> dict:
     """Where the weather is for: settings.json `location` (from the browser, PRD 35) → `LOCATION_*`
     env → the built-in default. Always `{name?, lat, lon, tz, source}`."""
-    saved = avatars.load_settings().get("location")
+    saved = settings.load_settings().get("location")
     if isinstance(saved, dict) and "lat" in saved and "lon" in saved:
         return {"name": os.getenv("LOCATION_NAME", "") or str(saved.get("name") or ""),
                 "lat": float(saved["lat"]), "lon": float(saved["lon"]),

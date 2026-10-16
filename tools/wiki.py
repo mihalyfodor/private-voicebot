@@ -1,6 +1,6 @@
 """Wiki recall tools: the model's only way into the vault (docs/19-wiki-layer.md)."""
 import wiki
-from untrusted import untrusted
+from core.untrusted import untrusted
 
 #: the vault only (docs/33-untrusted-text.md read-only policy)
 HOSTS = ()

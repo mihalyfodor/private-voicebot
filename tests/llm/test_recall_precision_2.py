@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-import avatars
+from core import settings
 import chatbot
 import llm
 import memory
@@ -67,7 +67,7 @@ def test_a_title_only_question_still_searches(both):
 
 
 def test_recall_never_quotes_two_neighbouring_chunks(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 0.0)
+    settings.save_setting("recall_min_score", 0.0)
     parts = _parts(llm.recall_for("how do I pass the SAFE test at Covenant with Honest Dan"))
     assert 1 <= len(parts) <= llm.RECALL_MAX_CHUNKS
     for a in parts:
@@ -93,7 +93,7 @@ def test_recall_hits_skip_a_neighbour_of_a_kept_chunk(fallout):
 
 
 def test_a_not_covered_reply_is_dropped_and_the_turn_re_asked_with_a_lookup(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 999)
+    settings.save_setting("recall_min_score", 999)
     assert llm.recall_for(COVENANT_QUESTION) == ""           # recall injects nothing
     events, fake = ask_turn(COVENANT_QUESTION, NOT_COVERED_REPLY, OFFER_REPLY)
 
@@ -111,7 +111,7 @@ def test_a_not_covered_reply_is_dropped_and_the_turn_re_asked_with_a_lookup(fall
 
 
 def test_a_grounded_reply_streams_normally_in_one_call(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 999)
+    settings.save_setting("recall_min_score", 999)
     events, fake = ask_turn(COVENANT_QUESTION, "[happy] Talk to Jacob.")
     assert len(fake.calls) == 1
     assert deltas(events) == "[happy] Talk to Jacob."
@@ -127,7 +127,7 @@ def test_not_covered_about_a_topic_no_source_has_streams_as_is(fallout, file_san
 
 
 def test_a_tool_call_turn_never_retries(fallout, file_sandbox):
-    avatars.save_setting("recall_min_score", 999)
+    settings.save_setting("recall_min_score", 999)
     fake = RawStreamClient([
         [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
         stream_chunks(NOT_COVERED_REPLY),

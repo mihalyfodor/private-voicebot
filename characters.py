@@ -2,9 +2,8 @@
 import os
 
 import yaml
-import tracing
-
-log = tracing.logger("characters")
+from core import trace
+log = trace.logger("characters")
 
 CHARACTERS_DIR = os.path.join(os.path.dirname(__file__), "characters")
 PERSONA_WORD_CAP = 250

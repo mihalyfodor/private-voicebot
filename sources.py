@@ -38,14 +38,14 @@ import os
 import re
 import subprocess
 
-import avatars
+from core import settings
 import memory
-import tracing
-from untrusted import DOCUMENT_RULE, untrusted
-import vault_lock
+from core import trace
+from core.untrusted import DOCUMENT_RULE, untrusted
+from core import vault_lock
 import wiki
 
-log = tracing.logger("Sources")
+log = trace.logger("Sources")
 
 # --- limits ------------------------------------------------------------------------
 
@@ -181,10 +181,10 @@ def _client_model() -> tuple:
 def _ask(client, model: str, system: str, content, max_tokens: int) -> str:
     """One completion. `content` is a string, or the multimodal content-part list for an image."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    with tracing.llm_span("ingest", messages, model=model, max_tokens=max_tokens, ttft_ms=None) as span:
+    with trace.llm_span("ingest", messages, model=model, max_tokens=max_tokens, ttft_ms=None) as span:
         response = client.chat.completions.create(model=model, messages=messages, temperature=0,
                                                   max_tokens=max_tokens)
-        span.update(tracing.usage_fields(getattr(response, "usage", None)))
+        span.update(trace.usage_fields(getattr(response, "usage", None)))
     return response.choices[0].message.content or ""
 
 
@@ -541,7 +541,7 @@ def _as_datetime(value) -> dt.datetime | None:
 
 def calendar_horizon_days() -> int:
     """`calendar_horizon_days` from settings.json (default `DEFAULT_HORIZON_DAYS`)."""
-    value = avatars.load_settings().get("calendar_horizon_days")
+    value = settings.load_settings().get("calendar_horizon_days")
     return int(value) if isinstance(value, int) and value > 0 else DEFAULT_HORIZON_DAYS
 
 
@@ -852,9 +852,9 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
 
 def _degraded(reason: str) -> None:
     """Note a degraded ingest: `ingest_end.degraded`, and why ("summary" beats "ops") for the reply."""
-    tracing.mark(degraded=True)
-    if reason == "summary" or tracing.marked("_degraded") is None:
-        tracing.mark(_degraded=reason)
+    trace.mark(degraded=True)
+    if reason == "summary" or trace.marked("_degraded") is None:
+        trace.mark(_degraded=reason)
 
 
 def meeting_from_transcript(client, model: str, text: str, title: str, user_names=()) -> dict | None:
@@ -865,7 +865,7 @@ def meeting_from_transcript(client, model: str, text: str, title: str, user_name
         raw = _ask(client, model, system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900)
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
-        tracing.error("ingest", "meeting_from_transcript", exc)
+        trace.error("ingest", "meeting_from_transcript", exc)
         _degraded("ops")
         return None
     data = memory._extract_json(raw, "{", "}")
@@ -1065,7 +1065,7 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
             raw = _ask(client, model, system, content, 700)
         except Exception as exc:  # noqa: BLE001
             log.warning(f"summary failed: {exc}")
-            tracing.error("ingest", "summarise", exc)
+            trace.error("ingest", "summarise", exc)
             _degraded("summary")
             if strict:
                 raise
@@ -1128,7 +1128,7 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
         raw = _ask(client, model, system, "\n\n".join(parts), 800)
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
-        tracing.error("ingest", "propose_page_ops", exc)
+        trace.error("ingest", "propose_page_ops", exc)
         _degraded("ops")
         return []
     ops = memory._extract_json(raw)
@@ -1229,18 +1229,18 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
         ops = propose_page_ops(client, model, source_rel, summary, hint, page, names, kind)
     else:
         ops = []
-    tracing.verbose("ingest_text", summary=summary.get("summary", ""), ops=ops)
+    trace.verbose("ingest_text", summary=summary.get("summary", ""), ops=ops)
     if ops:
         kept, rejected = restrict_ops(ops, raw_rel, names, kind)
         applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
-        tracing.mark(ops_rejected=wiki.log_rejected(rejected + more, log))
+        trace.mark(ops_rejected=wiki.log_rejected(rejected + more, log))
 
     fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
                   for op in applied if op.get("path")}
                  | {"decisions" for op in applied if op["op"] == "add_decision"}
                  | set(stubs) | ({meeting} if meeting else set()))
     write_page(fed, meeting)     # rewritten now that the ops are in, listing what it actually fed
-    tracing.mark(ops_applied=len(applied), pages=[wiki.wikilink(source_rel)] + fed)
+    trace.mark(ops_applied=len(applied), pages=[wiki.wikilink(source_rel)] + fed)
     return fed
 
 
@@ -1275,7 +1275,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         digest = digest or sha256(data)
         seen = manifest_find(digest)
         if seen:
-            tracing.mark(already=True, path=seen.get("page", ""))
+            trace.mark(already=True, path=seen.get("page", ""))
             return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True}
 
         folder, name = os.path.split(raw_rel)
@@ -1312,9 +1312,9 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
         wiki._commit(f"wiki: filed {raw_rel}")
-        tracing.mark(path=wiki.wikilink(source_rel), title=page_title)
+        trace.mark(path=wiki.wikilink(source_rel), title=page_title)
         return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False,
-                "degraded": tracing.marked("_degraded")}
+                "degraded": trace.marked("_degraded")}
 
 
 # --- the inbox (docs/25-sources-inbox.md) --------------------------------------------
@@ -1485,7 +1485,7 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
         title = ""          # `note.txt`, `untitled`…: the summary's title names the page
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
-    with tracing.ingest(kind, raw=raw_rel, bytes=len(data)):
+    with trace.ingest(kind, raw=raw_rel, bytes=len(data)):
         return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
                           client=client, model=model, on_stage=on_stage, source=source, strict=strict)
 
@@ -1508,7 +1508,7 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
     if is_generic_title(title):
         title = ""
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
-    with tracing.ingest("note", raw=raw_rel, bytes=len(body.encode())):
+    with trace.ingest("note", raw=raw_rel, bytes=len(body.encode())):
         return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
                           client=client, model=model, on_stage=on_stage)
 
@@ -1516,7 +1516,7 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
 def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "",
                 client=None, model: str = "") -> dict:
     """A file already on disk (the eval harness's `ingest:` turn, an AppleScript drop)."""
-    with tracing.ingest("path", raw=os.path.basename(path)):
+    with trace.ingest("path", raw=os.path.basename(path)):
         try:
             with open(os.path.expanduser(path), "rb") as f:
                 data = f.read()
@@ -1532,7 +1532,7 @@ def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = 
     ident = wiki.slugify(message_id) or _dated("email")
     subject = next((line[len("Subject: "):] for line in markdown.splitlines()
                     if line.startswith("Subject: ")), "").strip()
-    with tracing.ingest("email", raw=f"raw/email/{ident}.md", bytes=len(markdown.encode())):
+    with trace.ingest("email", raw=f"raw/email/{ident}.md", bytes=len(markdown.encode())):
         return file_bytes(markdown.encode(), f"raw/email/{ident}.md", "email",
                           title=subject, hint=hint, page=page, client=client, model=model)
 
@@ -1540,7 +1540,7 @@ def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = 
 def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "",
                 client=None, model: str = "") -> dict:
     """A flagged news article -> `raw/news/<slug>.md`."""
-    with tracing.ingest("news", raw=f"raw/news/{wiki.slugify(title)}.md", bytes=len(markdown.encode())):
+    with trace.ingest("news", raw=f"raw/news/{wiki.slugify(title)}.md", bytes=len(markdown.encode())):
         return file_bytes(markdown.encode(), f"raw/news/{wiki.slugify(title)}.md", "news",
                           title=title, hint=hint, page=page, client=client, model=model)
 
