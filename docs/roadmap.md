@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-10-16. Ordered; each item is one PRD unless marked chore. Sources: the ERNI workflow review (process
+Updated 2026-10-16 (evening). Ordered; each item is one PRD unless marked chore. Sources: the ERNI workflow review (process
 lessons, merged into `feature/process-lessons`) and the llm-wiki survey (ideas 1–3 below). Dropped ideas are listed at
 the end so they are not re-proposed.
 
@@ -27,6 +27,8 @@ Not a PRD; one `Fix:`-style commit. Do first — it protects the vault before an
 
 ## 1. PRD 44 — Vault health
 
+Done 2026-10-16 (3daa501).
+
 Wiki quality at write time. Two small pieces, neither changes runtime replies.
 
 **Lint, three new finding types** in `wiki.lint()` (`wiki.py:1380`):
@@ -48,6 +50,8 @@ outgrows the 600-token index cap (`WIKI_INDEX_TOKENS`).
 
 ## 2. PRD 45 — Ask before lookup (recall calibration)
 
+Done 2026-10-16 (c867f90). Name questions (who/where/which/when + proper match) answer directly; medium turns are held, not streamed.
+
 The open follow-up from 2026-08-31: a mis-transcribed four-word turn pulled a 6k-char guide chunk into a chat reply. The
 design point is ask-before-lookup, not a tighter threshold. This PRD also absorbs the "confidence hedge" idea from
 llm-wiki — shipping a hedge on its own would speak weak hits *more* often, the opposite of what we want.
@@ -63,6 +67,8 @@ llm-wiki — shipping a hedge on its own would speak weak hits *more* often, the
   and safe and should not wait behind a calibration round).
 
 ## 3. PRD 46 — Briefing ("what's new?")
+
+Done 2026-10-16 (9f098e3). Card is built from the digest, no model call; own edits and briefing sessions are never news.
 
 Spoken 2–3 sentence recap of what changed since the last briefing, ending with the PRD 43 offer; "write it up" yields a
 card with Pages / Sources / Memory sections. Tight version only.
@@ -88,6 +94,8 @@ card with Pages / Sources / Memory sections. Tight version only.
 
 ## 4. PRD 47 — reMarkable 2 over USB: pull handwriting in, push pages out
 
+Pull done 2026-10-16 (ae4106f, `notebooks.py`, `scripts/remarkable_sync.py`, fake device in tests; the real-device run is the user's scenario 8). Push, a host `serve` mode, PDF rendering and launchd → **PRD 47b** (not started).
+
 Decided 2026-10-16 after an integration review (Calendar.app not in use; Graph/Teams/OneNote APIs need tenant consent, so
 anything via Microsoft 365 is parked until IT answers). Host-side only: the prod container cannot reach USB
 (`host.docker.internal` only, `docs/deploy.md`), so this is a host service or script like the ASR service.
@@ -106,11 +114,34 @@ anything via Microsoft 365 is parked until IT answers). Host-side only: the prod
 
 ## 5. PRD 48 — OneNote history import (one-time)
 
+Done 2026-10-16 (0241a53, `batch_import.py`, `scripts/ingest_batch.py`; strict mode: a failed extraction or summary is `failed`, never filed as unreadable). Waits for the user's OneNote exports.
+
 No Graph access without IT, so: OneNote for Mac → export each section as PDF (text layer preserved) into a folder,
 then a batch ingest script (`scripts/ingest_batch.py`, PRD 36 style progress) files them through the normal PDF path
 with head/middle/tail sampling. Hundreds of pages ≈ 1–3 h on the local model; run overnight. PRD 44 related-pages
 keeps entity duplication down. If IT ever grants `Notes.Read`, swap the export step for Graph HTML; nothing else changes.
 Effort S–M once the exports exist. Probe first: export one section and check `pdftotext` returns real text, not images.
+
+## 6. PRD 49 — Event trace (in implementation)
+
+`events.jsonl` via `trace.py`, two profiles: **prod** = actionable events only, never text (titles, paths, scores,
+lengths, timings, ids); **dev** = the same plus a separate `verbose.jsonl` with prompts, turn text and tool results.
+The container forces prod; dev is refused on a `~/docker-data` path or inside a container. Rotation 10 MB × 5 on both
+files and a compose log cap, so prod cannot fill the disk. `scripts/trace_report.py` prints one row per turn/ingest and
+the error list; the `/trace` skill tells an agent to read the report first and open raw lines only for flagged turns.
+session.log retires in favour of `turn_end`.
+
+## 7. Chore — exception sweep (after PRD 49)
+
+The silent turn-level handlers in chatbot.py (briefing, write-up, new topic, respond, ASR, canned turn, save note) emit
+an `error` event and a `scope: turn` status line instead of going quietly to idle; degraded ingests say "filed raw
+only". File:line list is in PRD 49 §Out of scope. Effort S–M.
+
+## 8. First prod setup (the user's)
+
+`~/docker-data` does not exist yet; everything so far runs as the dev process on :8011. Steps in docs/deploy.md:
+ASR plist → `scripts/prod.sh migrate` (moves the real vault) → build → up; then the backup plist. Do this after PRD 49
+so prod starts with the prod trace profile from day one.
 
 ## Parked (needs IT)
 
