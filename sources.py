@@ -40,9 +40,12 @@ import subprocess
 
 import avatars
 import memory
+import tracing
 from untrusted import DOCUMENT_RULE, untrusted
 import vault_lock
 import wiki
+
+log = tracing.logger("Sources")
 
 # --- limits ------------------------------------------------------------------------
 
@@ -177,12 +180,14 @@ def _client_model() -> tuple:
 
 def _ask(client, model: str, system: str, content, max_tokens: int) -> str:
     """One completion. `content` is a string, or the multimodal content-part list for an image."""
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "system", "content": system}, {"role": "user", "content": content}],
-        temperature=0,
-        max_tokens=max_tokens,
-    )
+    messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
+    tracing.verbose("prompt", purpose="ingest", messages=messages)
+    with tracing.span("llm_call", purpose="ingest", model=model, max_tokens=max_tokens, ttft_ms=None) as span:
+        response = client.chat.completions.create(model=model, messages=messages, temperature=0,
+                                                  max_tokens=max_tokens)
+        usage = getattr(response, "usage", None)
+        span.update(tokens_in=getattr(usage, "prompt_tokens", None),
+                    tokens_out=getattr(usage, "completion_tokens", None))
     return response.choices[0].message.content or ""
 
 
@@ -234,7 +239,7 @@ def pdf_text(data: bytes) -> str:
         reader = pypdf.PdfReader(io.BytesIO(data))
         pages = [(page.extract_text() or "") for page in reader.pages]
     except Exception as exc:  # noqa: BLE001 — a broken PDF is "unreadable", not a crash
-        print(f"[Sources] pdf extraction failed: {exc}")
+        log.info(f"pdf extraction failed: {exc}")
         return ""
     text = "\n\n".join(p.strip() for p in pages if p.strip())
     return text if len(text.strip()) >= MIN_PDF_CHARS else ""
@@ -245,7 +250,7 @@ def eml_text(data: bytes) -> str:
     try:
         msg = email.message_from_bytes(data, policy=email.policy.default)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] eml parse failed: {exc}")
+        log.info(f"eml parse failed: {exc}")
         return ""
     plain, html = "", ""
     for part in (msg.walk() if msg.is_multipart() else [msg]):
@@ -276,7 +281,7 @@ def msg_text(path: str) -> str:
                        "Date": str(msg.date or ""), "Subject": msg.subject or ""}
             body = msg.body or ""
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] msg extraction failed: {exc}")
+        log.info(f"msg extraction failed: {exc}")
         return ""
     return _headers_block(headers, str(body).strip())
 
@@ -303,7 +308,7 @@ def _downscale(full: str) -> None:
                 im.thumbnail((IMAGE_LONG_EDGE, IMAGE_LONG_EDGE))
                 im.save(full)
     except Exception as exc:
-        print(f"[Sources] downscale skipped: {exc}")
+        log.info(f"downscale skipped: {exc}")
 
 
 def _image_part(full: str) -> dict:
@@ -399,7 +404,7 @@ def docx_text(data: bytes) -> tuple:
     try:
         items = docx_paragraphs(data)
     except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
-        print(f"[Sources] docx extraction failed: {exc}")
+        log.info(f"docx extraction failed: {exc}")
         return "", "docx"
     turns = teams_turns(items)
     if turns:
@@ -437,7 +442,7 @@ def pptx_text(data: bytes) -> str:
                     lines.append(f"Notes: {notes}")
             sections.append("\n".join(lines))
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] pptx extraction failed: {exc}")
+        log.info(f"pptx extraction failed: {exc}")
         return ""
     return "\n\n".join(sections)
 
@@ -463,7 +468,7 @@ def xlsx_text(data: bytes) -> str:
             sections.append(f"({XLSX_MAX_SHEETS} of {len(book.worksheets)} sheets shown)")
         book.close()
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] xlsx extraction failed: {exc}")
+        log.info(f"xlsx extraction failed: {exc}")
         return ""
     return "\n\n".join(sections)
 
@@ -558,7 +563,7 @@ def _occurrences(component, today: dt.date, horizon: int) -> list:
     try:
         rules = du.rrulestr(rule.to_ical().decode(), dtstart=naive, forceset=True)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] rrule skipped: {exc}")
+        log.info(f"rrule skipped: {exc}")
         return [start]
     exdates = component.get("EXDATE")
     exdates = exdates if isinstance(exdates, list) else [exdates] if exdates else []
@@ -580,7 +585,7 @@ def ics_events(data: bytes, today: dt.date | None = None, horizon: int | None = 
 
         cal = icalendar.Calendar.from_ical(data)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] ics parse failed: {exc}")
+        log.info(f"ics parse failed: {exc}")
         return []
     events = []
     for component in cal.walk("VEVENT"):
@@ -679,7 +684,7 @@ def epub_text(data: bytes) -> str:
                     chapters.append(text)
             return "\n\n".join(chapters)
     except Exception as exc:  # noqa: BLE001 — a broken file is "unreadable", not a crash
-        print(f"[Sources] epub extraction failed: {exc}")
+        log.info(f"epub extraction failed: {exc}")
         return ""
 
 
@@ -854,11 +859,13 @@ def meeting_from_transcript(client, model: str, text: str, title: str, user_name
         system = MEETING_SYSTEM % (memory.user_note(user_names), memory._today_iso())
         raw = _ask(client, model, system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] meeting completion failed: {exc}")
+        log.warning(f"meeting completion failed: {exc}")
+        tracing.error("ingest", "meeting_from_transcript", exc)
+        tracing.mark(degraded=True)
         return None
     data = memory._extract_json(raw, "{", "}")
     if not isinstance(data, dict):
-        print("[Sources] could not parse the meeting; filing the transcript only")
+        log.info("could not parse the meeting; filing the transcript only")
         return None
 
     def strings(key, limit=8):
@@ -1051,7 +1058,9 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
         try:
             raw = _ask(client, model, system, content, 700)
         except Exception as exc:  # noqa: BLE001
-            print(f"[Sources] summary failed: {exc}")
+            log.warning(f"summary failed: {exc}")
+            tracing.error("ingest", "summarise", exc)
+            tracing.mark(degraded=True)
             if strict:
                 raise
             fallback["summary"] = "the summary model could not be reached; the raw file is filed."
@@ -1062,9 +1071,9 @@ def summarise(client, model: str, kind: str, text: str, image_part, hint: str, t
             if str(data.get("title") or "").strip():
                 break
         if attempt < SUMMARY_ATTEMPTS:      # a garbled or untitled reply earns one more try
-            print("[Sources] summary came back without a title; asking once more")
+            log.info("summary came back without a title; asking once more")
     if not isinstance(data, dict):
-        print("[Sources] could not parse the summary; filing the raw file only")
+        log.info("could not parse the summary; filing the raw file only")
         if strict:
             raise IngestError(422, "the summary could not be parsed")
         fallback["summary"] = "the summary could not be parsed; the raw file is filed."
@@ -1111,7 +1120,9 @@ def propose_page_ops(client, model: str, source_rel: str, summary: dict, hint: s
         system = OPS_SYSTEM % (rules, memory._today_iso())
         raw = _ask(client, model, system, "\n\n".join(parts), 800)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Sources] page ops failed: {exc}")
+        log.warning(f"page ops failed: {exc}")
+        tracing.error("ingest", "propose_page_ops", exc)
+        tracing.mark(degraded=True)
         return []
     ops = memory._extract_json(raw)
     return ops if isinstance(ops, list) else []
@@ -1207,19 +1218,23 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
         ops = propose_page_ops(client, model, source_rel, summary, hint, page, names, kind)
     else:
         ops = []
+    tracing.verbose("ingest_text", summary=summary.get("summary", ""), ops=ops)
     if ops:
         kept, rejected = restrict_ops(ops, raw_rel, names, kind)
-        for bad in rejected:
-            print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
         applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
-        for bad in more:
-            print(f"[Sources] rejected {bad['op']}: {bad['reason']}")
+        shape = [{"kind": wiki.op_kind(b.get("op")), "reason_code": tracing.reason_code(b.get("reason"))}
+                 for b in rejected + more]
+        for bad, short in zip(rejected + more, shape):
+            log.info(f"rejected {short['kind']}: {short['reason_code']}")     # the op text only at DEBUG
+            log.debug(f"rejected {bad['op']}: {bad['reason']}")
+        tracing.mark(ops_rejected=shape)
 
     fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
                   for op in applied if op.get("path")}
                  | {"decisions" for op in applied if op["op"] == "add_decision"}
                  | set(stubs) | ({meeting} if meeting else set()))
     write_page(fed, meeting)     # rewritten now that the ops are in, listing what it actually fed
+    tracing.mark(ops_applied=len(applied), pages=[wiki.wikilink(source_rel)] + fed)
     return fed
 
 
@@ -1230,7 +1245,7 @@ def _stage(on_stage, stage: str) -> None:
     try:
         on_stage(stage)
     except Exception as exc:  # noqa: BLE001 — a progress push must not fail the ingest
-        print(f"[Sources] progress callback failed: {exc}")
+        log.info(f"progress callback failed: {exc}")
 
 
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
@@ -1254,6 +1269,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         digest = digest or sha256(data)
         seen = manifest_find(digest)
         if seen:
+            tracing.mark(already=True, path=seen.get("page", ""))
             return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True}
 
         folder, name = os.path.split(raw_rel)
@@ -1290,6 +1306,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
         wiki._commit(f"wiki: filed {raw_rel}")
+        tracing.mark(path=wiki.wikilink(source_rel), title=page_title)
         return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False}
 
 
@@ -1461,8 +1478,9 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
         title = ""          # `note.txt`, `untitled`…: the summary's title names the page
     folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
-    return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
-                      client=client, model=model, on_stage=on_stage, source=source, strict=strict)
+    with tracing.ingest(kind, raw=raw_rel, bytes=len(data)):
+        return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
+                          client=client, model=model, on_stage=on_stage, source=source, strict=strict)
 
 
 def check_note(text: str) -> str:
@@ -1483,20 +1501,22 @@ def ingest_note(text: str, *, title: str = "", hint: str = "", page: str = "",
     if is_generic_title(title):
         title = ""
     raw_rel = f"raw/inbox/{_dated(stem)}.md"
-    return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
-                      client=client, model=model, on_stage=on_stage)
+    with tracing.ingest("note", raw=raw_rel, bytes=len(body.encode())):
+        return file_bytes(body.encode(), raw_rel, "note", title=title, hint=hint, page=page,
+                          client=client, model=model, on_stage=on_stage)
 
 
 def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "",
                 client=None, model: str = "") -> dict:
     """A file already on disk (the eval harness's `ingest:` turn, an AppleScript drop)."""
-    try:
-        with open(os.path.expanduser(path), "rb") as f:
-            data = f.read()
-    except OSError as exc:
-        raise IngestError(400, f"cannot read {path}: {exc}") from exc
-    return ingest_upload(data, os.path.basename(path), title=title, hint=hint, page=page,
-                         client=client, model=model)
+    with tracing.ingest("path", raw=os.path.basename(path)):
+        try:
+            with open(os.path.expanduser(path), "rb") as f:
+                data = f.read()
+        except OSError as exc:
+            raise IngestError(400, f"cannot read {path}: {exc}") from exc
+        return ingest_upload(data, os.path.basename(path), title=title, hint=hint, page=page,
+                             client=client, model=model)
 
 
 def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = "",
@@ -1505,15 +1525,17 @@ def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = 
     ident = wiki.slugify(message_id) or _dated("email")
     subject = next((line[len("Subject: "):] for line in markdown.splitlines()
                     if line.startswith("Subject: ")), "").strip()
-    return file_bytes(markdown.encode(), f"raw/email/{ident}.md", "email",
-                      title=subject, hint=hint, page=page, client=client, model=model)
+    with tracing.ingest("email", raw=f"raw/email/{ident}.md", bytes=len(markdown.encode())):
+        return file_bytes(markdown.encode(), f"raw/email/{ident}.md", "email",
+                          title=subject, hint=hint, page=page, client=client, model=model)
 
 
 def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "",
                 client=None, model: str = "") -> dict:
     """A flagged news article -> `raw/news/<slug>.md`."""
-    return file_bytes(markdown.encode(), f"raw/news/{wiki.slugify(title)}.md", "news",
-                      title=title, hint=hint, page=page, client=client, model=model)
+    with tracing.ingest("news", raw=f"raw/news/{wiki.slugify(title)}.md", bytes=len(markdown.encode())):
+        return file_bytes(markdown.encode(), f"raw/news/{wiki.slugify(title)}.md", "news",
+                          title=title, hint=hint, page=page, client=client, model=model)
 
 
 def decode_data_url(value: str) -> bytes:

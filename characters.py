@@ -2,6 +2,9 @@
 import os
 
 import yaml
+import tracing
+
+log = tracing.logger("characters")
 
 CHARACTERS_DIR = os.path.join(os.path.dirname(__file__), "characters")
 PERSONA_WORD_CAP = 250
@@ -88,7 +91,7 @@ def load_all() -> dict:
         persona = build_persona(card)
         word_count = len(persona.split())
         if word_count > PERSONA_WORD_CAP:
-            print(f"[characters] {key}: persona is {word_count} words (cap {PERSONA_WORD_CAP})")
+            log.info(f"{key}: persona is {word_count} words (cap {PERSONA_WORD_CAP})")
     return ordered
 
 

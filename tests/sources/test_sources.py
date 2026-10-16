@@ -18,7 +18,7 @@ import memory
 import notebooks
 import sources
 import wiki
-from tests.conftest import FakeClient, commits, read, vault, write_page  # noqa: F401 — fixture
+from tests.conftest import FakeClient, commits, read, trace_lines, vault, write_page  # noqa: F401 — fixture
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -893,7 +893,7 @@ def test_the_script_points_the_vault_at_the_given_directory(tmp_path, export):
     target.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=target, check=True)
     (target / "stray.md").write_text("x")
-    env = {**os.environ, "MEMORY_DIR": str(tmp_path / "mem"), "PORT": "1"}
+    env = {**os.environ, "MEMORY_DIR": str(tmp_path / "mem"), "PORT": "1", "TRACE_DIR": str(tmp_path)}
     env.pop("WIKI_PATH", None)
 
     done = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "ingest_batch.py"),
@@ -1120,3 +1120,47 @@ def test_a_notebook_page_without_the_png_magic_is_415(vault):
     with pytest.raises(sources.IngestError) as exc:
         file_notebook([b"GIF89a not a png"], FakeClient())
     assert exc.value.status == 415
+
+
+# --------------------------------------------------------------------------- PRD 49 scenario 4: the ingest trace
+
+
+def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault):
+    res = sources.ingest_note("Falcon is amber; Anna runs the load test.", title="Falcon status",
+                              client=FakeClient(SUMMARY, RuntimeError("ops model down")), model="m")
+    (start,) = trace_lines(kind="ingest_start")
+    (end,) = trace_lines(kind="ingest_end")
+    (err,) = trace_lines(kind="error")
+    assert start["ingest_kind"] == "note" and start["raw"].startswith("raw/inbox/") and start["bytes"] > 0
+    assert end["degraded"] is True and end["ops_applied"] == 0 and end["status"] == "ok"
+    assert end["path"] == res["path"] and end["pages"] == [res["path"]]
+    assert err["exc_type"] == "RuntimeError" and err["traceback"] and err["scope"] == "ingest"
+    assert start["ingest_id"] == end["ingest_id"] == err["ingest_id"]
+    assert start["span_id"] == end["span_id"] and start["run_id"] == end["run_id"] == err["run_id"]
+    assert "amber" not in open(sources_trace_path()).read()
+
+
+def test_ingest_run_id_from_the_form_groups_a_host_scripts_ingests(http):
+    client, _ws = http
+    for name in ("a.md", "b.md"):
+        assert _post(client, run_id="sync-7", files={"file": (name, f"{name} body".encode(), "text/markdown")}
+                     ).status_code == 200
+    ends = trace_lines(kind="ingest_end")
+    assert len(ends) == 2 and {e["run_id"] for e in ends} == {"sync-7"}
+    assert len({e["ingest_id"] for e in ends}) == 2
+    assert all(e["pages"] and all(isinstance(p, str) for p in e["pages"]) for e in ends)
+
+
+def sources_trace_path() -> str:
+    import tracing
+    return tracing.paths()["events"]
+
+
+def test_a_rejected_op_is_logged_by_kind_and_reason_code_only(vault):
+    ops = json.dumps([{"op": "new_page", "path": "secrets/zqx-sentinel-plans", "type": "topic",
+                       "name": "ZQX-SENTINEL plans", "summary": "ZQX-SENTINEL said this in the doc."}])
+    sources.ingest_note("Falcon is amber.", title="Falcon status", client=FakeClient(SUMMARY, ops), model="m")
+    (end,) = trace_lines(kind="ingest_end")
+    assert end["ops_rejected"] == [{"kind": "new_page", "reason_code": "bad_path"}]
+    text = open(sources_trace_path()).read()
+    assert "ZQX-SENTINEL" not in text and "zqx-sentinel" not in text

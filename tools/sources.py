@@ -5,6 +5,9 @@ reference against what the assistant last read out (gmail / news), or takes the 
 and hands the bytes to sources.py, which stores them under `raw/` and files a source page.
 """
 import sources
+import tracing
+
+log = tracing.logger("Sources")
 
 #: the vault only; the email / news bodies come from the tools that read them
 HOSTS = ()
@@ -75,7 +78,7 @@ def file_source(kind: str, ref: str, hint: str = "") -> str:
     except sources.IngestError as exc:
         return exc.message
     except Exception as exc:  # noqa: BLE001 — a filing failure is spoken, never a crashed turn
-        print(f"[Sources] file_source failed: {exc}")
+        log.info(f"file_source failed: {exc}")
         return f"I couldn't file that: {exc}"
     _push_panel()
     if filed.get("already"):

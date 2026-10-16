@@ -10,7 +10,8 @@ container is not). Lists the `$REMARKABLE_FOLDER` (`wiki-inbox`) folder on the t
 to the app's `/ingest` as one `kind=notebook` item (`--app`, `$VOICEBOT_URL`, default
 http://127.0.0.1:8010). Optional per-page OCR cross-check: `scripts/vision_ocr <png>` (or
 `$REMARKABLE_OCR_BIN`) when executable, off with `REMARKABLE_OCR=0`. State: `--state`, default
-~/.cache/voicebot/remarkable.json, written per notebook only after the app filed it.
+~/.cache/voicebot/remarkable.json, written per notebook only after the app filed it. The trace profile
+rule is the app's (docs/49-event-trace.md); each pull's notebooks share one `run_id`.
 Exit 0 done (or tablet not connected), 1 the app was unreachable or a notebook failed. Never
 writes to the tablet.
 """
@@ -27,6 +28,8 @@ import urllib.request
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+import tracing  # noqa: E402 — the repo's tracing.py (stdlib only)
 DEFAULT_STATE = os.path.join("~", ".cache", "voicebot", "remarkable.json")
 
 #: every line `pull` prints, in one place
@@ -225,11 +228,12 @@ def pull(device: str, app: str, state_path: str, out=print) -> int:
         out(str(idle))
         return 0
     helper, failed = ocr_bin(), 0
+    run_id = f"remarkable-{uuid.uuid4().hex[:12]}"    # the app groups this pull's ingests (PRD 49)
     for doc in todo:
         name, prev = doc.get("VissibleName") or doc["ID"], state.get(doc["ID"]) or {}
         try:
             pages, ocr = rasterise(download(device, doc["ID"]), helper)
-            filed = post_notebook(app, notebook_fields(doc, name, ocr, prev), pages)
+            filed = post_notebook(app, {**notebook_fields(doc, name, ocr, prev), "run_id": run_id}, pages)
         except AppDown as exc:
             out(LINES["app_down"].format(app=app, error=exc))
             return 1
@@ -252,6 +256,7 @@ def main(argv=None) -> int:
                     help="the voicebot app (default $VOICEBOT_URL or http://127.0.0.1:8010)")
     ap.add_argument("--state", default=DEFAULT_STATE, help=f"state file (default {DEFAULT_STATE})")
     args = ap.parse_args(argv)
+    tracing.configure(out=sys.stderr)                   # PRD 49: the app's profile rule
     return pull(args.device.rstrip("/"), args.app.rstrip("/"), os.path.expanduser(args.state))
 
 

@@ -31,6 +31,7 @@ source .venv/bin/activate
 scripts/check.sh
 scripts/ingest_batch.py <folder> [--vault PATH] [--dry-run] [--resume] [--limit N] [--sleep S]   # PRD 48: file a folder of PDF/DOCX through the drop ingest; app stopped first
 scripts/remarkable_sync.py pull [--device URL] [--app URL] [--state PATH]   # PRD 47: tablet plugged in (USB web interface on), app running; files changed `wiki-inbox` notebooks
+scripts/trace_report.py events.jsonl [--since 24h] [--turn ID] [--errors]   # PRD 49: turns, ingests, errors from the event trace
 scripts/smoke.py   # headless smoke: e2e + one live turn + battery section A + view screenshots → /tmp/smoke/<ts>/
 # or just the unit suite — pytest.ini excludes the `live`, `e2e` and `docker` markers by default
 python3 -m pytest tests/
@@ -70,9 +71,13 @@ message types with their fields and the app.js code that consumes them. Enforced
 
 ## Logs
 
-The server prints to stdout (`[Memory]`, `[WS]`, `[Turn error]` lines); started as
-`nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look; in prod `scripts/prod.sh logs`.
-`session.log` (repo root, gitignored; `SESSION_LOG` env — `/data/logs/session.log` in prod) gets one line per turn: origin, tools used, reply length. The e2e run writes screenshots to
+The server prints to stdout through `logging` (`[Memory]`, `[WS]`, `[Tool] name(keys)` lines, never a tool result; turn text
+only as DEBUG in dev); started as `nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look; in prod
+`scripts/prod.sh logs` (json-file, 10 MB × 5). PRD 49: `events.jsonl` (+ `verbose.jsonl` in dev only) in `TRACE_DIR`
+(repo-local `logs/` in dev, gitignored; `/data/logs` in prod), rotated 10 MB × 5; `TRACE_PROFILE` = dev (checkout default) | prod
+(forced by compose; dev refuses to start against `~/docker-data` or in a container). Read it with
+`scripts/trace_report.py events.jsonl [--since 24h] [--turn ID] [--ingest ID] [--errors]` (the /trace skill).
+`session.log` is retired (an old one is still moved by `prod.sh migrate`). The e2e run writes screenshots to
 `/tmp/e2e/<test>-<name>.png` and the spawned server's output to `server.log` in its temp dir (kept with `E2E_KEEP=1`).
 
 ## Folder tree
@@ -80,10 +85,11 @@ The server prints to stdout (`[Memory]`, `[WS]`, `[Turn error]` lines); started 
 ```
 voicebot/
 ├── chatbot.py        # main entry point, FastAPI + WS server, browser mic capture (hands-free), typed turns (`text_turn`), sentence-streamed TTS, backdrop switching, character-card reload, `set_focus` + deterministic find/open/go-back page commands pushing `wiki_open` (PRD 38), `context` after every turn + the 90 % spoken nudge, the `new_topic` action / "new topic" / `/new` turn with its `thread` divider, reconnect replay from the stripped conversation (PRD 39), the "write it up" / `/write` write-up turn (one spoken line + `card`), "save that as a note" + the `save_card` action filing the last card under `notes/` (PRD 43), the "what's new?" / `/brief` briefing turn ("Nothing new since <when>." without the model, else one spoken recap; `briefing_at` in settings.json) (PRD 46)
-├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory + session log; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33); the focus state + `focus_block` (open page head + best-matching section/chunk in place of recall, PRD 38); the context meter (`context_usage`, `TOOLS_TOKENS`, `context_notice`), recall/focus blocks stripped from the stored user message once the turn completes, `new_thread` (fold memory → ≤ 150-token summary as `<earlier>` → fixed ack) (PRD 39); length by origin (a typed grounded content question runs `long` with the offer clause swapped out), `wants_writeup`, `write_up` (one card completion over the last answer's context + a Sources line, kept as a marked assistant turn) (PRD 43); `recall_band` on spoken turns (high = grounded, medium = plain reply + server-appended "Want me to check your <title>?" whose "yes" answers the earlier question grounded, low = no recall; band in session.log) (PRD 45); `briefing` (one short recap completion over the `<document source="briefing">` digest, its card kept in `_last_context` so "write it up" makes none) (PRD 46)
+├── llm.py             # LLM client (oMLX via openai SDK), system prompt per avatar, tool dispatch, ask_events/ask_stream/ask, per-turn source recall (`recall_for`, PRD 32) with the precision rule + look-up-first prompt block + one-turn "dig deeper" offer (PRD 34), the routing rules + "Want me to check Wikipedia?" offer whose "yes" runs get_wikipedia at `long` (PRD 37), memory; every recall / deeper block is wrapped as `<document>` and the sources a session read go to the memory save for attribution (PRD 33); the focus state + `focus_block` (open page head + best-matching section/chunk in place of recall, PRD 38); the context meter (`context_usage`, `TOOLS_TOKENS`, `context_notice`), recall/focus blocks stripped from the stored user message once the turn completes, `new_thread` (fold memory → ≤ 150-token summary as `<earlier>` → fixed ack) (PRD 39); length by origin (a typed grounded content question runs `long` with the offer clause swapped out), `wants_writeup`, `write_up` (one card completion over the last answer's context + a Sources line, kept as a marked assistant turn) (PRD 43); `recall_band` on spoken turns (high = grounded, medium = plain reply + server-appended "Want me to check your <title>?" whose "yes" answers the earlier question grounded, low = no recall; band in the `recall` event) (PRD 45); `briefing` (one short recap completion over the `<document source="briefing">` digest, its card kept in `_last_context` so "write it up" makes none) (PRD 46)
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
-├── session.py        # Session (per-connection state) + TurnController (single worker)
+├── session.py        # Session (per-connection state) + TurnController (single worker; `submit(..., turn_id=)` opens the turn's trace context)
+├── tracing.py        # PRD 49 event trace (stdlib; not trace.py, which would shadow the stdlib module): `event` (allow-listed fields, 200-char cap), `verbose` (dev only), `span` / `turn` / `ingest` / `run` contexts (turn_id, ingest_id, run_id, span ids), `error`, `configure` (profile + refusal), 10 MB × 5 rotation, the `[Module]` stdout loggers
 ├── vad.py            # Silero VAD endpointer (hands-free); Recorder is an unused PTT leftover
 ├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing; `last_error` after a failed remote call (PRD 41)
 ├── services.py       # PRD 41: oMLX / ASR health probe (`probe`, `refresh`, 30 s daemon + `recheck` after a failed call), `START_HINT`, the `services` payload; addendum: `admin_password()` (env, else settings.json; `python -m services --admin-password` for the script), `model_op` load/unload via the admin API
@@ -100,14 +106,16 @@ voicebot/
 ├── notebooks.py        # PRD 47 reMarkable notebooks: `check_request` (the `kind=notebook` gate of POST /ingest: PNG pages ≤ 50, `replaces` same device, `ocr` JSON list), `ingest_notebook` (sha of the pages before any model call, one transcription completion per page outside the lock, `[page N: unreadable]` under 20 chars, optional Apple Vision OCR block, transcript `.md` through `sources.file_bytes`, PNGs under `raw/remarkable/<date>-<slug>/`, `replaces` forgets the earlier sha)
 ├── ruff.toml          # lint config (E4/E7/E9/F, compact-style ignores); no formatter
 ├── .claude/agents/reviewer.md  # read-only one-pass branch review before the Implementation gate (BLOCKER / MAJOR / backlog)
-├── .claude/skills/smoke/SKILL.md  # /smoke: run scripts/smoke.py, read every PNG, quote RESULT.txt
+├── .claude/skills/smoke/SKILL.md  # /smoke: run scripts/smoke.py, read every PNG, quote RESULT.txt (ends with trace_report --errors)
+├── .claude/skills/trace/SKILL.md  # /trace: where the event logs live, report first, raw lines only for flagged turns, never verbose.jsonl outside dev
 ├── scripts/
 │   ├── check.sh         # node --check app.js, node fixture, `ruff check .`, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── hooks/commit-msg # rejects AI-attribution trailers in commit messages; enabled via `git config core.hooksPath scripts/hooks`
 │   ├── ingest_batch.py  # PRD 48: file an export folder of PDF/DOCX — a thin argparse CLI over `batch_import.ingest_batch` (the drop path), idempotent via the manifest, `--resume`/`--dry-run`/`--limit`/`--sleep`, `batch.log`; exit 2 on a dirty vault or a running app
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
-│   ├── smoke.py         # headless smoke pass: stack, e2e, one live turn, one battery section, view screenshots → /tmp/smoke/<ts>/RESULT.txt
+│   ├── smoke.py         # headless smoke pass: stack, e2e, one live turn, one battery section, view screenshots → /tmp/smoke/<ts>/RESULT.txt, then `trace_report.py --errors` over every events.jsonl the run wrote
+│   ├── trace_report.py  # PRD 49 (stdlib): events.jsonl (+ rotated files) → turn table, ingest table, errors; `--since`, `--turn ID|pid:ID`, `--ingest ID`, `--errors` (exit 1 when any)
 │   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 │   ├── remarkable_sync.py  # PRD 47: `pull` (stdlib, host venv) — tablet USB web interface (`--device`, default http://10.11.99.1) → changed `wiki-inbox` notebooks → `pdftoppm` PNGs (+ optional `scripts/vision_ocr` / `$REMARKABLE_OCR_BIN`, `REMARKABLE_OCR=0` off) → one `kind=notebook` POST /ingest (`--app`, default :8010); state `--state` ~/.cache/voicebot/remarkable.json, written per filed notebook (atomic temp + `os.replace`); one function per step (`list_changed`, `download`, `rasterise`, `post_notebook`, `record`), every printed line in `LINES`
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
@@ -153,7 +161,7 @@ voicebot/
 │   │   ├── test_tools.py            # tool schemas/behaviour, needs live oMLX for some cases
 │   │   ├── test_llm_robustness.py   # LLM tool-trigger robustness (single phrases + variants), needs live oMLX
 │   │   ├── test_written_answers.py  # PRD 43: length by origin (typed grounded content → long, no offer; spoken → short + "dig deeper, or write it up?"), the write-up turn + card bookkeeping, the client card (fixture), save_card → notes/ with provenance in one commit, "save that as a note", new topic clears the card, reconnect replays it, protocol rows; PRD 46: "write it up" after a briefing is the digest card with no completion
-│   │   ├── test_ask_before_lookup.py # PRD 45: the recall band (live band table over a dev-vault copy + fixture rules), the medium offer, yes / no / never twice, typed unchanged, the band in session.log
+│   │   ├── test_ask_before_lookup.py # PRD 45: the recall band (live band table over a dev-vault copy + fixture rules), the medium offer, yes / no / never twice, typed unchanged, the band in the `recall` event
 │   │   ├── test_recall_precision_2.py # PRD 42: title words never score a chunk, neighbour dedupe, the held-reply lookup fallback, page recall, short proper questions, proper bigrams, summarise-this focus, routing wording, trailing "please", single-dated raw names
 │   │   └── test_wikipedia_routing.py  # PRD 37: canned Wikipedia tool tests, routing rules in the prompt, the Wikipedia offer/yes path, the 28-question calibration (mocked + live confusion table), fixed-host policy
 │   ├── memory/
@@ -192,6 +200,10 @@ voicebot/
 │   │   ├── test_asr.py              # junk filtering + transcribe() with mlx-whisper mocked, initial_prompt biasing, PRD 40 host ASR service + remote backend
 │   │   ├── test_vad.py              # Endpointer state machine (fake prob_fn) + Recorder
 │   │   └── test_splitter.py         # SentenceSplitter / split_stream / strip_tag, every emotion tag round-trips
+│   ├── tracing/                 # PRD 49: the event trace
+│   │   ├── test_trace.py            # scenarios 1–3, 5, 6, 8: a turn's ids + no text in events, tool_call size not result, llm_call usage/ttft/span, a turn raising mid-stream, rotation + unwritable dir, the field allow-list, dev verbose file
+│   │   ├── test_trace_profile.py    # scenario 7: prod never creates verbose.jsonl, service start first, dev against ~/docker-data refused (chatbot.py and ingest_batch.py), host scripts log next to their data folder, compose forces prod + caps the container log
+│   │   └── test_trace_report.py     # scenario 9: scripts/trace_report.py `--turn` (ordered by start), `--errors` exit codes, the summary tables over rotated files
 │   ├── prod/                    # PRD 40: Docker prod
 │   │   ├── test_data_paths.py       # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
 │   │   ├── test_remarkable_sync.py  # PRD 47 scenarios 1–4: scripts/remarkable_sync.py pull against `fake_remarkable` + `fake_ingest` (conftest) — folder/notebook filter, state, nothing new, replaces, device/app down, one failure, OCR helper stub paths; skipped without pdftoppm
@@ -257,7 +269,7 @@ voicebot/
     ├── 46-briefing.md           # PRD: "what's new?" — spoken recap of vault/memory changes since the last briefing, card on request (done)
     ├── 47-remarkable-pull.md    # PRD: scripts/remarkable_sync.py pull — notebooks over USB → page PNGs → image ingest, one source per notebook; fake device in tests (done)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
-    └── 49-event-trace.md        # PRD: events.jsonl via trace.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (implementation)
+    └── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (refactoring)
 ```
 
 ## Active PRDs

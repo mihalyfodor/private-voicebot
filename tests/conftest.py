@@ -17,6 +17,7 @@ import chatbot
 import llm
 import memory
 import sources
+import tracing
 import wiki
 from tools import gmail as gmail_tool
 
@@ -39,7 +40,7 @@ def wiki_sandbox(monkeypatch, tmp_path):
 
 @pytest.fixture(autouse=True)
 def file_sandbox(monkeypatch, tmp_path):
-    """No test may touch the real settings.json, session.log or memory files.
+    """No test may touch the real settings.json, trace logs or memory files.
 
     Every module-level path is pointed at tmp_path; the avatar cache and AVATAR env are
     reset so settings start from a clean slate. `memory_sandbox` below is the same thing
@@ -48,13 +49,31 @@ def file_sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(avatars, "SETTINGS_PATH", str(tmp_path / "settings.json"))
     monkeypatch.setattr(avatars, "_current", None)
     monkeypatch.delenv("AVATAR", raising=False)
-    monkeypatch.setattr(llm, "LOG_PATH", str(tmp_path / "session.log"))
+    monkeypatch.setattr(tracing, "TRACE_DIR", str(tmp_path))
+    monkeypatch.delenv("TRACE_PROFILE", raising=False)
+    tracing.reset()
     monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
     monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
     monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
     monkeypatch.setattr(gmail_tool, "GMAIL_CREDENTIALS_PATH", str(tmp_path / "credentials.json"))
     monkeypatch.setattr(gmail_tool, "GMAIL_TOKEN_PATH", str(tmp_path / "token.json"))
-    return tmp_path
+    yield tmp_path
+    tracing.reset()
+
+
+def trace_lines(stream: str = "events", kind: str | None = None) -> list:
+    """The parsed lines of this test's events.jsonl (or `stream="verbose"`), optionally one kind."""
+    path = tracing.paths()[stream]
+    if not os.path.exists(path):
+        return []
+    rows = [json.loads(line) for line in open(path) if line.strip()]
+    return [r for r in rows if kind is None or r["kind"] == kind]
+
+
+def trace_text(stream: str = "events") -> str:
+    """The raw text of this test's events.jsonl — what a sentinel check greps."""
+    path = tracing.paths()[stream]
+    return open(path).read() if os.path.exists(path) else ""
 
 
 @pytest.fixture(autouse=True)

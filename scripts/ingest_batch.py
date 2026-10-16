@@ -6,7 +6,8 @@
 Run it with the app stopped (`scripts/voicebot stop`). The vault is `--vault`, else WIKI_PATH like the app
 (dev ~/llm-wiki-dev, prod ~/docker-data/voicebot/llm-wiki); MEMORY_DIR / SETTINGS_PATH come from the same env.
 Idempotent (the manifest sha guard); `<folder>/batch.log` remembers skips and failures for --resume.
-Exit 0 nothing failed, 1 something failed, 2 refused start (bad args, dirty vault, app running).
+Exit 0 nothing failed, 1 something failed, 2 refused start (bad args, dirty vault, app running, a dev
+TRACE_PROFILE against ~/docker-data — docs/49-event-trace.md).
 """
 import argparse
 import os
@@ -35,6 +36,8 @@ def main(argv=None) -> int:
         return 0 if exc.code == 0 else 2
     if args.vault:
         os.environ["WIKI_PATH"] = args.vault        # before wiki / sources are imported
+    import tracing
+    tracing.configure(out=sys.stderr)                # PRD 49: the app's profile rule
     import batch_import
 
     res = batch_import.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),

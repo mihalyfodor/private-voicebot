@@ -8,6 +8,9 @@ token.json
 __pycache__/
 *.pyc
 session.log
+events.jsonl*
+verbose.jsonl*
+/logs/
 workflows/classification_cache.json
 workflows/classification_rules.py
 workflows/classification.log

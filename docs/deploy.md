@@ -12,7 +12,7 @@ checkout (`.venv`, `PORT=8011 WIKI_PATH=~/llm-wiki-dev`). oMLX and the ASR servi
 ├── settings.json                                                                       SETTINGS_PATH
 ├── .env                       secrets + config (env_file of the container)
 ├── secrets/                   credentials.json, token.json (first OAuth on the host)   GMAIL_DIR
-└── logs/session.log                                                                    SESSION_LOG
+└── logs/events.jsonl           the event trace, prod profile: never text (PRD 49)          TRACE_DIR
 ~/docker-data/backups/         prod.sh backup output
 ~/models/kokoro                mounted read-only at /models/kokoro (not backed up; re-downloadable)
 ```
@@ -61,6 +61,7 @@ user to run when a service is down.
 |---|---|
 | `scripts/prod.sh up` / `down` | start / stop the container (`restart: unless-stopped` survives reboots) |
 | `scripts/prod.sh logs` | follow the container log |
+| `scripts/trace_report.py $DATA/logs/events.jsonl --since 24h` | turns, ingests and errors from the event trace (PRD 49; `--errors` exits 1 when any) |
 | `scripts/prod.sh status` | `compose ps` + `/api/config` |
 | `scripts/prod.sh build && scripts/prod.sh up` | roll a new `main` into prod |
 | `scripts/prod.sh backup` | `git bundle --all` of the vault + `tar.gz` of `DATA` into `~/docker-data/backups/`; keeps the newest `KEEP` (default 7) of each; skips when the vault head is unchanged; refuses below `MIN_FREE_MB` free or above `MAX_TOTAL_MB` total; one line per run in `DATA/logs/backup.log` |

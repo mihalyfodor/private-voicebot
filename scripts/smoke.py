@@ -2,11 +2,13 @@
 
     .venv/bin/python scripts/smoke.py [--out DIR] [--steps 1,2,3,4,5] [--no-start] [--section A] [--answer-timeout 300]
 
-Never touches ~/llm-wiki: every vault is a throwaway under the out folder. Results: RESULT.json + RESULT.txt.
+Never touches ~/llm-wiki: every vault is a throwaway under the out folder. Results: RESULT.json + RESULT.txt,
+which ends with `scripts/trace_report.py --errors` over every events.jsonl the run's servers wrote (PRD 49).
 """
 import argparse
 import functools
 import json
+import os
 import pathlib
 import re
 import shutil
@@ -56,9 +58,14 @@ def step_stack(out, no_start):
     return ("PASS" if up else "FAIL"), ("omlx up, model loaded" if up else "omlx down or model not loaded")
 
 
+def _traced(out) -> dict:
+    """The e2e server writes its events.jsonl into the out folder instead of its temp dir."""
+    return {**os.environ, "E2E_TRACE_DIR": str(out)}
+
+
 def step_e2e(out):
     shutil.rmtree(E2E_SHOTS, ignore_errors=True)
-    code, text = run([PY, "-m", "pytest", "-m", "e2e", "tests/e2e", "-q", "-p", "no:cacheprovider"])
+    code, text = run([PY, "-m", "pytest", "-m", "e2e", "tests/e2e", "-q", "-p", "no:cacheprovider"], env=_traced(out))
     (out / "e2e.log").write_text(text)
     copy_pngs(E2E_SHOTS, out / "e2e")
     return ("PASS" if code == 0 else "FAIL"), summary_line(text)
@@ -67,7 +74,7 @@ def step_e2e(out):
 def step_live(out):
     shutil.rmtree(E2E_SHOTS, ignore_errors=True)
     code, text = run([PY, "-m", "pytest", "-m", "e2e and live", "tests/e2e/test_app.py", "-k", "live_text_turn",
-                      "-q", "-p", "no:cacheprovider"])
+                      "-q", "-p", "no:cacheprovider"], env=_traced(out))
     (out / "live.log").write_text(text)
     copy_pngs(E2E_SHOTS, out / "live")
     last = summary_line(text)
@@ -120,6 +127,19 @@ def step_views(out):
     return ("FAIL", "missing or tiny: " + ", ".join(bad)) if bad else ("PASS", f"{len(VIEWS)} screenshots")
 
 
+def trace_errors(out) -> tuple:
+    """``(status, report text)``: `trace_report.py --errors` over each events.jsonl under `out`."""
+    logs = sorted(out.rglob("events.jsonl"))
+    if not logs:
+        return "SKIP", "trace: no events.jsonl"
+    texts, bad = [], 0
+    for path in logs:
+        code, text = run([PY, "scripts/trace_report.py", str(path), "--errors"])
+        bad += code != 0
+        texts.append(f"== {path.relative_to(out)}\n{text.strip()}")
+    return ("FAIL" if bad else "PASS"), "\n".join(texts)
+
+
 def summarize(results):
     count = lambda s: sum(1 for r in results if r["status"] == s)  # noqa: E731
     lines = [f"{r['step']:<8}{r['status']:<5} {r['detail']} ({r['seconds']}s)" for r in results]
@@ -165,7 +185,13 @@ def main():
             status, detail = "FAIL", f"{type(e).__name__}: {e}"[:200]
         results.append({"step": name, "status": status, "detail": detail, "seconds": round(time.time() - t0)})
         print(f"[smoke] {name}: {status} {detail}")
+    t0 = time.time()
+    status, report = trace_errors(out)
+    results.append({"step": "trace", "status": status, "seconds": round(time.time() - t0),
+                    "detail": "no errors" if status == "PASS" else "errors in the trace, see below" if status == "FAIL"
+                    else "no events.jsonl"})
     text, code = summarize(results)
+    text += "\n\ntrace_report --errors:\n" + report
     (out / "RESULT.json").write_text(json.dumps(results, indent=1))
     (out / "RESULT.txt").write_text(text + "\n")
     print(text)

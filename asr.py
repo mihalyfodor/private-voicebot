@@ -12,6 +12,9 @@ A dead service is an error line and an empty transcript, never a crash.
 import io
 import os
 import re
+import tracing
+
+log = tracing.logger("ASR")
 
 MODEL = os.getenv("WHISPER_MLX_MODEL", "mlx-community/whisper-small-mlx")
 BACKEND = os.getenv("ASR_BACKEND", "mlx")
@@ -91,7 +94,7 @@ def transcribe(audio, prompt=None):
     result = raw_transcribe(audio, prompt)
     last_error = result.get("error") or ""
     if last_error:
-        print(f"[ASR] {last_error}")
+        log.info(f"{last_error}")
         return ""
     text = (result.get("text") or "").strip()
 

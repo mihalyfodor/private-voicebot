@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(shutil.which("pdftoppm") is None, reason="pdftop
 
 
 def pull(tmp_path, device: str, app: str, **env) -> subprocess.CompletedProcess:
-    run_env = {**os.environ, "REMARKABLE_OCR_BIN": str(tmp_path / "no-such-ocr"), **env}
+    run_env = {**os.environ, "REMARKABLE_OCR_BIN": str(tmp_path / "no-such-ocr"), "TRACE_DIR": str(tmp_path), **env}
     return subprocess.run([sys.executable, SYNC, "pull", "--device", device, "--app", app,
                            "--state", str(tmp_path / "remarkable.json")],
                           capture_output=True, text=True, env=run_env, timeout=60)
@@ -58,6 +58,7 @@ def test_pull_files_each_new_notebook_in_the_folder_once(tmp_path, fake_remarkab
         assert len(r["files"]) == 2 and all(data.startswith(b"\x89PNG") for _n, data in r["files"])
         assert [n for n, _d in r["files"]] == ["page-01.png", "page-02.png"]
         assert "replaces" not in r["fields"] or r["fields"]["replaces"] == ""
+    assert len({r["fields"]["run_id"] for r in reqs}) == 1                     # one pull, one run (PRD 49)
     saved = state(tmp_path)
     assert set(saved) == {"n1", "n2"}
     assert saved["n1"]["pages"] == 2 and saved["n1"]["name"] == "Standup"

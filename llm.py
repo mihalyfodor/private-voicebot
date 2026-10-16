@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterator
@@ -9,6 +10,7 @@ from openai import OpenAI
 
 import memory
 import avatars
+import tracing
 import wiki
 from splitter import EMOTIONS, strip_tag
 from tools import TOOLS, run_tool
@@ -18,8 +20,9 @@ from untrusted import DOCUMENT_RULE, documents_in, untrusted
 OMLX_BASE_URL = os.getenv("OMLX_BASE_URL", "http://localhost:8000/v1")
 OMLX_API_KEY = os.getenv("OMLX_API_KEY", "omlx")
 OMLX_MODEL = os.getenv("OMLX_MODEL", "gemma-4-26b")
-# SESSION_LOG env: the Docker prod logs under /data/logs (docs/40-docker-prod.md)
-LOG_PATH = os.getenv("SESSION_LOG") or os.path.join(os.path.dirname(__file__), "session.log")
+tracing.vocab("name", [t["function"]["name"] for t in TOOLS] + ["dig_deeper"])
+log = tracing.logger("llm")
+tool_log = tracing.logger("Tool")
 
 CONTEXT_BUDGET = int(os.getenv("CONTEXT_BUDGET", "16000"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "0"))  # 0 = derive from verbosity
@@ -48,7 +51,7 @@ def resolve_verbosity(avatar: dict) -> str:
             continue
         if value in VERBOSITY_RULES:
             return value
-        print(f"[llm] warning: invalid {label} {value!r}; ignoring")
+        log.warning(f"warning: invalid {label} {value!r}; ignoring")
     return "normal"
 
 
@@ -96,7 +99,7 @@ def model_context_len() -> int | None:
     except Exception as e:
         if not _model_context_len_warned:
             _model_context_len_warned = True
-            print(f"[llm] warning: could not query model context length ({e}); using CONTEXT_BUDGET only")
+            log.warning(f"warning: could not query model context length ({e}); using CONTEXT_BUDGET only")
         return None
 
 
@@ -148,7 +151,7 @@ def trim_history() -> int:
     users = sum(1 for t in dropped if t.get("role") == "user")
     _last_trimmed = users or int(bool(dropped))                  # a lone assistant turn still counts
     if dropped:
-        print(f"[llm] trimmed conversation history to fit context budget ({budget} tokens)")
+        log.info(f"trimmed conversation history to fit context budget ({budget} tokens)")
     return _last_trimmed
 
 
@@ -297,6 +300,9 @@ _turn_sources: list = []
 #: results) since the last successful memory save — the memory proposal is asked to attribute
 #: its ops against this list (docs/33-untrusted-text.md)
 _sources_seen: list = []
+#: the (page, hits) the last recall search found, and the spoken turn's band — the `recall` event (PRD 49)
+_evidence: tuple = (None, [])
+last_band: str | None = None
 #: the wiki / Wikipedia page titles this turn drew on (page recall, the focused page, get_wikipedia)
 _turn_pages: list = []
 #: what the last answer was built from, for `write_up` (docs/43-written-answers.md):
@@ -313,6 +319,53 @@ def client() -> OpenAI:
     if _client is None:
         _client = OpenAI(base_url=OMLX_BASE_URL, api_key=OMLX_API_KEY)
     return _client
+
+
+def _stream(purpose: str, fallback_reason: str | None = None, **kw):
+    """A streamed completion (usage asked for) whose chunks pass through; one `llm_call` span when
+    it ends: ms, ttft_ms (first content or tool delta), tokens from the last chunk's usage or null."""
+    tracing.verbose("prompt", purpose=purpose, messages=kw.get("messages"))
+    with tracing.span("llm_call", purpose=purpose, model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+                    fallback_reason=fallback_reason) as span:
+        t0, ttft, usage = time.monotonic(), None, None
+        stream = client().chat.completions.create(stream=True, stream_options={"include_usage": True}, **kw)
+        try:
+            for chunk in stream:
+                usage = getattr(chunk, "usage", None) or usage
+                if ttft is None and chunk.choices:
+                    delta = chunk.choices[0].delta
+                    if getattr(delta, "content", None) or getattr(delta, "tool_calls", None):
+                        ttft = round((time.monotonic() - t0) * 1000)
+                yield chunk
+        except GeneratorExit:
+            getattr(stream, "close", lambda: None)()        # an abandoned generation stops at the server
+            raise
+        finally:
+            span.update(ms=round((time.monotonic() - t0) * 1000), ttft_ms=ttft,
+                        tokens_in=getattr(usage, "prompt_tokens", None),
+                        tokens_out=getattr(usage, "completion_tokens", None))
+
+
+def _complete(purpose: str, **kw):
+    """A plain completion with its `llm_call` span (no ttft; tokens when the response has usage)."""
+    tracing.verbose("prompt", purpose=purpose, messages=kw.get("messages"))
+    with tracing.span("llm_call", purpose=purpose, model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+                    ttft_ms=None) as span:
+        resp = client().chat.completions.create(**kw)
+        usage = getattr(resp, "usage", None)
+        span.update(tokens_in=getattr(usage, "prompt_tokens", None), tokens_out=getattr(usage, "completion_tokens", None))
+        return resp
+
+
+def _offer_kind(recall_offer: bool) -> str:
+    """What the turn ended offering: none / deeper / wikipedia / writeup, or recall (the medium band's check)."""
+    if recall_offer:
+        return "recall"
+    if not _deeper_offer:
+        return "none"
+    if _deeper_offer.get("wikipedia"):
+        return "wikipedia"
+    return "writeup" if (_conversation[-1].get("content") or "").rstrip().endswith(DEEPER_OFFERS[0]) else "deeper"
 
 
 def reset():
@@ -370,8 +423,12 @@ def _tool_round(tool_calls: list[dict], content: str = "") -> list:
         except json.JSONDecodeError:
             args = {}
         _last_tool_calls.append({"name": name, "args": args})
-        result = run_tool(name, args)
-        print(f"[Tool] {name}() → {result}")
+        keys = sorted(args) if isinstance(args, dict) else []
+        with tracing.span("tool_call", name=name, arg_keys=keys, ok=False) as span:
+            result = run_tool(name, args)
+            span.update(result_len=len(str(result)), ok=True)
+        tool_log.info(f"{name}({', '.join(keys)})")          # never the result (PRD 49)
+        tracing.verbose("tool_result", name=name, args=args, result=str(result))
         _note_tool_sources(name, args, str(result))
         _note_documents(str(result))
         results.append(str(result))
@@ -757,7 +814,6 @@ def write_up(request: str = "") -> dict:
         _session_turns.append({"role": "user", "content": request})
     _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{markdown}\n</card>'})
     _session_turns.append({"role": "assistant", "content": f"{memory.STAND_INS[0]}{card['title']}"})
-    _log(request or "/write", [], markdown, "card")
     return card
 
 
@@ -769,8 +825,8 @@ def _card_completion(ctx: dict) -> tuple:
     if material:
         user += "\n\nMaterial:\n" + material
     history = [m for m in dialogue()[-CARD_HISTORY_TURNS:] if not card_in(m["content"])]
-    resp = client().chat.completions.create(
-        model=OMLX_MODEL, max_tokens=CARD_MAX_TOKENS,
+    resp = _complete(
+        "card", model=OMLX_MODEL, max_tokens=CARD_MAX_TOKENS,
         messages=[{"role": "system", "content": CARD_PROMPT}] + history + [{"role": "user", "content": user}],
     )
     markdown = strip_tag((resp.choices[0].message.content or "").strip()).strip()
@@ -820,10 +876,12 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     _deeper_offer = None
     block = untrusted(_digest_text(digest), "briefing")
     prompt = BRIEFING_PROMPT.format(when=wiki.briefing_when(digest["since"]))
-    resp = client().chat.completions.create(
-        model=OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
-        messages=[_conversation[0], {"role": "user", "content": f"{prompt}\n\n{block}"}],
-    )
+    items = len(digest["pages"]) + len(digest["chat_pages"])
+    with tracing.span("briefing", items=items, sources=len(digest["sources"])):
+        resp = _complete(
+            "reply", model=OMLX_MODEL, max_tokens=BRIEFING_MAX_TOKENS,
+            messages=[_conversation[0], {"role": "user", "content": f"{prompt}\n\n{block}"}],
+        )
     reply = (resp.choices[0].message.content or "").strip()
     if not strip_tag(reply).strip():
         raise ValueError("the model wrote nothing")
@@ -838,7 +896,6 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
                            f"{len(digest['sources'])} sources, {wiki.memory_total(digest)} memory changes"})
     _last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
                      "pages": titles, "card": card_md}
-    _log(user_text, [], reply, origin)
     return reply, card_md
 
 
@@ -872,8 +929,10 @@ def _recall_evidence(user_text: str) -> tuple:
     words = len(user_text.split())
     if words < RECALL_MIN_WORDS and not (words >= RECALL_MIN_PROPER_WORDS and proper):
         return None, []
+    global _evidence
     page = _page_recall(user_text, terms)
-    return page, _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES)
+    _evidence = (page, _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES))
+    return _evidence
 
 
 
@@ -998,9 +1057,10 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     recall band (PRD 45). `note` is a one-turn system remark (a page was just opened for the
     user, PRD 38) appended to this turn's user message only.
     """
-    global _last_tool_calls, _deeper_offer, _turn_sources, _turn_pages, _last_context
+    global _last_tool_calls, _deeper_offer, _turn_sources, _turn_pages, _last_context, _evidence, last_band
 
     conv_len = len(_conversation)
+    _evidence, last_band = (None, []), None
     turns_len = len(_session_turns)
     # An offer lives exactly one turn: a short "yes" takes it, anything else drops it.
     offer, _deeper_offer = _deeper_offer, None
@@ -1063,10 +1123,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
         # for the model to name the topic, and get_wikipedia runs either way.
-        first = client().chat.completions.create(
-            model=OMLX_MODEL, messages=_messages(long, written), tools=TOOLS, stream=True,
-            max_tokens=_budget(long),
-        )
+        first = _stream("reply", model=OMLX_MODEL, messages=_messages(long, written), tools=TOOLS,
+                        max_tokens=_budget(long))
         parts: list[str] = []
         pending: dict = {}
         held: list[str] = []                                    # text not yet yielded (fallback hold)
@@ -1109,7 +1167,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             parts = []                                          # held back, never spoken
         if retry:
             # The held reply is dropped unspoken; the turn is asked once more with the lookup.
-            print(f"[llm] fallback lookup for {user_text[:60]!r}")
+            log.info("fallback lookup: the reply claimed the documents do not cover it")
             getattr(first, "close", lambda: None)()             # stop the abandoned generation
             yield ("tool_calls", ["search_wiki"])
             if typed_content:                                   # grounded after all: the policy applies
@@ -1118,9 +1176,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             user_msg["content"] += retry
             _note_documents(retry)
             parts = []
-            stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=_budget(long),
-            )
+            stream = _stream("fallback", fallback_reason="not_covered", model=OMLX_MODEL,
+                             messages=_messages(long, written), max_tokens=_budget(long))
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
@@ -1129,15 +1186,14 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         elif pending:
             tool_calls = [pending[i] for i in sorted(pending)]
             if parts and not lookup and not held and not offer_text:
-                print("[llm] warning: text before tool call was spoken")
+                log.warning("warning: text before tool call was spoken")
             parts = []  # spoken or held back; never the reply
             yield ("tool_calls", [tc["name"] for tc in tool_calls])
             tool_texts = _tool_round(tool_calls)
             if typed_content and any(tc["name"] in GROUNDING_TOOLS for tc in tool_calls):
                 written = long = True
-            stream = client().chat.completions.create(
-                model=OMLX_MODEL, messages=_messages(long, written), stream=True, max_tokens=_budget(long),
-            )
+            stream = _stream("tool_round", model=OMLX_MODEL, messages=_messages(long, written),
+                             max_tokens=_budget(long))
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else None
                 if delta:
@@ -1165,7 +1221,11 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     _deeper_offer = recall_offer if offer_text and not pending else _offer_from_turn(reply, user_text)
     _last_context = {"question": asked or user_text, "extra": block, "tools": tool_texts, "reply": reply,
                      "sources": list(_turn_sources), "pages": list(_turn_pages)}
-    _log(user_text, _last_tool_calls, reply, origin, band if origin != "typed" else "")
+    last_band = band or None
+    tracing.event("recall", band=last_band, page=(_evidence[0] or {}).get("path"),
+                offer=_offer_kind(bool(offer_text and not pending)),
+                hits=[{"source": h.get("source"), "n": h.get("n"), "score": round(float(h.get("score") or 0), 3),
+                       "named": bool(h.get("named"))} for h in _evidence[1][:5]])
 
 
 def ask_stream(user_text: str) -> Iterator[str]:
@@ -1237,15 +1297,15 @@ def _summarise(turns: list) -> str:
     if not turns:
         return EARLIER_EMPTY
     try:
-        resp = client().chat.completions.create(
-            model=OMLX_MODEL, messages=turns + [{"role": "user", "content": SUMMARY_PROMPT}],
+        resp = _complete(
+            "summary", model=OMLX_MODEL, messages=turns + [{"role": "user", "content": SUMMARY_PROMPT}],
             max_tokens=SUMMARY_TOKENS,
         )
         summary = strip_tag(resp.choices[0].message.content or "").strip()
         if not summary:
             raise ValueError("empty summary")
     except Exception as e:
-        print(f"[llm] summary failed ({e}); keeping the turns' first sentences")
+        log.warning(f"summary failed ({e}); keeping the turns' first sentences")
         summary = " ".join(_first_sentence(strip_tag(t["content"])) for t in turns)
     return summary[:SUMMARY_TOKENS * 4].strip()
 
@@ -1269,7 +1329,7 @@ def new_thread() -> str:
     try:
         save_memory()
     except Exception as e:
-        print(f"[Memory error] {e}")
+        log.warning(f"memory save failed: {e}")
     summary = _summarise(turns)
     _conversation[1:] = [{"role": "user", "content": f"<earlier>{summary}</earlier>"},
                          {"role": "assistant", "content": NEW_TOPIC_ACK}]
@@ -1281,18 +1341,6 @@ def new_thread() -> str:
 
 def get_sources_seen() -> list:
     return _sources_seen
-
-
-def _log(user_text: str, tool_calls: list, reply: str, origin: str = "user", band: str = ""):
-    """One session.log line per turn; `origin` is the prefix ("user" spoken, "typed" composer),
-    `band` the spoken turn's recall band (PRD 45)."""
-    tools_str = ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none"
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"{timestamp} | {origin}: {user_text!r} | tools: {tools_str} | reply_len: {len(reply)}"
-    line += f" | recall: {band}\n" if band else "\n"
-    os.makedirs(os.path.dirname(LOG_PATH) or ".", exist_ok=True)
-    with open(LOG_PATH, "a") as f:
-        f.write(line)
 
 
 reset()

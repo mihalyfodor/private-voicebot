@@ -14,6 +14,7 @@ import time
 
 import memory
 import sources
+import tracing
 import wiki
 
 BATCH_LOG = "batch.log"
@@ -190,6 +191,7 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
         row = _one(os.path.join(folder, rel), rel, exts, dry_run, client, model)
         state, seconds = row["state"], round(time.time() - t0, 1)
         counts[state] += 1
+        tracing.event("batch_file", rel=rel, state=state, seconds=seconds)
         out(_state_line(i, len(files), rel, row, seconds))
         if not dry_run:
             _log(log, {"rel": rel, "sha256": row.get("sha256", ""), "state": state,

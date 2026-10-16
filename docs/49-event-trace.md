@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 49 — Event trace: structured logs with a prod and a dev profile
 
@@ -29,16 +29,17 @@ prompts, turn text and tool results, so an agent can see what happens while buil
 - `/smoke` ends with `trace_report.py <out>/events.jsonl --errors` and quotes it in RESULT.txt.
 
 ## Technical approach
-- **`trace.py`** (new, stdlib): `event(kind, **fields)` adds `ts` (ISO, ms), `kind`, `turn_id` and `ingest_id` from
+- **`tracing.py`** (new, stdlib; named so because `trace.py` would shadow the stdlib `trace` module): `event(kind, **fields)` adds `ts` (ISO, ms), `kind`, `turn_id` and `ingest_id` from
   contextvars, `profile`; JSON-encodes with `default=str` and writes through a `RotatingFileHandler` (10 MB × 5).
   The writer never raises (a failed write is one stderr line, rate-limited). `verbose(kind, **fields)` writes
   `verbose.jsonl` next to `events.jsonl` (same rotation) and is a no-op in prod — the file is never opened.
   `turn(turn_id)` / `ingest(kind)` are context managers that set the contextvars; the turn controller
   (`TurnController.submit`, session.py, using `Session.turn_id` from session.py:29-34) and every ingest entry point
   (`sources.ingest_upload/notebook/note/path/email/news`, sources.py:1462-1584, plus `batch_import`) use them.
-  `TRACE_DIR` defaults to the repo root in dev; compose sets `TRACE_DIR: /data/logs`.
+  `TRACE_DIR` defaults to a repo-local `logs/` (gitignored) in dev, never a folder derived from the vault; host scripts
+  (`ingest_batch.py`, `remarkable_sync.py`) call the same `configure()`; compose sets `TRACE_DIR: /data/logs`.
 - **Profiles**: `TRACE_PROFILE` = `prod|dev`, default `dev` from a checkout; docker-compose.yml sets
-  `TRACE_PROFILE: prod`. `trace.configure()` at startup refuses (exit 2, one line on stderr) when the profile is
+  `TRACE_PROFILE: prod`. `tracing.configure()` at startup refuses (exit 2, one line on stderr) when the profile is
   `dev` and `/.dockerenv` exists or any of `DATA`, `WIKI_PATH`, `MEMORY_DIR` resolves under `~/docker-data`; it
   prints the profile line and writes `service {event:"start", profile, version, pid}` as the first event.
 - **Event kinds and fields** (prod; never text — titles, paths, scores, lengths, timings, ids only):
@@ -49,7 +50,7 @@ prompts, turn text and tool results, so an agent can see what happens while buil
   4. `llm_call` purpose (reply/tool_round/fallback/summary/card/ingest), model, max_tokens, ms, ttft_ms,
      tokens_in, tokens_out (null when the stream gives no usage), fallback_reason (llm.py:1112)
   5. `turn_end` ms, reply_len, tools, band, ctx_pct, outcome (ok/error/cancelled) — replaces session.log
-  6. `ingest_start` kind, raw path, bytes, pages
+  6. `ingest_start` ingest_kind (the envelope owns `kind`), raw path, bytes, pages
   7. `ingest_end` path, ms, ops_applied, ops_rejected `[{op, reason}]`, already, degraded (summary or ops
      completion failed: sources.py:862/1059/1119)
   8. `briefing` items, sources, ms (llm.py:814)
@@ -63,7 +64,7 @@ prompts, turn text and tool results, so an agent can see what happens while buil
   True}`; the last chunk's `usage` fills tokens, else nulls. TTFT = first content or tool delta.
 - **stdout via `logging`**: each module gets `log = logging.getLogger("<Module>")`, a formatter that prints
   `[<Module>] msg`; `print` calls become `log.info/warning`; turn-text prints (`Bot:`, `You:`) become
-  `trace.verbose` plus a `log.debug` shown only in dev; tracebacks via `log.exception` + `error` event.
+  `tracing.verbose` plus a `log.debug` shown only in dev; tracebacks via `log.exception` + `error` event.
 - **Retire session.log**: `turn_end` carries everything it had except the text. Readers to move: tests/qa/stress.py
   :120-145 (scrapes `[Tool] name(args` from stdout and `| tools:` from session.log → read `tool_call`/`turn_end`
   from events.jsonl), tests/llm/test_ask_before_lookup.py:238-246 (band → `turn_end.band`),
@@ -93,31 +94,44 @@ prompts, turn text and tool results, so an agent can see what happens while buil
 ## Data model
 - `events.jsonl` line: `{"ts","kind","profile","pid","turn_id"?,"ingest_id"?, …kind fields}`; `ingest_id` =
   `<pid>-<n>`; ids join events to `verbose.jsonl` lines, which share the envelope.
+- Span shape (so an OTLP exporter is a one-file adapter later, no app change): `turn_id` is the trace id; `llm_call`,
+  `tool_call`, `ingest_start`/`ingest_end` and `briefing` carry `span_id`, `parent_id` (the turn's or ingest's root
+  span), `start` (ISO), `duration_ms` and `status` (`ok` | `error`); point events (`recall`, `memory_save`, `error`,
+  `service`/`ws`) carry only `ts`. The report script groups by `turn_id` and orders children by `start`.
+- Run ids: every turn and every ingest also carries a unique `run_id` `<pid>-<n>`, `n` from one process-wide counter
+  assigned at `turn_start` / `ingest_start` (so a reconnect, which restarts `turn_id`, never reuses one; `turn_id` stays the
+  per-session field); a host script may pass its own `run_id` form field so its ingests group under one run, so a
+  later per-run page can key on it across restarts. `ingest_end.pages` lists the vault paths touched (paths are allowed
+  fields), not only the count.
 - Invariants: in prod `verbose.jsonl` does not exist; no prod event holds user, reply, document, tool-result or
   prompt text; every `turn_start` has one `turn_end` (outcome error/cancelled included); the first event of a
   process is `service start`.
 
 ## Test scenarios
-1. tests/session/test_trace.py: one typed and one spoken fixture turn containing the sentinel `ZQX-SENTINEL` →
+1. tests/tracing/test_trace.py: one typed and one spoken fixture turn containing the sentinel `ZQX-SENTINEL` →
    events `turn_start`, `recall`, `turn_end` share a `turn_id` per turn; `ZQX-SENTINEL` and the reply text are
-   absent from events.jsonl.
-2. tests/llm/test_trace.py: a turn calling `search_wiki` → one `tool_call` with `result_len` > 0 and `ok`; the
+   absent from events.jsonl; each turn's events share one `run_id`, distinct between the two turns even when a
+   reconnect (a new Session) gives both `turn_id` 1.
+2. tests/tracing/test_trace.py: a turn calling `search_wiki` → one `tool_call` with `result_len` > 0 and `ok`; the
    result text is absent from events.jsonl and from captured stdout.
-3. tests/llm/test_trace.py: fake streaming client with a final `usage` chunk → `llm_call` has tokens_in/out set and
-   `ttft_ms ≤ ms`; without usage → both null, no exception.
+3. tests/tracing/test_trace.py: fake streaming client with a final `usage` chunk → `llm_call` has tokens_in/out set and
+   `ttft_ms ≤ ms`, a `span_id`, `parent_id` = the turn's root span, `duration_ms` ≥ 0 and `status` ok; without
+   usage → both null, no exception.
 4. tests/sources/test_sources.py: ingest whose ops completion raises → `ingest_end.degraded` true, ops_applied 0,
-   and exactly one `error` event with `exc_type` and a non-empty `traceback` sharing the `ingest_id`.
-5. tests/session/test_trace.py: `respond` raising mid-stream → `error` event (scope turn) + `turn_end.outcome`
+   and exactly one `error` event with `exc_type` and a non-empty `traceback` sharing the `ingest_id`;
+   `ingest_end.pages` is a list of vault paths.
+5. tests/tracing/test_trace.py: `respond` raising mid-stream → `error` event (scope turn) + `turn_end.outcome`
    error, the client gets `error {scope: turn}` and status returns to idle.
-6. tests/session/test_trace.py: writing > 10 MB with a small `maxBytes` override → at most 5 backups exist;
+6. tests/tracing/test_trace.py: writing > 10 MB with a small `maxBytes` override → at most 5 backups exist;
    a write to an unwritable dir does not raise.
-7. tests/prod/test_trace_profile.py: `TRACE_PROFILE=prod` turn → `verbose.jsonl` never created; first event is
+7. tests/tracing/test_trace_profile.py: `TRACE_PROFILE=prod` turn → `verbose.jsonl` never created; first event is
    `service start` with profile prod; `TRACE_PROFILE=dev` with `WIKI_PATH=~/docker-data/…` → `chatbot.py` exits
-   non-zero with one stderr line naming the path; compose file sets `TRACE_PROFILE: prod` and `max-size`.
-8. tests/session/test_trace.py: dev profile turn → `prompt` and `turn_text` lines in verbose.jsonl only, carrying
+   non-zero with one stderr line naming the path, and so does `scripts/ingest_batch.py --dry-run --vault <fake
+   ~/docker-data path>`; compose file sets `TRACE_PROFILE: prod` and `max-size`.
+8. tests/tracing/test_trace.py: dev profile turn → `prompt` and `turn_text` lines in verbose.jsonl only, carrying
    the sentinel and the same `turn_id`; events.jsonl still has no sentinel.
-9. tests/prod/test_trace_report.py: fixture events file (2 turns, 1 ingest, 1 error) → `--turn 2` prints only that
-   turn's events; `--errors` prints one row and exits 1; a file with no errors exits 0.
+9. tests/tracing/test_trace_report.py: fixture events file (2 turns, 1 ingest, 1 error) → `--turn 2` prints only that
+   turn's events, children ordered by `start`; `--errors` prints one row and exits 1; a file with no errors exits 0.
 10. Existing readers green after the session.log retirement: test_ask_before_lookup band check, test_data_paths,
     test_prod_script; `scripts/check.sh` green.
 

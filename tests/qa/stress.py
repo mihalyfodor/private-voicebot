@@ -27,6 +27,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 INBOX = pathlib.Path("~/llm-wiki-dev/raw/inbox").expanduser()
 OUT = pathlib.Path("/tmp/qa")
 IDLE = "type a message or talk"
+#: stdout error markers: `[Error`/`[WS error]` (before PRD 49), `[App] error:` / `[WS] error:` / `… failed:` after it
+STDOUT_ERRORS = ("[Error", "[WS error]", "Traceback", "] error: ", " failed: ")
 CHROMIUM_ARGS = ["--use-gl=swiftshader", "--enable-webgl", "--ignore-gpu-blocklist",
                  "--autoplay-policy=no-user-gesture-required"]
 
@@ -53,7 +55,7 @@ PAGES = {
 def vault_env(vault: pathlib.Path, port: int = 0) -> dict:
     tmp = vault.parent
     return {**os.environ, "WIKI_PATH": str(vault), "SETTINGS_PATH": str(tmp / "settings.json"),
-            "MEMORY_DIR": str(tmp / "memory"), "SESSION_LOG": str(tmp / "session.log"),
+            "MEMORY_DIR": str(tmp / "memory"), "TRACE_DIR": str(tmp),
             "GMAIL_DIR": str(tmp), "PORT": str(port), "OPEN_BROWSER": "0", "PYTHONUNBUFFERED": "1"}
 
 
@@ -116,32 +118,39 @@ def start_server(vault: pathlib.Path, port: int):
 class Driver:
     def __init__(self, page, vault: pathlib.Path, recall):
         self.page = page
-        self.server_log = vault.parent / "server.log"
-        self.session_log = vault.parent / "session.log"
+        self.events = vault.parent / "events.jsonl"     # the server's trace (docs/49-event-trace.md)
+        self.server_log = vault.parent / "server.log"   # stdout: still scraped for errors until the sweep lands
         self.recall = recall
         self.results = []
         self.max_ctx = 0
         self._mark()
 
     def _mark(self):
+        self.pos = self.events.stat().st_size if self.events.exists() else 0
         self.srv_pos = self.server_log.stat().st_size if self.server_log.exists() else 0
-        self.ses_pos = self.session_log.stat().st_size if self.session_log.exists() else 0
 
     def _new_logs(self):
-        srv = ses = ""
+        """The `tool_call` / `turn_end` / `error` events written since the last step."""
+        rows, srv = [], ""
+        if self.events.exists():
+            with open(self.events, errors="replace") as f:
+                f.seek(self.pos)
+                for line in f:
+                    try:
+                        rows.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
         if self.server_log.exists():
-            with open(self.server_log) as f:
+            with open(self.server_log, errors="replace") as f:
                 f.seek(self.srv_pos)
                 srv = f.read()
-        if self.session_log.exists():
-            with open(self.session_log) as f:
-                f.seek(self.ses_pos)
-                ses = f.read()
         self._mark()
-        tools = re.findall(r"\[Tool\] (\w+)\(([^)]{0,80})", srv)
-        logged = re.findall(r"\| tools: ([\w,]+) \|", ses)
-        errors = [l for l in srv.splitlines() if "[Error" in l or "Traceback" in l or "[WS error]" in l]
-        return {"tool_calls": [f"{n}({a})" for n, a in tools], "session_tools": logged, "server_errors": errors}
+        tools = [f"{r['name']}({','.join(r.get('arg_keys') or [])})" for r in rows if r["kind"] == "tool_call"]
+        logged = [",".join(r.get("tools") or []) or "none" for r in rows if r["kind"] == "turn_end"]
+        errors = [f"{r.get('scope')} {r.get('where')}: {r.get('exc_type')}" for r in rows if r["kind"] == "error"]
+        # the union with stdout: handlers outside the PRD 49 scope print without an `error` event
+        errors += [line for line in srv.splitlines() if any(m in line for m in STDOUT_ERRORS)]
+        return {"tool_calls": tools, "session_tools": logged, "server_errors": errors}
 
     def status(self) -> str:
         return self.page.evaluate("document.getElementById('status').textContent")

@@ -17,16 +17,18 @@ Output goes to `/tmp/smoke/<YYYYmmdd-HHMMSS>/` (RESULT.txt, RESULT.json, PNGs, l
 3. live turn: one typed turn through the real model; the status goes processing / thinking / speaking and a reply arrives. PNGs in `live/`.
 4. battery: `tests/qa/stress.py` section A in a throwaway vault. Only proves it ran through and replies arrived; grading stays manual. Files in `qa/`.
 5. views: chat, wiki, sources, memory, settings rendered against a throwaway vault, no model needed. PNGs in `views/`.
+6. trace (always): `scripts/trace_report.py --errors` over every `events.jsonl` the run's servers wrote (e2e/live in the out folder, `qa/`, `views/`); FAIL when any has an error. Its output ends RESULT.txt.
 
 ## How to report
 - You MUST open every PNG under the out folder with the Read tool and describe what you see (layout, text, errors, empty panes). Exit codes alone are not a smoke pass.
-- Quote RESULT.txt verbatim in the handoff.
+- Quote RESULT.txt verbatim in the handoff, the trace_report block included.
 
 ## Triage
 - stack: `stack.log` in the out folder; `scripts/voicebot status --dev`; `/tmp/voicebot-asr.log` for the ASR service.
 - e2e / live: `e2e.log`, `live.log`.
 - battery: `qa/transcript.md`, `qa/stress.log`, `qa/server.log` (next to the vault under `qa/`).
 - views: `views/*.log`, `views/server.log`.
+- trace: `scripts/trace_report.py <file> --turn ID` for the flagged unit (the /trace skill).
 
 ## Notes
 - The first `scripts/voicebot start` can take minutes while the model loads. Use `--no-start` when the stack is known to be up.

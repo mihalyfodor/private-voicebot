@@ -9,6 +9,10 @@ import contextlib
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 load_dotenv()
+import tracing
+if __name__ == "__main__":
+    tracing.configure()      # PRD 49: a dev process never starts against prod data; before anything loads
+import time
 import threading
 import webbrowser
 
@@ -34,6 +38,10 @@ import uvicorn
 import vad
 import asr
 from session import Session, TurnController
+
+log = tracing.logger("App")
+ws_log = tracing.logger("WS")
+mem_log = tracing.logger("Memory")
 
 KOKORO_MODEL = os.path.expanduser(os.getenv("KOKORO_MODEL", "~/models/kokoro/kokoro-v1.0.onnx"))
 KOKORO_VOICES = os.path.expanduser(os.getenv("KOKORO_VOICES", "~/models/kokoro/voices-v1.0.bin"))
@@ -204,7 +212,7 @@ def _periodic_memory(count: int) -> None:
     try:
         llm.save_memory()
     except Exception as e:
-        print(f"[Memory error] {e}")
+        mem_log.warning(f"error: {e}")
     finally:
         _push_saving(False)
     # an open panel refreshes itself after a background save; the Wiki tab only when the
@@ -238,7 +246,7 @@ async def send(msg: dict):
     try:
         await sess.websocket.send_json(msg)
     except Exception as e:
-        print(f"[WS] send failed, dropping socket: {e}")
+        ws_log.warning(f"send failed, dropping socket: {e}")
         sess.websocket = None
         sess.playback_done.set()
 
@@ -269,7 +277,7 @@ def make_sender(loop, turn: int | None = None):
         try:
             asyncio.run_coroutine_threadsafe(send(_tag(msg, turn)), loop).result(timeout=10)
         except Exception as e:
-            print(f"[Send error] {e}")
+            log.warning(f"send error: {e}")
     return send_sync
 
 
@@ -310,7 +318,7 @@ def submit_turn(fn, *args) -> int | None:
     if sess is None:
         return None
     turn = sess.next_turn()
-    controller.submit(fn, sess, turn, *args)
+    controller.submit(fn, sess, turn, *args, turn_id=turn)
     return turn
 
 
@@ -399,13 +407,15 @@ def briefing(sess: Session, turn: int, user_text: str, send_sync, origin: str = 
             say_canned(f"Nothing new since {wiki.briefing_when(since)}.", send_sync)
         else:
             reply, _ = llm.briefing(digest, user_text, origin)
-            print(f"Bot: {reply}")
+            log.debug(f"Bot: {reply}")
+            tracing.verbose("turn_text", user=user_text, reply=reply)
             say_canned(reply, send_sync)
             avatars.save_setting("briefing_at", max(str(avatars.load_settings().get("briefing_at") or ""), now))
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"briefing failed: {type(e).__name__}")
+        tracing.error("turn", "briefing", e)      # marks the turn failed (PRD 49)
         services.recheck()
         send_sync({"type": "state", "value": "idle"})
 
@@ -473,7 +483,8 @@ def write_up(sess: Session, turn: int, user_text: str, send_sync):
         send_sync({"type": "error", "scope": "turn", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"write_up failed: {type(e).__name__}")
+        tracing.error("turn", "write_up", e)      # marks the turn failed (PRD 49)
         services.recheck()
         send_sync({"type": "state", "value": "idle"})
 
@@ -491,7 +502,8 @@ def save_note(sess: Session, turn: int, send_sync):
         send_sync({"type": "error", "scope": "wiki", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"save_note failed: {type(e).__name__}")
+        tracing.error("turn", "save_note", e)      # marks the turn failed (PRD 49)
         send_sync({"type": "state", "value": "idle"})
 
 
@@ -514,7 +526,8 @@ def new_topic(sess: Session, turn: int, send_sync):
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"new_topic failed: {type(e).__name__}")
+        tracing.error("turn", "new_topic", e)      # marks the turn failed (PRD 49)
         send_sync({"type": "state", "value": "idle"})
 
 
@@ -545,10 +558,29 @@ def open_page_for(text: str, send_sync) -> str:
 
 
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
+    """One turn between its `turn_start` and `turn_end` events (docs/49-event-trace.md); see `_respond`."""
+    with tracing.turn(turn):
+        label = ("briefing" if briefing_command(user_text) else "card" if llm.wants_writeup(user_text)
+                 else "typed" if origin == "typed" else "spoken")
+        tracing.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
+        t0, end = time.monotonic(), {"outcome": "ok", "reply_len": 0, "tools": [], "band": None}
+        try:
+            _respond(sess, turn, user_text, send_sync, origin, end)
+        except BaseException:
+            end["outcome"] = "error"
+            raise
+        finally:
+            if tracing.turn_failed():
+                end["outcome"] = "error"
+            tracing.event("turn_end", ms=round((time.monotonic() - t0) * 1000), ctx_pct=llm.context_usage()["pct"],
+                        **end)
+
+
+def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict):
     """LLM → sentence-streamed TTS → wait for browser playback → idle.
 
     The one reply path: a typed turn and a transcribed one differ only in `origin`, which
-    tags the session log line ("user" spoken, "typed" from the composer); the conversation,
+    tags the trace's `turn_start` ("user" spoken, "typed" from the composer); the conversation,
     tools and memory see them identically. Always ends in the idle state, errors included.
     A find/open/go-back turn first opens the page (PRD 38), then reaches the model with a note.
     "new topic" / `/new` never reaches the model: it is the new-topic turn (PRD 39); "what's new?" /
@@ -578,13 +610,19 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         note = open_page_for(user_text, send_sync)
         events = _with_context_notice(llm.ask_events(user_text, origin=origin, note=note))
         reply = speak_stream(events, send_sync)
-        print(f"Bot: {reply}")
+        end.update(reply_len=len(reply), tools=[tc["name"] for tc in llm.get_last_tool_calls()], band=llm.last_band)
+        log.debug(f"Bot: {reply}")
+        tracing.verbose("turn_text", user=user_text, reply=reply)
         send_sync({"type": "transcript", "role": "assistant", "text": reply})
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        print(f"[Error] {e}")
+        log.error(f"reply failed: {type(e).__name__}")       # the text only at DEBUG (dev)
+        log.debug(f"reply failed: {e}", exc_info=True)
+        tracing.error("turn", "respond", e)
+        end["outcome"] = "error"
         services.recheck()   # a failed completion: find out now whether oMLX is gone
+        send_sync({"type": "error", "scope": "turn", "text": f"The reply failed: {str(e) or type(e).__name__}"})
         send_sync({"type": "state", "value": "idle"})
 
 
@@ -602,7 +640,7 @@ def handle_text(sess: Session, turn: int, text: str, loop):
 
     The browser already rendered the user's line, so no user transcript is echoed back.
     """
-    print(f"You (typed): {text}")
+    log.debug(f"You (typed): {text}")
     respond(sess, turn, text, make_sender(loop, turn), origin="typed")
 
 
@@ -619,12 +657,12 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
         if getattr(asr, "last_error", None):
             services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"error: {e}")
         text = ""
     if not text:
         send_sync({"type": "state", "value": "idle"})
         return
-    print(f"You: {text}")
+    log.debug(f"You: {text}")
     send_sync({"type": "transcript", "role": "user", "text": text})
     respond(sess, turn, text, send_sync)
 
@@ -639,7 +677,7 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
         llm.record_assistant(say_canned(text, send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
-        print(f"[Error] {e}")
+        log.warning(f"error: {e}")
         send_sync({"type": "state", "value": "idle"})
 
 
@@ -660,7 +698,7 @@ async def _on_shutdown():
     try:
         llm.save_memory()
     except Exception as e:
-        print(f"[Memory error] {e}")
+        mem_log.warning(f"error: {e}")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
@@ -732,11 +770,17 @@ def _file_one(item: dict, on_stage=None) -> dict:
                                  on_stage=on_stage)
 
 
-def _ingest_all(items: list) -> dict:
+def _ingest_all(items: list, run_id: str = "") -> dict:
     """File every item of one popup; a failure on one is reported, the rest still land.
 
-    Each stage of each item is pushed to the popup as `ingest_progress` (PRD 36).
+    Each stage of each item is pushed to the popup as `ingest_progress` (PRD 36); a host
+    script's `run_id` groups the items' trace events under its run (PRD 49).
     """
+    with tracing.run(run_id):
+        return _ingest_items(items)
+
+
+def _ingest_items(items: list) -> dict:
     filed, errors = [], []
     for i, item in enumerate(items, 1):
         name = item.get("filename") or "text"
@@ -746,11 +790,13 @@ def _ingest_all(items: list) -> dict:
         except sources.IngestError as exc:
             errors.append(exc.message)
         except Exception as exc:  # noqa: BLE001 — one bad drop must not 500 the popup
-            print(f"[Ingest] {item.get('filename') or 'text'}: {exc}")
+            tracing.logger("Ingest").warning(f"{item.get('filename') or 'text'}: {exc}")
             errors.append(f"{item.get('filename') or 'the text'}: {exc}")
     return {"filed": filed, "errors": errors}
 
 
+#: a host script's optional `run_id` form field (PRD 49): short, no spaces
+RUN_ID = re.compile(r"[\w.:-]{1,64}")
 #: pasted text travels as a plain form field; Starlette caps those at 1 MB unless told otherwise
 INGEST_MAX_PART = sources.MAX_TEXT_BYTES + 64 * 1024
 
@@ -773,6 +819,9 @@ async def ingest(request: Request):
     kind = str(form.get("kind") or "file")
     title, hint, page = (str(form.get(k) or "") for k in ("title", "hint", "page"))
     text = str(form.get("text") or "")
+    run_id = str(form.get("run_id") or "")
+    if run_id and not RUN_ID.fullmatch(run_id):
+        raise HTTPException(status_code=400, detail="bad run_id")
     file = [f for f in form.getlist("file") if isinstance(f, UploadFile)]
     if str(confirm).lower() != "true":
         raise HTTPException(status_code=400, detail="ingest needs an explicit confirm=true")
@@ -803,7 +852,7 @@ async def ingest(request: Request):
         raise HTTPException(status_code=400, detail="nothing to file")
 
     before = memory.snapshot(memory.load_profile())
-    result = await asyncio.to_thread(_ingest_all, items)
+    result = await asyncio.to_thread(_ingest_all, items, run_id)
     if any(not f.get("already") for f in result["filed"]):
         await _send_wiki()
     if memory.snapshot(memory.load_profile()) != before:
@@ -985,7 +1034,7 @@ def _ingest_now() -> None:
     try:
         llm.save_memory()
     except Exception as e:
-        print(f"[Memory error] {e}")
+        mem_log.warning(f"error: {e}")
 
 
 async def _save_session_memory() -> None:
@@ -1223,7 +1272,7 @@ async def _action_new_topic(sess, msg, loop):
 
 
 async def _action_shutdown(sess, msg, loop):
-    print("\nShutdown requested from UI...")
+    log.info("shutdown requested from UI")
     os.kill(os.getpid(), signal.SIGTERM)  # graceful: triggers the shutdown hook
 
 
@@ -1318,10 +1367,13 @@ def _origin_allowed(origin: str | None) -> bool:
 async def websocket_endpoint(websocket: WebSocket):
     global session, _loop
     if not _origin_allowed(websocket.headers.get("origin")):
-        print(f"[WS] refused origin {websocket.headers.get('origin')!r}")
+        ws_log.warning(f"refused origin {websocket.headers.get('origin')!r}")
+        tracing.event("ws", event="refused_origin", origin=websocket.headers.get("origin"))
         await websocket.close(code=4003)
         return
     await websocket.accept()
+    tracing.event("ws", event="connect")
+    code = None
     previous, session = session, Session(websocket)
     sess = session
     if previous is not None:
@@ -1350,11 +1402,12 @@ async def websocket_endpoint(websocket: WebSocket):
             except WebSocketDisconnect:
                 raise
             except Exception as e:
-                print(f"[WS error] {e}")
+                ws_log.warning(f"error: {e}")
                 await _error(_scope_of(msg.get("action")), str(e), action=msg.get("action"))
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        code = e.code
     finally:
+        tracing.event("ws", event="disconnect", code=code)
         sess.websocket = None
         sess.playback_done.set()  # never leave a turn blocked on a dead socket
         if session is sess:
@@ -1378,11 +1431,12 @@ def open_browser():
 
 if __name__ == "__main__":
     from kokoro_onnx import Kokoro
-    print("Loading Kokoro TTS...")
+    log.info("Loading Kokoro TTS...")
     kokoro = Kokoro(KOKORO_MODEL, KOKORO_VOICES)
     services.start(_push_services)
-    print("Ready.\n")
+    log.info("Ready.")
     if OPEN_BROWSER:
         threading.Thread(target=open_browser, daemon=True).start()
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
-    print("\nExiting...")
+    log.info("Exiting...")
+    tracing.event("service", event="stop")

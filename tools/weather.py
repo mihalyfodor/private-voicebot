@@ -2,6 +2,9 @@ import os
 import requests
 
 import avatars
+import tracing
+
+log = tracing.logger("Location")
 
 #: the hosts this tool talks to (docs/33-untrusted-text.md read-only policy): the forecast, and Nominatim
 #: for one reverse-geocode per new position (PRD 35 addendum) — a fixed endpoint, never a free URL
@@ -46,7 +49,7 @@ def reverse_geocode(lat: float, lon: float) -> str:
         resp.raise_for_status()
         address = resp.json().get("address") or {}
     except Exception as exc:                       # noqa: BLE001 — a missing name is never the user's problem
-        print(f"[Location] reverse geocode failed: {exc}")
+        log.info(f"reverse geocode failed: {exc}")
         return ""
     place = next((address[k] for k in ("city", "town", "village", "municipality", "county") if address.get(k)), "")
     return ", ".join(p for p in (place, address.get("country", "")) if p)

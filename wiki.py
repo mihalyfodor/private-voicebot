@@ -25,6 +25,9 @@ from collections import Counter
 import memory
 import vault_lock
 from untrusted import DOCUMENT_RULE
+import tracing
+
+log = tracing.logger("Wiki")
 
 # --- vault -------------------------------------------------------------------------
 
@@ -139,12 +142,12 @@ def _git(*args, quiet: bool = False):
             cwd=WIKI_PATH, capture_output=True, text=True, timeout=20,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        print(f"[Wiki] git {args[0] if args else ''} failed: {exc}")
+        log.info(f"git {args[0] if args else ''} failed: {exc}")
         return None
     if result.returncode != 0 and not quiet:
         message = (result.stderr or result.stdout or "").strip().splitlines()
         if message:
-            print(f"[Wiki] git {args[0] if args else ''}: {message[0]}")
+            log.info(f"git {args[0] if args else ''}: {message[0]}")
     return result
 
 
@@ -592,6 +595,15 @@ OPS = {
     "add_decision": add_decision,
     "link": link,
 }
+
+tracing.vocab("kind", OPS)
+
+
+def op_kind(op) -> str:
+    """A rejected op's kind for the trace: one of OPS, else "other" (the op itself is document text)."""
+    kind = str(op.get("op") if isinstance(op, dict) else "").strip().lower()
+    return kind if kind in OPS else "other"
+
 
 #: bumped by every applied batch, so callers can tell "did this save file anything?"
 _applied_batches = 0
@@ -1719,18 +1731,19 @@ def ingest(turns: list, client, model: str) -> list:
     try:
         raw = memory._complete(client, model, system, user, 800)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Wiki] ingest failed: {exc}")
+        log.info(f"ingest failed: {exc}")
         return []
     ops = memory._extract_json(raw)
     if not isinstance(ops, list):
-        print("[Wiki] could not parse page ops; nothing filed")
+        log.info("could not parse page ops; nothing filed")
         return []
     ops, about_user = reject_user_pages(ops, names)
     applied, rejected = apply_page_ops(ops, f"session {memory._today_iso()}")
     for bad in about_user + rejected:
-        print(f"[Wiki] rejected {bad['op']}: {bad['reason']}")
+        log.info(f"rejected {op_kind(bad['op'])}: {tracing.reason_code(bad['reason'])}")
+        log.debug(f"rejected {bad['op']}: {bad['reason']}")
     if applied:
-        print(f"[Wiki] {len(applied)} page op{'s' if len(applied) != 1 else ''} applied")
+        log.info(f"{len(applied)} page op{'s' if len(applied) != 1 else ''} applied")
     return applied
 
 

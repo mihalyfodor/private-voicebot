@@ -1,6 +1,6 @@
 """PRD 45 — ask before lookup: the recall band (high / medium / low) on spoken turns, the
 server-appended "Want me to check your <title>?" offer, "yes" / "no" to it, never twice in a row,
-typed turns unchanged, the band in session.log. Scenario numbers are the PRD's (10 is the
+typed turns unchanged, the band in the trace's `turn_end` (PRD 49). Scenario numbers are the PRD's (10 is the
 battery in tests/qa/stress.py plus the manual spoken pass).
 
 Fixtures: `fallout` (the generated FAQ, titled "Fallout 4 guide") and the streamed fakes from
@@ -14,7 +14,7 @@ import pytest
 import avatars
 import llm
 import wiki
-from tests.conftest import ask_turn, deltas, fallout, last_user  # noqa: F401  (fixtures)
+from tests.conftest import ask_turn, deltas, fallout, last_user, trace_lines  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -235,16 +235,13 @@ def test_a_chat_turn_carried_by_two_plain_words_is_low(fallout, file_sandbox):
     assert reply == "[happy] Will do." and llm._deeper_offer is None
 
 
-# --------------------------------------------------------------- 9. session.log
+# --------------------------------------------------------------- 9. the band in the trace (PRD 49)
 
 
-def test_spoken_log_lines_carry_the_band_typed_ones_do_not(fallout):
+def test_spoken_turns_carry_the_band_typed_ones_do_not(fallout):
     ask_turn(MISHEARD, CHAT_REPLY)
     ask_turn("no", "[neutral] Okay.")
     ask_turn(QUESTION, GROUNDED_REPLY)
     ask_turn(QUESTION, GROUNDED_REPLY, origin="typed")
-    lines = open(llm.LOG_PATH).read().splitlines()
-    assert lines[0].endswith("| recall: medium")
-    assert lines[1].endswith("| recall: low")
-    assert lines[2].endswith("| recall: high")
-    assert "| typed: " in lines[3] and "recall:" not in lines[3]
+    bands = [r["band"] for r in trace_lines(kind="recall")]
+    assert bands == ["medium", "low", "high", None]

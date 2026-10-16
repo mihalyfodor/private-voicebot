@@ -9,6 +9,7 @@ import pytest
 import avatars
 import llm
 import memory
+import tracing
 from eval import harness
 from tests.conftest import RawStreamClient, stream_chunks as _chunks, seed as _write_profile
 
@@ -103,14 +104,14 @@ def test_appended_diff():
 
 
 def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
-    """Sandbox must swap MEMORY_PATH / SETTINGS_PATH / LOG_PATH for its own, and put them back.
+    """Sandbox must swap MEMORY_PATH / SETTINGS_PATH / TRACE_DIR for its own, and put them back.
 
     The "current" paths are the test sandbox's; a marker written there first proves that a
     save inside harness.Sandbox never reaches the outer file, and that it is untouched after exit.
     """
     outer_mem = memory.MEMORY_PATH
     outer_settings = avatars.SETTINGS_PATH
-    outer_log = llm.LOG_PATH
+    outer_trace = tracing.TRACE_DIR
     _write_profile(identity={"name": "outer marker"})
     marker = open(outer_mem).read()
 
@@ -120,22 +121,22 @@ def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
         assert "memeval-" in memory.OPS_LOG_PATH
         assert "memeval-" in memory.SHORTMEM_PATH
         assert avatars.SETTINGS_PATH != outer_settings
-        assert llm.LOG_PATH != outer_log
+        assert tracing.TRACE_DIR != outer_trace
         assert "outer marker" not in box.read_memory()
         _write_profile(identity={"name": "sandboxed fact"})
         avatars.save_setting("verbosity", "short")
-        llm._log("hi", [], "there")
+        tracing.event("turn_end", ms=1, outcome="ok")
         assert "sandboxed fact" in box.read_memory()
-        assert os.path.exists(box.log_path)
+        assert os.path.exists(os.path.join(box.trace_dir, "events.jsonl"))
         sandbox_mem = box.memory_path
 
     assert memory.MEMORY_PATH == outer_mem
     assert avatars.SETTINGS_PATH == outer_settings
-    assert llm.LOG_PATH == outer_log
+    assert tracing.TRACE_DIR == outer_trace
     assert not os.path.exists(sandbox_mem)
     assert open(outer_mem).read() == marker
     assert not os.path.exists(outer_settings)
-    assert not os.path.exists(outer_log)
+    assert not os.path.exists(os.path.join(outer_trace, "events.jsonl"))
 
 
 def test_sandbox_keeps_given_memory_path(tmp_path):

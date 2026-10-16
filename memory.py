@@ -29,6 +29,7 @@ import json
 import os
 import re
 import threading
+import time
 import unicodedata
 from datetime import date, datetime
 
@@ -73,6 +74,11 @@ STALE_DAYS = {
 }
 STALE_FIELD = "stale"      # the one entry field that holds a boolean
 SEEN_FIELD = "seen"        # "YYYY-MM-DD", last time the user confirmed the entry
+
+import tracing
+
+log = tracing.logger("Memory")
+wiki_log = tracing.logger("Wiki")
 
 #: One process-wide writer lock. `save()` (worker thread) and `edit()` / `reset()` (UI actions,
 #: run in an executor) all hold it across load -> apply -> write -> log, so a background
@@ -154,7 +160,7 @@ def load_profile() -> dict:
         with open(MEMORY_PATH) as f:
             return _normalise(json.load(f))
     except (json.JSONDecodeError, OSError) as exc:
-        print(f"[Memory] warning: could not read {os.path.basename(MEMORY_PATH)} ({exc}); starting empty")
+        log.warning(f"warning: could not read {os.path.basename(MEMORY_PATH)} ({exc}); starting empty")
         return _empty_profile()
 
 
@@ -610,7 +616,7 @@ def _wiki_block() -> str:
         index = wiki.index_text(wiki.WIKI_INDEX_TOKENS)
         note = f"\n{WIKI_NOTE}" if wiki.tools_registered() else ""
     except Exception as exc:  # noqa: BLE001
-        print(f"[Memory] warning: wiki index unavailable ({exc})")
+        log.warning(f"warning: wiki index unavailable ({exc})")
         return ""
     if not index.strip():
         return ""
@@ -770,11 +776,12 @@ def propose_ops(profile: dict, turns: list, client, model: str, sources=()) -> l
     try:
         content = _complete(client, model, system, user, 600)
     except Exception as exc:  # noqa: BLE001 — memory must never break a session
-        print(f"[Memory] warning: op proposal failed ({exc})")
+        log.warning(f"warning: op proposal failed ({exc})")
         return None
     ops = _extract_json(content)
     if not isinstance(ops, list):
-        print(f"[Memory] warning: could not parse ops from model output: {content[:200]!r}")
+        log.warning("warning: could not parse ops from model output")
+        log.debug(f"ops output: {content[:200]!r}")          # model text about the user: dev only
         return []
     return [op for op in ops if isinstance(op, dict)]
 
@@ -1122,7 +1129,7 @@ def apply_ops(profile: dict, ops: list, rejected: list | None = None) -> tuple:
             applied.append(record)
 
     for note in _enforce_caps(profile):
-        print(f"[Memory] cap enforced — {note}")
+        log.info(f"cap enforced — {note}")
     return profile, applied
 
 
@@ -1213,7 +1220,7 @@ def _collecting(rejected: list | None):
 
 def _reject(op: dict, reason: str) -> None:
     """Print the rejection and, inside `_collecting`, record it for the caller (the UI)."""
-    print(f"[Memory] rejected op {op.get('op')} {op.get('path')!r}: {reason}")
+    log.info(f"rejected op {op.get('op')} {op.get('path')!r}: {reason}")
     rejected = getattr(_collector, "rejected", None)
     if rejected is not None:
         rejected.append({"op": op, "reason": reason})
@@ -1419,11 +1426,12 @@ def reflect(profile: dict, client, model: str) -> dict:
     try:
         content = _complete(client, model, system, user, 900)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Memory] warning: reflection failed ({exc})")
+        log.warning(f"warning: reflection failed ({exc})")
         return profile
     cleaned = _extract_json(content, "{", "}")
     if not isinstance(cleaned, dict):
-        print(f"[Memory] warning: could not parse reflection output: {content[:200]!r}")
+        log.warning("warning: could not parse reflection output")
+        log.debug(f"reflection output: {content[:200]!r}")
         return profile
     return _validate_reflection(profile, cleaned)
 
@@ -1541,7 +1549,7 @@ def migrate_if_needed(client, model: str) -> dict:
     profile, applied = apply_ops(profile, ops)
     _write_profile(profile)
     _log_ops(applied)
-    print(f"[Memory] migrated {len(applied)} facts from shortmem.txt (file kept)")
+    log.info(f"migrated {len(applied)} facts from shortmem.txt (file kept)")
     return profile
 
 
@@ -1578,7 +1586,7 @@ def _ingest_wiki(turns: list, client, model: str) -> list:
 
         return wiki.ingest(turns, client, model)
     except Exception as exc:  # noqa: BLE001
-        print(f"[Wiki] ingest error: {exc}")
+        wiki_log.info(f"ingest error: {exc}")
         return []
 
 
@@ -1589,10 +1597,10 @@ def _lint_wiki() -> list:
 
         findings = wiki.lint_and_log()
     except Exception as exc:  # noqa: BLE001
-        print(f"[Wiki] lint error: {exc}")
+        wiki_log.info(f"lint error: {exc}")
         return []
     if findings:
-        print(f"[Wiki] lint: {len(findings)} finding(s)")
+        wiki_log.info(f"lint: {len(findings)} finding(s)")
     return findings
 
 
@@ -1623,11 +1631,21 @@ def forget_source(title: str) -> int:
         if removed:
             _write_profile(profile)
             _log_ops([{"op": "DELETE", "path": f"source:{title}", "value": removed, "reason": "forget"}])
-            print(f"[Memory] forgot {removed} entr{'y' if removed == 1 else 'ies'} from \"{title}\"")
+            log.info(f"forgot {removed} entr{'y' if removed == 1 else 'ies'} from \"{title}\"")
         return removed
 
 
 def save(session_turns: list, client, model: str, sources=()) -> list | None:
+    """`_save` plus its `memory_save` event: facts added / dropped and the time (PRD 49)."""
+    t0 = time.monotonic()
+    applied = _save(session_turns, client, model, sources)
+    ops = [op.get("op") for op in applied or []]
+    tracing.event("memory_save", facts_added=ops.count("ADD"), facts_dropped=ops.count("DELETE"),
+                ms=round((time.monotonic() - t0) * 1000), ok=applied is not None)
+    return applied
+
+
+def _save(session_turns: list, client, model: str, sources=()) -> list | None:
     """Extract ops from this session, apply them, log them, reflect every REFLECT_EVERY saves.
 
     The one entry point the chat path uses to write memory; returns the applied ops, or None
@@ -1643,7 +1661,7 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
         profile = migrate_if_needed(client, model)
         ops = propose_ops(profile, session_turns, client, model, sources)
         if ops is None:
-            print("[Memory] save skipped — turns kept for the next attempt")
+            log.info("save skipped — turns kept for the next attempt")
             return None
         if not sources:                       # nothing was read: an attributed op is a model slip
             ops = [{k: v for k, v in op.items() if k != SOURCE_FIELD} for op in ops]
@@ -1652,13 +1670,15 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
         # Decay is a function of the calendar, not of what the user just said, so it runs on
         # every save — even one that learned nothing new is worth a write when it retires a fact.
         retired = _mark_stale(profile)
+        if retired:
+            log.info(f"stale — {len(retired)} entr{'y' if len(retired) == 1 else 'ies'}")
         for note in retired:
-            print(f"[Memory] stale — {note}")
+            log.debug(f"stale — {note}")
 
         if not applied:
             if retired:
                 _write_profile(profile)
-            print("\n[Nothing new to save]")
+            log.info("[Nothing new to save]")
             _ingest_wiki(session_turns, client, model)
             return []
 
@@ -1671,7 +1691,7 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
         for op in applied:
             counts[op["op"]] = counts.get(op["op"], 0) + 1
         confirms = f", {counts['CONFIRM']} confirm" if counts["CONFIRM"] else ""
-        print(f"\n[Memory] {len(applied)} ops applied "
+        log.info(f"{len(applied)} ops applied "
               f"({counts['ADD']} add, {counts['UPDATE']} update, {counts['DELETE']} delete"
               f"{confirms})")
 
@@ -1681,7 +1701,7 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
             profile.setdefault("meta", {})["saves"] = meta["saves"]
             _write_profile(profile)
             after = sum(len(profile.get(s, [])) for s in LIST_SECTIONS)
-            print(f"[Memory] reflection pass: {before} -> {after} entries")
+            log.info(f"reflection pass: {before} -> {after} entries")
             _lint_wiki()
 
         _ingest_wiki(session_turns, client, model)

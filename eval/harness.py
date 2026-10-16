@@ -24,7 +24,7 @@ import re
 import shutil
 import sys
 import tempfile
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -32,6 +32,7 @@ import avatars  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
 import sources  # noqa: E402
+import tracing  # noqa: E402
 import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
 
@@ -94,7 +95,7 @@ class Sandbox:
 
     def __enter__(self) -> "Sandbox":
         self._tmpdir = tempfile.mkdtemp(prefix="memeval-")
-        self.log_path = os.path.join(self._tmpdir, "session.log")
+        self.trace_dir = self._tmpdir
         self.settings_path = os.path.join(self._tmpdir, "settings.json")
         if self.memory_path is None:
             self.memory_path = os.path.join(self._tmpdir, "memory.json")
@@ -114,8 +115,7 @@ class Sandbox:
             "shortmem": memory.SHORTMEM_PATH,
             "settings": avatars.SETTINGS_PATH,
             "tools": llm.TOOLS,
-            "log": llm._log,
-            "log_path": llm.LOG_PATH,
+            "trace_dir": tracing.TRACE_DIR,
             "avatar": avatars._current,
             "system_prompt": llm.SYSTEM_PROMPT,
             "today": memory._today,
@@ -131,22 +131,10 @@ class Sandbox:
         avatars._current = None
         if not self.tools:
             llm.TOOLS = []
-        llm.LOG_PATH = self.log_path
-        llm._log = self._quiet_log
+        tracing.reset()
+        tracing.TRACE_DIR = self.trace_dir      # the run's events land in the throwaway dir (PRD 49)
         llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
         return self
-
-    def _quiet_log(self, user_text: str, tool_calls: list, reply: str, origin: str = "user", band: str = "") -> None:
-        line = "%s | %s: %r | tools: %s | reply_len: %d%s\n" % (
-            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            origin,
-            user_text,
-            ",".join(tc["name"] for tc in tool_calls) if tool_calls else "none",
-            len(reply),
-            f" | recall: {band}" if band else "",
-        )
-        with open(self.log_path, "a") as f:
-            f.write(line)
 
     def read_memory(self) -> str:
         """The memory.json text, falling back to the v1 shortmem.txt when there is no profile."""
@@ -167,8 +155,8 @@ class Sandbox:
         memory.SHORTMEM_PATH = self._saved["shortmem"]
         avatars.SETTINGS_PATH = self._saved["settings"]
         llm.TOOLS = self._saved["tools"]
-        llm._log = self._saved["log"]
-        llm.LOG_PATH = self._saved["log_path"]
+        tracing.reset()
+        tracing.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
         llm.SYSTEM_PROMPT = self._saved["system_prompt"]
         memory._today = self._saved["today"]

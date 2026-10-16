@@ -19,6 +19,9 @@ import requests
 import asr
 import avatars
 import llm
+import tracing
+
+log = tracing.logger("Services")
 
 PROBE_INTERVAL_S = 30
 TIMEOUT_S = 3
@@ -116,7 +119,8 @@ def refresh(on_change=None) -> dict:
         _state = fresh
     if changed:
         for name, svc in fresh.items():
-            print(f"[Services] {name}: {'ok' if svc['ok'] else 'DOWN'} — {svc['label']} {svc['detail']}")
+            log.info(f"{name}: {'ok' if svc['ok'] else 'DOWN'} — {svc['label']} {svc['detail']}")
+            tracing.event("service", event="health", name=name, ok=svc["ok"])
         if on_change is not None:
             on_change(message())
     return fresh
@@ -132,7 +136,7 @@ def _loop(on_change) -> None:
         try:
             refresh(on_change)
         except Exception as e:      # a probe bug must not kill the daemon
-            print(f"[Services] probe failed: {e}")
+            log.info(f"probe failed: {e}")
         _wake.wait(timeout=PROBE_INTERVAL_S)
         _wake.clear()
 

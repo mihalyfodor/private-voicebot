@@ -5,9 +5,14 @@ transcribe → LLM → TTS → wait for browser playback → idle. Turns never o
 they all run on the controller's one worker thread, in submit order. The periodic
 memory save is not a turn: it runs on a side thread so the next utterance is not held up.
 """
+import contextlib
 import os
 import queue
 import threading
+
+import tracing
+
+log = tracing.logger("Turn")
 
 #: how many completed turns between periodic hook calls (the session-memory save).
 #: Override with MEMORY_SAVE_EVERY=<n> in the environment.
@@ -59,12 +64,13 @@ class TurnController:
     def busy(self) -> bool:
         return self._pending > 0
 
-    def submit(self, fn, *args) -> None:
-        """Queue `fn(*args)` for the worker thread and return immediately."""
+    def submit(self, fn, *args, turn_id=None) -> None:
+        """Queue `fn(*args)` for the worker thread and return immediately; with `turn_id` every
+        event it writes carries that turn's ids (docs/49-event-trace.md)."""
         with self._lock:
             self._pending += 1
             self._idle.clear()
-        self._queue.put((fn, args))
+        self._queue.put((fn, args, turn_id))
 
     def join_idle(self, timeout: float = 5.0) -> bool:
         """Block until no turn is pending and no hook is running (test helper).
@@ -84,7 +90,7 @@ class TurnController:
         skipped — the next multiple of MEMORY_SAVE_EVERY picks the turns up.
         """
         if not self._hook_idle.is_set():
-            print("[Turn hook] previous run still going, skipping")
+            log.info("hook: previous run still going, skipping")
             return
         self._hook_idle.clear()
 
@@ -92,7 +98,7 @@ class TurnController:
             try:
                 self.on_turn_complete(count)
             except Exception as e:
-                print(f"[Turn hook error] {e}")
+                log.warning(f"hook error: {e}")
             finally:
                 self._hook_idle.set()
 
@@ -100,11 +106,12 @@ class TurnController:
 
     def _run(self) -> None:
         while True:
-            fn, args = self._queue.get()
+            fn, args, turn_id = self._queue.get()
             try:
-                fn(*args)
+                with tracing.turn(turn_id) if turn_id is not None else contextlib.nullcontext():
+                    fn(*args)
             except Exception as e:  # a broken turn must never kill the worker
-                print(f"[Turn error] {e}")
+                log.warning(f"error: {e}")
             finally:
                 with self._lock:
                     self._pending -= 1

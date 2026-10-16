@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 import chatbot
 import llm
 from session import Session
-from tests.conftest import StreamClient, drain_initial, fake_asr, fake_tts, run_turn
+from tests.conftest import StreamClient, drain_initial, fake_asr, fake_tts, run_turn, trace_lines
+from tests.conftest import spoken as spoken_turn, typed as typed_turn
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -44,9 +45,8 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
 
 
 def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch):
-    """Scenario 1 end to end: `text_turn` → llm → session.log `typed:` line → memory turns."""
+    """Scenario 1 end to end: `text_turn` → llm → a `typed` turn in the trace (PRD 49) → memory turns."""
     llm.reset()
-    monkeypatch.setattr(llm, "LOG_PATH", str(tmp_path / "session.log"))
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     fake = StreamClient("[happy] Sure thing.")
 
@@ -66,8 +66,8 @@ def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch
     assert [m["value"] for m in seen if m["type"] == "state"] == ["thinking", "speaking", "idle"]
     assert {"type": "transcript", "role": "assistant", "text": "Sure thing.", "turn": 1} in seen
 
-    line = open(llm.LOG_PATH).read()
-    assert "| typed: 'remind me to call Anna' |" in line          # stripped, tagged as typed
+    (start,) = trace_lines(kind="turn_start")
+    assert start["origin"] == "typed" and start["text_len"] == len("remind me to call Anna")   # stripped
     # memory sees the typed turn exactly like a spoken one
     assert llm.get_session_turns()[0] == {"role": "user", "content": "remind me to call Anna"}
 
@@ -83,13 +83,11 @@ def test_blank_text_turn_starts_nothing():
     assert chatbot.controller.busy is False
 
 
-def test_log_origin_prefix(tmp_path, monkeypatch):
-    monkeypatch.setattr(llm, "LOG_PATH", str(tmp_path / "session.log"))
-    llm._log("hi", [], "reply", "typed")
-    llm._log("hi", [], "reply")
-    lines = open(llm.LOG_PATH).read().splitlines()
-    assert "| typed: 'hi' | tools: none | reply_len: 5" in lines[0]
-    assert "| user: 'hi' | tools: none | reply_len: 5" in lines[1]
+def test_trace_origin(monkeypatch):
+    typed_turn("hi")
+    spoken_turn("hi")
+    assert [r["origin"] for r in trace_lines(kind="turn_start")] == ["typed", "spoken"]
+    assert [r["tools"] for r in trace_lines(kind="turn_end")] == [[], []]
 
 
 # ---------------------------------------------------------------- scenario 4: ptt is gone

@@ -14,6 +14,7 @@ import tempfile
 
 import memory
 import sources
+import tracing
 from sources import IngestError
 from untrusted import DOCUMENT_RULE
 
@@ -110,29 +111,31 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
     retried by the next pull; there an sha already gone is done, not an error.
     """
     check_notebook(pages)
-    digest = sources.sha256(b"".join(pages))
-    replaces = "" if replaces == digest else replaces
-    seen = sources.manifest_find(digest)
-    if seen:
-        if replaces and sources.manifest_find(replaces):
+    with tracing.ingest("notebook", bytes=sum(len(p) for p in pages), pages=len(pages)):
+        digest = sources.sha256(b"".join(pages))
+        replaces = "" if replaces == digest else replaces
+        seen = sources.manifest_find(digest)
+        if seen:
+            if replaces and sources.manifest_find(replaces):
+                check_replaces(replaces, device_id)
+                sources.forget(replaces)
+            tracing.mark(already=True, path=seen.get("page", ""))
+            return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
+        if replaces:
             check_replaces(replaces, device_id)
+        if client is None:
+            client, model = sources._client_model()
+        texts = []
+        with tempfile.TemporaryDirectory() as folder:
+            for n, png in enumerate(pages, 1):
+                sources._stage(on_stage, f"transcribing {n}/{len(pages)}")
+                texts.append(_transcribe(client, model, png, folder, n))
+        unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
+        raw_rel = f"raw/remarkable/{sources._dated(title or 'notebook')}.md"
+        res = sources.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
+                                 title=title, client=client, model=model, on_stage=on_stage,
+                                 source=f"remarkable {memory._today_iso()}", digest=digest, pages=pages,
+                                 unreadable=unreadable, extra={"device_id": device_id} if device_id else None)
+        if replaces and sources.manifest_find(replaces):
             sources.forget(replaces)
-        return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
-    if replaces:
-        check_replaces(replaces, device_id)
-    if client is None:
-        client, model = sources._client_model()
-    texts = []
-    with tempfile.TemporaryDirectory() as folder:
-        for n, png in enumerate(pages, 1):
-            sources._stage(on_stage, f"transcribing {n}/{len(pages)}")
-            texts.append(_transcribe(client, model, png, folder, n))
-    unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
-    raw_rel = f"raw/remarkable/{sources._dated(title or 'notebook')}.md"
-    res = sources.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
-                             title=title, client=client, model=model, on_stage=on_stage,
-                             source=f"remarkable {memory._today_iso()}", digest=digest, pages=pages,
-                             unreadable=unreadable, extra={"device_id": device_id} if device_id else None)
-    if replaces and sources.manifest_find(replaces):
-        sources.forget(replaces)
-    return {**res, "sha256": digest}
+        return {**res, "sha256": digest}

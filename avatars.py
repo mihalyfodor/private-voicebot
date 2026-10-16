@@ -6,6 +6,9 @@ import json
 import os
 
 import characters
+import tracing
+
+log = tracing.logger("avatars")
 
 # SETTINGS_PATH env overrides the location (the e2e tests point it at a temp dir)
 SETTINGS_PATH = os.getenv("SETTINGS_PATH") or os.path.join(os.path.dirname(__file__), "settings.json")
@@ -53,10 +56,10 @@ def load_settings() -> dict:
     except FileNotFoundError:
         return {}
     except (OSError, ValueError) as e:
-        print(f"[avatars] warning: could not read {SETTINGS_PATH} ({e}); using defaults")
+        log.warning(f"warning: could not read {SETTINGS_PATH} ({e}); using defaults")
         return {}
     if not isinstance(data, dict):
-        print(f"[avatars] warning: {SETTINGS_PATH} is not an object; using defaults")
+        log.warning(f"warning: {SETTINGS_PATH} is not an object; using defaults")
         return {}
     return data
 
@@ -90,7 +93,7 @@ def _resolve(key: str) -> str:
     if key in AVATARS:
         return key
     fallback = DEFAULT if DEFAULT in AVATARS else next(iter(AVATARS))
-    print(f"[avatars] unknown avatar {key!r}; using {fallback}")
+    log.info(f"unknown avatar {key!r}; using {fallback}")
     return fallback
 
 
