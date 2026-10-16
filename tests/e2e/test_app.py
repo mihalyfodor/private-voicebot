@@ -251,3 +251,25 @@ def test_live_text_turn(page, shot):
     reply = page.locator("#history .msg.assistant .text").last.inner_text()
     assert reply.strip()
     assert "thinking" in seen or "speaking" in seen
+
+
+# --------------------------------------------------------------------------- PRD 51, scenario 9
+
+@pytest.mark.live
+def test_live_briefing_card_opens_its_run_page(page, shot):
+    """"what's new?" -> the run card's "Open run" opens /runs/<id> in a new tab, headed "Briefing"
+    (docs/51-run-cards.md scenario 9). No model needed when nothing changed (status `nothing`)."""
+    wait_idle(page)
+    page.fill("#composer-input", "what's new?")
+    page.keyboard.press("Enter")
+    link = page.locator("#history .msg.card .card-open").last
+    link.wait_for(timeout=120_000)
+    assert link.get_attribute("target") == "_blank" and link.get_attribute("href").startswith("/runs/")
+    shot("card")
+    with page.context.expect_page() as opened:
+        link.click()
+    run_page = opened.value
+    run_page.wait_for_load_state()
+    assert run_page.locator("h1").inner_text() == "Briefing"
+    assert run_page.locator(".run-chip").inner_text().lower() in ("done", "nothing", "failed")
+    run_page.screenshot(path="/tmp/e2e/run-page.png", full_page=True)

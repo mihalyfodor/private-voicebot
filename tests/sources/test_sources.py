@@ -18,7 +18,7 @@ import memory
 import notebooks
 import sources
 import wiki
-from tests.conftest import SENTINEL, FakeClient, commits, read, trace_lines, trace_text, vault, write_page  # noqa: F401 — fixture
+from tests.conftest import SENTINEL, FakeClient, commits, pdf_bytes, read, trace_lines, trace_text, vault, write_page  # noqa: F401 — fixture
 from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -63,40 +63,6 @@ def raw_files() -> list:
 def prompts(client: FakeClient) -> list:
     """The user content of every completion the client was asked for."""
     return [call["messages"][1]["content"] for call in client.calls]
-
-
-def pdf_bytes(pages: list, with_text: bool = True) -> bytes:
-    """A minimal, valid PDF: one page per entry in `pages`, or no text layer at all."""
-    contents, objs, kids = [], [], []
-    first_page_obj = 3
-    for i, lines in enumerate(pages):
-        if with_text:
-            stream = ("BT /F1 14 Tf 40 700 Td " +
-                      " ".join(f"({line}) Tj 0 -20 Td" for line in lines) + " ET\n")
-        else:
-            stream = "0 0 0 rg 40 40 100 100 re f\n"
-        contents.append(stream)
-        kids.append(f"{first_page_obj + i * 2} 0 R")
-    objs.append("<< /Type /Catalog /Pages 2 0 R >>")
-    objs.append(f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(pages)} >>")
-    font_obj = first_page_obj + 2 * len(pages)
-    for i, stream in enumerate(contents):
-        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
-                    f"/Resources << /Font << /F1 {font_obj} 0 R >> >> "
-                    f"/Contents {first_page_obj + i * 2 + 1} 0 R >>")
-        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream}endstream")
-    objs.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-
-    out, offsets = bytearray(b"%PDF-1.4\n"), []
-    for i, body in enumerate(objs, start=1):
-        offsets.append(len(out))
-        out += f"{i} 0 obj\n{body}\nendobj\n".encode()
-    xref = len(out)
-    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
-    for off in offsets:
-        out += f"{off:010d} 00000 n \n".encode()
-    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
-    return bytes(out)
 
 
 def png_bytes(width: int = 4, height: int = 4) -> bytes:
@@ -1062,6 +1028,43 @@ def test_ingest_endpoint_files_a_notebook(http, monkeypatch):
     assert body["errors"] == [] and body["filed"][0]["already"] is False
     assert body["filed"][0]["sha256"] == sources.sha256(b"".join(pages))
     assert len([r for r in raw_files() if r.endswith(".png")]) == 2
+
+
+def test_a_remarkable_pull_is_one_run_whose_page_lists_each_notebook(http, monkeypatch):
+    """PRD 51 scenario 5: two notebooks under one `run_id`, one with an unreadable page."""
+    client, _ws = http
+    monkeypatch.setattr(core_llm, "_client", FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]",
+                                                        NOTE_TEXT, "ok", notebook_summary("Ideas"), "[]"))
+    for title, pages in (("Standup", [png_bytes(10, 4), png_bytes(11, 4)]),
+                         ("Ideas", [png_bytes(12, 4), png_bytes(13, 4)])):
+        files = [("file", (f"page-0{i}.png", data, "image/png")) for i, data in enumerate(pages, 1)]
+        response = _post(client, kind="notebook", title=title, run_id="rm-1", device_id=title, files=files)
+        assert response.status_code == 200, response.text
+
+    ends = trace_lines(kind="ingest_end")
+    assert len(ends) == 2 and {e["run_id"] for e in ends} == {"rm-1"}
+    assert all(e["pages"] and e["commit"] for e in ends) and ends[0]["commit"] != ends[1]["commit"]
+    starts = trace_lines(kind="run")
+    assert [(r["workflow"], r["phase"]) for r in starts] == [("remarkable", "start")]   # the first unseen run_id only
+    (skip,) = trace_lines(kind="step")
+    assert (skip["name"], skip["status"], skip["reason"], skip["detail"]) == ("skip", "skipped", "unreadable",
+                                                                              "page 2: unreadable")
+    page = client.get("/runs/rm-1")
+    assert page.status_code == 200
+    assert "<h1>reMarkable pull</h1>" in page.text and 'run-chip run-done">done<' in page.text
+    for end in ends:
+        assert f'<code class="run-sha">{end["commit"]}</code> {end["path"]}' in page.text
+    assert "Standup" in page.text and "Ideas — page 2: unreadable" in page.text
+    assert NOTE_TEXT not in page.text
+
+
+def test_an_ingest_whose_commit_was_a_no_op_records_no_commit(vault, monkeypatch):
+    """PRD 51 review: `ingest_end.commit` only when HEAD moved — a silent no-op commit is not attributed."""
+    monkeypatch.setattr(wiki, "_commit", lambda message: None)
+    monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]"))
+    sources.ingest_note("Falcon is amber.", title="Falcon status")
+    (end,) = trace_lines(kind="ingest_end")
+    assert "commit" not in end
 
 
 def test_ingest_endpoint_refuses_a_notebook_page_that_is_not_png(http):

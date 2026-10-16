@@ -103,6 +103,16 @@ def _transcript(texts: list, ocr: list) -> str:
     return "\n\n".join(blocks) + "\n"
 
 
+def _skip_step(title: str, pages: list) -> None:
+    """The run page's Did-not row for a notebook's unreadable pages (docs/51-run-cards.md): a
+    `skip` step naming the page numbers, never their text."""
+    detail = "; ".join(f"page {n}: unreadable" for n in pages)
+    if len(detail) > trace.CAP:
+        detail = f"{len(pages)} pages unreadable"
+    with trace.span("step", name="skip", count=len(pages), detail=detail, reason="unreadable", title=title) as step:
+        step["status"] = "skipped"
+
+
 def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", device_id: str = "",
                     on_stage=None) -> dict:
     """Page PNGs in order -> one transcript source; `sources.file_bytes`'s result plus `sha256`.
@@ -129,7 +139,10 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
             for n, png in enumerate(pages, 1):
                 sources._stage(on_stage, f"transcribing {n}/{len(pages)}")
                 texts.append(_transcribe(png, folder, n))
-        unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
+        bad = [n for n, t in enumerate(texts, 1) if t == f"[page {n}: unreadable]"]
+        if bad:
+            _skip_step(title, bad)
+        unreadable = len(bad) == len(texts)
         raw_rel = f"raw/remarkable/{sources._dated(title or 'notebook')}.md"
         res = sources.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
                                  title=title, on_stage=on_stage,

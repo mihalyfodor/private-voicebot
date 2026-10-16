@@ -2655,6 +2655,7 @@ function connect() {
     }
     else if (msg.type === 'transcript') addMessage(msg.role, msg.text);
     else if (msg.type === 'card') addCard(msg);
+    else if (msg.type === 'card_update') updateCard(msg);
     else if (msg.type === 'card_saved') markCardSaved(msg);
     else if (msg.type === 'context') setContext(msg);
     else if (msg.type === 'thread') addDivider(msg.text);
@@ -2792,15 +2793,79 @@ function addMessage(role, text, { typed = false } = {}) {
 // A written card (PRD 43): the markdown through the wiki renderer, collapsed to ~12 lines with
 // "show all", Copy, and Save to wiki behind a small folder picker (default notes/). Never spoken:
 // the server sends one `speech` line and the card as data.
+// A run card (PRD 51) adds a `<workflow> · <status>` header, its steps above the body and the
+// `open` action ("Open run", a new tab); one with an empty body shows only those. `card_update`
+// re-renders the same element in place with the new status / steps / actions (+ markdown).
 const cards = new Map();          // id → { save, picker, folder, note }
+const cardEls = new Map();        // id → { div, msg } (the element a `card_update` re-renders)
 const CARD_FOLDER = 'notes/';
+const RUN_WORKFLOWS = { briefing: 'Briefing', 'write-up': 'Write-up', remarkable: 'reMarkable pull',
+                        batch: 'Batch import', ingest: 'Ingest' };
+const STEP_GLYPHS = { pending: '·', running: '…', ok: '✓', skipped: '–', error: '✗' };
 
 function addCard(msg) {
   const div = el('div', 'msg card');
   div.dataset.card = msg.id;
-  const r = el('span', 'role', `${avatarName} · written`);
+  cardEls.set(msg.id, { div, msg: { ...msg } });
+  renderCard(div, msg);
+  historyEl.appendChild(div);
+  historyEl.scrollTop = historyEl.scrollHeight;
+  if (msg.saved) markCardSaved({ id: msg.id, path: msg.saved });   // a reconnect replay
+}
+
+function updateCard(update) {
+  const c = cardEls.get(update.id);
+  if (!c) {          // a reconnect between running and done: a body is enough to show the card
+    if (update.markdown) addCard({ sources: [], title: '', ...update, type: 'card' });
+    return;
+  }
+  for (const k of ['status', 'steps', 'actions', 'markdown', 'title', 'sources']) if (update[k] !== undefined) c.msg[k] = update[k];
+  renderCard(c.div, c.msg);
+}
+
+function runHead(msg) {
+  const head = el('div', 'run-head');
+  head.append(el('span', 'run-workflow', RUN_WORKFLOWS[msg.workflow] || msg.workflow), ' · ',
+              el('span', `run-chip run-${msg.status || 'running'}`, msg.status || 'running'));
+  return head;
+}
+
+function runSteps(steps) {
+  const list = el('ul', 'run-steps');
+  for (const s of steps || []) {
+    const row = el('li', `run-step run-step-${s.status || 'pending'}`);
+    row.append(el('span', 'run-step-label', s.label), ' · ',
+               el('span', 'run-step-glyph', STEP_GLYPHS[s.status] || '·'));
+    if (s.detail) row.append(' · ', el('span', 'run-step-detail', s.detail));
+    list.append(row);
+  }
+  return list;
+}
+
+function runOpen(msg) {
+  if (!(msg.actions || []).some(a => a.kind === 'open') || !msg.run_url) return null;
+  const a = el('a', 'card-btn card-open', ((msg.actions || []).find(x => x.kind === 'open') || {}).label || 'Open run');
+  a.setAttribute('href', msg.run_url);
+  a.setAttribute('target', '_blank');
+  a.setAttribute('rel', 'noopener');
+  return a;
+}
+
+function renderCard(div, msg) {
+  const run = !!msg.workflow;
+  const markdown = msg.markdown || '';
+  const r = el('span', 'role', `${avatarName} · ${run && !markdown ? 'run' : 'written'}`);
+  const parts = run ? [r, runHead(msg), runSteps(msg.steps)] : [r];
+  const open = run ? runOpen(msg) : null;
+  if (run && !markdown) {           // header, steps and actions only
+    const foot = el('div', 'card-foot');
+    if (open) foot.append(open);
+    cards.delete(msg.id);
+    div.replaceChildren(...parts, foot);
+    return;
+  }
   const body = el('div', 'card-body collapsed');
-  body.append(wikiBodyNodes(msg.markdown || ''));
+  body.append(wikiBodyNodes(markdown));
   const foot = el('div', 'card-foot');
   const more = el('button', 'card-btn card-more', 'show all');
   more.onclick = () => {
@@ -2808,7 +2873,7 @@ function addCard(msg) {
     more.textContent = body.classList.contains('collapsed') ? 'show all' : 'show less';
   };
   const copy = el('button', 'card-btn card-copy', 'Copy');
-  copy.onclick = () => navigator.clipboard.writeText(msg.markdown || '').then(() => {
+  copy.onclick = () => navigator.clipboard.writeText(markdown).then(() => {
     copy.textContent = 'copied';
     setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
   });
@@ -2836,11 +2901,9 @@ function addCard(msg) {
   save.onclick = () => { picker.hidden = !picker.hidden; if (!picker.hidden) folder.focus(); };
   const note = el('span', 'card-note');
   foot.append(more, copy, save, picker, note);
-  div.append(r, body, foot);
+  if (open) foot.append(open);
+  div.replaceChildren(...parts, body, foot);
   cards.set(msg.id, { save, picker, folder, note });
-  historyEl.appendChild(div);
-  historyEl.scrollTop = historyEl.scrollHeight;
-  if (msg.saved) markCardSaved({ id: msg.id, path: msg.saved });   // a reconnect replay
 }
 
 function markCardSaved(msg) {

@@ -89,7 +89,16 @@ FIELDS = {
     "event": ANY, "profile": ANY, "version": ANY, "pid": ANY,
     # span shape, run id
     "span_id": ANY, "parent_id": ANY, "start": ANY, "duration_ms": ANY, "status": ANY, "run_id": ANY,
+    # run / step (docs/51-run-cards.md): `detail` is a short fact string, ANY not CUT — a longer one is dropped
+    "workflow": {"briefing", "write-up", "remarkable", "batch", "ingest"}, "phase": {"start", "end"},
+    "reason": re.compile(r"ok|nothing-to-do|housekeeping|needs-ocr|unreadable|unsupported|too-large|already-filed"
+                         r"|rejected-op|failed-model|failed-offline|failed-[A-Za-z_][A-Za-z0-9_]{0,59}"),   # runs.REASONS
+    "count": ANY, "detail": ANY, "commit": re.compile(r"[0-9a-f]{4,40}"), "skipped": ANY,
+    "part": ANY, "memory": ANY, "added": ANY, "updated": ANY, "removed": ANY,
 }
+#: step names (a `step` span's `name`, beside the tool names `vocab` adds)
+STEPS = {"gather", "skip", "phrase", "context", "write", "file"}
+FIELDS["name"] |= STEPS
 #: rejection texts → a stable reason_code (sources.restrict_ops, wiki ops, memory.reject_user_pages)
 REASONS = [(re.compile(p), code) for p, code in (
     (r"^bad path", "bad_path"), (r"is not in the index", "not_indexed"), (r"is not in the user's profile", "author_page"),
@@ -409,6 +418,18 @@ def root_span() -> str | None:
     return _root.get()
 
 
+def current_run() -> str | None:
+    """The `run_id` events are grouped under right now (a turn's, an ingest's, a host script's)."""
+    return _run.get()
+
+
+def run_event(workflow: str, phase: str, status: str | None = None, reason: str | None = None) -> None:
+    """A `run` point event (docs/51-run-cards.md): `start` opens a workflow's run, `end` closes it
+    with a status (done/nothing/failed) and a reason code (`runs.REASONS`)."""
+    event("run", workflow=workflow, phase=phase,
+          **{k: v for k, v in (("status", status), ("reason", reason)) if v is not None})
+
+
 @contextlib.contextmanager
 def turn(turn_id):
     """Every event inside carries `turn_id` (per session) and a fresh `run_id` (`<pid>-<n>`, unique in
@@ -433,7 +454,8 @@ def run(run_id: str | None):
 @contextlib.contextmanager
 def span(kind: str, /, **fields):
     """A child span of the current root: yields a dict the body fills; one event on exit with
-    `span_id`, `parent_id`, `start`, `duration_ms`, `status` (error when the body raised)."""
+    `span_id`, `parent_id`, `start`, `duration_ms`, `status` (error when the body raised; a body
+    that finished may set its own, e.g. a `step` that was `skipped`)."""
     out = dict(fields)
     parent, start, t0, status = _root.get(), _iso(), time.monotonic(), "ok"
     try:
@@ -446,6 +468,8 @@ def span(kind: str, /, **fields):
     finally:
         ms = ms_since(t0)
         out.setdefault("ms", ms)
+        chosen = out.pop("status", None)
+        status = chosen if chosen and status == "ok" else status
         event(kind, span_id=_span_id(), parent_id=parent, start=start, duration_ms=ms, status=status, **out)
 
 

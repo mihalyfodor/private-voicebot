@@ -750,3 +750,76 @@ def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+# --------------------------------------------------------------------------- PDFs (PRD 48, PRD 51)
+
+
+def pdf_bytes(pages: list, with_text: bool = True) -> bytes:
+    """A minimal, valid PDF: one page per entry in `pages`, or no text layer at all."""
+    contents, objs, kids = [], [], []
+    first_page_obj = 3
+    for i, lines in enumerate(pages):
+        if with_text:
+            stream = ("BT /F1 14 Tf 40 700 Td " +
+                      " ".join(f"({line}) Tj 0 -20 Td" for line in lines) + " ET\n")
+        else:
+            stream = "0 0 0 rg 40 40 100 100 re f\n"
+        contents.append(stream)
+        kids.append(f"{first_page_obj + i * 2} 0 R")
+    objs.append("<< /Type /Catalog /Pages 2 0 R >>")
+    objs.append(f"<< /Type /Pages /Kids [{' '.join(kids)}] /Count {len(pages)} >>")
+    font_obj = first_page_obj + 2 * len(pages)
+    for i, stream in enumerate(contents):
+        objs.append(f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+                    f"/Resources << /Font << /F1 {font_obj} 0 R >> >> "
+                    f"/Contents {first_page_obj + i * 2 + 1} 0 R >>")
+        objs.append(f"<< /Length {len(stream)} >>\nstream\n{stream}endstream")
+    objs.append("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    out, offsets = bytearray(b"%PDF-1.4\n"), []
+    for i, body in enumerate(objs, start=1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n{body}\nendobj\n".encode()
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n".encode()
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
+    return bytes(out)
+
+
+# --------------------------------------------------------------------------- run cards (PRD 51)
+
+#: the run fixture's page: an html-ish title (the page must escape it) and a body no run page may show
+RUN_TITLE = "<b>Bold</b> plan"
+RUN_BODY = f"The {SENTINEL} body of the plan page."
+RUN_SINCE = "2030-01-01T00:00:00"
+
+
+def briefing_run(monkeypatch, reply: str = "[happy] One new page, the bold plan.", commits_after: bool = True) -> dict:
+    """A "what's new?" turn against the sandboxed vault (docs/51-run-cards.md scenario 1): with
+    `commits_after`, one page and two `wiki: lint` housekeeping commits land after the cutoff
+    (dated 2030, the cutoff is `RUN_SINCE`); without, the digest is empty.
+    Returns ``{sent, run_id, card, sha}``: the messages, the turn's run id, the run card, the page's short sha."""
+    import services
+    from session import Session
+
+    wiki.ensure_vault()
+    settings.save_setting("briefing_at", RUN_SINCE)
+    monkeypatch.setattr(services, "llm_ok", lambda: True)
+    sha = ""
+    if commits_after:
+        monkeypatch.setenv("GIT_COMMITTER_DATE", "2030-06-01T09:00:00")
+        monkeypatch.setenv("GIT_AUTHOR_DATE", "2030-06-01T09:00:00")
+        write_page("notes/plan", RUN_TITLE, RUN_BODY)
+        wiki._commit("wiki: created notes/plan")
+        sha = wiki.head_sha()
+        for n in (1, 2):
+            wiki._log([f"lint: {n} finding"])
+            wiki._commit("wiki: lint")
+    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(chatbot, "synthesize", fake_tts):
+        sent = run_turn(chatbot.handle_text, Session(), 1, "what's new?")
+    (start,) = trace_lines(kind="turn_start")
+    cards = [m for m in sent if m["type"] == "card"]
+    return {"sent": sent, "run_id": start["run_id"], "card": cards[-1] if cards else None, "sha": sha}

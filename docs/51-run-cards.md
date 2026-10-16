@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 51 — Run cards and run pages
 
@@ -98,6 +98,35 @@ Depends on PRD 49 (event trace: `run_id`, spans). Consumed by PRD 52 (approvals)
   dev-only: the app is localhost-bound; revisit if the port is ever exposed.
 - Chose content-label origin from the commit subject (`wiki: edit` -> you, ingest -> source, page ops -> Wanko) via the
   existing `_USER_COMMIT`/`_CHAT_COMMIT` regexes (wiki.py:1388-1389) over a new field.
+- Implementation: the trace tests live in `tests/tracing/` (there is no `tests/trace/`): scenarios 1, 2, 6, 7 are
+  `tests/tracing/test_runs.py`, 3–4 `tests/tracing/test_run_page.py`.
+- Implementation: the card has no reason field, so a failed run's reason sentence is the `detail` of its failed step
+  (`{label: write, status: error, detail: "Failed with RuntimeError."}`); the page shows the same sentence from `runs.REASONS`.
+- Implementation: besides the eight new names, `FIELDS` gains `part` (a write-up's `{title, part}` sources), `memory`
+  with `added`/`updated`/`removed` (the briefing's memory counts) and the step names (`gather`, `skip`, `phrase`,
+  `context`, `write`, `file`) in the `name` vocabulary; `reason` is a fixed shape (the `REASONS` codes or
+  `failed-<ExcType>`) so a stray string becomes "other"; a `step` body may set its own `status` (`skipped`).
+- Implementation: `runs.REASONS` adds `housekeeping` for the briefing's skipped-commits row ("2 housekeeping commits").
+- Implementation: workflow codes are `briefing`, `write-up`, `remarkable`, `batch`, `ingest`; a host run's workflow
+  is `remarkable` when its first `/ingest` holds a notebook; workflow-less runs are labelled from the run id
+  (`rm-`, `batch-`) on the page.
+- Implementation: the briefing's run card has id `run-<run_id>` and is sent once with its final status (no running
+  card — the whole turn is one gather and one completion); it is not replayed on reconnect (the briefing is not a
+  card in the conversation); the write-up card keeps its `cardN` id and replays with its last status. "write it up"
+  before any answer stays the plain turn error, no run.
+- Implementation: the briefing's `gather` step carries the digest pages as `{path, commit, title}` (titles are
+  allowed fields), so the page's Did rows show title, path, short sha and the `--stat` summary of that commit; a
+  housekeeping commit is a `_NOISE_COMMITS` subject or one touching only index/log/schema.
+- Implementation: the batch import is a run only when it writes (`--dry-run` traces no run and no `step` spans).
+- Review fix: the batch run's `run end` is in a `finally`; an exception or Ctrl-C ends it `failed` with reason
+  `failed-<ExcType>` (`failed-KeyboardInterrupt`), no separate `aborted` code.
+- Review fix: the write-up card is kept in `llm`'s card store from the moment it goes out `running` (and when it
+  fails), so a reconnect replays it with its last status where it was issued; card ids come from a counter that
+  never reuses one (only `llm.reset` restarts it); a card without a body is "nothing to save"; a `card_update`
+  with `markdown` for an unknown id creates the card on the client.
+- Review fix: `card_update` also carries `title?` and `sources?` with the write-up's body, so the live card and its
+  replay match.
+- Review fix: `ingest_end.commit` is recorded only when HEAD moved across the filing commit.
 
 ## Data model
 - Card: `{type: card, id, markdown, sources, title, run_id?, workflow?, status?, steps?: [{label, status:

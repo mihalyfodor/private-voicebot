@@ -66,6 +66,15 @@ def write_up_turn(spoken: bool = False) -> list:
     return turn("write it up", [card_response()], spoken=spoken)
 
 
+def written(sent: list) -> list:
+    """The cards of a turn as they end up: each `card` with its `card_update`s applied (PRD 51)."""
+    cards = {m["id"]: dict(m) for m in sent if m["type"] == "card"}
+    for m in sent:
+        if m["type"] == "card_update":
+            cards[m["id"]].update({k: v for k, v in m.items() if k not in ("type", "id")})
+    return list(cards.values())
+
+
 def collect(ws, until: str) -> list:
     got = []
     while True:
@@ -141,17 +150,20 @@ def test_write_it_up_after_a_grounded_answer_makes_a_card(fallout):
     sent = write_up_turn(spoken=True)
     speech = [m for m in sent if m["type"] == "speech"]
     assert [m["text"] for m in speech] == ["Written out below."]
-    cards = [m for m in sent if m["type"] == "card"]
+    cards = written(sent)
     assert len(cards) == 1
     card = cards[0]
     assert card["id"] == "card1" and card["title"] == "The Compound Key at Covenant"
+    assert card["status"] == "done" and card["workflow"] == "write-up"
     assert len(re.findall(r"^## ", card["markdown"], re.M)) >= 2
     sources_line = card["markdown"].splitlines()[-1]
     assert sources_line.startswith("Sources: ") and re.search(r"Fallout 4 guide · part \d+/\d+", sources_line)
     assert card["sources"] and all(s.startswith("Fallout 4 guide · part ") for s in card["sources"])
-    # the transcript shows the spoken line, the card comes as data, and the turn ends with context + idle
+    # the transcript shows the spoken line; the card goes out running, its body comes as data after the
+    # speech (PRD 51), and the turn ends with context + idle
     types = [m["type"] for m in sent]
-    assert types.index("card") > types.index("speech_end") and types[-2:] == ["context", "state"]
+    assert types.index("card") < types.index("speech") < types.index("speech_end") < types.index("card_update")
+    assert types[-2:] == ["context", "state"]
     # bookkeeping: the card is an assistant turn for the model, a one-liner for memory
     assert llm._session_turns[-2:] == [{"role": "user", "content": "write it up"},
                                        {"role": "assistant", "content": "wrote up: The Compound Key at Covenant"}]
@@ -176,10 +188,10 @@ def test_the_card_completion_reuses_the_last_answers_context(fallout):
 def test_typed_slash_write_and_the_offer_reply_take_the_write_up_path(fallout):
     grounded_turn()
     sent = turn("/write", [card_response()])
-    assert [m["type"] for m in sent if m["type"] in ("card", "speech")] == ["speech", "card"]
+    assert [m["type"] for m in sent if m["type"] in ("card", "speech", "card_update")] == ["card", "speech", "card_update"]
     grounded_turn()
     sent = turn("yes, write it up", [card_response()])
-    assert [m["type"] for m in sent if m["type"] == "card"] == ["card"]
+    assert [c["status"] for c in written(sent)] == ["done"]
     assert llm._deeper_offer is None
 
 
@@ -367,7 +379,7 @@ def test_write_it_up_after_a_briefing_is_the_digest_card_without_a_completion(va
         reply, card_md = llm.briefing(BRIEF_DIGEST, "what's new?")
     assert len(fake.calls) == 1 and reply.endswith(llm.DEEPER_OFFERS[0])
     sent = turn("write it up", [])                              # no response queued: a completion would fail
-    cards = [m for m in sent if m["type"] == "card"]
+    cards = written(sent)
     assert len(cards) == 1 and cards[0]["markdown"] == card_md
     md = cards[0]["markdown"]
     assert md.startswith("# Briefing ") and cards[0]["title"] == md.splitlines()[0][2:]

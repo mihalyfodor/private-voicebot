@@ -5,7 +5,8 @@
 
 Reads the rotated `.5` … `.1` files too. A turn is keyed `(pid, turn_id)` (ids restart per process);
 `--turn` / `--ingest` print that unit's events one per line, ordered by `start` (spans) or `ts`;
-`--errors` prints only the error list and exits 1 when it is non-empty. Stdlib only.
+`--errors` prints only the error list and exits 1 when it is non-empty. Stdlib + the repo's
+`runs.read` (the same reader the run pages use).
 """
 import argparse
 import json
@@ -14,24 +15,11 @@ import re
 import sys
 from datetime import datetime, timedelta
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from runs import read  # noqa: E402 — the events reader lives with the run pages (docs/51-run-cards.md)
+
 UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 DASH = "–"
-
-
-def read(path: str) -> list:
-    rows = []
-    for name in [f"{path}.{i}" for i in range(5, 0, -1)] + [path]:
-        if not os.path.exists(name):
-            continue
-        with open(name, encoding="utf-8", errors="replace") as f:
-            for line in f:
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue                    # a torn last line (the writer is mid-append) or junk
-                if isinstance(row, dict) and isinstance(row.get("kind"), str):
-                    rows.append(row)
-    return rows
 
 
 def since(rows: list, spec: str) -> list:

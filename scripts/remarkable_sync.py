@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -228,7 +229,7 @@ def pull(device: str, app: str, state_path: str, out=print) -> int:
         out(str(idle))
         return 0
     helper, failed = ocr_bin(), 0
-    run_id = f"remarkable-{uuid.uuid4().hex[:12]}"    # the app groups this pull's ingests (PRD 49)
+    run_id = time.strftime("rm-%Y%m%d-%H%M%S")        # one run for this pull's ingests (PRD 49, page: PRD 51)
     for doc in todo:
         name, prev = doc.get("VissibleName") or doc["ID"], state.get(doc["ID"]) or {}
         try:

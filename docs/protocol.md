@@ -3,7 +3,9 @@
 One socket, `ws://localhost:8011/ws`, one page at a time (a second connection replaces the first). Text
 frames are JSON objects; the browser's binary frames are 16 kHz Int16 mic audio (hands-free only). Boot
 state (`avatar`, `backdrop`, `backdrops`, `hands_free`, `verbosity`, settings facts) comes from `GET
-/api/config`; file intake goes over `POST /ingest` and only its progress comes back on the socket.
+/api/config`; file intake goes over `POST /ingest` and only its progress comes back on the socket. A run
+card's "Open run" link is `GET /runs/{id}` (PRD 51): a server-rendered page of that run's events, behind the
+same origin check as `/ingest`; an unknown or aged-out id is a 404 "No run <id> (it may have aged out of the log)."
 
 The server half is the `ACTIONS` dict in `chatbot.py` (one `_action_<name>` handler each); the client
 half is the `ws.onmessage` ladder near the bottom of `static/app.js`. `tests/test_protocol_doc.py`
@@ -16,7 +18,7 @@ action name, plus `action`).
 
 | action | fields | replies |
 |---|---|---|
-| `text_turn` | `text` | a full turn: `transcript` (user), `state` thinking/speaking, `speech`…, `speech_end`, `transcript` (assistant), `state` idle. "write it up" / typed `/write` (PRD 43) answer with one spoken line, then `card`; "save that as a note" with the `save_card` replies then one spoken line |
+| `text_turn` | `text` | a full turn: `transcript` (user), `state` thinking/speaking, `speech`…, `speech_end`, `transcript` (assistant), `state` idle. "write it up" / typed `/write` (PRD 43) answer with a `card` (status running, PRD 51), one spoken line, then `card_update` (done + the markdown, or failed); "what's new?" adds one run `card` (PRD 51); "save that as a note" with the `save_card` replies then one spoken line |
 | `set_hands_free` | `value` (bool) | `hands_free`, then `listening` idle when switched off |
 | `set_focus` | `view`, `path?` | none — the server remembers what the user is looking at (PRD 38): a page in Wiki / Sources rides on the next turns, Chat drops it |
 | `playback_done` | `turn` | none — releases the worker waiting for playback (stale turn ids ignored) |
@@ -61,7 +63,8 @@ holds: the conversation's `transcript`s (bare user text, PRD 39), any `thread` d
 |---|---|---|
 | `state` | `value` idle/thinking/processing/speaking, `turn` | `setState` — composer status, avatar cues, mic gating |
 | `transcript` | `role`, `text` | `addMessage` — the history |
-| `card` | `id`, `markdown`, `sources`, `title`, `saved?` (the path, on a reconnect replay) | `addCard` — a written answer (PRD 43): the markdown through the wiki renderer, collapsed with "show all", Copy, Save to wiki with its folder picker; never spoken |
+| `card` | `id`, `markdown`, `sources`, `title`, `saved?` (the path, on a reconnect replay); a run card (PRD 51) adds `run_id`, `workflow` (briefing/write-up/…), `status` running/done/nothing/failed/awaiting, `steps` (≤ 6 `{label, status pending/running/ok/skipped/error, detail?}`, the rest folded into "+n more"), `actions` (`{id, label, kind open/copy/approve/reject}`), `run_url` (`/runs/<run_id>`) | `addCard` — a written answer (PRD 43): the markdown through the wiki renderer, collapsed with "show all", Copy, Save to wiki with its folder picker; never spoken. A run card adds a `<workflow> · <status>` chip, the step list above the body and "Open run" (new tab); `approve`/`reject` render nothing yet (PRD 52); an empty body shows header, steps and actions only. The briefing sends one (empty body, final status); a write-up's goes out `running` before its body |
+| `card_update` | `id` (the card's), `status`, `steps?`, `actions?`, `markdown?` + `title?` + `sources?` (a write-up's body, with its final status), `commit?` (PRD 52) | `updateCard` — re-renders that card in place: chip, steps, buttons (+ the body when `markdown` comes); an update with `markdown` for an id the page never saw creates the card; a reconnect replays every card with its last status, a running or failed write-up where it was issued |
 | `card_saved` | `id`, `path` | `markCardSaved` — the card's Save button reads "saved → path" |
 | `speech` | `emotion`, `text`, `wav` (base64), `filler?`, `turn` | `enqueueSpeech` — audio queue, lip-sync, expression |
 | `speech_end` | `turn` | ends the reply: `playNext`, then `playback_done` |

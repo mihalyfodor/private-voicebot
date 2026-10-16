@@ -224,6 +224,21 @@ def test_vocabulary_fields_outside_their_values_become_other(vault):
     assert SENTINEL in trace_text("verbose")                 # dev keeps the original for the agent
 
 
+def test_run_and_step_events_carry_no_text_in_prod(vault, prod_profile):
+    """PRD 51: the `run` / `step` fields keep their rules — a long `detail` is dropped, a
+    vocabulary or shape outside its values is "other"."""
+    trace.run_event(SENTINEL, "end", status="done", reason=f"failed {SENTINEL}")
+    with trace.span("step", name=SENTINEL, detail=f"{'x' * trace.CAP} {SENTINEL}", commit=SENTINEL, count=2,
+                    sources=[{"title": "Guide", "part": "3/9", "text": SENTINEL}]) as step:
+        step["status"] = "skipped"
+    (run,) = trace_lines(kind="run")
+    assert (run["workflow"], run["phase"], run["status"], run["reason"]) == ("other", "end", "done", "other")
+    (row,) = trace_lines(kind="step")
+    assert row["name"] == "other" and row["commit"] == "other" and "detail" not in row
+    assert row["status"] == "skipped" and row["count"] == 2 and row["sources"] == [{"title": "Guide", "part": "3/9"}]
+    assert SENTINEL not in trace_text() and not os.path.exists(trace.paths()["verbose"])
+
+
 # --------------------------------------------------------------- review: a swallowed handler error is still an error
 
 

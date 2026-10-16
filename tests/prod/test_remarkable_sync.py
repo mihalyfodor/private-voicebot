@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,7 @@ def test_pull_files_each_new_notebook_in_the_folder_once(tmp_path, fake_remarkab
         assert [n for n, _d in r["files"]] == ["page-01.png", "page-02.png"]
         assert "replaces" not in r["fields"] or r["fields"]["replaces"] == ""
     assert len({r["fields"]["run_id"] for r in reqs}) == 1                     # one pull, one run (PRD 49)
+    assert re.fullmatch(r"rm-\d{8}-\d{6}", reqs[0]["fields"]["run_id"])          # its run page id (PRD 51)
     saved = state(tmp_path)
     assert set(saved) == {"n1", "n2"}
     assert saved["n1"]["pages"] == 2 and saved["n1"]["name"] == "Standup"

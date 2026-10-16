@@ -1692,15 +1692,25 @@ def _news_path(path: str) -> bool:
     return path.endswith(".md") and path not in RESERVED and not path.startswith((f"{RAW_DIR}/", "sources/"))
 
 
+def _housekeeping(subject: str, paths: list) -> bool:
+    """The layer's own upkeep: a `_NOISE_COMMITS` subject, or a commit touching only index / log /
+    schema (docs/51-run-cards.md counts these as the briefing's skipped commits)."""
+    return subject in _NOISE_COMMITS or (bool(paths) and all(p in RESERVED for p in paths))
+
+
 def _page_changes(ts: str) -> tuple:
-    """``(pages, chat_pages)`` from `git log --since=ts`; nothing when git or the repo is missing."""
-    result = _git("log", f"--since={ts}", "--name-status", "--format=%x1e%s", quiet=True)
+    """``(pages, chat_pages, skipped)`` from `git log --since=ts`; nothing when git or the repo is
+    missing. A page carries the short sha of its newest commit; `skipped` counts housekeeping commits."""
+    result = _git("log", f"--since={ts}", "--name-status", "--format=%x1e%h %s", quiet=True)
     if result is None or result.returncode != 0:
-        return [], []
+        return [], [], 0
     seen: dict = {}                                      # path -> {"status": [..], "chat": bool}, newest first
+    skipped = 0
     for record in result.stdout.split("\x1e")[1:]:
         lines = [line for line in record.splitlines() if line.strip()]
-        subject = lines[0] if lines else ""
+        sha, _, subject = (lines[0] if lines else "").partition(" ")
+        if _housekeeping(subject, [line.split("\t")[-1] for line in lines[1:]]):
+            skipped += 1
         if not _news_commit(subject):
             continue
         for line in lines[1:]:
@@ -1711,7 +1721,7 @@ def _page_changes(ts: str) -> tuple:
             for path, st in touched:
                 if not _news_path(path):
                     continue
-                entry = seen.setdefault(path, {"status": [], "chat": True})
+                entry = seen.setdefault(path, {"status": [], "chat": True, "commit": sha})
                 entry["status"].append(st)
                 entry["chat"] = entry["chat"] and bool(_CHAT_COMMIT.match(subject))
     pages, chat = [], []
@@ -1724,10 +1734,11 @@ def _page_changes(ts: str) -> tuple:
         if entry["chat"] and here:
             chat.append(rel)
         else:
-            pages.append({"path": rel, "title": page_title(rel) or os.path.basename(rel), "change": change})
+            pages.append({"path": rel, "title": page_title(rel) or os.path.basename(rel), "change": change,
+                          "commit": entry["commit"]})
     order = list(_CHANGE.values())
     pages.sort(key=lambda p: (order.index(p["change"]), p["path"]))
-    return pages, sorted(chat)
+    return pages, sorted(chat), skipped
 
 
 def _source_changes(ts: str) -> list:
@@ -1766,11 +1777,18 @@ def _memory_changes(ts: str) -> dict:
 
 
 def changes_since(ts: str) -> dict:
-    """The briefing digest: pages, chat pages, sources and memory changes after `ts` (PRD 46)."""
+    """The briefing digest: pages, chat pages, sources and memory changes after `ts` (PRD 46), plus
+    `skipped`, the housekeeping commits left out (PRD 51)."""
     with vault_lock.LOCK:
-        pages, chat = _page_changes(ts) if exists() else ([], [])
+        pages, chat, skipped = _page_changes(ts) if exists() else ([], [], 0)
         return {"since": ts, "pages": pages, "chat_pages": chat, "sources": _source_changes(ts),
-                "memory": _memory_changes(ts)}
+                "memory": _memory_changes(ts), "skipped": skipped}
+
+
+def head_sha() -> str:
+    """The vault's HEAD as a short sha ("" without a repo or a commit)."""
+    result = _git("rev-parse", "--short", "HEAD", quiet=True)
+    return result.stdout.strip() if result is not None and result.returncode == 0 else ""
 
 
 def memory_total(digest: dict) -> int:

@@ -19,6 +19,7 @@ import webbrowser
 import llm
 import memory
 import notebooks
+import runs
 import wiki
 import splitter
 import sources
@@ -34,7 +35,7 @@ import numpy as np
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from starlette.datastructures import UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -379,31 +380,83 @@ BRIEFING_HOURS = 24          # the look-back of the very first briefing
 @registry.handler("briefing")
 def briefing(ctx: Ctx):
     """The briefing turn: "Nothing new since <when>." without the model, else one spoken recap;
-    `briefing_at` moves forward only once the recap was spoken."""
+    `briefing_at` moves forward only once the recap was spoken. A run (PRD 51): steps gather /
+    skip / phrase, one run card (empty body) with the final status."""
     sess, turn, user_text, send_sync, origin = ctx.session, ctx.turn, ctx.text, ctx.send, ctx.origin
+    run, stage = None, "gathered"
     try:
         now = memory._stamp("%H:%M:%S")
         since = settings.load_settings().get("briefing_at") or \
             (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
-        digest = wiki.changes_since(since)
-        if not wiki.digest_empty(digest) and not services.llm_ok():
+        run = runs.Run("briefing")
+        digest = _gather(run, since)
+        stage = "phrased"
+        empty = wiki.digest_empty(digest)
+        if not empty and not services.llm_ok():
+            run.fail("phrased", "failed-offline")
+            send_sync(_run_card(run))
             send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
             send_sync({"type": "state", "value": "idle"})
             return
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        if wiki.digest_empty(digest):
+        if empty:
             say_canned(f"Nothing new since {wiki.briefing_when(since)}.", send_sync)
+            run.end("nothing", "nothing-to-do")
         else:
-            reply, _ = llm.briefing(digest, user_text, origin)
+            t0 = time.monotonic()
+            with trace.span("step", name="phrase"):
+                reply, _ = llm.briefing(digest, user_text, origin)
+            run.step("phrased", "ok", f"{time.monotonic() - t0:.1f} s")
             log.debug(f"Bot: {reply}")
             trace.verbose("turn_text", user=user_text, reply=reply)
             say_canned(reply, send_sync)
             settings.save_setting("briefing_at", max(str(settings.load_settings().get("briefing_at") or ""), now))
+            run.end("done", "ok")
+        send_sync(_run_card(run))
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
+        if run is not None and run.status == "running":
+            run.fail(stage, runs.failure_reason(e))
+            send_sync(_run_card(run))
         _turn_failed(send_sync, "briefing", e, "The briefing failed.", recheck=True)
+
+
+def _gather(run, since: str) -> dict:
+    """The briefing's `gather` step (+ a `skip` step for the housekeeping commits it left out):
+    the digest, with its counts and the pages' commits on the event — never a title's text beyond that."""
+    with trace.span("step", name="gather", detail=f"since {since[11:16]}") as step:
+        digest = wiki.changes_since(since)
+        pages = len(digest.get("pages") or []) + len(digest.get("chat_pages") or [])
+        n_sources = len(digest.get("sources") or [])
+        mem = digest.get("memory") or {}
+        n_memory = sum(int(mem.get(k) or 0) for k in ("added", "updated", "removed"))
+        step.update(count=pages + n_sources + n_memory,
+                    pages=[{"path": p.get("path"), "commit": p.get("commit"), "title": p.get("title")}
+                           for p in digest.get("pages") or []
+                           if isinstance(p, dict)],
+                    memory={k: int(mem.get(k) or 0) for k in ("added", "updated", "removed")})
+    run.step("gathered", "ok", f"since {wiki.briefing_when(since)} — {_n(pages, 'page')}, {_n(n_sources, 'source')}, "
+                               f"{_n(n_memory, 'memory change')}")
+    skipped = int(digest.get("skipped") or 0)
+    if skipped:
+        detail = _n(skipped, "housekeeping commit")
+        with trace.span("step", name="skip", count=skipped, detail=detail, reason="housekeeping") as step:
+            step["status"] = "skipped"
+        run.step("skipped", "skipped", detail)
+    return digest
+
+
+def _n(count: int, noun: str) -> str:
+    """"1 page", "3 pages"."""
+    return f"{count} {noun}{'' if count == 1 else 's'}"
+
+
+def _run_card(run) -> dict:
+    """A run card with an empty body (the briefing): header, steps and Open run (PRD 51)."""
+    return card_msg({"id": f"run-{run.run_id}", "markdown": "", "sources": [],
+                     "title": runs.WORKFLOWS[run.workflow], **run.card([runs.OPEN])})
 
 
 def context_msg() -> dict:
@@ -418,9 +471,19 @@ ALREADY_SAVED = "already saved"
 DEFAULT_CARD_FOLDER = "notes"
 
 
+#: a run card's optional fields (docs/51-run-cards.md); a written card without them renders as PRD 43
+CARD_RUN_FIELDS = ("run_id", "workflow", "status", "steps", "actions", "run_url")
+
+
 def card_msg(card: dict) -> dict:
     return {"type": "card", "id": card["id"], "markdown": card["markdown"], "sources": card["sources"],
-            "title": card["title"]}
+            "title": card["title"], **{k: card[k] for k in CARD_RUN_FIELDS if k in card}}
+
+
+def card_update(card: dict, **extra) -> dict:
+    """`card_update`: a run card's current status, steps and actions (+ `markdown`, `title`, `sources`)."""
+    return {"type": "card_update", "id": card["id"], "status": card["status"], "steps": card["steps"],
+            "actions": card["actions"], **extra}
 
 
 def card_path(card: dict, folder: str = "") -> str:
@@ -433,7 +496,7 @@ def save_card(card_id: str | None, folder: str = "") -> list:
     """File a card as a note and return the messages to send (`wiki_open`, `card_saved`, the
     refreshed `wiki` + `sources`); raises ValueError with the refusal reason (scope wiki)."""
     card = llm._cards.get(str(card_id)) if card_id else llm.last_card
-    if not card:
+    if not card or not card.get("markdown"):            # a running / failed run card has no body (PRD 51)
         raise ValueError(NOTHING_TO_SAVE)
     if card.get("saved"):
         raise ValueError(ALREADY_SAVED)
@@ -449,21 +512,53 @@ def save_card(card_id: str | None, folder: str = "") -> list:
 
 @registry.handler("write_up")
 def write_up(ctx: Ctx):
-    """The write-up turn: one spoken line, then the `card`; the card body is never spoken."""
+    """The write-up turn: one spoken line, then the card's body; the body is never spoken. A run
+    (PRD 51): the card goes out `running` first (kept in `llm`'s card store, so a reconnect replays
+    it), then `card_update` done (with the markdown, title and sources) or failed."""
     sess, turn, user_text, send_sync = ctx.session, ctx.turn, ctx.text, ctx.send
+    run = card = None
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        card = llm.write_up(user_text)
-        say_canned(llm.WRITTEN_LINE, send_sync)
+        if not llm.can_write_up():
+            raise ValueError(llm.NOTHING_TO_WRITE)
+        run = runs.Run("write-up")
+        card = llm.issue_card({"id": llm.next_card_id(), "markdown": "", "sources": [],
+                               "title": runs.WORKFLOWS["write-up"],
+                               **run.card([runs.OPEN], [{"label": "context", "status": "running"},
+                                                        {"label": "write", "status": "pending"}])})
         send_sync(card_msg(card))
+        parts = llm.context_parts()
+        with trace.span("step", name="context", count=len(parts), sources=parts):
+            pass
+        run.step("context", "ok", _n(len(parts), "source part"))
+        t0 = time.monotonic()
+        with trace.span("step", name="write"):
+            llm.write_up(user_text, card["id"])               # fills `card` in place
+        run.step("write", "ok", f"{time.monotonic() - t0:.1f} s")
+        say_canned(llm.WRITTEN_LINE, send_sync)
+        run.end("done", "ok")
+        card.update(run.card([runs.OPEN, runs.COPY]))          # a reconnect replays the last status
+        send_sync(card_update(card, markdown=card["markdown"], title=card["title"], sources=card["sources"]))
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except ValueError as e:
+        if run is not None and run.status == "running":
+            _write_up_failed(card, run, "failed-model", send_sync)
         send_sync({"type": "error", "scope": "turn", "text": str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
+        if run is not None and run.status == "running":
+            _write_up_failed(card, run, runs.failure_reason(e), send_sync)
         _turn_failed(send_sync, "write_up", e, "The write-up failed.", recheck=True)
+
+
+def _write_up_failed(card, run, reason: str, send_sync) -> None:
+    """The write-up run failed: its card (if it went out) keeps the failed status for a replay."""
+    run.fail("write", reason)
+    if card is not None:
+        card.update(run.card([runs.OPEN]))
+        send_sync(card_update(card))
 
 
 @registry.handler("save_note")
@@ -761,6 +856,11 @@ def _file_one(item: dict, on_stage=None) -> dict:
                                  on_stage=on_stage)
 
 
+#: host-script run ids this process has seen: the first ingest of one opens its run (`run start`)
+_host_runs: set = set()
+_host_runs_lock = threading.Lock()
+
+
 def _ingest_all(items: list, run_id: str = "") -> dict:
     """File every item of one popup; a failure on one is reported, the rest still land.
 
@@ -768,6 +868,12 @@ def _ingest_all(items: list, run_id: str = "") -> dict:
     script's `run_id` groups the items' trace events under its run (PRD 49).
     """
     with trace.run(run_id):
+        if run_id:
+            with _host_runs_lock:
+                fresh = run_id not in _host_runs
+                _host_runs.add(run_id)
+            if fresh:                       # its end is derived on the run page (PRD 51)
+                trace.run_event("remarkable" if any(i["kind"] == "notebook" for i in items) else "ingest", "start")
         return _ingest_items(items)
 
 
@@ -855,6 +961,18 @@ async def ingest(request: Request):
 @app.get("/")
 async def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/runs/{run_id}")
+async def run_page(run_id: str, request: Request):
+    """One run's page (docs/51-run-cards.md), built from its events and the vault's git — never
+    page text; the same origin check as `/ingest`. An unknown, aged-out or malformed id is a 404."""
+    if not _origin_allowed(request.headers.get("origin")):
+        raise HTTPException(status_code=403, detail="bad origin")
+    events = await asyncio.to_thread(runs.load, run_id) if RUN_ID.fullmatch(run_id) else []
+    if not events:
+        return HTMLResponse(runs.missing(run_id), status_code=404)
+    return HTMLResponse(await asyncio.to_thread(lambda: runs.render(runs.build(events))))
 
 
 async def _handle_audio(sess: Session, data, loop):
@@ -1311,9 +1429,12 @@ _EARLIER = re.compile(r"^<earlier>(.*)</earlier>$", re.S)
 
 def replay_messages() -> list:
     """The `transcript` / `thread` messages that rebuild the history on a (re)connect: the
-    user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`."""
-    out = []
-    for m in llm.dialogue():
+    user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`, each
+    card with its last status — a write-up still running or failed where it was issued (PRD 51)."""
+    out, loose = [], llm.loose_cards()
+    for i, m in enumerate(llm.dialogue()):
+        while loose and loose[0][0] <= i:                   # a running / failed write-up card (PRD 51)
+            out.append({**card_msg(loose.pop(0)[1]), "saved": None})
         earlier = _EARLIER.match(m["content"]) if m["role"] == "user" else None
         card = llm.card_in(m["content"]) if m["role"] == "assistant" else None
         if earlier:
@@ -1322,6 +1443,7 @@ def replay_messages() -> list:
             out.append({**card_msg(card), "saved": card.get("saved")})
         else:
             out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(m["content"])})
+    out += [{**card_msg(card), "saved": None} for _pos, card in loose]
     return out
 
 

@@ -213,6 +213,32 @@ main {
   border: 1px solid #444; border-radius: 4px; padding: 2px 6px;
 }
 .card-note { font-size: 11px; color: #e29a9a; }
+/* PRD 51: a run card's header chip and step list; the run page (/runs/<id>) */
+.run-head { font-size: 12px; color: #cfcfcf; display: flex; align-items: center; gap: 4px; }
+.run-chip {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid #555; border-radius: 9px; padding: 0 7px; color: #ddd;
+}
+.run-chip.run-running, .run-chip.run-awaiting { border-color: #d9a441; color: #d9a441; }
+.run-chip.run-done { border-color: #6fae63; color: #9ac58f; }
+.run-chip.run-nothing { border-color: #666; color: #aaa; }
+.run-chip.run-failed { border-color: #c96b6b; color: #e29a9a; }
+.run-steps { list-style: none; font-size: 12px; color: #c9c9c9; margin: 2px 0 4px; }
+.run-step-error { color: #e29a9a; }
+.run-step-skipped { color: #9a9a9a; }
+a.card-btn { text-decoration: none; display: inline-block; color: #ddd; background: rgba(0,0,0,0.5); }
+html:has(body.run-page) { overflow: auto; }
+body.run-page { overflow: auto; height: auto; min-height: 100%; }
+main.run { display: block; position: static; }
+.run { max-width: 860px; margin: 0 auto; padding: 28px 24px 40px; font-size: 14px; line-height: 1.5; }
+.run h1 { font-size: 22px; margin-bottom: 4px; }
+.run h2 { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: #9a9a9a; margin: 22px 0 6px; }
+.run h3 { font-size: 12px; color: #bbb; margin: 10px 0 4px; }
+.run ul { padding-left: 18px; }
+.run code { font-size: 12px; color: #d9a441; }
+.run-meta { color: #cfcfcf; }
+.run-id, .run-none, .run-footer { color: #8a8a8a; font-size: 12px; }
+.run-footer { margin-top: 28px; border-top: 1px solid #262626; padding-top: 8px; }
 /* typed turns carry a small keyboard glyph next to the role label */
 .msg .typed-glyph { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 1.6; }
 #companion.side .msg .text { font-size: 13px; }

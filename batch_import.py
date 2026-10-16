@@ -6,6 +6,7 @@ is scripts/ingest_batch.py; the app must be stopped (see `_refusal`).
 
 See docs/48-batch-import.md.
 """
+import contextlib
 import io
 import json
 import os
@@ -22,6 +23,21 @@ _sleep = time.sleep
 _RETRY_STATES = ("needs-ocr", "unsupported", "too-large", "failed")
 _STATES = ("filed", "would file", "already", "needs-ocr", "unsupported", "too-large", "resume", "failed")
 _SKIPS = ("already", "needs-ocr", "unsupported", "too-large", "resume")
+#: a skipped file's reason code on its run step (docs/51-run-cards.md, `runs.REASONS`)
+_SKIP_REASONS = {"already": "already-filed", "needs-ocr": "needs-ocr", "unsupported": "unsupported",
+                 "too-large": "too-large"}
+
+
+def _step(state: str, row: dict) -> dict:
+    """The `step` fields of one file's outcome: skipped with its reason, error, or ok."""
+    if state == "resume":
+        state = row.get("reason", "")
+        return {"status": "skipped", **({"reason": _SKIP_REASONS[state]} if state in _SKIP_REASONS else {})}
+    if state in _SKIP_REASONS:
+        return {"status": "skipped", "reason": _SKIP_REASONS[state]}
+    if state == "failed":
+        return {"status": "error", "reason": f"failed-{row.get('exc_type') or 'Exception'}"}
+    return {}
 
 
 def pdf_chars(data: bytes) -> tuple:
@@ -162,7 +178,8 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool) -> dict:
         trace.logger("Batch").exception("filing a file failed")
         if not reached:                     # past that point the ingest span already traced it
             trace.error("ingest", "batch_import", exc, fatal_for="none")
-        return {"state": "failed", "reason": str(exc) or type(exc).__name__, "reached": reached}
+        return {"state": "failed", "reason": str(exc) or type(exc).__name__, "reached": reached,
+                "exc_type": type(exc).__name__}
 
 
 def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dry_run: bool = False,
@@ -191,16 +208,55 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
         _log(log, {"run": _now(), "started": started, "vault": wiki.WIKI_PATH,
                    "args": {"folder": folder, "kinds": sorted(exts), "resume": resume,
                             "limit": limit, "sleep": sleep}})
-    reached = 0
+    run_id = None if dry_run else time.strftime("batch-%Y%m%d-%H%M%S")      # its run page (PRD 51)
+    with trace.run(run_id):
+        if run_id:
+            trace.run_event("batch", "start")
+        failure = "failed-Exception"
+        try:
+            failure = _files(folder, files, exts, last, counts, resume=resume, dry_run=dry_run, limit=limit,
+                             sleep=sleep, out=out, log=log)
+        except BaseException as exc:       # Ctrl-C included: the run still ends, failed (PRD 51 review)
+            failure = f"failed-{type(exc).__name__}"
+            raise
+        finally:
+            if run_id:
+                trace.run_event("batch", "end", "failed" if failure else "done", failure or "ok")
+    skipped = {k: counts[k] for k in _SKIPS}
+    detail = ", ".join(f"{k} {v}" for k, v in skipped.items() if v)
+    elapsed = time.time() - started
+    head = f"would file {counts['would file']}" if dry_run else f"filed {counts['filed']}"
+    out(f"{head} · skipped {sum(skipped.values())}" + (f" ({detail})" if detail else "")
+        + f" · failed {counts['failed']} · {_clock(elapsed)}")
+    return {**counts, "exit": 1 if counts["failed"] else 0, "seconds": round(elapsed)}
+
+
+def _file_step(rel: str, dry_run: bool):
+    """One file's `step` span of the run; a dry run is no run, so it gets a plain dict."""
+    return contextlib.nullcontext({}) if dry_run else trace.span("step", name="file", rel=rel)
+
+
+def _files(folder: str, files: list, exts: set, last: dict, counts: dict, *, resume: bool, dry_run: bool,
+           limit: int, sleep: float, out, log: str) -> str:
+    """File `files` one at a time, each a `step` of the run; returns the first failure's reason
+    code ("" when none failed)."""
+    reached, failure = 0, ""
     for i, rel in enumerate(files, 1):
         if resume and last.get(rel) in _RETRY_STATES:
             counts["resume"] += 1
-            out(_state_line(i, len(files), rel, {"state": "resume", "reason": last[rel]}, 0))
+            row = {"state": "resume", "reason": last[rel]}
+            with _file_step(rel, dry_run) as step:
+                step.update(_step("resume", row))
+            out(_state_line(i, len(files), rel, row, 0))
             continue
         t0 = time.time()
-        row = _one(os.path.join(folder, rel), rel, exts, dry_run)
+        with _file_step(rel, dry_run) as step:
+            row = _one(os.path.join(folder, rel), rel, exts, dry_run)
+            step.update(_step(row["state"], row))
         state, seconds = row["state"], round(time.time() - t0, 1)
         counts[state] += 1
+        if state == "failed" and not failure:
+            failure = step["reason"]
         trace.event("batch_file", rel=rel, state=state, seconds=seconds)
         out(_state_line(i, len(files), rel, row, seconds))
         if not dry_run:
@@ -214,10 +270,4 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
                 break
             if sleep > 0 and i < len(files):
                 _sleep(sleep)
-    skipped = {k: counts[k] for k in _SKIPS}
-    detail = ", ".join(f"{k} {v}" for k, v in skipped.items() if v)
-    elapsed = time.time() - started
-    head = f"would file {counts['would file']}" if dry_run else f"filed {counts['filed']}"
-    out(f"{head} · skipped {sum(skipped.values())}" + (f" ({detail})" if detail else "")
-        + f" · failed {counts['failed']} · {_clock(elapsed)}")
-    return {**counts, "exit": 1 if counts["failed"] else 0, "seconds": round(elapsed)}
+    return failure

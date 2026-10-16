@@ -40,7 +40,8 @@
 //   setState(v) / showShutdownScreen()   the two transitions the cues hang off
 //   palette / paletteInput / paletteList / view()   the ⌘K palette state, its input, its rows (PRD 30)
 //   cmdK()           a document-level ⌘K keydown
-//   cards()          the `.msg.card` elements in #history (PRD 43)
+//   cards()          the `.msg.card` elements in #history (PRD 43; a run card's `card_update`
+//                    re-renders the same element, PRD 51 — drive it with recv())
 //   submitIntake() / intakeStatus / intakeCancel   the intake batch loop, its status line and
 //                    its Cancel/Close button (PRD 36; `fetch` is re-scripted per scenario)
 //
@@ -911,5 +912,55 @@ t.recv({ type: 'card_saved', id: 'card1', path: 'notes/2026-08-30-bleak-falls-ba
 results.card_saved = { label: cardSave.textContent, disabled: cardSave.disabled, picker_hidden: cardPicker.hidden };
 t.recv({ type: 'card', id: 'card2', markdown: '# Two\n\n## A\nx', sources: [], title: 'Two', saved: 'notes/2026-08-30-two' });
 results.card_replayed_saved = t.cards().at(-1).querySelector('.card-save').textContent;
+
+// ---------------------------------------------------------------- scenarios (PRD 51)
+// ---- scenario 8: a run card renders its chip, steps and "Open run" (new tab); `card_update`
+// swaps chip and steps in the same element; a write-up's update fills the body; a card without
+// run fields keeps PRD 43's shape (role, body, foot).
+const OPEN_ACTION = { id: 'open', label: 'Open run', kind: 'open' };
+const kids = (n) => (n.children || []).filter(c => c && c.className !== undefined).map(c => c.className);
+results.plain_card_children = kids(t.cards().find(c => c.dataset.card === 'card1'));
+const cardsBefore = t.cards().length;
+t.recv({ type: 'card', id: 'run-9-1', markdown: '', sources: [], title: 'Briefing', run_id: '9-1',
+         workflow: 'briefing', status: 'running', run_url: '/runs/9-1',
+         actions: [OPEN_ACTION, { id: 'approve', label: 'Approve', kind: 'approve' }],
+         steps: [{ label: 'gathered', status: 'ok', detail: 'since 14:05 — 3 pages, 2 sources, 4 memory changes' },
+                 { label: 'skipped', status: 'skipped', detail: '2 housekeeping commits' },
+                 { label: 'phrase', status: 'running' }] });
+const runEl = t.cards().at(-1);
+const runOpen = runEl.querySelector('.card-open');
+const runInfo = (n) => ({ chip: n.querySelector('.run-chip').textContent, chip_cls: n.querySelector('.run-chip').className,
+                          workflow: n.querySelector('.run-workflow').textContent,
+                          steps: n.querySelectorAll('.run-step').map(cardText) });
+results.run_card = { ...runInfo(runEl), added: t.cards().length - cardsBefore,
+                     open: runOpen && { tag: runOpen.tagName, text: runOpen.textContent, href: runOpen.getAttribute('href'),
+                                        target: runOpen.getAttribute('target'), rel: runOpen.getAttribute('rel') },
+                     body: !!runEl.querySelector('.card-body'), save: !!runEl.querySelector('.card-save'),
+                     buttons: runEl.querySelector('.card-foot').children.length };
+t.recv({ type: 'card_update', id: 'run-9-1', status: 'done', actions: [OPEN_ACTION],
+         steps: [{ label: 'gathered', status: 'ok', detail: 'since 14:05' }, { label: 'phrased', status: 'ok', detail: '2.1 s' }] });
+results.run_card_updated = { ...runInfo(runEl), same: t.cards().at(-1) === runEl, count: t.cards().length - cardsBefore };
+t.recv({ type: 'card', id: 'card7', markdown: '', sources: [], title: 'Write-up', run_id: '9-2', workflow: 'write-up',
+         status: 'running', run_url: '/runs/9-2', actions: [OPEN_ACTION],
+         steps: [{ label: 'context', status: 'running' }, { label: 'write', status: 'pending' }] });
+const writeEl = t.cards().at(-1);
+t.recv({ type: 'card_update', id: 'card7', status: 'done', markdown: '# Key\n\n## Where\nJacob.',
+         actions: [OPEN_ACTION, { id: 'copy', label: 'Copy', kind: 'copy' }],
+         steps: [{ label: 'context', status: 'ok', detail: '2 source parts' }, { label: 'written', status: 'ok', detail: '3.0 s' }] });
+results.write_up_updated = { ...runInfo(writeEl), same: t.cards().at(-1) === writeEl,
+                             body: cardText(writeEl.querySelector('.card-body')),
+                             copy: !!writeEl.querySelector('.card-copy'), save: !!writeEl.querySelector('.card-save'),
+                             open: !!writeEl.querySelector('.card-open') };
+t.recv({ type: 'card_update', id: 'card7', status: 'failed',
+         steps: [{ label: 'write', status: 'error', detail: 'Failed with RuntimeError.' }] });
+results.write_up_failed = runInfo(writeEl);
+// a `card_update` with a body for a card this page never saw (a reconnect between running and done) creates it
+const unknownBefore = t.cards().length;
+t.recv({ type: 'card_update', id: 'card99', status: 'done', markdown: '# Late\n\n## A\nx', title: 'Late', sources: [],
+         actions: [OPEN_ACTION], steps: [{ label: 'write', status: 'ok' }] });
+results.update_unknown = { added: t.cards().length - unknownBefore, id: t.cards().at(-1).dataset.card,
+                           body: cardText(t.cards().at(-1).querySelector('.card-body') || { textContent: '' }) };
+t.recv({ type: 'card_update', id: 'card98', status: 'done', steps: [] });
+results.update_unknown_no_body = t.cards().length - unknownBefore;
 
 console.log(JSON.stringify(results, null, 1));

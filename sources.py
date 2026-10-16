@@ -1293,8 +1293,11 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         wiki.rebuild_index()
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
+        head = wiki.head_sha()
         wiki._commit(f"wiki: filed {raw_rel}")
         trace.mark(path=wiki.wikilink(source_rel), title=page_title)
+        if wiki.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
+            trace.mark(commit=wiki.head_sha())
         return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False,
                 "degraded": trace.marked("_degraded")}
 

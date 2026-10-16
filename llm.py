@@ -307,6 +307,10 @@ _last_context: dict | None = None
 #: every card this conversation wrote, by id; `last_card` is the one "save that" means
 _cards: dict = {}
 last_card: dict | None = None
+#: run cards issued but not (yet) a turn of the conversation — a write-up running or failed (PRD 51):
+#: id -> how many `dialogue()` lines preceded it, so a reconnect replays it in place
+_loose: dict = {}
+_card_seq = 0              # every card issued takes the next id; only `reset` starts over
 
 
 def _offer_kind(recall_offer: bool) -> str:
@@ -322,7 +326,7 @@ def _offer_kind(recall_offer: bool) -> str:
 
 def reset():
     global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources, _sources_seen
-    global _last_trimmed, _context_warned, _turn_pages, _last_context
+    global _last_trimmed, _context_warned, _turn_pages, _last_context, _card_seq
     _conversation = [{"role": "system", "content": memory.load(SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
@@ -334,11 +338,13 @@ def reset():
     _last_trimmed = 0
     _context_warned = False
     _forget_cards()
+    _card_seq = 0
 
 
 def _forget_cards() -> None:
     global last_card
     _cards.clear()
+    _loose.clear()
     last_card = None
 
 
@@ -706,17 +712,23 @@ def written_note(extra: str) -> str:
     return extra.replace(SHORT_PHRASE, FULL_PHRASE).replace(NOTE_OFFER, NOTE_NO_OFFER)
 
 
-def card_sources(sources: list, pages: list) -> list:
-    """`"Fallout 4 guide · part 3/120"` per passage (deduped, in order) and the page titles."""
+def source_parts(sources: list) -> list:
+    """`{title, part: "3/120"}` per passage (deduped, in order): the card's Sources line and the
+    write-up run's `context` step (PRD 51)."""
     out = []
     for source, title, part in sources:
         try:
-            total = len(wiki.raw_chunks(source)["chunks"])
-            line = f"{title} · part {part}/{total}"
+            row = {"title": title, "part": f"{part}/{len(wiki.raw_chunks(source)['chunks'])}"}
         except (KeyError, TypeError):
-            line = f"{title} · part {part}"
-        if line not in out:
-            out.append(line)
+            row = {"title": title, "part": str(part)}
+        if row not in out:
+            out.append(row)
+    return out
+
+
+def card_sources(sources: list, pages: list) -> list:
+    """`"Fallout 4 guide · part 3/120"` per passage (deduped, in order) and the page titles."""
+    out = [f"{p['title']} · part {p['part']}" for p in source_parts(sources)]
     for title in pages:
         if title and title not in out:
             out.append(title)
@@ -731,7 +743,41 @@ def _card_title(markdown: str, question: str) -> str:
     return " ".join(question.split())[:80] or "Written answer"
 
 
-def write_up(request: str = "") -> dict:
+def can_write_up() -> bool:
+    """Is there an answer to write up (else `write_up` raises NOTHING_TO_WRITE)?"""
+    return bool(_last_context)
+
+
+def next_card_id() -> str:
+    """A fresh card id: the counter advances on every card issued, so a failed write-up's id is
+    never reused by the retry (PRD 51)."""
+    global _card_seq
+    _card_seq += 1
+    return f"card{_card_seq}"
+
+
+def issue_card(card: dict) -> dict:
+    """Keep a run card that is not a conversation turn yet (a write-up still running, or failed) so a
+    reconnect replays it where it was issued; `write_up` fills the same dict in when it succeeds."""
+    _cards[card["id"]] = card
+    _loose[card["id"]] = len(dialogue())
+    return card
+
+
+def loose_cards() -> list:
+    """``(position, card)`` of the issued cards that are not conversation turns, in issue order."""
+    return [(pos, _cards[cid]) for cid, pos in _loose.items() if cid in _cards]
+
+
+def context_parts() -> list:
+    """The last answer's passages as `{title, part}` (what a write-up is built from)."""
+    return source_parts((_last_context or {}).get("sources") or [])
+
+
+NOTHING_TO_WRITE = "nothing to write up yet"
+
+
+def write_up(request: str = "", card_id: str | None = None) -> dict:
     """One `long` completion turning the last answer into a Markdown card (PRD 43).
 
     The card is built from the same context the last answer had (`_last_context`: the recall /
@@ -744,15 +790,17 @@ def write_up(request: str = "") -> dict:
     global last_card, _deeper_offer
     ctx = _last_context
     if not ctx:
-        raise ValueError("nothing to write up yet")
+        raise ValueError(NOTHING_TO_WRITE)
     _deeper_offer = None                                        # the offer's "write it up" reply takes it
     if ctx.get("card"):                                         # a briefing: its card is already built (PRD 46)
         markdown, sources = ctx["card"].strip(), []
     else:
         markdown, sources = _card_completion(ctx)
-    card = {"id": f"card{len(_cards) + 1}", "markdown": markdown, "sources": sources,
-            "title": _card_title(markdown, ctx["question"])}
+    card = _cards.get(card_id) if card_id else None         # the running card issued at turn start (PRD 51)
+    card = card if card is not None else {"id": card_id or next_card_id()}
+    card.update(markdown=markdown, sources=sources, title=_card_title(markdown, ctx["question"]))
     _cards[card["id"]] = card
+    _loose.pop(card["id"], None)
     last_card = card
     if request:
         _conversation.append({"role": "user", "content": request})
