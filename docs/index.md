@@ -286,7 +286,7 @@ voicebot/
     ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (implementation; steps 1–4 done — step 1: core/, workflows → scripts, tests/test_layers.py; step 2: tools/registry.py; step 3: trigger tools in the registry, tools/commands.py, `@registry.handler`; step 4: core/llm.py model-call chokepoint, one conftest fake)
     ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
-    ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)
+    ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (implementation)
     ├── 54-vault-map-research.md # PRD: two-level vault map replaces the alphabetical prompt index; typed "research X" workflow with judge, citations, budget (exploration)
     └── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers (exploration)
 ```

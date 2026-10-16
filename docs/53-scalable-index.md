@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 53 — Scalable index: thousands of pages and sources without losing voice latency
 
