@@ -35,12 +35,14 @@ WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten
 
 # --- research mode (docs/54-vault-map-research.md): explicit only, typed or spoken -------
 #: "research how the Falcon and Zephyr budgets differ", "/research Zephyr budget", "Research, the Zephyr budget".
+#: "research about Zephyr" / "research into the budget" are commands too (the question is what follows the
+#: preposition); "research on / for …" stays chat ("research on Zephyr" is as often a paper as a request).
 #: The noun use never starts a run: "research shows / is / papers / on …" (the word after it is one of these).
 NOT_RESEARCH = ("shows|show|showed|shown|says|said|suggests|suggested|indicates|indicated|finds|found|proves|proved"
                 "|papers|paper|is|was|are|were|has|had|have|will|would|can|could|should|may|might|must|does|did"
-                "|on|about|into|from|by|for|in|of|at|with|to|that|which|and|or|but|it|team|group|project|done")
+                "|on|from|by|for|in|of|at|with|to|that|which|and|or|but|it|team|group|project|done")
 RESEARCH = re.compile(r"^(?:please,?\s+)?(?:/research\s+|research[,:]?\s+"
-                      rf"(?!(?:{NOT_RESEARCH})\b))(?P<question>\S.*?)[\s?.!]*$", re.I)
+                      rf"(?:(?:about|into)\s+(?=\S))?(?!(?:{NOT_RESEARCH}|about|into)\b))(?P<question>\S.*?)[\s?.!]*$", re.I)
 
 # --- approvals (docs/52-approvals.md) ---------------------------------------------------
 #: the words a source title is spoken with; "forget <title>" needs one at the end ("forget my address" and
@@ -59,6 +61,7 @@ PUSH = re.compile(
 
 
 def normalise(text) -> str:
+    """The turn with whitespace collapsed (what every trigger regex is matched on)."""
     return " ".join(str(text or "").split())
 
 

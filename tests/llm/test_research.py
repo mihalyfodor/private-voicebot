@@ -167,6 +167,31 @@ def test_two_quotes_in_one_bullet_are_dropped():
     assert (verified, total) == (0, 1) and dropped[0]["why"] == "more than one quote"
 
 
+@pytest.mark.parametrize("bullet, claim", [
+    ('- Both: "The budget was approved" and "cancelled by the board" — Guide · part 1/3', "- Both"),
+    ('- The budget "was approved" or "was cut" in May — Guide · part 1/3', "- The budget or in May"),
+    ('- A "x" and "y" but "z" — Guide · part 1/3', "- A"),
+])
+def test_a_dropped_bullets_claim_reads_cleanly(bullet, claim):
+    findings, _, _, dropped = check(bullet)
+    assert findings == claim and dropped[0]["why"] == "more than one quote"
+
+
+@pytest.mark.parametrize("line", ["> The budget was approved in May.", "> a thought, no quote and no citation"])
+def test_any_blockquote_is_a_quote_shape_and_never_renders_as_quoted_text(line):
+    findings, verified, total, dropped = check(line, "- Plain claim.")
+    assert findings == "- Plain claim." and (verified, total) == (0, 1)
+    assert dropped[0]["why"] == "no quote to check" and ">" not in findings
+
+
+def test_a_quote_re_cited_to_a_neighbour_part_puts_that_part_in_sources():
+    material = [read_part(2)]
+    findings, verified, _, _ = research.verify('- Snacks: "discussed snacks" — Guide · part 2/3', material)
+    assert verified == 1 and findings.endswith("Guide · part 3/3")
+    assert research._sources(material, findings) == ["Guide · part 2", "Guide · part 3"]
+    assert research._sources(material, "- Plain claim.") == ["Guide · part 2"]
+
+
 def test_a_quote_citing_a_part_that_was_not_read_is_dropped():
     findings, verified, total, dropped = check('- Snacks: "discussed snacks" — Guide · part 3/3')
     assert (verified, total) == (0, 1)                               # in part 2's neighbour text, but part 3 was cited

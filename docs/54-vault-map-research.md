@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 54 — Vault map and research mode
 
@@ -90,6 +90,11 @@ PRD 51 card step and a trace event (PRD 49):
   calls, and a parse failure still gets judged.
 - Chose Save to wiki keeping only Findings/Sources, with the run id in frontmatter, over saving the step list.
 - Chose exact substring after whitespace/quote/ellipsis normalisation over edit distance: no fuzzy matches.
+- Chose to accept "research about X" / "research into X" as commands (the question is X) and keep "research on /
+  for / papers / shows …" as chat: about / into are command-like, while "research on Zephyr" is as often a noun.
+- Chose a verifier that treats any `>` blockquote line in Findings as a quote shape (dropped with "no quote to
+  check"), strips a dropped bullet's quotes with their dangling "and / or / but" and doubled spaces, and lists a
+  neighbour part a quote was re-cited to under `## Sources`.
 - Depends on PRD 51 (run pages, card steps) and PRD 53 (index tables, filters; synthetic vault via
   `tests/perf/make_vault.py`, marker `perf`).
 - Risk: the map shifts with recency and makes the system prompt less cache-friendly; mitigation: the map is

@@ -72,7 +72,9 @@ PHRASES = [
     ("Research the Falcon and Zephyr budgets", "research"), ("research how the budgets differ", "research"),
     ("research Zephyr", "research"), ("Research shows coffee is healthy", None),
     ("research papers on Zephyr are boring", None), ("Research is fun, isn't it?", None),
-    ("research on Zephyr", None), ("research says otherwise", None), ("/research on Zephyr", "research"),
+    ("research on Zephyr", None),
+    ("research about Zephyr", "research"), ("research into the Zephyr budget", "research"),
+    ("research for the Zephyr budget", None), ("research about", None), ("research about is fun", None), ("research says otherwise", None), ("/research on Zephyr", "research"),
     ("what's new with you", None), ("hello there", None), ("", None),
     # PRD 52 negatives: none of these is a forget / push
     ("forget it", None), ("forget about it", None), ("don't forget to call Anna", None),

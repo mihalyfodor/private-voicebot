@@ -63,16 +63,24 @@ class Budget:
         self.t0, self.calls, self.reads, self.reason = clock(), 0, 0, ""
 
     def time_left(self) -> bool:
+        """Is the wall clock under MAX_SECONDS (else the run is cut with "budget: time")?"""
         if clock() - self.t0 <= MAX_SECONDS:
             return True
         self.cut("budget: time")
         return False
 
     def call_left(self, reserve: int = 0) -> bool:
+        """Is a model call left once `reserve` calls are kept back?"""
         return self.calls < MAX_CALLS - reserve
 
     def cut(self, reason: str) -> None:
+        """Record why the run was cut (the first reason wins)."""
         self.reason = self.reason or reason
+
+
+def _flat(text) -> str:
+    """Whitespace collapsed to single spaces (None is "")."""
+    return " ".join(str(text or "").split())
 
 
 def _complete(budget: Budget, purpose: str, system: str, user: str, max_tokens: int) -> str:
@@ -90,14 +98,14 @@ def parse_plan(raw: str, question: str) -> list:
     out = []
     for item in data if isinstance(data, list) else []:
         if isinstance(item, dict):
-            q = " ".join(str(item.get("q") or item.get("question") or "").split())
+            q = _flat(item.get("q") or item.get("question"))
             kind = str(item.get("type") or "").strip().lower()
             filters = {"type": kind} if kind in ("person", "project", "meeting", "note", "source") else None
         else:
-            q, filters = " ".join(str(item or "").split()), None
+            q, filters = _flat(item), None
         if q and q.lower() not in {s["q"].lower() for s in out}:
             out.append({"q": q, "filters": filters})
-    return out[:MAX_SUBQUESTIONS] or [{"q": " ".join(question.split()), "filters": None}]
+    return out[:MAX_SUBQUESTIONS] or [{"q": _flat(question), "filters": None}]
 
 
 # ------------------------------------------------------------------ search
@@ -105,7 +113,7 @@ def parse_plan(raw: str, question: str) -> list:
 
 def _window(text: str, query: str) -> str:
     """SNIPPET_CHARS of `text` around the first content word of `query` (whitespace collapsed)."""
-    flat = " ".join(str(text or "").split())
+    flat = _flat(text)
     lower = flat.lower()
     found = [lower.find(t) for t in wiki.content_terms(query) if lower.find(t) >= 0]
     start = max(0, min(found) - 60) if found else 0
@@ -125,7 +133,7 @@ def search(subs: list) -> list:
                 seen.add(h["path"])
                 hits.append({"q": i, "ref": h["path"], "kind": "page", "path": h["path"],
                              "title": wiki.page_title(h["path"]) or h["path"], "score": h["score"],
-                             "snippet": " ".join(h["snippet"].split())[:SNIPPET_CHARS]})
+                             "snippet": _flat(h["snippet"])[:SNIPPET_CHARS]})
                 found += 1
             for h in wiki.search_chunks(sub["q"], CHUNK_HITS):
                 ref = f"{h['title']} · part {h['n']}/{h['total']}"
@@ -166,7 +174,7 @@ def _verdicts(raw: str) -> dict:
             continue
         verdict = item.get("verdict", item.get("keep"))
         keep = verdict is True or str(verdict).strip().lower() in ("keep", "yes", "true")
-        out[n] = (keep, " ".join(str(item.get("reason") or "").split())[:200] or ("kept" if keep else "dropped"))
+        out[n] = (keep, _flat(item.get("reason"))[:200] or ("kept" if keep else "dropped"))
     return out
 
 
@@ -264,7 +272,7 @@ MIN_QUOTE = 2
 
 def normalise(text: str) -> str:
     """Curly quotes straightened, `...` as `…`, whitespace collapsed (the verifier's only leeway)."""
-    return " ".join(str(text or "").translate(_QUOTES).replace("...", "…").split())
+    return _flat(str(text or "").translate(_QUOTES).replace("...", "…"))
 
 
 def _trimmed(quote: str) -> str:
@@ -295,9 +303,10 @@ def _resolve(ref: str, material: list) -> tuple:
 def _check(quote: str, ref: str, material: list) -> tuple:
     """``(citation to keep, None)`` when the quote verifies against the part it cites, else ``(None, why)``.
     A quote found in a neighbour's text that the cited read returned gets that neighbour's citation."""
-    if "…" in _trimmed(quote):
+    trimmed = _trimmed(quote)
+    if "…" in trimmed:
         return None, "contains an ellipsis"
-    if len(_trimmed(quote)) < MIN_QUOTE:
+    if len(trimmed) < MIN_QUOTE:
         return None, "no quote to check"
     if not ref:
         return None, "no source cited"
@@ -307,46 +316,72 @@ def _check(quote: str, ref: str, material: list) -> tuple:
     if n is None:
         return label, None
     parts = source.get("parts") or {n: source["text"]}
-    if quoted_in(quote, parts.get(n, "")):
-        return label, None
-    for k in sorted(parts, key=lambda k: abs(k - n)):
+    for k in sorted(parts, key=lambda k: abs(k - n)):       # the cited part first, then its neighbours
         if quoted_in(quote, parts[k]):
-            return f"{source['title']} · part {k}/{source['total']}", None
+            return label if k == n else f"{source['title']} · part {k}/{source['total']}", None
     return label, None                           # spans the read text's boundary between two parts
 
 
+def _split(line: str) -> tuple:
+    """``(body, quotes, ref)`` of a quote-straightened Findings line: the claim and its quote without the
+    citation, every double-quoted span, and the cited source ("" when none). The citation's source text holds
+    no `"`, so it follows the last quote."""
+    cite = CITATION.search(line)
+    return (line[:cite.start()] if cite else line), QUOTE.findall(line), (cite.group("ref").strip() if cite else "")
+
+
+def _shape(line: str, quotes: list, ref: str, material: list) -> str:
+    """How a Findings line is checked: `claim` (nothing to check), `blockquote`, `bare` (a citation of
+    something read but no quote), `many` (two or more quotes) or `one`."""
+    if line.lstrip().startswith(">"):
+        return "blockquote"
+    if not quotes:
+        return "bare" if ref and (PART.match(normalise(ref)) or _resolve(ref, material)[0]) else "claim"
+    return "many" if len(quotes) > 1 else "one"
+
+
+#: a connective left hanging where a quote was cut out of a claim
+_DANGLING = re.compile(r"\s+(?:and|or|but|plus|vs\.?|versus|&)$", re.I)
+
+
+def _claim(body: str) -> str:
+    """The claim without its quote marks and quoted spans: runs of spaces collapsed and a dangling
+    connective or colon trimmed (`- Both: "a" and "b"` is `- Both`)."""
+    text = re.sub(r"(?<=\S) {2,}", " ", SINGLE.sub("", QUOTE.sub("", body)))
+    while True:
+        trimmed = _DANGLING.sub("", text.rstrip(" \u2014\u2013-:,;"))
+        if trimmed == text:
+            return text
+        text = trimmed
+
+
 def verify(findings: str, material: list) -> tuple:
-    """``(findings, verified, total, dropped)``. Every Findings line carrying a quote or a citation counts:
-    it must hold exactly one double-quoted span (≥ 2 chars, no inner ellipsis) and cite a part this run read
-    whose text holds it. Otherwise its quote and citation go (the claim stays; a line left empty, or a
-    `>` blockquote, goes whole) and `{quote, ref, why}` lands in `dropped`."""
+    """``(findings, verified, total, dropped)``. Every Findings line carrying a quote or a citation counts,
+    and so does any `>` blockquote: it must hold exactly one double-quoted span (≥ 2 chars, no inner
+    ellipsis) and cite a part this run read whose text holds it. Otherwise its quote and citation go (the
+    claim stays; a line left empty, or a blockquote, goes whole) and `{quote, ref, why}` lands in `dropped`."""
     lines, verified, total, dropped = [], 0, 0, []
     for raw in findings.splitlines():
         line = raw.translate(_QUOTES)
-        quotes = QUOTE.findall(line)
-        cite = CITATION.search(line)                     # its source text holds no `"`: it follows the last quote
-        ref = cite.group("ref").strip() if cite else ""
-        if not quotes and not (ref and (PART.match(normalise(ref)) or _resolve(ref, material)[0])):
-            lines.append(raw)                            # a plain claim: nothing to check
+        body, quotes, ref = _split(line)
+        shape = _shape(line, quotes, ref, material)
+        if shape == "claim":
+            lines.append(raw)
             continue
         total += 1
-        body = line[:cite.start()] if cite else line     # the claim and its quote, without the citation
-        singles = SINGLE.findall(body) if not quotes else []
-        claim = SINGLE.sub("", QUOTE.sub("", body)).rstrip(" \u2014\u2013-:,;")
-        blockquote = line.lstrip().startswith(">")
-        if blockquote or not quotes:
-            keep, why = None, "no quote to check"
-        elif len(quotes) > 1:
-            keep, why = None, "more than one quote"
-        else:
+        if shape == "one":
             keep, why = _check(quotes[0], ref, material)
+        else:
+            keep, why = None, "more than one quote" if shape == "many" else "no quote to check"
         if keep is not None:
             verified += 1
             lines.append(f"{body.rstrip()} \u2014 {keep}")
             continue
-        quote = " / ".join(quotes or singles) if quotes or singles else claim.lstrip("> -*").strip()
-        dropped.append({"quote": quote, "ref": normalise(ref), "why": why})
-        if not blockquote and claim.strip(" -*\u2014\u2013:,;."):
+        claim = _claim(body)
+        singles = SINGLE.findall(body) if not quotes else []
+        dropped.append({"quote": " / ".join(quotes or singles) or claim.lstrip("> -*").strip(),
+                        "ref": normalise(ref), "why": why})
+        if shape != "blockquote" and claim.strip(" -*\u2014\u2013:,;."):
             lines.append(claim)
     return "\n".join(lines).strip(), verified, total, dropped
 
@@ -368,14 +403,28 @@ def _markdown(title: str, findings: str, sources: list, dropped: list) -> str:
     return out
 
 
-def _sources(material: list) -> list:
-    """The `## Sources` lines: `card_sources` over the chunks read, then the page titles."""
-    return llm.card_sources([(m["source"], m["title"], m["n"]) for m in material if m["kind"] == "chunk"],
-                            [m["title"] for m in material if m["kind"] == "page"])
+def _cited_chunks(findings: str, material: list) -> list:
+    """``(source, title, n)`` for every chunk part the verified bullets cite (a neighbour part re-cited by
+    `_check` is one the read returned but `material` does not list)."""
+    out = []
+    for line in findings.splitlines():
+        m = PART.match(normalise(_split(line.translate(_QUOTES))[2]))
+        read = m and next((x for x in material if x["kind"] == "chunk" and normalise(x["title"]) == m.group("title")), None)
+        if read:
+            out.append((read["source"], read["title"], int(m.group("n"))))
+    return out
+
+
+def _sources(material: list, findings: str = "") -> list:
+    """The `## Sources` lines: `card_sources` over the chunks read and the parts the findings cite, then the
+    page titles."""
+    chunks = [(m["source"], m["title"], m["n"]) for m in material if m["kind"] == "chunk"]
+    chunks += [c for c in _cited_chunks(findings, material) if c not in chunks]
+    return llm.card_sources(chunks, [m["title"] for m in material if m["kind"] == "page"])
 
 
 def _label(text: str) -> str:
-    text = " ".join(text.split())
+    text = _flat(text)
     return text if len(text) <= LABEL_CHARS else text[:LABEL_CHARS - 1] + "…"
 
 
@@ -386,7 +435,7 @@ def run(question: str, origin: str = "typed", notify=None, request: str = "") ->
     a failure ends the run failed (the card keeps that status) and re-raises. `request` is the user's turn
     as the conversation records it (default "research <question>")."""
     notify = notify or (lambda card, new=False: None)
-    question = " ".join(str(question or "").split())
+    question = _flat(question)
     flow = runs.Run("research")
     rec = {"run_id": flow.run_id, "question": question, "origin": origin, "status": "running", "reason": "",
            "steps": [], "subquestions": [], "hits": [], "reads": [], "calls": 0, "card_id": ""}
@@ -463,7 +512,7 @@ def run(question: str, origin: str = "typed", notify=None, request: str = "") ->
 
         status = "nothing" if not verified else "partial" if budget.reason else "done"
         reason = "nothing" if status == "nothing" else budget.reason or "ok"
-        sources = _sources(material)
+        sources = _sources(material, findings)
         markdown = _markdown(title, findings, sources, dropped)
         rec.update(status=status, reason=reason, calls=budget.calls)
         flow.end(status, reason.replace(": ", "-"))
