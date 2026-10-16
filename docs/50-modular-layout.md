@@ -95,6 +95,11 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
 - No ABCs, DI container, async rewrite, config framework, event bus or gateway; plain modules and functions.
 - `static/app.js` untouched; risk: a shim hides a missed retarget; mitigation: step 12 deletes all shims and the
   full suite must stay at the same count.
+- Chose starting after PRD 49 merges (done 2026-10-16) over waiting on 51-55: later PRDs rebase onto the current
+  layout at their own gate, and no PRD waits for 50.
+- Chose `agent/approvals.py` (PRD 52 registry) and `server/runs.py` (PRD 51 run pages) over other homes: the `writes`
+  flag on tools is the hook.
+- Chose deleting the shims at step 12 over keeping them one release: the layer test then fails any old import.
 
 ## Data model
 - Layer graph: `core < vault < memory < ingest < tools < agent < server`; `scripts/` and `chatbot.py` on top. A
@@ -133,8 +138,4 @@ Approval/confirm UI for `writes` tools (PRD 52), run pages for workflows (PRD 51
 change, performance work, a new tool or command.
 
 ## Open design questions
-- **Sequencing against PRDs 51-55:** the split moves lines those PRDs edit. Recommend 50 starts after 49 merges and
-  each later PRD rebases onto the current layout at its own gate; no PRD waits for 50.
-- **Where do PRD 52's approval registry and PRD 51's run pages live?** Recommend `agent/approvals.py` and
-  `server/runs.py` (the `writes` flag on tools is the hook), decided when 52 and 51 are signed off.
-- **Delete the shims at step 12 or keep one release?** Recommend delete: the layer test then fails any old import.
+None open.

@@ -12,9 +12,10 @@ path, and keeps scores, recall rules and the prompt index byte-for-byte what the
 ## User stories
 - As a user with thousands of pages and ~1k filed books, a spoken question is answered as fast as with ten.
 - As a user, filing one more source or saving a page makes it searchable on the next turn, without a rebuild pause.
-- As a user, an edit I make in Obsidian is still picked up (as today, `_corpus` docstring, wiki.py:850).
+- As a user, an edit I make in Wanko's editor is searchable on the next turn, and after a crash or an edit made while
+  the app was down the index repairs itself at startup.
 - As a user, `lint` no longer tells me 50 pages are "missing from index.md" just because there are 250 of them.
-- As a developer, `python -m wiki reindex` (or `wiki.reindex()`) recovers a broken or deleted index in one call.
+- As a developer, `python -m wiki reindex` (or `wiki.reindex()`, the `rebuild` command) recovers a broken or deleted index in one call.
 
 ## UI/UX
 None. No new screen, message or setting; `index.md` stays a human-readable view.
@@ -51,9 +52,10 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
   `create_page`, `save_card`, ingest ops), `rename_page` (769), `delete_page` (807), `sources.forget`
   (sources.py:1425-1437, with `drop_raw_chunks`), filing a source (sources.py:1299-1304) and each batch-import item
   (batch_import.py `_one`, 121). Pages key on (mtime, sha); sources on manifest sha.
-- **Obsidian edits:** replace the per-search `os.walk` with a cheap staleness check: the mtimes of the vault's
-  folders (an add, delete or rename changes them) on every search, plus a full file-mtime sweep at most every
-  `INDEX_SWEEP_S = 5` s; a stale page is re-indexed alone. Parsed frontmatter + one-liner live in the `pages` table.
+- **Consistency:** the app's write paths are the only writers (all edits go through Wanko's editor and ingest paths;
+  external edits are out of scope), so there is no per-search mtime sweep. A startup consistency check compares the
+  stored shas/mtimes to the files on disk and the manifest and repairs what differs; `rebuild` (`reindex`) is the
+  safety net. Parsed frontmatter + one-liner live in the `pages` table.
 - **Scoring:** `_bm25` keeps its formula and `_K1, _B = 1.5, 0.75` (825), fed from postings: N and avgdl from
   `doc_len`, DF from `terms` (or from postings restricted to the named sources, because `search_chunks` scores the
   filtered subset, 1218-1219, so its N/avgdl/DF are the subset's). Only docs holding ≥ 1 query term are touched.
@@ -75,9 +77,15 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
   reproduce per-term proper weights, subset statistics or `_stem`; parity with PRDs 32/34/42 matters more than code.
 - Chose `lint` against the table over an uncapped `index.md` because `index.md` is a human view and 5k lines help no one.
 - Assume one indexed term fetch per query term stays < 50 ms p95 at 15k chunks; if false, cache hot postings in memory.
-- Risk: a write path misses its hook and search goes stale; mitigation: the 5 s mtime sweep, a sha check on the
-  manifest, and `reindex` from lint when the table and disk disagree.
-- Keep `raw/.index/<sha>.json` as the chunk text store (chunking stays per sha); the DB indexes it.
+- Risk: a write path misses its hook and search goes stale; mitigation: the startup consistency check, a sha check on
+  the manifest, and `reindex` from lint when the table and disk disagree.
+- Chose `<vault>/.index/search.sqlite` (pages and chunks together) over `raw/.index/`, which is source-scoped; one more
+  `.gitignore` line.
+- Chose our scorer over plain tables with FTS5 only if the 50 ms gate fails (see above): golden-score parity first.
+- Chose to keep chunk text in `raw/.index/<sha>.json` over moving it into the DB: no migration, the DB holds postings.
+- Chose to leave the prompt `index_text` identical here over changing what the prompt sees: PRD 54's map decides that;
+  53 only makes it cheap.
+- Chose no Obsidian support (the user does not use it) over staleness sweeps: no mtime sweeps, no fsevents.
 
 ## Data model
 ```
@@ -86,7 +94,7 @@ chunks(id PK, source, raw, sha, title, n, total, text_offset, length)        -- 
 terms(corpus, term, df, PRIMARY KEY(corpus, term))                           -- corpus: 'page' | 'chunk'
 postings(corpus, term, doc, tf, positions)  INDEX(corpus, term)              -- doc = pages.path | chunks.id
 proper(term PK, seen, titled)                                                -- ratio = titled / seen
-meta(key PK, value)                                                          -- schema version, manifest sha, last sweep
+meta(key PK, value)                                                          -- schema version, manifest sha, last startup check
 ```
 Invariants: one transaction per document change; `terms.df` = count of postings rows for (corpus, term);
 `doc_len` sums give avgdl; a document absent from disk / manifest has no rows; `reindex` from scratch equals the
@@ -105,8 +113,8 @@ incrementally reached state (row-for-row).
    `index.md` still has 200 lines; a page on disk the table lacks is reported.
 6. **`index_text` golden** (`tests/test_index.py`): for the fixture vault the string equals today's, byte for byte;
    it performs no page reads (patched `_read` counts 0).
-7. **Obsidian edit**: an external write (bumped mtime, no hook) is reflected within `INDEX_SWEEP_S`; a new file in
-   `people/` is found on the next search (folder mtime changed).
+7. **Startup check**: one page edited while the app was down (file changed, no hook ran) is repaired by the startup
+   consistency check and found on the next search.
 8. **Filters**: `search("anna", filters={"type": "person"})` returns only person pages; `updated_from` excludes older.
 9. **Cache invalidation + crash** (`tests/wiki/test_index_db.py`): a changed sha re-indexes that source alone; a
    killed update (exception raised mid-transaction) leaves the prior state intact and `PRAGMA integrity_check` ok.
@@ -116,16 +124,8 @@ incrementally reached state (row-for-row).
     (`tests/qa/stress.py`) correct/partial/wrong totals equal the PRD 43 run.
 
 ## Out of scope
-Embeddings (PRD 55), the vault map (PRD 54), FTS5, any app.js / UI change, new ranking rules or score recalibration,
+Embeddings (PRD 55), the vault map (PRD 54), FTS5, external (non-app) edits, per-search staleness sweeps, any app.js / UI change, new ranking rules or score recalibration,
 chunking changes, a file watcher (fsevents) daemon.
 
 ## Open design questions
-- **FTS5 or our scorer?** Recommend our scorer over plain tables (golden-score parity, proper weights, subset
-  stats); revisit FTS5 only if postings fetch misses the 50 ms gate.
-- **Where does the file live?** Recommend `<vault>/.index/search.sqlite` (pages and chunks together) over
-  `raw/.index/`, which is source-scoped; one more `.gitignore` line.
-- **Staleness detection for Obsidian edits:** recommend folder mtimes per search + a 5 s throttled sweep; fsevents
-  only if the sweep shows up in p95.
-- **Chunk text in DB or JSON?** Recommend keeping `raw/.index/<sha>.json` for text (no migration), DB for postings.
-- **Prompt index at scale:** `index_text` is alphabetical and 600 tokens covers ~15 pages of 5k; recommend keeping it
-  identical here and letting PRD 54 (the map replaces `index_text` in the prompt; 53 only makes it cheap) decide what the prompt sees.
+None open.

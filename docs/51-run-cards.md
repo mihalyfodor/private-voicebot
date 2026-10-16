@@ -83,15 +83,26 @@ Depends on PRD 49 (event trace: `run_id`, spans). Consumed by PRD 52 (approvals)
 - Chose a server-rendered page over a client view: opens in a new tab from any card, no app state, nothing to keep
   in sync; first such page, kept to one module with escape-on-every-field.
 - Chose events + vault git as the only page inputs: the page shows exactly what prod is allowed to log (no text);
-  page bodies stay in the wiki where Obsidian shows them.
+  page bodies stay in the wiki where Wanko's editor shows them.
 - Assume the run's events are in the current rotation window; if a run aged out, the 404 says so — no index.
 - Risk: a new `detail` string leaks text; mitigation: details are built from counts/titles only and the PRD 49
   sentinel test is extended to the run page HTML.
+- Chose optional `markdown` on `card_update` over emitting the write-up card only at the end: the body arrives with
+  the final status and the card keeps its running state.
+- Chose an empty run-card body for the briefing (header + steps + Open run) over a body: "write it up" still produces
+  the PRD 46 content card.
+- Chose `commit` on `ingest_end` (one `rev-parse` after the commit) over matching `git log` by time window, which
+  mis-assigns when two writers commit in the same second.
+- Chose deriving host-run status on the page over a `POST /runs/{id}/end` from the script: no extra write path.
+- Chose serving run pages in prod with the same origin check as `/ingest`, no extra auth and no text, over auth or
+  dev-only: the app is localhost-bound; revisit if the port is ever exposed.
+- Chose content-label origin from the commit subject (`wiki: edit` -> you, ingest -> source, page ops -> Wanko) via the
+  existing `_USER_COMMIT`/`_CHAT_COMMIT` regexes (wiki.py:1388-1389) over a new field.
 
 ## Data model
 - Card: `{type: card, id, markdown, sources, title, run_id?, workflow?, status?, steps?: [{label, status:
   pending|running|ok|skipped|error, detail?}] ≤ 6, actions?: [{id, label, kind: open|copy|approve|reject}],
-  run_url?: "/runs/<run_id>"}`; `card_update {type, id, status, steps?, actions?}`.
+  run_url?: "/runs/<run_id>"}`; `card_update {type, id, status, steps?, actions?, markdown?, commit?}`.
 - Run (built per request, not stored): `{run_id, workflow, start, end?, status, reason, steps[], did: {pages:
   [{path, commit, stat, origin: source|wanko|user}], sources: [{title, part}], memory: {added, updated, removed}},
   did_not: [{item, reason}], errors: [{exc_type, first_line}]}`.
@@ -126,16 +137,4 @@ Approvals and the `approve`/`reject` handlers (PRD 52); streaming each step live
 states); a runs list/index page; retention beyond log rotation; React or any client framework; runs for chit-chat.
 
 ## Open design questions
-- **Should `card_update` carry `markdown`?** The write-up's body arrives with the final status, so `{id, status,
-  steps?, actions?}` cannot fill it. Recommendation: add optional `markdown`; the alternative is emitting the write-up
-  card only at the end (no running state).
-- **Briefing card body.** Today the briefing has no card until "write it up" (llm.py:803). Recommendation: the run
-  card body is empty (header + steps + Open run); "write it up" still produces the PRD 46 content card.
-- **Commit sha source.** Recommendation: add `commit` to `ingest_end` (one `rev-parse` after the commit) over
-  matching `git log` by time window, which mis-assigns when two writers commit in the same second.
-- **Host-run end.** reMarkable runs have no end event. Recommendation: derive status on the page; the alternative is
-  a `POST /runs/{id}/end` from the script — one more write path.
-- **Run page exposure in prod.** The page has titles, paths and shas but no text. Recommendation: same origin check
-  as `/ingest` and no extra auth (localhost-bound app); revisit if the port is ever exposed.
-- **Content labels.** Recommendation: origin from the commit subject (`wiki: edit` → you, ingest → source,
-  page ops → Wanko) via the existing `_USER_COMMIT`/`_CHAT_COMMIT` regexes (wiki.py:1388-1389).
+None open.

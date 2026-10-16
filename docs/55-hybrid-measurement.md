@@ -31,7 +31,8 @@ None. Phase 1 is an offline script; phase 2 changes no screen, message or settin
   passages that answer it\nQuery: …`), chunks none; vectors L2-normalised client-side.
 - **Phase 1 (S) — `scripts/retrieval_bench.py`**, offline, never imported by the app:
   - Corpora: a copy of the dev vault (`~/llm-wiki-dev`, read-only copy as `tests/qa/stress.py:62` `seed` does) and a
-    synthetic vault from PRD 53's `tests/perf/make_vault.py` (marker `perf`) at ≥ 10× the dev chunk count.
+    synthetic vault from PRD 53's `tests/perf/make_vault.py` (marker `perf`, run with its new `--prose` option:
+    invented-name paragraphs, no FAQ keywords) at ≥ 10× the dev chunk count.
   - Embeds every chunk of `wiki._chunk_corpus()` (`wiki.py:1072`) once, batched 32, into `raw/.index/emb-<model>.f16.npy`
     + `emb-<model>.json` (row → `{sha, n}`), keyed by raw sha like the chunk cache (`wiki.py:1036`, gitignored per
     `wiki.py:211`); a re-run embeds only rows whose sha is new. Since PRD 53's SQLite index is the base (55 depends on 53), the same rows
@@ -41,12 +42,14 @@ None. Phase 1 is an offline script; phase 2 changes no screen, message or settin
     `score(d) = Σ 1/(60 + rank_i(d))` over the BM25 top-20 and embedding top-20, then the same precision gate.
   - Reports per corpus: hit@1/hit@2 per question group, precision violations (an emitted hit that `_recall_hits`'
     rules — two matched topic words or `wiki.proper_match` (`wiki.py:1229`) — would reject), hard negatives with any
-    kept hit, and added query latency p50/p95 (one query embed call + the dot product), as a markdown table on stdout.
+    kept hit, and added query latency p50/p95 (one query embed call + the dot product) measured serial (worst case) and parallel
+    (embed alongside BM25) with the chat model loaded, as a markdown table on stdout. Hybrid is reported gated and
+    relaxed (cosine ≥ τ counts as one matched word; information only).
   - Question set `eval/retrieval_questions.json`: the battery's A1–A14 and C1–C4 (`tests/qa/stress.py:283`, `:320`)
-    with labelled expected `(raw, part)` sets; 30 paraphrases of them that avoid the source's words; 20 hard negatives
+    with hand-labelled expected `(raw, part)` sets (from the battery's expectation strings, checked against the raw files once, committed as the JSON); 30 paraphrases of them that avoid the source's words; 20 hard negatives
     (chit-chat carrying corpus names: the PRD 45 band cases "Are you listening, Uncle?", "Vivec is annoying", "How
     long should I steep green tea?" (`docs/45-ask-before-lookup.md:87`), "what should we cook", Ada vs Ada Lovelace).
-  - **Adoption bar** (all three, dev vault and synthetic): hybrid paraphrase hit@2 ≥ BM25 + 15 points; zero new
+  - **Adoption bar** (judged on the gated hybrid only; all three, dev vault and synthetic): hybrid paraphrase hit@2 ≥ BM25 + 15 points; zero new
     precision violations on the hard negatives; added p95 ≤ 30 ms. Otherwise `docs/reviews/<date>-hybrid-retrieval.md`
     records the table and this PRD is set `done` as "measured, not adopted".
 - **Phase 2 (M, only if adopted):** hybrid inside `search_chunks` with the precision gate unchanged — embeddings may
@@ -62,6 +65,13 @@ None. Phase 1 is an offline script; phase 2 changes no screen, message or settin
 - Precision gate stays the arbiter: embeddings only re-rank or propose; PRD 45's band policy is untouched.
 - Assume Qwen3-Embedding-0.6B (Q8) is good enough to decide; if hybrid misses the bar by < 5 points, try one
   larger embedding model before closing, never more.
+- Chose a `--prose` option on PRD 53's `make_vault.py` over a second generator: one generator, realistic prose.
+- Chose reporting a relaxed hybrid for information and adopting on the gated one: the precision rule cannot be
+  bypassed.
+- Chose hand-labelled expectations committed as JSON over generated labels.
+- Chose measuring latency serial and parallel over one number: serial is the worst case, parallel the real one.
+- Chose measuring with the chat model loaded (embed server on :8082, chat on :8080/:8000) over an idle box: that is
+  the real condition.
 - Risk: the 4-bit chat model, not retrieval, causes the A10/A11 misses; mitigation: hit@k is measured on retrieval
   alone, so the answer model cannot blur the result.
 
@@ -95,14 +105,4 @@ Rerankers (cross-encoder or LLM), fine-tuning, web search, changing the band pol
 `RECALL_HIGH_SCORE`, embedding wiki pages (pages join recall by name, PRD 42), a vector DB or new service.
 
 ## Open design questions
-- **Synthetic vault realism:** PRD 53's `tests/perf/make_vault.py` makes keyword-dense template text; recommend the bench
-  passes a `--prose` option to it (invented-name paragraphs, no FAQ keywords) rather than a second generator.
-- **Gated vs relaxed hybrid:** paraphrases fail today mostly at the precision rule, which a gated hybrid cannot
-  bypass; recommend also reporting a relaxed variant (cosine ≥ τ counts as one matched word) for information only,
-  with adoption judged on the gated one.
-- **Labelling expected parts:** recommend labelling by hand from the battery's expectation strings, checked against
-  the raw files once, and committing the JSON.
-- **Latency budget source:** the 30 ms p95 assumes the embed call runs alongside BM25 at end-of-speech; recommend
-  measuring it serial (worst case) and parallel.
-- **Chat model co-residency:** the embed server is separate from the chat model on :8080/:8000; recommend recording
-  memory and latency with the chat model loaded, since that is the real condition.
+None open.

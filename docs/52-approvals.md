@@ -36,8 +36,10 @@ voice stays first, the button is never required.
   `sess.pending` (replacing any older one).
 - **One-turn pop**, the `_deeper_offer` model (llm.py:295, popped at llm.py:1064-1066, re-set at llm.py:1220): every
   turn starts with `pending, sess.pending = sess.pending, None`. In `_respond` (chatbot.py:573), before the
-  new-topic / write-up branches: pending ∧ `llm.is_affirmative(text)` (llm.py:619-623) → `resolve_pending(sess,
-  "approve", via="voice")`; pending ∧ anything else → dropped silently, the turn runs as normal (as today's offers).
+  new-topic / write-up branches: pending ∧ `llm.is_approval(text)` (new; reuses `is_affirmative`'s leads, llm.py:619-623, with
+  the write words below) → `resolve_pending(sess, "approve", via="voice"|"typed")`; pending ∧ a short explicit "no" →
+  `resolve_pending(sess, "reject", …)` with one short line; pending ∧ anything else → cleared silently, the turn runs
+  as normal (as today's offers).
 - **Button**: new WS action `resolve {run_id, decision: approve|reject}` → `submit_turn(resolve_turn, …)`
   (chatbot.py:315), so it serialises with speech on the one TurnController worker (session.py:42-125) and can never
   race a "yes".
@@ -51,7 +53,7 @@ voice stays first, the button is never required.
   ("Which one: A or B?"), no pending set.
 - **Push (47b)**: "send that to my reMarkable" proposes `{card_id, title, pages}` for `llm.last_card`; approve calls
   the 47b push; no card → error {scope: turn} "nothing to send". The kind registry is a dict `kind → (plan, apply,
-  spoken)` in one new module `approvals.py`, so 47b adds one entry.
+  spoken)` in one new module `agent/approvals.py`, so 47b adds one entry.
 - `forget_source` action keeps its name but no longer writes: it proposes. `confirm: true` is gone; the protocol row
   (docs/protocol.md:47) is rewritten, `resolve` and `card_update` rows added (the `card_update` row itself is PRD 51's).
 - **Replay**: the awaiting / resolved card is stored as an assistant turn with a marker (as PRD 43 cards,
@@ -63,8 +65,16 @@ voice stays first, the button is never required.
   a stale "yes" never applies to something older.
 - Resolve through the TurnController over a direct handler: voice and button share one path and one ordering.
 - Approval binds the content hash, not just the run_id: a source re-ingested between ask and click is refused.
-- Assume `is_affirmative` is strict enough for deletes (≤ 6 words, fixed list); if "yes delete it" misses, revisit
-  (open question).
+- Chose a separate `is_approval` (explicit words: yes/delete/forget/send/approve/confirm) over widening
+  `_AFFIRMATIVE_WORDS` (llm.py:550-551): writes need explicit words while offers (PRD 45/46) keep `is_affirmative`.
+- Chose `save_card` outside approval over gating it: it is an explicit user action that only adds a page; approvals are
+  for deletes and writes leaving the vault.
+- Chose `via: typed` for a typed "yes", same path as spoken, over folding it into `voice`.
+- Chose one short line for a spoken "no"/Reject ("Left it.") and a silent clear for any other turn over always
+  acknowledging.
+- Chose independence from PRD 51's `card_update` `markdown` (decided there): 52 needs only status, actions, commit.
+- Chose a proposal card in the transcript plus a toast linking to it for a Sources-view Forget click over a
+  view-local confirm, so the one model holds.
 - Depends on PRD 51 (`actions`, `card_update`, run pages; PRD 51's shapes are canonical). Risk: 51 changes shape; mitigation: land 51 first and
   keep this PRD to one `kind` registry plus two handlers.
 
@@ -75,7 +85,7 @@ voice stays first, the button is never required.
 - `Session.pending`: `{run_id: str, kind: "forget"|"push", proposal: dict, hash: str, created: float}` | None.
   Invariant: at most one; cleared by the first turn that starts after it; never persisted.
 - Proposal (forget): `{sha, page, raw, cleaned: [page], memory: [entry text]}`; (push): `{card_id, title, pages}`.
-- Event: `decision {run_id, kind, decision: approve|reject|expired|changed, via: voice|button}` (no text in prod).
+- Event: `decision {run_id, kind, decision: approve|reject|expired|changed, via: voice|typed|button}` (no text in prod).
 - Card (PRD 51): `status: awaiting|done|rejected`, `actions: [{id, label, kind: approve}, {id, label, kind: reject}]` while awaiting (PRD 51's action shape), `commit?` on `card_update`.
 
 ## Test scenarios
@@ -86,8 +96,9 @@ voice stays first, the button is never required.
    event `{decision: approve, via: voice}`, `card_update {id, status: done, commit}`, one spoken line; `sess.pending` None.
 3. Same file: `resolve {run_id, decision: approve}` instead of "yes" → the same files gone and the same messages,
    `via: button`; `resolve {decision: reject}` → nothing written, `card_update {id, status: rejected}`.
-4. Same file: "no" (or "what's the weather") after the proposal → nothing written, no spoken mention, pending None;
-   a later `resolve` for that run_id → `error {scope: turn}` "that request expired", nothing written.
+4. Same file: "what's the weather" after the proposal → nothing written, no spoken mention, pending None; a spoken
+   "no" → nothing written, one short line ("Left it."), `decision {reject, via: voice}`; a typed "yes" resolves as
+   approve with `via: typed`; "yeah sure" does not approve a forget; a later `resolve` for that run_id → `error {scope: turn}` "that request expired", nothing written.
 5. Same file: proposal A, then proposal B; `resolve` with A's run_id → "that request expired", B still pending and
    intact; the source changed between ask and approve (hash differs) → "changed" error, nothing written.
 6. `tests/session/test_approvals.py`: the run page for the run_id shows the proposal body while pending and the
@@ -104,15 +115,4 @@ Multi-step or chained approvals, approvals from another device, timeouts beyond 
 approvals for memory ops or wiki editor saves.
 
 ## Open design questions
-- **Affirmative words for writes**: add "delete/forget/send/approve/confirm" to `_AFFIRMATIVE_WORDS`
-  (llm.py:550-551)? Recommend yes, scoped to approvals only (a separate `is_approval` reusing the leads), so offers
-  stay unchanged.
-- **`save_card` behind approval**: recommend no — it is an explicit user action that only adds a page; approvals are
-  for deletes and writes leaving the vault.
-- **Spoken "no" acknowledgement**: silent drop (as offers) or "Left it."? Recommend silent for any other turn,
-  one line only for an explicit short "no" / Reject.
-- **Typed "yes"**: resolves exactly like spoken (via=voice, or a third `via: typed`)? Recommend `via: typed`, same path.
-- **`card_update` and `markdown`**: 52 needs none (status, actions, commit only); PRD 51 asks whether `card_update` may
-  carry `markdown`. Recommend keeping 52 independent of the answer; decide once, in 51.
-- **Button-only Forget from the Sources view**: proposal card in the transcript even when on the Sources view?
-  Recommend yes, plus a toast linking to it, so the one model holds.
+None open.

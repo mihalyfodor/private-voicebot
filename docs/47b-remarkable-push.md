@@ -20,9 +20,9 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
 ## UI/UX
 - Command (typed or spoken, whole-turn regex like `_SAVE_NOTE`, chatbot.py:429): "send (this|that|it|the page) to
   my remarkable", "push … to the tablet". Target = last card (`llm.last_card`, chatbot.py:456) if newer than the open
-  wiki page, else the open page; neither -> "nothing to send" (nothing spoken beyond that, nothing pending).
-- Proposal card (PRD 52 pending slot): "Send 'Compound Key at Covenant' (3 pages) to reMarkable?" with Approve /
-  Reject; a spoken "yes" resolves it via `is_affirmative`.
+  wiki page, else the open page (newest wins; the proposal names the target, e.g. "card" or "page"); neither -> "nothing to send" (nothing spoken beyond that, nothing pending).
+- Proposal card (PRD 52 pending slot): "Send the card 'Compound Key at Covenant' (~3 pages) to reMarkable?" with Approve /
+  Reject; a spoken or typed "yes" resolves it via PRD 52's `is_approval`.
 - On approval a run card (PRD 51) shows running -> done ("uploaded 'Title', 3 pages") and Wanko says one line:
   "Sent to your reMarkable." Failure turns the run card to failed with the service's one-line reason.
 - Status row "reMarkable push :8021" joins the services table (red = start command copy button, as for ASR).
@@ -59,6 +59,10 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
 - `cupsfilter` text->PDF over HTML->PDF: HTML did not render in the probe; plain monospaced is enough for reading.
 - Approval + run card over fire-and-forget: a push puts a file on a device, so it follows PRD 52/51 like any write.
 - Build the Swift helper lazily over a committed binary: no binary in git; the first pull pays a few seconds.
+- Chose newest-wins for the card-vs-open-page target, named in the proposal title, over asking which: Reject is cheap.
+- Chose a local page estimate shown with "~" in the proposal, exact count only in the run card, over rendering twice.
+- Chose shipping the daily pull plist unloaded over loading it by default: a tablet that is usually unplugged makes a
+  daily pull mostly noise.
 - Risk: the device `/upload` shape is unverified; mitigation: fake device follows the documented shape and a
   manual scenario checks the real tablet before merge.
 
@@ -95,6 +99,4 @@ Two-way sync, annotations or merging edits back, reMarkable cloud, rendering ima
 or listing device documents, choosing a device folder, pushing several items at once.
 
 ## Open design questions
-- Target ambiguity (card vs open page): recommend newest-wins, named in the proposal title so Cancel is cheap.
-- Page count in the proposal: recommend a local estimate with "~", exact count only in the run card.
-- Daily pull plist: recommend shipped but unloaded, since a tablet that is usually unplugged makes it mostly noise.
+None open.

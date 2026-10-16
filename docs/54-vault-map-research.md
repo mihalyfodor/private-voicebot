@@ -39,8 +39,8 @@ memory.py:616 (`<wiki_index>` in the system prompt), sources.py:1101 (`propose_p
 - [[people/anna]] — Anna, person — sister, lives in Lyon
 - … top pages …  +37 more
 ```
-- Folder order: by page count, then name. Per folder: rank pages by `inbound links` (`backlinks`, wiki.py:861) +
-  recency (`updated`, decayed by days), tie-break path; the folder header lists its top 3 tags.
+- Folder order: by page count, then name. Per folder: rank pages by `inbound links × 2` (`backlinks`, wiki.py:861; `MAP_LINK_WEIGHT = 2`) +
+  recency (`updated`, half-life 30 days; `MAP_RECENCY_HALF_LIFE_D = 30`), tie-break path; the folder header lists its top 3 tags.
 - Fitting: round-robin — every folder gets its header and best page first, then the next page of each folder, until
   the cap; each folder ends with "+n more". A folder never vanishes while the cap allows its header.
 - Incremental: the per-page row (one-liner, links, updated, tags) is cached keyed by path+mtime — on the PRD 53 index
@@ -53,20 +53,22 @@ PRD 51 card step and a trace event (PRD 49):
 1. **Plan** — one completion → JSON list of ≤ 4 sub-questions (extra dropped; unparseable → the question itself).
 2. **Search** — per sub-question `wiki.search(q, 5)` (wiki.py:911) + `wiki.search_chunks(q, 3)` (wiki.py:1202), with
    PRD 53 folder/type filters when the plan names them; no model call.
-3. **Judge** — one completion over all sub-questions' top-k (path/title + 300-char snippet each) → `keep|drop` with a
-   one-line reason per hit; unjudged hits are dropped ("not judged").
+3. **Judge** — one batched completion over all sub-questions' top-k (path/title + 300-char snippet each) → `keep|drop`
+   with a one-line reason per hit; if the batch JSON fails to parse, fall back to one call per sub-question; unjudged
+   hits are dropped ("not judged").
 4. **Read** — the kept chunks via `wiki.read_source(source, n)` (wiki.py:1236), pages via `read_page`, best score
    first, ≤ `RESEARCH_MAX_READS` = 6.
 5. **Write** — one `long` completion with the card prompt variant: `## Findings` (bullets, each with a quoted span
    `"…" — Title · part n/N`) and `## Sources` (the `card_sources` lines, llm.py:768).
-6. **Verify** — deterministic: each quoted span, whitespace/quote-normalised, must be a substring of the cited
+6. **Verify** — deterministic: each quoted span, whitespace/quote/ellipsis-normalised, must be a substring of the cited
    chunk/page text that was read; otherwise the bullet's quote is removed and listed under `### Dropped`. Zero
    verified quotes → status `nothing`.
 - **Budget governor**: sub-questions ≤ 4, reads ≤ 6, model calls ≤ 8 (plan 1 + judge 1 + write 1 + ≤ 5 retries/
   repairs), wall clock 90 s (`time.monotonic`). Every check is a run step; on exhaustion the run skips to Write with
   what it has (or ends `nothing` if nothing was kept), status `partial`, reason "budget: reads" etc.
 - Output: `llm.write_up`'s card shape `{id, markdown, sources, title}` stored in `_cards` / `last_card`, so **Save
-  to wiki** and "save that as a note" go through `wiki.save_card` (wiki.py:737) unchanged; `_last_context` gets the
+  to wiki** and "save that as a note" go through `wiki.save_card` (wiki.py:737), keeping `## Findings` / `## Sources`
+  only (no step list) with the run id in the frontmatter; `_last_context` gets the
   card (the briefing pattern) so `/write` after research does not re-run it.
 - Prompt budget (PRD 11): research completions are side calls, not `_conversation` turns; material per call is
   `_fit` to `CARD_CONTEXT_TOKENS`; the conversation gets the card and the session turns "researched: <title>".
@@ -79,6 +81,15 @@ PRD 51 card step and a trace event (PRD 49):
   steps make every call countable and testable with `FakeClient`.
 - Verify quotes by substring, not by a model: cheap, exact, and the one guarantee the card can honestly make.
 - Research is explicit only (typed or "research X"): it costs up to 90 s, so it is never auto-triggered.
+- Chose the map in the system prompt and in ingest (one function, three sites) over ingest only: spoken recall gains a
+  representative overview at no extra tokens.
+- Chose links × 2 + a 30-day recency half-life, kept as two constants, over tuned or per-folder weights.
+- Chose a spoken "research X" that runs without confirmation (short line + card) over asking first: the 90 s cap
+  bounds the cost.
+- Chose one batched judge call (budget of 8) with a per-sub-question fallback over a call per sub-question: fewer
+  calls, and a parse failure still gets judged.
+- Chose Save to wiki keeping only Findings/Sources, with the run id in frontmatter, over saving the step list.
+- Chose exact substring after whitespace/quote/ellipsis normalisation over edit distance: no fuzzy matches.
 - Depends on PRD 51 (run pages, card steps) and PRD 53 (index tables, filters; synthetic vault via
   `tests/perf/make_vault.py`, marker `perf`).
 - Risk: the map shifts with recency and makes the system prompt less cache-friendly; mitigation: the map is
@@ -121,15 +132,4 @@ Web search and Wikipedia as research sources, embeddings / vector search, multi-
 ("dig into point 2"), scheduled or background research, auto-triggered research, changing spoken recall or the band.
 
 ## Open design questions
-- **Map in the system prompt or only in ingest?** Recommend both (one function, three sites); spoken recall
-  gains a representative overview at no extra tokens.
-- **Ranking weights (links vs recency)?** Recommend inbound links × 2 + recency (half-life 30 days); tune on the
-  prod vault, keep as two constants.
-- **Spoken "research X" — confirm first?** Recommend no confirmation for typed; spoken says the short line and runs,
-  since the 90 s cap bounds the cost.
-- **Judge per sub-question or one batched call?** Recommend one batched call (budget of 8); fall back to per
-  sub-question only if the batch JSON fails to parse.
-- **Should Save to wiki keep the step list?** Recommend no: save `## Findings` / `## Sources`, link the run id in
-  frontmatter.
-- **Verify fuzziness?** Recommend exact substring after normalising whitespace, quotes and ellipses; no edit
-  distance.
+None open.
