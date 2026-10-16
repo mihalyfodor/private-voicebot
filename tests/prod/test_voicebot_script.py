@@ -6,6 +6,8 @@ import stat
 import subprocess
 import sys
 
+import pytest
+
 from tests.conftest import ROOT
 
 VOICEBOT = os.path.join(ROOT, "scripts", "voicebot")
@@ -230,3 +232,31 @@ def test_status_dev_starts_nothing(tmp_path):
         assert "start" not in line
         assert not line.startswith("launchctl load")
         assert "up -d" not in line
+
+
+# ---- scripts/smoke.py
+
+def test_smoke_summarize():
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import smoke
+    rows = [{"step": "e2e", "status": "PASS", "detail": "ok", "seconds": 1},
+            {"step": "live", "status": "SKIP", "detail": "model down", "seconds": 0}]
+    text, code = smoke.summarize(rows)
+    assert text.splitlines()[-1] == "smoke: 1 pass, 0 fail, 1 skip" and code == 0
+    text, code = smoke.summarize(rows + [{"step": "views", "status": "FAIL", "detail": "x", "seconds": 2}])
+    assert text.splitlines()[-1] == "smoke: 1 pass, 1 fail, 1 skip" and code == 1
+
+
+@pytest.mark.e2e
+def test_smoke_views_step_without_model(tmp_path):
+    missing = [r for r in ("static/vendor/pixi.min.js", "static/models/wanko") if not os.path.exists(os.path.join(ROOT, r))]
+    if missing:
+        pytest.fail(f"missing {', '.join(missing)} — run scripts/fetch_assets.sh", pytrace=False)
+    p = subprocess.run([sys.executable, "scripts/smoke.py", "--steps", "5", "--no-start", "--out", str(tmp_path)],
+                       cwd=ROOT, capture_output=True, text=True, timeout=600)
+    assert p.returncode == 0, p.stdout + p.stderr
+    for name in ("chat", "wiki", "sources", "memory", "settings"):
+        assert (tmp_path / "views" / f"{name}.png").stat().st_size > 10 * 1024
+    rows = json.loads((tmp_path / "RESULT.json").read_text())
+    assert [(r["step"], r["status"]) for r in rows] == [("views", "PASS")]
+    assert (tmp_path / "RESULT.txt").read_text().splitlines()[-1] == "smoke: 1 pass, 0 fail, 0 skip"

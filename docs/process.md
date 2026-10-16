@@ -95,6 +95,7 @@ Spawn the reviewer agent (`.claude/agents/reviewer.md`) on the branch diff. It n
 
 **Gate checklist:**
 - [ ] `scripts/check.sh` green in this session — quote its passed/skipped/failed counts in the handoff; never report green from memory
+- [ ] Smoke pass for UI-visible or LLM-path changes: `scripts/smoke.py` (the /smoke skill), screenshots read, RESULT.txt quoted; backend-only changes may skip it
 - [ ] Reviewer pass done; no open BLOCKER or MAJOR
 - [ ] User has executed every PRD test scenario once end-to-end
 - [ ] PRD status updated to `refactoring`

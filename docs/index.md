@@ -29,6 +29,7 @@ source .venv/bin/activate
 # everything: node --check static/app.js, node DOM fixture, `ruff check .`, unit suite (no oMLX needed)
 # fresh clone: also run `git config core.hooksPath scripts/hooks` once (commit-msg hook)
 scripts/check.sh
+scripts/smoke.py   # headless smoke: e2e + one live turn + battery section A + view screenshots → /tmp/smoke/<ts>/
 # or just the unit suite — pytest.ini excludes the `live`, `e2e` and `docker` markers by default
 python3 -m pytest tests/
 # the PRD 40 docker scenarios (builds voicebot:test-<sha> once — minutes —, boots it on :8013 against a temp data dir under
@@ -95,11 +96,13 @@ voicebot/
 ├── sources.py          # raw ingestion: raw/ storage + manifest, pdf/eml/msg/image extraction, docx/pptx/xlsx/vtt/ics extractors + head/middle/tail sampling (`raw_text` is the unsampled text the chunk index reads), transcript → meetings page, deterministic .ics stubs (PRD 31), raw renamed after the model title + eager chunk cache (PRD 32), summary (one retry when it comes back untitled) + page ops (the prompt lists related pages the index cut, PRD 44; published works — epub/pdf/docx — never open a people page for an author, only for someone in the profile), POST /ingest core; inbox: list_sources/reingest/forget (PRD 25; forget also drops the memory entries the source fed, PRD 33)
 ├── ruff.toml          # lint config (E4/E7/E9/F, compact-style ignores); no formatter
 ├── .claude/agents/reviewer.md  # read-only one-pass branch review before the Implementation gate (BLOCKER / MAJOR / backlog)
+├── .claude/skills/smoke/SKILL.md  # /smoke: run scripts/smoke.py, read every PNG, quote RESULT.txt
 ├── scripts/
 │   ├── check.sh         # node --check app.js, node fixture, `ruff check .`, unit suite; extra args go to pytest (`-m e2e tests/e2e`)
 │   ├── hooks/commit-msg # rejects AI-attribution trailers in commit messages; enabled via `git config core.hooksPath scripts/hooks`
 │   ├── fetch_assets.sh  # downloads pixi.js, pixi-live2d-display, Cubism Core, the Wanko Live2D model (all 12 motions) and backdrop images (gitignored), then generates Wanko.app.model3.json
 │   ├── wanko_groups.py  # PRD 27 motion-group table + generator for static/models/wanko/Wanko.app.model3.json
+│   ├── smoke.py         # headless smoke pass: stack, e2e, one live turn, one battery section, view screenshots → /tmp/smoke/<ts>/RESULT.txt
 │   ├── screenshot.py    # dev helper: headless screenshot of the running app (`--view memory`, `--drag`, `--drop-file`)
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
 │   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
