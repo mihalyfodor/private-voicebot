@@ -86,6 +86,38 @@ card with Pages / Sources / Memory sections. Tight version only.
   self-noise from memory-driven page ops; one clock seam for tests (`memory._stamp` mixes `_today` with `datetime.now()`,
   `memory.py:197-199`).
 
+## 4. PRD 47 — reMarkable 2 over USB: pull handwriting in, push pages out
+
+Decided 2026-10-16 after an integration review (Calendar.app not in use; Graph/Teams/OneNote APIs need tenant consent, so
+anything via Microsoft 365 is parked until IT answers). Host-side only: the prod container cannot reach USB
+(`host.docker.internal` only, `docs/deploy.md`), so this is a host service or script like the ASR service.
+
+- **Pull:** the device's USB web interface (`http://10.11.99.1`: `GET /documents/`, `GET /download/<guid>/pdf`, image-only
+  PDFs). Rasterise pages (`pdftoppm`/`sips`), send each page through the existing image ingest path
+  (`sources.py` image → multimodal model "transcribe any text visible") with Apple Vision OCR (`VNRecognizeTextRequest`
+  via pyobjc) as a cross-check; file the text as a raw source per notebook page range, normal ingest after that.
+  Track seen notebooks by guid + modified time so a re-sync only pulls new pages. Design reference:
+  `~/projects/erni/llm-wiki/remarkable.md` (unbuilt). Tesseract is installed but poor at handwriting; don't use it.
+- **Push:** `POST /upload` to the device: "send this to my reMarkable" for a written card, a wiki page or the PRD 46
+  briefing, rendered to PDF (regex command + yes/no confirm, PRD 43 pattern).
+- Risk: transcription quality on the 4-bit model; mitigation: keep the page PNG as the raw file so re-ingest with a
+  better model is one command. Risk: device offline; mitigation: the command answers "reMarkable not connected".
+- Effort M. Probe first: connect the device, enable the USB web interface, `curl http://10.11.99.1/documents/`.
+
+## 5. PRD 48 — OneNote history import (one-time)
+
+No Graph access without IT, so: OneNote for Mac → export each section as PDF (text layer preserved) into a folder,
+then a batch ingest script (`scripts/ingest_batch.py`, PRD 36 style progress) files them through the normal PDF path
+with head/middle/tail sampling. Hundreds of pages ≈ 1–3 h on the local model; run overnight. PRD 44 related-pages
+keeps entity duplication down. If IT ever grants `Notes.Read`, swap the export step for Graph HTML; nothing else changes.
+Effort S–M once the exports exist. Probe first: export one section and check `pdftotext` returns real text, not images.
+
+## Parked (needs IT)
+
+Microsoft Graph read-only mail/calendar (device-code flow, mirrors `tools/gmail.py`), Teams transcripts (admin-only
+scopes; drop the .vtt in by hand instead), OneNote via Graph. Ask whether low-privilege delegated scopes
+(`Mail.Read`, `Calendars.Read`, `Notes.Read`) are user-consentable in the tenant.
+
 ## Backlog (unordered, from the 2026-08-30 handoff)
 
 - Remaining battery misses (A11 bounded-context chunk, stray offers)
