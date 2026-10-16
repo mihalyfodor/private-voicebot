@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 52 — Approvals: confirm writes by voice or card button
 
