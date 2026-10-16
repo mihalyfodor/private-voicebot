@@ -608,3 +608,20 @@ def test_a_session_of_stand_ins_only_is_not_ingested(vault, turns, filed, monkey
 
 def test_an_empty_session_is_not_stand_ins_only():
     assert memory.stand_ins_only([]) is False
+
+
+def test_a_file_source_tool_round_refreshes_the_wiki_panel(vault, monkeypatch):
+    """The turn binds its context around the model call, so file_source's panel push reaches the socket."""
+    from tests.conftest import fake_model, stream_chunks, tool_call_chunk
+    sent = []
+    monkeypatch.setattr(chatbot, "session", Session(websocket=object()))
+    monkeypatch.setattr(chatbot, "_loop", SimpleNamespace(is_running=lambda: True))
+    monkeypatch.setattr(chatbot, "make_sender", lambda lp, turn=None: sent.append)
+    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(services, "llm_ok", lambda: True)
+    monkeypatch.setattr("sources.ingest_note", lambda text, hint="": {"path": "sources/x", "raw": "raw/x"})
+    args = '{"kind": "note", "ref": "buy milk"}'
+    with fake_model([tool_call_chunk(id="c1", name="file_source", arguments=args)],
+                    stream_chunks("[neutral] Filed.")):
+        chatbot.handle_text(Session(), 1, "file this note: buy milk", object())
+    assert any(isinstance(m, dict) and m.get("type") == "wiki" for m in sent)

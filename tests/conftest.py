@@ -191,6 +191,8 @@ class FakeClient:
             self.entered.set()
         if self.delay:
             time.sleep(self.delay)
+        if not self._replies and kw.get("stream"):
+            raise IndexError("FakeClient: no reply queued for a streamed call")
         reply = self._replies.pop(0) if self._replies else "[]"
         if isinstance(reply, Exception):
             raise reply

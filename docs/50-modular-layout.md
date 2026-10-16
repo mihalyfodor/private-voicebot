@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 50 — Modular layout: seven downward-only layers and one tool registry
 
@@ -103,6 +103,7 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
 - Step 2 keeps each module's `run(args: dict)` signature; `run_tool` passes the dict as today — `**args` unpacking is deferred until the modules are touched again, so step 2 stays a pure registry move.
 - Step 3: the registry holds every trigger tool's record (name, regex, order, flags) and `match()`; the body is bound by the server with `@registry.handler(name)` because it drives TTS and turn state, which must stay above the agent layer. Adding a command = one registry line + one decorated function. Risk: a record with no bound handler; mitigation: `run` raises naming the tool, and a test covers it.
 - Step 4: `core/llm.py` owns the client and the three call shapes (`stream`, raw `completion`, text `complete`); memory's `save/reflect/propose_ops` no longer take a client and model, so one conftest fake patched at `core.llm._client` serves every test. `StreamClient`/`RawStreamClient` stay as two spellings of the one `FakeClient` until step 12.
+- Step 3 side effect: `file_source` now really refreshes the Wiki panel in the running app. The old `_push_panel` did `import chatbot` while the app ran as `__main__`, so it loaded a second module copy whose session was None and the push never fired. Accepted as the one observable improvement of steps 1–4.
 
 ## Data model
 - Layer graph: `core < vault < memory < ingest < tools < agent < server`; `scripts/` and `chatbot.py` on top. A

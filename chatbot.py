@@ -545,12 +545,13 @@ def open_page(ctx: Ctx) -> str:
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """One turn between its `turn_start` and `turn_end` events (docs/49-event-trace.md); see `_respond`."""
     with trace.turn(turn):
-        label = ("briefing" if commands.briefing_command(user_text) else "card" if commands.wants_writeup(user_text)
+        tool = registry.match(user_text)
+        label = ("briefing" if tool and tool.name == "briefing" else "card" if tool and tool.name == "write_up"
                  else "typed" if origin == "typed" else "spoken")
         trace.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
         t0, end = time.monotonic(), {"outcome": "ok", "reply_len": 0, "tools": [], "band": None}
         try:
-            _respond(sess, turn, user_text, send_sync, origin, end)
+            _respond(sess, turn, user_text, send_sync, origin, end, tool)
         except BaseException:
             end["outcome"] = "error"
             raise
@@ -560,7 +561,7 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
             trace.event("turn_end", ms=trace.ms_since(t0), ctx_pct=llm.context_usage()["pct"], **end)
 
 
-def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict):
+def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict, tool=None):
     """LLM → sentence-streamed TTS → wait for browser playback → idle.
 
     The one reply path: a typed turn and a transcribed one differ only in `origin`, which
@@ -572,7 +573,6 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
     completed turn ends with a `context` message; the 90 % crossing adds one spoken sentence.
     """
     ctx = _ctx(sess, turn, user_text, send_sync, origin)
-    tool = registry.match(user_text)    # the trigger tools, in routing order (tools/registry.py)
     if tool is not None and not tool.needs_llm:
         tool.run(ctx)
         return

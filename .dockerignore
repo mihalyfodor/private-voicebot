@@ -9,6 +9,8 @@ docs
 eval
 tests
 scripts/classification*
+!scripts/email_classification.py
+!scripts/classification_rules.example.py
 static/models
 static/backdrops
 static/vendor/*.js

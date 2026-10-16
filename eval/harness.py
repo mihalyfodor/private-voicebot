@@ -16,7 +16,6 @@ Usage:
     python -m eval.harness eval/scripts/basic.yaml --rounds 2 --keep-memory /tmp/memory.json
     python -m eval.harness --chat
 """
-from core import settings
 import argparse
 import difflib
 import json
@@ -33,7 +32,7 @@ import avatars  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
 import sources  # noqa: E402
-from core import trace  # noqa: E402
+from core import settings, trace  # noqa: E402
 import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
 

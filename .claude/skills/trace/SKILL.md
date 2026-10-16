@@ -10,7 +10,7 @@ scripts/trace_report.py <events.jsonl> [--since 24h] [--turn ID|pid:ID] [--inges
 ```
 
 ## Where the logs are
-Written by `tracing.py` (profile from `TRACE_PROFILE`, folder from `TRACE_DIR`).
+Written by `core/trace.py` (profile from `TRACE_PROFILE`, folder from `TRACE_DIR`).
 - prod (the container): `$DATA/logs/events.jsonl` (`DATA` defaults to `~/docker-data/voicebot`), rotated `.1` … `.5` (10 MB each). No `verbose.jsonl` exists in prod.
 - dev (a checkout): `events.jsonl` + `verbose.jsonl` in `TRACE_DIR` (default the repo-local `logs/`).
 - a smoke run: every `events.jsonl` under `/tmp/smoke/<stamp>/`; RESULT.txt already quotes `--errors`.
