@@ -25,7 +25,7 @@ def test_memory_scope(panel):
 
 def test_sources_scope(panel):
     reply = panel.send({"action": "forget_source", "sha": "abc"})
-    assert (reply["scope"], reply["text"]) == ("sources", "forget needs an explicit confirm")
+    assert (reply["scope"], reply["text"]) == ("sources", "no filed source with sha abc")
 
 
 def test_settings_scope(panel):

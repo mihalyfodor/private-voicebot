@@ -6,8 +6,6 @@ eval/scripts/sources.yaml and 9 is manual.
 import os
 
 import json
-import struct
-import zlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +16,8 @@ import memory
 import notebooks
 import sources
 import wiki
-from tests.conftest import SENTINEL, FakeClient, commits, pdf_bytes, read, trace_lines, trace_text, vault, write_page  # noqa: F401 — fixture
+from tests.conftest import (SENTINEL, FakeClient, commits, notebook_pages, pdf_bytes, png_bytes, read, trace_lines,  # noqa: F401 — fixture
+                            trace_text, vault, write_page)
 from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -63,19 +62,6 @@ def raw_files() -> list:
 def prompts(client: FakeClient) -> list:
     """The user content of every completion the client was asked for."""
     return [call["messages"][1]["content"] for call in client.calls]
-
-
-def png_bytes(width: int = 4, height: int = 4) -> bytes:
-    """A valid greyscale PNG, built by hand — Pillow is not a dependency of this app."""
-    raw = b"".join(b"\x00" + bytes([(x * 60) % 256 for x in range(width)]) for _ in range(height))
-
-    def chunk(tag: bytes, data: bytes) -> bytes:
-        return (struct.pack(">I", len(data)) + tag + data +
-                struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
-
-    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) +
-            chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
 EML = """From: Anna Kovacs <anna@example.com>
@@ -909,8 +895,6 @@ def test_strict_refuses_an_unparseable_or_unreadable_summary(vault, idle_port, e
 NOTE_TEXT = "Standup: Anna ships the Falcon load test on Friday."
 
 
-def notebook_pages(n: int) -> list:
-    return [png_bytes(4 + i, 4) for i in range(n)]       # distinct bytes per page
 
 
 def notebook_summary(title: str = "Standup") -> str:

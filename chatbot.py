@@ -16,6 +16,7 @@ import time
 import threading
 import webbrowser
 
+import approvals
 import llm
 import memory
 import notebooks
@@ -580,6 +581,148 @@ def save_note(ctx: Ctx):
         _turn_failed(send_sync, "save_note", e, "Saving the note failed.", scope="wiki")
 
 
+# --- approvals (docs/52-approvals.md) ---------------------------------------------------
+# "forget <title>" / the Sources view's Forget and "send that to my reMarkable" propose a write: an
+# awaiting card + one spoken question, `sess.pending` set. The next turn decides ("yes" / "no" /
+# anything else, `_settle_pending`), or the card's Approve / Reject (`resolve`, through the same
+# TurnController worker).
+
+
+def _propose(ctx: Ctx, kind: str, target: str) -> None:
+    """The proposal turn: `approvals.propose`, the awaiting card, the spoken question, idle."""
+    sess, turn, send_sync = ctx.session, ctx.turn, ctx.send
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        if ctx.text:
+            llm.record_user(ctx.text)
+        pending = approvals.propose(sess, kind, target)
+        send_sync(card_msg(llm._cards[pending["card_id"]]))
+        llm.record_assistant(say_canned(approvals.KINDS[kind].spoken(pending["proposal"]), send_sync))
+        _wait_for_playback_then_idle(sess, send_sync)
+    except (ValueError, sources.IngestError) as e:
+        send_sync({"type": "error", "scope": "turn", "text": getattr(e, "message", None) or str(e)})
+        send_sync({"type": "state", "value": "idle"})
+    except Exception as e:
+        _turn_failed(send_sync, "approval", e, "The proposal failed.")
+
+
+def _say_line(sess: Session, turn, send_sync, line: str) -> None:
+    """One spoken (canned) line as the whole reply, recorded in the conversation, then idle."""
+    send_sync({"type": "state", "value": "thinking"})
+    _arm_playback(sess, turn)
+    llm.record_assistant(say_canned(line, send_sync))
+    _wait_for_playback_then_idle(sess, send_sync)
+
+
+@registry.handler("forget")
+def forget(ctx: Ctx):
+    """"forget the Morrowind guide": one source by title → its proposal; none or several → one line."""
+    try:
+        sha, line = approvals.forget_target(commands.forget_command(ctx.text) or "")
+        if sha is None:
+            llm.record_user(ctx.text)
+            _say_line(ctx.session, ctx.turn, ctx.send, line)
+            return
+    except Exception as e:
+        _turn_failed(ctx.send, "approval", e, "I could not look that source up.")
+        return
+    _propose(ctx, "forget", sha)
+
+
+@registry.handler("push")
+def push(ctx: Ctx):
+    """"send that to my reMarkable": the last card's push proposal; no card → "nothing to send"."""
+    if not notebooks.push_available():          # PRD 47b not there: nothing to approve, no run
+        try:
+            llm.record_user(ctx.text)
+            _say_line(ctx.session, ctx.turn, ctx.send, approvals.NOT_AVAILABLE)
+        except Exception as e:
+            _turn_failed(ctx.send, "approval", e, "I could not say that.")
+        return
+    card = llm.last_card
+    if not card or not card.get("markdown"):
+        ctx.send({"type": "error", "scope": "turn", "text": approvals.NOTHING_TO_SEND})
+        ctx.send({"type": "state", "value": "idle"})
+        return
+    _propose(ctx, "push", card["id"])
+
+
+def _settle_pending(ctx: Ctx) -> bool:
+    """The one-turn pop: a pending approval is decided by this turn — an explicit yes approves, a
+    short no rejects (both answer here: True), anything else drops it silently and the turn runs."""
+    via = approvals.via_of(ctx.origin)
+    if approvals.is_approval(ctx.text, ctx.session.pending):
+        decision = "approve"
+    elif approvals.is_rejection(ctx.text):
+        decision = "reject"
+    else:
+        approvals.expire(ctx.session, via)
+        return False
+    llm.drop_offer()                          # the answer takes the turn, as any turn takes an open offer
+    llm.record_user(ctx.text)
+    _resolve(ctx.session, ctx.turn, ctx.send, decision, via)
+    return True
+
+
+def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: str | None = None) -> None:
+    """Decide the pending approval (voice, typed or a button) and tell the page: `card_update` (done
+    + the commit, or rejected; no Approve / Reject left), the refreshed lists after a forget, one
+    spoken line. An expired / changed request is `error {scope: turn}` and writes nothing."""
+    taken = sess.pending
+    try:
+        out = approvals.resolve_pending(sess, decision, via, run_id)
+        card = llm._cards.get(out.pending["card_id"]) if out.pending else None
+        if out.error and out.pending is None and run_id:     # a stale click: that card stops asking too
+            stale = next((c for c in llm._cards.values() if c.get("run_id") == run_id and c.get("actions")
+                          and any(a.get("kind") in approvals.DECISIONS for a in c["actions"])
+                          or c.get("run_id") == run_id and c.get("status") == "expired"), None)
+            if stale is not None:
+                stale.update(status=stale["status"] if stale["status"] != "awaiting" else "expired",
+                             actions=[runs.OPEN])
+                send_sync(card_update(stale))
+        if out.error:
+            if card is not None:              # changed: the card stops asking
+                card.update(status="failed", actions=[runs.OPEN], steps=out.pending["steps"] + [
+                    {"label": "not applied", "status": "error", "detail": runs.reason_sentence("changed")}])
+                send_sync(card_update(card))
+            send_sync({"type": "error", "scope": "turn", "text": out.error})
+            send_sync({"type": "state", "value": "idle"})
+            return
+        commit = (out.result or {}).get("commit") or ""
+        if out.decision == "approve":
+            facts = approvals.KINDS[out.pending["kind"]].applied(out.pending["proposal"])
+            step = {"label": "applied", "status": "ok", "detail": f"{facts} · commit {commit}" if commit else facts}
+            card.update(status="done", actions=[runs.OPEN], steps=out.pending["steps"] + [step])
+            send_sync(card_update(card, **({"commit": commit} if commit else {})))
+            if out.pending["kind"] == "forget":
+                llm.refresh_context()
+                send_sync(_wiki_msg())
+                send_sync(_sources_msg())
+        else:
+            card.update(status="rejected", actions=[runs.OPEN],
+                        steps=out.pending["steps"] + [{"label": "rejected", "status": "skipped"}])
+            send_sync(card_update(card))
+        _say_line(sess, turn, send_sync, out.line)
+    except Exception as e:
+        card = llm._cards.get(taken["card_id"]) if taken is not None and sess.pending is None else None
+        if card is not None and card.get("status") == "awaiting":      # the write itself failed
+            card.update(status="failed", actions=[runs.OPEN], steps=taken["steps"] + [
+                {"label": "applied", "status": "error", "detail": runs.reason_sentence(runs.failure_reason(e))}])
+            send_sync(card_update(card))
+        _turn_failed(send_sync, "approval", e, "That did not work.")
+
+
+def resolve_turn(sess: Session, turn: int, run_id: str, decision: str, loop):
+    """The card's Approve / Reject (`resolve`), queued like any turn so it can never race a "yes"."""
+    _resolve(sess, turn, make_sender(loop, turn), decision, "button", run_id)
+
+
+def propose_turn(sess: Session, turn: int, kind: str, target: str, loop):
+    """The Sources view's Forget (`forget_source`): the same proposal turn as "forget <title>"."""
+    _propose(_ctx(sess, turn, "", make_sender(loop, turn)), kind, target)
+
+
 def _with_context_notice(events):
     """The turn's events, then the 90 % crossing sentence as one more spoken delta (PRD 39)."""
     yield from events
@@ -610,6 +753,7 @@ def _ctx(sess: Session, turn: int, user_text: str, send_sync, origin: str = "use
 
 
 def new_topic_turn(sess: Session, turn: int, loop):
+    approvals.expire(sess, "button")          # the palette's New topic is a turn too (PRD 52)
     new_topic(_ctx(sess, turn, "", make_sender(loop, turn)))
 
 
@@ -669,6 +813,8 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
     completed turn ends with a `context` message; the 90 % crossing adds one spoken sentence.
     """
     ctx = _ctx(sess, turn, user_text, send_sync, origin)
+    if getattr(sess, "pending", None) is not None and _settle_pending(ctx):   # PRD 52: the turn answers it
+        return
     if tool is not None and not tool.needs_llm:
         tool.run(ctx)
         return
@@ -729,10 +875,12 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
         if getattr(asr, "last_error", None):
             services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
+        approvals.expire(sess, "voice")           # a turn started: a pending approval is over (PRD 52)
         with trace.turn(turn):
             _turn_failed(send_sync, "asr", e, "I could not transcribe that.")
         return
     if not text:
+        approvals.expire(sess, "voice")
         send_sync({"type": "state", "value": "idle"})
         return
     log.debug(f"You: {text}")
@@ -1225,11 +1373,22 @@ async def _action_reingest_source(sess, msg, loop):
 
 
 async def _action_forget_source(sess, msg, loop):
-    """`{sha, confirm: true}` → page, raw file, manifest line and its notes gone; one commit."""
-    if msg.get("confirm") is not True:
-        await _error("sources", "forget needs an explicit confirm")
+    """`{sha}` → the forget proposal turn (PRD 52): the awaiting card in the transcript, one spoken
+    question, nothing deleted until it is approved. An unknown sha is `error` (sources)."""
+    sha = str(msg.get("sha") or "")
+    if sources.manifest_find(sha) is None:
+        await _error("sources", f"no filed source with sha {sha[:12]}")
         return
-    await _source_op(sources.forget, str(msg.get("sha") or ""))
+    submit_turn(propose_turn, "forget", sha, loop)
+
+
+async def _action_resolve(sess, msg, loop):
+    """`{run_id, decision: approve|reject}` → the approval decided on the turn worker (PRD 52)."""
+    decision = msg.get("decision")
+    if decision not in approvals.DECISIONS:
+        await _error("turn", f"unknown decision {str(decision)[:20]!r}")
+        return
+    submit_turn(resolve_turn, str(msg.get("run_id") or ""), decision, loop)
 
 
 async def _action_memory_op(sess, msg, loop):
@@ -1417,6 +1576,7 @@ ACTIONS = {
     "get_sources": _action_get_sources,
     "reingest_source": _action_reingest_source,
     "forget_source": _action_forget_source,
+    "resolve": _action_resolve,
     "archive_memory": _action_archive_memory,
     "pull_wiki": _action_pull_wiki,
     "new_topic": _action_new_topic,
@@ -1428,14 +1588,25 @@ ACTIONS = {
 _EARLIER = re.compile(r"^<earlier>(.*)</earlier>$", re.S)
 
 
-def replay_messages() -> list:
+def _replayed(card: dict, sess: Session | None) -> dict:
+    """A card as a replay sends it: an awaiting approval that is not this session's pending one
+    comes without its Approve / Reject (PRD 52) — never live buttons for an expired request."""
+    msg = card_msg(card)
+    pending = getattr(sess, "pending", None)
+    if card.get("status") == "awaiting" and (pending is None or pending["run_id"] != card.get("run_id")):
+        msg["actions"] = [a for a in msg.get("actions") or [] if a.get("kind") not in approvals.DECISIONS]
+    return msg
+
+
+def replay_messages(sess: Session | None = None) -> list:
     """The `transcript` / `thread` messages that rebuild the history on a (re)connect: the
     user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`, each
-    card with its last status — a write-up still running or failed where it was issued (PRD 51)."""
+    card with its last status — a write-up still running or failed, an approval card (PRD 52), where
+    it was issued (PRD 51)."""
     out, loose = [], llm.loose_cards()
     for i, m in enumerate(llm.dialogue()):
-        while loose and loose[0][0] <= i:                   # a running / failed write-up card (PRD 51)
-            out.append({**card_msg(loose.pop(0)[1]), "saved": None})
+        while loose and loose[0][0] <= i:                   # a write-up / approval card (PRD 51/52)
+            out.append({**_replayed(loose.pop(0)[1], sess), "saved": None})
         earlier = _EARLIER.match(m["content"]) if m["role"] == "user" else None
         card = llm.card_in(m["content"]) if m["role"] == "assistant" else None
         if earlier:
@@ -1444,7 +1615,7 @@ def replay_messages() -> list:
             out.append({**card_msg(card), "saved": card.get("saved")})
         else:
             out.append({"type": "transcript", "role": m["role"], "text": splitter.strip_tag(m["content"])})
-    out += [{**card_msg(card), "saved": None} for _pos, card in loose]
+    out += [{**_replayed(card, sess), "saved": None} for _pos, card in loose]
     return out
 
 
@@ -1453,7 +1624,7 @@ async def _on_connect(sess: Session, loop):
     global greeted
     # Replay what the model actually holds (the stripped conversation, PRD 39), so a reloaded
     # page matches its memory even after a periodic fold or a trim.
-    for msg in replay_messages():
+    for msg in replay_messages(sess):
         await send(msg)
     await send({"type": "hands_free", "value": hands_free})
     if not greeted:
@@ -1495,6 +1666,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # A new page takes over: release anything waiting on the old one, then evict it.
         old_ws, previous.websocket = previous.websocket, None
         previous.playback_done.set()
+        approvals.expire(previous, "reconnect")      # its approval dies with it (PRD 52)
         if old_ws is not None:
             with contextlib.suppress(Exception):
                 await old_ws.close(code=4000)
@@ -1526,6 +1698,7 @@ async def websocket_endpoint(websocket: WebSocket):
         code = e.code
     finally:
         trace.event("ws", event="disconnect", code=code)
+        approvals.expire(sess, "disconnect")
         sess.websocket = None
         sess.playback_done.set()  # never leave a turn blocked on a dead socket
         if session is sess:

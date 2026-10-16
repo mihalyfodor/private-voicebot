@@ -151,3 +151,27 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
         if replaces and sources.manifest_find(replaces):
             sources.forget(replaces)
         return {**res, "sha256": digest}
+
+
+# --- push (PRD 47b): the approval side lands here first (docs/52-approvals.md) ----------------
+#: the local page estimate of a pushed card: lines / PUSH_LINES_PER_PAGE, at least one
+PUSH_LINES_PER_PAGE = 60
+
+
+def push_plan(card: dict) -> dict:
+    """What "send that to my reMarkable" would upload, read-only: `{card_id, title, pages}`
+    (`pages` is the local estimate, docs/47b-remarkable-push.md)."""
+    lines = len(str(card.get("markdown") or "").splitlines())
+    return {"card_id": str(card["id"]), "title": str(card.get("title") or ""),
+            "pages": max(1, -(-lines // PUSH_LINES_PER_PAGE))}
+
+
+def push_available() -> bool:
+    """Is the push service there? False until PRD 47b lands: the command is not offered."""
+    return False
+
+
+def push(card: dict) -> dict:
+    """Upload `card` to the tablet — PRD 47b's host service; until it lands this is the hook the
+    approval calls (tests patch it)."""
+    raise NotImplementedError("reMarkable push is PRD 47b")

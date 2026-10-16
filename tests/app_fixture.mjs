@@ -44,6 +44,8 @@
 //                    re-renders the same element, PRD 51 — drive it with recv())
 //   submitIntake() / intakeStatus / intakeCancel   the intake batch loop, its status line and
 //                    its Cancel/Close button (PRD 36; `fetch` is re-scripted per scenario)
+//   approval cards (PRD 52) need no hook of their own: cards() + recv() + the `.card-approve` /
+//                    `.card-reject` buttons' click, and the `#intake-toast` element for the Forget toast
 //
 // ------------------------------------------------------------- adding a scenario (next PRD)
 // 1. add whatever the scenario needs to HOOKS (keep it a thin accessor, no logic);
@@ -962,5 +964,77 @@ results.update_unknown = { added: t.cards().length - unknownBefore, id: t.cards(
                            body: cardText(t.cards().at(-1).querySelector('.card-body') || { textContent: '' }) };
 t.recv({ type: 'card_update', id: 'card98', status: 'done', steps: [] });
 results.update_unknown_no_body = t.cards().length - unknownBefore;
+
+// ---------------------------------------------------------------- scenarios (PRD 52)
+// ---- scenario 7: an awaiting approval card shows its proposal with Approve / Reject (no Copy / Save);
+// a click sends `resolve {run_id, decision}` and disables both until the `card_update` (or an `error`);
+// the card then reads "done" without them; a replayed resolved / expired card has no live buttons; the
+// Sources view's Forget asks no `confirm()`, sends `forget_source {sha}` and toasts a link to the card.
+const APPROVAL_ACTIONS = [{ id: 'approve', label: 'Approve', kind: 'approve' },
+                          { id: 'reject', label: 'Reject', kind: 'reject' }, OPEN_ACTION];
+const approvalCard = (id, extra = {}) => ({ type: 'card', id, markdown: 'Forget the source **Morrowind guide**? This removes:\n\n- the raw file `raw/m.md`',
+  sources: [], title: 'Forget Morrowind guide', run_id: `9-${id}`, workflow: 'forget', status: 'awaiting',
+  run_url: `/runs/9-${id}`, actions: APPROVAL_ACTIONS, steps: [{ label: 'proposed', status: 'ok', detail: '1 page cleaned' }], ...extra });
+const decisionBtn = (n, kind) => n.querySelector('.card-' + kind);
+const buttonsOf = (n) => ({ approve: !!decisionBtn(n, 'approve'), reject: !!decisionBtn(n, 'reject'),
+                            open: !!n.querySelector('.card-open') });
+t.setView('chat');
+t.recv(approvalCard('card20'));
+const apEl = t.cards().at(-1);
+results.approval_card = { ...runInfo(apEl), ...buttonsOf(apEl), body: cardText(apEl.querySelector('.card-body')),
+                          copy: !!apEl.querySelector('.card-copy'), save: !!apEl.querySelector('.card-save'),
+                          labels: apEl.querySelector('.card-foot').children.map(cardText) };
+socket.sent.length = 0;
+decisionBtn(apEl, 'approve').dispatch('click');
+const disabledBoth = (n) => [decisionBtn(n, 'approve').disabled, decisionBtn(n, 'reject').disabled];
+results.approval_click = { sent: socket.sent.filter(m => m.action === 'resolve'), disabled: disabledBoth(apEl) };
+t.recv({ type: 'state', value: 'speaking', turn: 9 });                 // anything else keeps them disabled
+results.approval_still_disabled = disabledBoth(apEl);
+t.recv({ type: 'card_update', id: 'card20', status: 'done', commit: 'abc1234', actions: [OPEN_ACTION],
+         steps: [{ label: 'proposed', status: 'ok' }, { label: 'applied', status: 'ok', detail: 'commit abc1234' }] });
+results.approval_done = { ...runInfo(apEl), ...buttonsOf(apEl), same: t.cards().at(-1) === apEl };
+t.recv(approvalCard('card21'));
+const rejEl = t.cards().at(-1);
+decisionBtn(rejEl, 'reject').dispatch('click');
+const rejSent = socket.sent.filter(m => m.action === 'resolve').at(-1);
+t.recv({ type: 'error', scope: 'turn', text: 'that request expired' });
+results.approval_error = { sent: rejSent, disabled: disabledBoth(rejEl), status: t.status.textContent };
+t.recv({ type: 'card_update', id: 'card21', status: 'rejected', actions: [OPEN_ACTION] });
+results.approval_rejected = { ...runInfo(rejEl), ...buttonsOf(rejEl) };
+// a reconnect replays the resolved card with its last status, and an expired awaiting one without Approve / Reject
+t.recv({ ...approvalCard('card22', { status: 'done', actions: [OPEN_ACTION] }), saved: null });
+results.replay_resolved = { ...runInfo(t.cards().at(-1)), ...buttonsOf(t.cards().at(-1)) };
+t.recv({ ...approvalCard('card23', { actions: [OPEN_ACTION] }), saved: null });
+results.replay_expired = { ...runInfo(t.cards().at(-1)), ...buttonsOf(t.cards().at(-1)) };
+// the Sources view's Forget
+t.setView('sources');
+t.selectWikiPage('sources/deck');
+t.recv({ type: 'wiki_page', path: 'sources/deck', text: '---\ntype: source\n---\n\n# Deck\n', links: [], etag: 'e9', backlinks: [] });
+const confirmsBefore = dialogs.log.filter(d => d[0] === 'confirm').length;
+socket.sent.length = 0;
+headButton('source-forget').dispatch('click');
+results.src_forget = { confirms: dialogs.log.filter(d => d[0] === 'confirm').length - confirmsBefore,
+                       sent: socket.sent.filter(m => m.action === 'forget_source') };
+const toastEl = doc.getElementById('intake-toast');
+t.recv(approvalCard('card24'));
+results.src_forget_toast = { shown: !toastEl.hidden, text: toastEl.textContent, view: t.view() };
+toastEl.dispatch('click');
+results.src_forget_toast_click = t.view();
+// fix round: a stale click's `card_update` expired leaves the card without buttons; a `turn` error disarms the
+// Forget toast (no card is coming)
+t.recv(approvalCard('card25'));
+const staleEl = t.cards().at(-1);
+decisionBtn(staleEl, 'approve').dispatch('click');
+t.recv({ type: 'card_update', id: 'card25', status: 'expired', actions: [OPEN_ACTION] });
+t.recv({ type: 'error', scope: 'turn', text: 'that request expired' });
+results.stale_click = { ...runInfo(staleEl), ...buttonsOf(staleEl) };
+t.setView('sources');
+t.selectWikiPage('sources/deck');
+t.recv({ type: 'wiki_page', path: 'sources/deck', text: '---\ntype: source\n---\n\n# Deck\n', links: [], etag: 'e9', backlinks: [] });
+headButton('source-forget').dispatch('click');
+t.recv({ type: 'error', scope: 'turn', text: 'the proposal failed.' });
+toastEl.textContent = '';
+t.recv(approvalCard('card26'));
+results.toast_after_turn_error = toastEl.textContent;
 
 console.log(JSON.stringify(results, null, 1));

@@ -219,7 +219,15 @@ main {
   font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
   border: 1px solid #555; border-radius: 9px; padding: 0 7px; color: #ddd;
 }
-.run-chip.run-running, .run-chip.run-awaiting { border-color: #d9a441; color: #d9a441; }
+.run-chip.run-running { border-color: #d9a441; color: #d9a441; }
+/* PRD 52: an approval waits for the user (awaiting) or was turned down (rejected) */
+.run-chip.run-awaiting { border-color: #6fa8dc; color: #9fc5e8; }
+.run-chip.run-rejected { border-color: #666; color: #aaa; text-decoration: line-through; }
+.run-chip.run-expired { border-color: #555; color: #8a8a8a; }
+.card-btn.card-approve { border-color: #6fae63; }
+.card-btn.card-reject { border-color: #8a5a5a; }
+.card-btn.card-approve:disabled, .card-btn.card-reject:disabled { color: #888; opacity: 0.6; }
+#intake-toast.toast-link { cursor: pointer; text-decoration: underline; }
 .run-chip.run-done { border-color: #6fae63; color: #9ac58f; }
 .run-chip.run-nothing { border-color: #666; color: #aaa; }
 .run-chip.run-failed { border-color: #c96b6b; color: #e29a9a; }

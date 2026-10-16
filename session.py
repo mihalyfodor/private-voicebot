@@ -32,6 +32,9 @@ class Session:
         self.playback_done = threading.Event()
         self.turn_id = 0            # last allocated turn id
         self.expected_turn = None   # turn whose playback_done we are currently waiting for
+        #: the one approval waiting for the next turn (docs/52-approvals.md): {run_id, kind, proposal,
+        #: hash, created, card_id, steps} or None; the next turn (or a card button) decides it
+        self.pending = None
 
     def next_turn(self) -> int:
         self.turn_id += 1

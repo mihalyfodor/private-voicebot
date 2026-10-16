@@ -42,3 +42,17 @@ def test_doc_names_only_real_actions_and_types():
     type_rows = re.findall(r"^\| `([a-z_]+)` \|", DOC.split("## Server")[1], re.M)
     sent = set(re.findall(r'"type": "([a-z_]+)"', SERVER))
     assert set(type_rows) == sent
+
+
+def _row(name: str) -> str:
+    return next(line for line in DOC.splitlines() if line.startswith(f"| `{name}` |"))
+
+
+def test_the_approval_rows_are_documented():
+    """PRD 52 scenario 9: `resolve`, the rewritten `forget_source` (it proposes, no `confirm`) and the
+    `card_update` fields an approval adds."""
+    assert "`run_id`, `decision` approve/reject" in _row("resolve") and "that request expired" in _row("resolve")
+    forget = _row("forget_source")
+    assert "confirm" not in forget and "proposal" in forget
+    assert "`commit?`" in _row("card_update") and "`rejected`" in _row("card_update")
+    assert "awaiting/rejected" in _row("card")

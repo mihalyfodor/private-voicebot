@@ -310,3 +310,16 @@ def test_stdout_tracebacks_carry_the_exception_text_only_in_dev(vault, monkeypat
         chatbot._turn_failed(lambda msg: None, "respond", exc, "The reply failed.")
     out = capsys.readouterr().out
     assert "RuntimeError" in out and (SENTINEL in out) is shown
+
+
+def test_decision_events_carry_no_text_in_prod(vault, prod_profile):
+    """PRD 52: a `decision` keeps only its vocabularies; a `propose` step's rows only paths and titles."""
+    trace.event("decision", workflow=SENTINEL, decision=f"approve {SENTINEL}", via=SENTINEL, text=SENTINEL)
+    with trace.span("step", name="propose", proposal=[{"path": "sources/x", "title": "X", "text": SENTINEL}],
+                    detail=f"{'x' * trace.CAP} {SENTINEL}"):
+        pass
+    (row,) = trace_lines(kind="decision")
+    assert (row["workflow"], row["decision"], row["via"]) == ("other", "other", "other") and "text" not in row
+    (step,) = trace_lines(kind="step")
+    assert step["proposal"] == [{"path": "sources/x", "title": "X"}] and "detail" not in step
+    assert SENTINEL not in trace_text() and not os.path.exists(trace.paths()["verbose"])

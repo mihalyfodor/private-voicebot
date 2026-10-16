@@ -3,7 +3,9 @@ import contextlib
 import copy
 import functools
 import random
+import struct
 import tempfile
+import zlib
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Importing the app builds the system prompt, which reads the vault's index — before any fixture can
 # sandbox WIKI_PATH. Point it at a path that does not exist, so the import never opens the real vault
@@ -823,3 +825,65 @@ def briefing_run(monkeypatch, reply: str = "[happy] One new page, the bold plan.
     (start,) = trace_lines(kind="turn_start")
     cards = [m for m in sent if m["type"] == "card"]
     return {"sent": sent, "run_id": start["run_id"], "card": cards[-1] if cards else None, "sha": sha}
+
+
+# --------------------------------------------------------------------------- approvals (PRD 52)
+MORROWIND = "Morrowind guide"
+
+
+@pytest.fixture
+def morrowind(seeded_vault):
+    """A filed source titled `Morrowind guide` whose ops left a note on `projects/falcon`, plus one
+    memory entry learned from it (docs/52-approvals.md). Returns ``{sha, page, raw}``."""
+    summary = json.dumps({"title": MORROWIND, "summary": "A Morrowind walkthrough.", "entities": [],
+                          "unreadable": False})
+    ops = json.dumps([{"op": "append_note", "path": "projects/falcon", "text": "Vivec is in the south."}])
+    with fake_model(summary, ops):
+        filed = sources.ingest_upload(b"# Morrowind\nVivec city lies in the south.", "morrowind.md")
+    seed(people=[{"name": "Vivec", "source": MORROWIND}])
+    sha = next(e["sha256"] for e in sources.manifest_entries() if e["path"] == filed["raw"])
+    return {"sha": sha, "page": filed["path"], "raw": filed["raw"]}
+
+
+def session_turn(sess, turn: int, text: str, origin: str = "typed", reply: str = "[neutral] Sure.") -> list:
+    """One typed (or `origin="spoken"`, through a fake ASR) turn on a session that outlives it — an
+    approval's question and its answer are two turns of one session. The model is up and answers `reply`."""
+    import numpy as np
+    import services
+    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(chatbot, "synthesize", fake_tts), \
+            patch.object(services, "llm_ok", lambda: True), patch.object(chatbot, "asr", fake_asr(text)):
+        if origin == "typed":
+            return run_turn(chatbot.handle_text, sess, turn, text)
+        return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32))
+
+
+def button_turn(fn, sess, turn: int, *args) -> list:
+    """A queued turn function (`resolve_turn`, `propose_turn`) run as the TurnController runs it: inside
+    its own `trace.turn`, with the fake TTS."""
+    with patch.object(chatbot, "synthesize", fake_tts), trace.turn(turn):
+        return run_turn(fn, sess, turn, *args)
+
+
+def spoken_lines(sent: list) -> list:
+    """The assistant `transcript` lines of a turn's messages — what Wanko said (one per reply)."""
+    return [m["text"] for m in sent if m["type"] == "transcript" and m.get("role") == "assistant"]
+
+
+# --------------------------------------------------------------------------- notebook pages (PRD 47)
+
+
+def png_bytes(width: int = 4, height: int = 4) -> bytes:
+    """A valid greyscale PNG, built by hand — Pillow is not a dependency of this app."""
+    raw = b"".join(b"\x00" + bytes([(x * 60) % 256 for x in range(width)]) for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (struct.pack(">I", len(data)) + tag + data +
+                struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) +
+            chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
+def notebook_pages(n: int) -> list:
+    return [png_bytes(4 + i, 4) for i in range(n)]       # distinct bytes per page

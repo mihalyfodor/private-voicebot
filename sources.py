@@ -1399,29 +1399,62 @@ def _without_source_notes(body: str, raw_rel: str) -> str:
     return "\n".join(out).rstrip("\n") + "\n"
 
 
-def forget(digest: str) -> dict:
-    """Delete the source page and raw file, drop the manifest line, the notes it fed and the
-    memory entries learned from it (docs/33-untrusted-text.md); one commit."""
+def _forget_targets(entry: dict) -> dict:
+    """What forgetting `entry` touches, read-only: the source page, the raw file, its stored page
+    files, the pages whose notes cite it and the source title the memory entries carry."""
+    raw_rel = entry["path"]
+    cleaned = []
+    for fed in entry.get("pages_touched") or []:
+        rel = wiki.normalise_path(fed)
+        if rel is None or not wiki.page_exists(rel) or rel in cleaned:
+            continue
+        if f"(source: {raw_rel})" in (wiki._read(rel) or ""):
+            cleaned.append(rel)
+    files = set(entry.get("pages") or [])
+    for folder in {os.path.dirname(rel) for rel in files}:          # a notebook's page folder, as it is now
+        if os.path.isdir(wiki._path(folder)):
+            files |= {f"{folder}/{name}" for name in os.listdir(wiki._path(folder))}
+    return {"page": entry["page"], "raw": raw_rel, "files": sorted(files),
+            "cleaned": cleaned, "title": _source_meta(entry)["title"]}
+
+
+#: `forget(expected=…)` found the plan changed since the user approved it (docs/52-approvals.md)
+CHANGED_STATUS = 409
+
+
+def _plan(digest: str, targets: dict) -> dict:
+    return {"sha": digest, "title": targets["title"], "page": targets["page"], "raw": targets["raw"],
+            "images": targets["files"], "cleaned": [wiki.wikilink(rel) for rel in targets["cleaned"]],
+            "memory": memory.source_entries(targets["title"])}
+
+
+def forget_plan(digest: str) -> dict:
+    """The dry run of `forget` (docs/52-approvals.md): `{sha, title, page, raw, images: [a notebook's
+    page files], cleaned: [page], memory: [entry text]}` — nothing is written. `IngestError` for an
+    unknown sha."""
     with vault_lock.LOCK:
-        entry = _entry_or_raise(digest)
-        raw_rel, page = entry["path"], entry["page"]
-        title = _source_meta(entry)["title"]
-        cleaned = []
-        for fed in entry.get("pages_touched") or []:
-            rel = wiki.normalise_path(fed)
-            if rel is None or not wiki.page_exists(rel):
-                continue
-            before = wiki._read(rel)
-            if f"(source: {raw_rel})" not in before:
-                continue
+        return _plan(digest, _forget_targets(_entry_or_raise(digest)))
+
+
+def forget(digest: str, expected: dict | None = None) -> dict:
+    """Delete the source page and raw file, drop the manifest line, the notes it fed and the
+    memory entries learned from it (docs/33-untrusted-text.md); one commit. What it removes is
+    `forget_plan`'s list (the same `_forget_targets`); with `expected` (an approved plan) a plan
+    that differs under the lock is refused with `CHANGED_STATUS`, nothing written."""
+    with vault_lock.LOCK:
+        targets = _forget_targets(_entry_or_raise(digest))
+        if expected is not None and _plan(digest, targets) != expected:
+            raise IngestError(CHANGED_STATUS, "the source changed since the proposal")
+        raw_rel, page = targets["raw"], targets["page"]
+        for rel in targets["cleaned"]:
             wiki._edit_page(rel, lambda body: _without_source_notes(body, raw_rel))
-            cleaned.append(wiki.wikilink(rel))
-        for rel in (f"{page}.md", raw_rel, *(entry.get("pages") or [])):
+        cleaned = [wiki.wikilink(rel) for rel in targets["cleaned"]]
+        for rel in (f"{page}.md", raw_rel, *targets["files"]):
             wiki._git("rm", "-q", "-f", "--", rel, quiet=True)
             if os.path.exists(wiki._path(rel)):
                 os.remove(wiki._path(rel))
             wiki.unindex_page(rel)
-        for folder in {os.path.dirname(rel) for rel in entry.get("pages") or []}:
+        for folder in {os.path.dirname(rel) for rel in targets["files"]}:
             if os.path.isdir(wiki._path(folder)) and not os.listdir(wiki._path(folder)):
                 os.rmdir(wiki._path(folder))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
@@ -1431,7 +1464,7 @@ def forget(digest: str) -> dict:
         wiki._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])
         wiki._commit(f"wiki: forgot {raw_rel}")
-        forgotten = memory.forget_source(title)
+        forgotten = memory.forget_source(targets["title"])
         return {"path": page, "raw": raw_rel, "cleaned": cleaned, "memory": forgotten}
 
 

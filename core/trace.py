@@ -84,20 +84,23 @@ FIELDS = {
     "scope": ANY, "exc_type": ANY, "message": ANY, "code": ANY, "traceback": TAIL, "fatal_for": {"none"},
     "where": {"respond", "briefing", "write_up", "save_note", "new_topic", "ingest", "summarise",
               "propose_page_ops", "meeting_from_transcript", "asr", "canned_turn", "memory_save", "ws",
-              "batch_import", "sync_sources", "startup_check"},   # the last two: the search index (PRD 53)
+              "batch_import", "sync_sources", "startup_check", "approval"},   # sync/startup: the search index (PRD 53)
     # service / ws
     "event": ANY, "profile": ANY, "version": ANY, "pid": ANY,
     # span shape, run id
     "span_id": ANY, "parent_id": ANY, "start": ANY, "duration_ms": ANY, "status": ANY, "run_id": ANY,
     # run / step (docs/51-run-cards.md): `detail` is a short fact string, ANY not CUT — a longer one is dropped
-    "workflow": {"briefing", "write-up", "remarkable", "batch", "ingest"}, "phase": {"start", "end"},
+    "workflow": {"briefing", "write-up", "remarkable", "batch", "ingest", "forget", "push"}, "phase": {"start", "end"},
     "reason": re.compile(r"ok|nothing-to-do|housekeeping|needs-ocr|unreadable|unsupported|too-large|already-filed"
-                         r"|rejected-op|failed-model|failed-offline|failed-[A-Za-z_][A-Za-z0-9_]{0,59}"),   # runs.REASONS
+                         r"|rejected-op|rejected|expired|changed"
+                         r"|failed-model|failed-offline|failed-[A-Za-z_][A-Za-z0-9_]{0,59}"),   # runs.REASONS
     "count": ANY, "detail": ANY, "commit": re.compile(r"[0-9a-f]{4,40}"), "skipped": ANY,
     "part": ANY, "memory": ANY, "added": ANY, "updated": ANY, "removed": ANY,
+    # decision (docs/52-approvals.md): the approval kind is its `workflow`; `proposal` = the `{path, title}` rows shown
+    "decision": {"approve", "reject", "expired", "changed"}, "via": {"voice", "typed", "button", "reconnect", "disconnect"}, "proposal": ANY,
 }
 #: step names (a `step` span's `name`, beside the tool names `vocab` adds)
-STEPS = {"gather", "skip", "phrase", "context", "write", "file"}
+STEPS = {"gather", "skip", "phrase", "context", "write", "file", "propose", "apply"}
 FIELDS["name"] |= STEPS
 #: rejection texts → a stable reason_code (sources.restrict_ops, wiki ops, memory.reject_user_pages)
 REASONS = [(re.compile(p), code) for p, code in (

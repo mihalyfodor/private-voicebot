@@ -423,6 +423,18 @@ def set_avatar():
     _rebuild_system_prompt(note if len(_conversation) > 1 else "")
 
 
+def drop_offer() -> None:
+    """Forget the pending deeper / write-up offer: the turn answered something else (PRD 52)."""
+    global _deeper_offer
+    _deeper_offer = None
+
+
+def record_user(text: str) -> None:
+    """Append a user turn that took no completion (an approval's request or answer, PRD 52)."""
+    _conversation.append({"role": "user", "content": text})
+    _session_turns.append({"role": "user", "content": text})
+
+
 def record_assistant(text: str) -> None:
     """Append a canned (non-LLM-generated) assistant turn to the conversation/session history."""
     _conversation.append({"role": "assistant", "content": text})

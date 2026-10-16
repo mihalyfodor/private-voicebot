@@ -31,9 +31,10 @@ def test_read_tools_and_hosts_derive_from_the_records():
 
 def test_invariants():
     names = registry.names()
-    assert len(set(names)) == len(names) == 16
+    assert len(set(names)) == len(names) == 18
     assert len(registry.schemas()) == 11
-    assert names[11:] == ["new_topic", "save_note", "briefing", "write_up", "open_page"]   # routing order
+    assert names[11:] == ["new_topic", "save_note", "briefing", "forget", "push", "write_up",
+                          "open_page"]   # routing order
     for t in registry.REGISTRY:
         assert (t.trigger is None) != (t.schema is None), t.name
     assert registry.run_tool("nope", {}) == "unknown tool"
@@ -49,6 +50,7 @@ def test_invariants():
 
 PREDICATES = {"new_topic": commands.new_topic_command, "save_note": commands.save_note_command,
               "briefing": commands.briefing_command, "write_up": commands.wants_writeup,
+              "forget": lambda t: commands.forget_command(t) is not None, "push": commands.push_command,
               "open_page": lambda t: commands.page_command(t) is not None}
 PHRASES = [
     ("new topic", "new_topic"), ("/new", "new_topic"), ("New topic!", "new_topic"),
@@ -60,7 +62,16 @@ PHRASES = [
     ("open the page about covenant", "open_page"), ("find fallout", "open_page"),
     ("show me the note on kyoto", "open_page"), ("go back to that page", "open_page"),
     ("what were we looking at", "open_page"),
+    ("forget the Morrowind guide", "forget"), ("please forget Morrowind guide", "forget"),
+    ("remove the Morrowind guide source", "forget"),
+    ("send that to my reMarkable", "push"), ("push it to the tablet", "push"),
     ("what's new with you", None), ("hello there", None), ("", None),
+    # PRD 52 negatives: none of these is a forget / push
+    ("forget it", None), ("forget about it", None), ("don't forget to call Anna", None),
+    ("forget what I said", None), ("remove the meeting", None), ("send an email to Anna", None),
+    ("forget my address", None), ("Forget Anna", None), ("forget the last thing I told you", None),
+    ("forget we talked about that", None), ("remove the Falcon status source", "forget"),
+    ("forget the Falcon status notebook", "forget"), ("forget the Morrowind guide source", "forget"),
 ]
 
 

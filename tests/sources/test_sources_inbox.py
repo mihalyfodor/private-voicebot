@@ -8,7 +8,9 @@ import os
 import json
 
 import pytest
+from unittest.mock import patch
 
+import chatbot
 import memory
 import sources
 import wiki
@@ -153,19 +155,22 @@ def test_get_sources_round_trips_through_the_panel(inbox):
     assert reply["sources"][0]["fed"] == ["projects/falcon"]
 
 
-def test_forget_without_confirm_is_an_error_and_changes_nothing(inbox):
+def test_forget_source_proposes_and_changes_nothing(inbox):
+    """PRD 52: the action no longer deletes; it starts the approval (a turn) — nothing to confirm."""
     panel, filed = inbox
     sha = _sha(filed)
-    reply = panel.send({"action": "forget_source", "sha": sha})
-    assert reply["type"] == "error" and "confirm" in reply["text"]
+    with patch.object(chatbot, "propose_turn") as propose:
+        panel.ws.send_json({"action": "forget_source", "sha": sha})
+        panel.send({"action": "get_sources"})            # the action has been handled by now
+        chatbot.controller.join_idle()
+    assert propose.call_args.args[2:4] == ("forget", sha)
     assert sources.manifest_entries()[0]["sha256"] == sha
 
 
-def test_forget_with_confirm_refreshes_wiki_and_sources(inbox):
-    panel, filed = inbox
-    wiki_msg, srcs = panel.send_many({"action": "forget_source", "sha": _sha(filed), "confirm": True}, 2)
-    assert wiki_msg["type"] == "wiki" and filed["path"] not in [p["path"] for p in wiki_msg["pages"]]
-    assert srcs == {"type": "sources", "sources": []}
+def test_forget_source_with_an_unknown_sha_is_an_error(inbox):
+    panel, _ = inbox
+    reply = panel.send({"action": "forget_source", "sha": "nope"})
+    assert reply["type"] == "error" and reply["scope"] == "sources" and "no filed source" in reply["text"]
 
 
 def test_reingest_action_refreshes_the_page_list(inbox):

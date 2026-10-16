@@ -20,7 +20,7 @@ from datetime import datetime
 
 from core import trace
 
-_LABELS = {"remarkable": "reMarkable pull", "batch": "Batch import"}      # the rest: capitalised
+_LABELS = {"remarkable": "reMarkable pull", "batch": "Batch import", "push": "reMarkable push"}      # the rest: capitalised
 #: workflow -> label; the keys are `trace.FIELDS["workflow"]` (the JS `RUN_WORKFLOWS` is the other copy)
 WORKFLOWS = {w: _LABELS.get(w, w.capitalize()) for w in sorted(trace.FIELDS["workflow"])}
 #: reason code -> the sentence the card's failed step and the page's outcome line show
@@ -36,6 +36,9 @@ REASONS = {
     "too-large": "The file is over the size limit.",
     "already-filed": "Already filed earlier (the same bytes).",
     "rejected-op": "A proposed page change was refused.",
+    "rejected": "Rejected: nothing was changed.",
+    "expired": "Not approved: the next turn moved on, nothing was changed.",
+    "changed": "It changed since the proposal: nothing was changed.",
 }
 FAILED = "Failed with {exc_type}."          # `failed-<exc_type>`
 OFFLINE_TYPES = ("APIConnectionError", "APITimeoutError")
@@ -196,6 +199,7 @@ def build(events: list) -> dict:
     end = next((ev for ev in reversed(events) if ev["kind"] == "run" and ev.get("phase") == "end"), None)
     ingests = [ev for ev in events if ev["kind"] == "ingest_end"]
     steps = [ev for ev in events if ev["kind"] == "step"]
+    proposal = next((ev for ev in steps if ev.get("name") == "propose"), None)        # an approval (PRD 52)
     errors = [{"exc_type": ev.get("exc_type") or "", "first_line": (str(ev.get("message") or "").splitlines() or [""])[0]}
               for ev in events if ev["kind"] == "error"]
     if end:
@@ -204,6 +208,8 @@ def build(events: list) -> dict:
         failed = errors or any(ev.get("status") == "error" for ev in ingests)
         status = "failed" if failed else "done"
         reason = f"failed-{errors[0]['exc_type'] or 'error'}" if errors else "failed-error" if failed else "ok"
+    elif proposal:
+        status, reason = "awaiting", ""
     else:
         status, reason = "running", ""
 
@@ -256,6 +262,8 @@ def build(events: list) -> dict:
                  "tool_call": f"tool · {ev.get('name') or ''}".strip(" ·")}.get(ev["kind"]) or ev["kind"]
         timeline.append({"label": label, "ms": ev.get("duration_ms"), "status": ev.get("status") or "",
                          "count": ev.get("count")})
+    applied = next((ev for ev in steps if ev.get("name") == "apply" and ev.get("commit")), None)
+    commit = {"sha": applied["commit"], "subject": commit_line(applied["commit"])[0]} if applied else None
     first, last = _when(events[0].get("ts")), _when((end or events[-1]).get("ts"))
     return {"run_id": run_id, "workflow": workflow, "start": events[0].get("ts") or "",
             "end": (end or {}).get("ts"), "seconds": (last - first).total_seconds() if first and last else None,
@@ -264,7 +272,11 @@ def build(events: list) -> dict:
                        "detail": ev.get("detail")} for ev in steps],
             "timeline": timeline,
             "did": {"pages": pages, "sources": sources, "memory": memory},
-            "did_not": did_not, "errors": errors}
+            "did_not": did_not, "errors": errors,
+            "proposal": None if proposal is None else {
+                "items": [p for p in proposal.get("proposal") or [] if isinstance(p, dict)],
+                "detail": proposal.get("detail") or ""},
+            "commit": commit}
 
 
 # ------------------------------------------------------------------ rendering
@@ -303,8 +315,24 @@ def _page_row(p: dict) -> str:
     return f"{sha}{name}{stat}{label}"
 
 
+def _proposal(run: dict) -> str:
+    """An approval's Proposal section (what it would change) and, once approved, its Commit (PRD 52)."""
+    out = ""
+    if run.get("proposal") is not None:
+        p = run["proposal"]
+        rows = [e(f'{i["title"]} ({i["path"]})' if i.get("title") and i.get("path") else i.get("title") or i.get("path"))
+                for i in p["items"]] + ([e(p["detail"])] if p.get("detail") else [])
+        out += f'<section class="run-section run-proposal"><h2>Proposal</h2>{_list(rows, "Nothing listed.")}</section>\n'
+    if run.get("commit"):
+        c = run["commit"]
+        out += (f'<section class="run-section run-commit"><h2>Commit</h2><p><code class="run-sha">{e(c["sha"])}</code> '
+                f'{e(c["subject"])}</p></section>\n')
+    return out
+
+
 def render(run: dict) -> str:
-    """The run page: header, Timeline, Did, Did not, Errors, footer — every value escaped."""
+    """The run page: header, Proposal / Commit (an approval), Timeline, Did, Did not, Errors, footer —
+    every value escaped."""
     label = WORKFLOWS.get(run["workflow"], run["workflow"] or "Run")
     timeline = [f'{e(t["label"])} · {e(t["ms"])} ms · <span class="run-status-{e(t["status"])}">{e(t["status"])}</span>'
                 + (f' · {e(t["count"])}' if t.get("count") is not None else "") for t in run["timeline"]]
@@ -335,7 +363,7 @@ def render(run: dict) -> str:
 <span class="run-reason">{e(reason_sentence(run["reason"]))}</span></p>
 <p class="run-id">run <code>{e(run["run_id"])}</code></p>
 </header>
-<section class="run-section"><h2>Timeline</h2>{_list(timeline, "No steps recorded.")}</section>
+{_proposal(run)}<section class="run-section"><h2>Timeline</h2>{_list(timeline, "No steps recorded.")}</section>
 <section class="run-section"><h2>Did</h2>
 <h3>Pages</h3>{_list([_page_row(p) for p in did["pages"]], "No pages touched.")}
 <h3>Sources</h3>{_list(sources, "No sources.")}

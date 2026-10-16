@@ -1594,6 +1594,23 @@ def _lint_wiki() -> list:
     return findings
 
 
+def source_entries(title: str) -> list:
+    """The memory entries `forget_source(title)` would drop, as short lines (`people: Anna`,
+    `identity.city: Kyoto`) — read-only, for an approval's proposal (docs/52-approvals.md)."""
+    title = " ".join(str(title or "").split())
+    if not title:
+        return []
+    profile = load_profile()
+    out = [f"{section}: {e.get(LIST_KEY[section]) or ''}".rstrip()
+           for section in LIST_SECTIONS for e in profile.get(section, []) if e.get(SOURCE_FIELD) == title]
+    for section in SCALAR_SECTIONS:
+        values = profile.get(section, {})
+        stamps = values.get("sources") if isinstance(values.get("sources"), dict) else {}
+        out += [f"{section}.{key}: {values[key]}" for key, s in stamps.items()
+                if s == title and key in values and key not in BOOKKEEPING_KEYS]
+    return out
+
+
 def forget_source(title: str) -> int:
     """Drop every memory entry and scalar key learned from the document `title`; the count.
 

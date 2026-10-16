@@ -33,6 +33,21 @@ SAVE_NOTE = re.compile(
 #: "write it up", "write that up", "written version", "write it out" — and the typed `/write`
 WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten\s+version\b|^/write\s*$", re.I)
 
+# --- approvals (docs/52-approvals.md) ---------------------------------------------------
+#: the words a source title is spoken with; "forget <title>" needs one at the end ("forget my address" and
+#: "forget Anna" are memory requests for the model, not a source)
+SOURCE_KINDS = r"source|guide|notebook|file|book|document|pdf|email|article|notes?"
+#: "forget the Morrowind guide", "remove the Falcon status source" — never "forget it/about/to/what…",
+#: and never "don't forget…" (anchored at the start)
+FORGET = re.compile(
+    r"^(?:please\s+)?(?:forget|remove)\s+(?:the\s+)?"
+    r"(?!(?:it|that|this|them|everything|about|to|what|me|him|her|you|i|we|my)\b)"
+    rf"(?P<title>.+?\s(?:{SOURCE_KINDS}))(?:,?\s+please)?[\s?.!]*$", re.I)
+#: "send that to my reMarkable", "push it to the tablet" (PRD 47b's target: the last card)
+PUSH = re.compile(
+    r"^(?:please\s+)?(?:send|push)\s+(?:this|that|it|the\s+card)\s+to\s+(?:my\s+|the\s+)?(?:remarkable|tablet)"
+    r"(?:,?\s+please)?[\s?.!]*$", re.I)
+
 
 def normalise(text) -> str:
     return " ".join(str(text or "").split())
@@ -67,3 +82,17 @@ def save_note_command(text: str) -> bool:
 def wants_writeup(text: str) -> bool:
     """"write it up", "yes, write that up please", "give me the written version", typed `/write`."""
     return bool(WANTS_WRITEUP.search(normalise(text)))
+
+
+def forget_command(text: str) -> str | None:
+    """The source title a "forget <title>" / "remove the <title> source" turn names, else None (PRD 52)."""
+    m = FORGET.match(normalise(text))
+    if not m:
+        return None
+    title = m.group("title").strip()
+    return re.sub(r"\s+source$", "", title, flags=re.I)
+
+
+def push_command(text: str) -> bool:
+    """True for "send that to my reMarkable" / "push it to the tablet" (PRD 52, the 47b command)."""
+    return bool(PUSH.match(normalise(text)))

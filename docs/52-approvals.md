@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 52 — Approvals: confirm writes by voice or card button
 
@@ -47,7 +47,7 @@ voice stays first, the button is never required.
   `error {scope: turn}` "that request expired", nothing written, `sess.pending` untouched. Else recompute the plan;
   hash mismatch → "that changed since I asked — ask again", nothing written. Approve → the write (`sources.forget`,
   the push) with its own one commit; then `trace.event("decision", run_id, decision, via)`, `card_update {id,
-  status, actions: [], commit?}` (`id` = the awaiting card's id; the card also carries `run_id`), one spoken line.
+  status, actions: [open], commit?}` (`id` = the awaiting card's id; the card also carries `run_id`), one spoken line.
 - **Spoken forget** is new (today Forget is button-only): `forget_command(text)` ("forget <title>" / "remove the
   <title> source"), matched against `sources.manifest_entries()` titles; no match or two matches → one spoken line
   ("Which one: A or B?"), no pending set.
@@ -80,6 +80,68 @@ voice stays first, the button is never required.
 
 - Chose a per-session slot over llm.py globals (where `_deeper_offer` lives): approvals are connection state and
   must die with the socket, like hearing/playback (session.py:22-27).
+- Implementation: the module is a root `approvals.py` (the `agent/` layer does not exist yet); it moves to
+  `agent/approvals.py` at PRD 50 step 9. `is_approval` / `is_rejection` live there, not in llm.py.
+- Implementation: `KINDS[kind]` is a NamedTuple whose first three fields are `plan` / `apply` / `spoken`; it also
+  carries the card title/body, the run page's Proposal rows, a count line and the done line.
+- Implementation: approval words: the first word one of yes/approve(d)/confirm(ed)/delete/forget/send, the rest from
+  a small filler list (please, it, go, ahead, do, thanks, ok…), ≤ 6 words. Rejection: no/nope/nah/cancel/reject/
+  don't/stop/leave/keep/never mind, ≤ 4 words; "forget it" / "forget about it" / "forget that" are a no, never an
+  approval of a forget.
+- Implementation: the proposal adds `title` (`{sha, title, page, raw, cleaned, memory}`); `cleaned` holds page names
+  without `.md`. `Session.pending` also keeps `card_id` and the card's `steps`, so the resolve updates that card.
+- Implementation: the `decision` event carries the approval kind as `workflow` (an event's `kind` is its envelope's
+  and always wins); `decision` and `via` are fixed vocabularies, `proposal` rows keep only `path`/`title`.
+- Implementation: run events: the proposal turn writes `run start` and a `propose` step (rows of paths/titles, the
+  memory entries only as a count); the run stays open while pending (the page derives `awaiting`); the decision
+  closes it under the proposing run_id: done/ok, rejected/rejected, expired/expired, failed/changed. An approval's
+  `apply` step carries the commit and the removed paths. The run page gains a Proposal and a Commit section.
+- Implementation: a resolved card keeps "Open run" (`actions: [open]`), so its run page stays one click away;
+  Approve / Reject are what `card_update` drops.
+- Implementation: a silent clear writes `decision expired` (via the clearing turn's origin) and leaves the old
+  card's buttons on the page; a click on them is "that request expired". A replay drops them (a reconnect is a new
+  session, so nothing is pending). The palette's New topic clears a pending approval too.
+- Implementation: a changed proposal also turns its card `failed` (Open run only) besides the `error`; a write
+  that raises turns it `failed` with the reason sentence.
+- Implementation: the spoken forget matches the normalised title (a leading "the" dropped) exactly first, else the
+  titles containing every word; none → "I have no source called <title>." The regex never takes "forget it",
+  "forget about/to/what…", "don't forget…".
+- Implementation: "send that to my reMarkable" targets only `llm.last_card` (the open-page target is 47b's);
+  `notebooks.push(card)` raises NotImplementedError until 47b lands (tests patch it); the page estimate is
+  lines / 60, at least 1.
+- Implementation: `forget_source` with an unknown sha is answered at once (`error` sources); a known one queues
+  `propose_turn`. The toast reuses the intake toast element; clicking it opens Chat at the card.
+- Implementation: the proposal and its answer are recorded in the conversation (`llm.record_user` + the canned
+  lines), so a reconnect replays the request, the card and the question in order.
+- Review fix (supersedes the approval-word bullet above): "forget it/that/this/about…" and "never mind" are a no
+  whatever follows. A kind's own verbs approve only that kind and only when they name the proposal ("it", "the
+  source" / "the card", or its title): delete/remove/forget for a forget, send/push for a push; a bare "forget" or
+  "delete" is neither. yes/approve(d)/confirm(ed)/go ahead/do it stay kind-independent ("yes, delete it" approves a
+  forget, not a push). `is_approval` takes the pending approval for this.
+- Review fix: a notebook's page images are in the forget proposal (`images`, "3 page images" on the card and in the
+  question) and in its hash — the files in the notebook's page folder as they are now, which is what `forget`
+  removes.
+- Review fix: `sources.forget(sha, expected=plan)` re-checks the approved plan under the vault lock; a difference is
+  `IngestError(409)` → the same "changed" outcome, nothing written.
+- Review fix: a pending approval also ends (`decision expired`) when its socket is replaced (via `reconnect`) or
+  closes (via `disconnect`), and on an empty or failed utterance (via `voice`); an expired card is folded to status
+  `expired` (a card status 52 adds, with its chip) so a replay shows it settled.
+- Review fix (amends the silent-clear bullet): a click on a stale card gets, besides the error, `card_update`
+  for that run's card (status `expired`, or its own resolved status; Open run only).
+- Review fix: until PRD 47b `notebooks.push_available()` is False and "send that to my reMarkable" is one spoken
+  line, "Sending to the reMarkable isn't available yet.", with no pending and no run. A write that raises after
+  approval still writes `decision approve` and `run end failed` before the error.
+- Review fix: the proposal turn expires the older pending before planning (a failed plan leaves nothing pending);
+  the answering turn also drops an open deeper / write-up offer, as any turn does.
+- Review fix: "forget <title>" needs a source-kind word at the end (source, guide, notebook, file, book, document,
+  pdf, email, article, note(s)) or the "the <title> source" form, so "forget my address" or "forget Anna" reach
+  the model; the kind word is dropped when no title matches with it.
+- Review fix: the awaiting card's step reads "1 page to clean, 1 memory entry"; the applied step "1 page cleaned, 1
+  memory entry removed · commit <sha>".
+- Note: the registry's `writes` flag stays metadata only (as PRD 50 says); approvals are routed by the `forget` /
+  `push` tools themselves, not by the flag.
+- Fact fix: the Technical approach's `card_update` now reads `actions: [open]` (it said `actions: []`, which
+  contradicted the "keeps Open run" bullet above).
 
 ## Data model / state shape
 - `Session.pending`: `{run_id: str, kind: "forget"|"push", proposal: dict, hash: str, created: float}` | None.

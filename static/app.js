@@ -1707,9 +1707,11 @@ function sourceHeadButtons(s) {
   raw.href = `${vaultHref()}&file=${encodeURIComponent(s.raw)}`;
   const reingest = wikiHeadButton('source-reingest', sourcesBusy ? 'working…' : 'Re-ingest',
     () => sourceAction({ action: 'reingest_source', sha: s.sha }), sourcesBusy);
+  // PRD 52: Forget proposes — the awaiting card lands in the transcript, a toast links to it
   const forget = wikiHeadButton('source-forget', 'Forget', () => {
-    if (!confirm(`Forget "${s.title}"? Its page, raw file and the notes it added are removed (one git commit).`)) return;
-    sourceAction({ action: 'forget_source', sha: s.sha, confirm: true });
+    forgetToastArmed = true;
+    setWikiError('');
+    sendAction({ action: 'forget_source', sha: s.sha });
   }, sourcesBusy);
   const buttons = [raw, reingest, forget];
   // A transcript / calendar drop names the meeting page it produced (PRD 31).
@@ -2445,8 +2447,10 @@ function closeIntake() {
   setIntakeStatus('');
 }
 
-function intakeToast(text) {
+function intakeToast(text, onClick = null) {
   intakeToastEl.textContent = text;
+  intakeToastEl.onclick = onClick;
+  intakeToastEl.classList.toggle('toast-link', !!onClick);
   intakeToastEl.hidden = false;
   if (intakeToastTimer) clearTimeout(intakeToastTimer);
   intakeToastTimer = setTimeout(() => { intakeToastEl.hidden = true; }, INTAKE_TOAST_MS);
@@ -2635,10 +2639,13 @@ function showError(msg) {
   else if (msg.scope === 'intake') { setWikiError(text); wikiIngestDone(); }   // "Re-ingest last session"
   else if (msg.scope === 'memory') { memErrorEl.textContent = text; memorySaveDone(); }
   else if (msg.scope === 'sources') {
+    forgetToastArmed = false;                     // e.g. Forget on an unknown sha: no card is coming
     setWikiError(text);
     if (sourcesBusy) { sourcesBusy = false; if (currentView === 'sources') renderWikiPage(); }
   }
   else {                                                                     // turn / settings
+    resolveFailed();
+    forgetToastArmed = false;                     // a refused / failed proposal: no card is coming
     status.textContent = text.toLowerCase();
     renderVerbosity();   // a refused `set_verbosity` puts the control back
   }
@@ -2800,10 +2807,24 @@ const cards = new Map();          // id → { save, picker, folder, note }
 const cardEls = new Map();        // id → { div, msg } (the element a `card_update` re-renders)
 const CARD_FOLDER = 'notes/';
 const RUN_WORKFLOWS = { briefing: 'Briefing', 'write-up': 'Write-up', remarkable: 'reMarkable pull',
-                        batch: 'Batch import', ingest: 'Ingest' };
+                        batch: 'Batch import', ingest: 'Ingest', forget: 'Forget', push: 'reMarkable push' };
+// PRD 52: an approval card (status `awaiting`) shows its proposal and Approve / Reject; a click sends
+// `resolve {run_id, decision}` and both buttons stay disabled until the `card_update` or an `error`.
+const APPROVAL_KINDS = ['approve', 'reject'];
+const APPROVAL_WORKFLOWS = ['forget', 'push'];
+const resolving = new Set();      // card ids whose Approve / Reject was clicked, waiting for the answer
+let forgetToastArmed = false;     // the Sources view's Forget was pressed: toast when its card arrives
 const STEP_GLYPHS = { pending: '·', running: '…', ok: '✓', skipped: '–', error: '✗' };
 
 function addCard(msg) {
+  if (forgetToastArmed && msg.workflow === 'forget') {
+    forgetToastArmed = false;
+    intakeToast('Forget: approve or reject it in Chat', () => {
+      setView('chat');
+      const c = cardEls.get(msg.id);
+      if (c && c.div.scrollIntoView) c.div.scrollIntoView({ block: 'center' });
+    });
+  }
   const div = el('div', 'msg card');
   div.dataset.card = msg.id;
   cardEls.set(msg.id, { div, msg: { ...msg } });
@@ -2820,7 +2841,32 @@ function updateCard(update) {
     return;
   }
   for (const k of ['status', 'steps', 'actions', 'markdown', 'title', 'sources']) if (update[k] !== undefined) c.msg[k] = update[k];
+  resolving.delete(update.id);
   renderCard(c.div, c.msg);
+}
+
+// Approve / Reject of an awaiting card; [] for any other card or status.
+function runDecisions(msg) {
+  if (msg.status !== 'awaiting') return [];
+  return (msg.actions || []).filter(a => APPROVAL_KINDS.includes(a.kind)).map(a => {
+    const b = el('button', `card-btn card-${a.kind}`, a.label || a.kind);
+    b.disabled = resolving.has(msg.id);
+    b.onclick = () => {
+      resolving.add(msg.id);
+      renderCard(cardEls.get(msg.id).div, cardEls.get(msg.id).msg);
+      sendAction({ action: 'resolve', run_id: msg.run_id, decision: a.kind });
+    };
+    return b;
+  });
+}
+
+// An `error` answers a pending click too: its card's buttons come back.
+function resolveFailed() {
+  for (const id of [...resolving]) {
+    resolving.delete(id);
+    const c = cardEls.get(id);
+    if (c) renderCard(c.div, c.msg);
+  }
 }
 
 function runHead(msg) {
@@ -2857,8 +2903,20 @@ function renderCard(div, msg) {
   const r = el('span', 'role', `${avatarName} · ${run && !markdown ? 'run' : 'written'}`);
   const parts = run ? [r, runHead(msg), runSteps(msg.steps)] : [r];
   const open = run ? runOpen(msg) : null;
+  const decisions = run ? runDecisions(msg) : [];
+  if (run && APPROVAL_WORKFLOWS.includes(msg.workflow)) {   // the proposal, no Copy / Save (PRD 52)
+    const body = el('div', 'card-body');
+    body.append(wikiBodyNodes(markdown));
+    const foot = el('div', 'card-foot');
+    foot.append(...decisions);
+    if (open) foot.append(open);
+    cards.delete(msg.id);
+    div.replaceChildren(...parts, body, foot);
+    return;
+  }
   if (run && !markdown) {           // header, steps and actions only
     const foot = el('div', 'card-foot');
+    foot.append(...decisions);
     if (open) foot.append(open);
     cards.delete(msg.id);
     div.replaceChildren(...parts, foot);

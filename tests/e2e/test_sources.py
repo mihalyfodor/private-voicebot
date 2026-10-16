@@ -35,6 +35,11 @@ def seed_source(vault) -> None:
         "## Related\n\n## History\n"))
 
 
+def open_sources_empty(page):
+    page.click('.rail-item[data-view="sources"]')
+    page.wait_for_selector(".source-row", state="detached")
+
+
 def open_sources(page):
     page.click('.rail-item[data-view="sources"]')
     page.wait_for_selector("#wiki-list .source-row")
@@ -61,14 +66,24 @@ def test_sources_list_shows_the_seeded_source(page, shot, server):
 # --------------------------------------------------------------------------- 5. forget
 
 def test_forget_removes_the_source_and_only_its_note(page, shot, server):
+    """PRD 52: Forget proposes (no dialog); the toast leads to the awaiting card, Approve deletes."""
     _, vault = server
     seed_source(vault)
     open_sources(page)
     page.locator(".source-row").first.click()
     page.wait_for_selector(".source-forget")
-    page.once("dialog", lambda d: d.accept())
+    dialogs = []
+    page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
     page.click(".source-forget")
-    page.wait_for_selector(".source-row", state="detached")
+    page.wait_for_selector("#intake-toast.toast-link")
+    assert (vault / RAW).exists()                    # a proposal deletes nothing
+    page.click("#intake-toast")
+    page.wait_for_selector(".msg.card .card-approve")
+    shot("forget-proposal")
+    page.click(".msg.card .card-approve")
+    page.wait_for_selector(".msg.card .run-chip.run-done")
+    assert dialogs == []
+    open_sources_empty(page)
     assert page.locator("#wiki-list").inner_text().strip() == "nothing filed yet"
     shot("forgotten")
     assert not (vault / "sources/falcon-status.md").exists()

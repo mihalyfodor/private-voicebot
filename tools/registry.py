@@ -26,7 +26,7 @@ class Tool:
     schema: dict | None = None          # the OpenAI function definition (schema mode)
     takeover: bool = False              # the turn ends in the tool, no model completion
     needs_llm: bool = False             # sits after the llm_ok gate
-    writes: bool = False                # metadata only; PRD 52 reads it later
+    writes: bool = False                # metadata: the tool writes (forget/push only propose; PRD 52)
     hosts: tuple[str, ...] = ()
     untrusted: bool = False             # result is text somebody else wrote -> wrapped as <document>
 
@@ -102,6 +102,10 @@ REGISTRY: tuple[Tool, ...] = (
                   writes=True),
     _trigger_tool("briefing", "Recap what changed in the wiki since the last briefing.", _commands.BRIEF,
                   takeover=True),
+    # approvals (docs/52-approvals.md): each proposes a write and asks; the next turn decides
+    _trigger_tool("forget", "Propose forgetting the source named.", _commands.FORGET, takeover=True, writes=True),
+    _trigger_tool("push", "Propose sending the last card to the reMarkable.", _commands.PUSH, takeover=True,
+                  writes=True),
     _trigger_tool("write_up", "Turn the last answer into a written card.", _commands.WANTS_WRITEUP,
                   takeover=True, needs_llm=True),
     _trigger_tool("open_page", "Open the page asked for, then answer with a note.", _commands.OPEN_PAGE_ANY,
