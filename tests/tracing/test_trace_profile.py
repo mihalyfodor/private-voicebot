@@ -11,9 +11,7 @@ from session import Session
 from tests.conftest import ROOT, StreamClient, fake_tts, run_turn, trace_lines
 
 
-def test_prod_turn_never_creates_verbose_and_starts_with_service_start(vault, monkeypatch):
-    monkeypatch.setenv("TRACE_PROFILE", "prod")
-    tracing.reset()
+def test_prod_turn_never_creates_verbose_and_starts_with_service_start(vault, prod_profile):
     llm.reset()
     with patch.object(llm, "_client", StreamClient("[neutral] Sure.")), patch.object(chatbot, "synthesize", fake_tts):
         run_turn(chatbot.handle_text, Session(), 1, "remind me to call Anna tomorrow")
@@ -81,9 +79,9 @@ def test_dev_inside_a_container_is_refused(tmp_path, monkeypatch):
     marker = tmp_path / ".dockerenv"
     marker.write_text("")
     monkeypatch.setattr(tracing, "DOCKERENV", str(marker))
-    assert "container" in tracing.refusal("dev", {})
-    assert tracing.refusal("prod", {}) == ""
-    assert "unknown" in tracing.refusal("debug", {})
+    assert "container" in tracing.decide({"TRACE_PROFILE": "dev"})[1]
+    assert tracing.decide({"TRACE_PROFILE": "prod"}) == ("prod", "")
+    assert "unknown" in tracing.decide({"TRACE_PROFILE": "debug"})[1]
 
 
 def test_an_unknown_profile_fails_closed_to_prod(monkeypatch):

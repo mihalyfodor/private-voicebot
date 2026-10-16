@@ -18,7 +18,7 @@ import memory
 import notebooks
 import sources
 import wiki
-from tests.conftest import FakeClient, commits, read, trace_lines, vault, write_page  # noqa: F401 — fixture
+from tests.conftest import SENTINEL, FakeClient, commits, read, trace_lines, trace_text, vault, write_page  # noqa: F401 — fixture
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -1137,7 +1137,7 @@ def test_a_failed_ops_completion_is_a_degraded_ingest_with_one_error(vault):
     assert err["exc_type"] == "RuntimeError" and err["traceback"] and err["scope"] == "ingest"
     assert start["ingest_id"] == end["ingest_id"] == err["ingest_id"]
     assert start["span_id"] == end["span_id"] and start["run_id"] == end["run_id"] == err["run_id"]
-    assert "amber" not in open(sources_trace_path()).read()
+    assert "amber" not in trace_text()
 
 
 def test_ingest_run_id_from_the_form_groups_a_host_scripts_ingests(http):
@@ -1151,16 +1151,11 @@ def test_ingest_run_id_from_the_form_groups_a_host_scripts_ingests(http):
     assert all(e["pages"] and all(isinstance(p, str) for p in e["pages"]) for e in ends)
 
 
-def sources_trace_path() -> str:
-    import tracing
-    return tracing.paths()["events"]
-
-
 def test_a_rejected_op_is_logged_by_kind_and_reason_code_only(vault):
-    ops = json.dumps([{"op": "new_page", "path": "secrets/zqx-sentinel-plans", "type": "topic",
-                       "name": "ZQX-SENTINEL plans", "summary": "ZQX-SENTINEL said this in the doc."}])
+    ops = json.dumps([{"op": "new_page", "path": f"secrets/{SENTINEL.lower()}-plans", "type": "topic",
+                       "name": f"{SENTINEL} plans", "summary": f"{SENTINEL} said this in the doc."}])
     sources.ingest_note("Falcon is amber.", title="Falcon status", client=FakeClient(SUMMARY, ops), model="m")
     (end,) = trace_lines(kind="ingest_end")
     assert end["ops_rejected"] == [{"kind": "new_page", "reason_code": "bad_path"}]
-    text = open(sources_trace_path()).read()
-    assert "ZQX-SENTINEL" not in text and "zqx-sentinel" not in text
+    text = trace_text()
+    assert SENTINEL not in text and SENTINEL.lower() not in text

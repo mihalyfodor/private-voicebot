@@ -6,11 +6,10 @@ same plus `verbose.jsonl` (prompts, turn text, tool results). Both live in `TRAC
 repo root; `/data/logs` in the container) and rotate at 10 MB x 5.
 
 `event(kind, **fields)` adds the envelope (`ts`, `kind`, `profile`, `pid`, `turn_id`, `ingest_id`)
-and keeps only allow-listed field names; a string over 200 chars is dropped unless its name is in
-NAMED (then it is cut). `span(kind)` adds the span shape (`span_id`, `parent_id`, `start`,
-`duration_ms`, `status`) under the current turn's or ingest's root span; `run_id` groups a turn or an
-ingest (or a host script's run) across restarts. The writer never raises:
-a failed write is one rate-limited stderr line.
+and keeps only the field names in FIELDS, each by its rule there. `span(kind)` adds the span shape
+(`span_id`, `parent_id`, `start`, `duration_ms`, `status`) under the current turn's or ingest's root
+span; `run_id` groups a turn or an ingest (or a host script's run) across restarts. The writer never
+raises: a failed write is one rate-limited stderr line.
 
 Also the stdout side: `logger(name)` prints `[name] message` to the current stdout; DEBUG lines
 (turn text) only in dev.
@@ -44,45 +43,59 @@ TRACEBACK_FRAMES = 20
 LIST_CAP = 20
 COMPLAIN_EVERY = 60.0      # seconds between two stderr lines about a failed write
 
-#: every field name an event may carry (envelope, span shape and the twelve kinds); others are dropped
+# ------------------------------------------------------------------ the allow-list
+
+#: field rules: ANY keeps a string up to CAP chars (longer is dropped), CUT cuts it to CAP (titles,
+#: paths), TAIL keeps its last TRACEBACK_CAP chars; a set is a fixed vocabulary and a pattern a
+#: shape — a string outside either is "other" in events (the original goes to verbose.jsonl in dev).
+#: `vocab()` adds the values other modules own (tool names, op kinds).
+ANY, CUT, TAIL = "any", "cut", "tail"
+IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,39}")
+
+#: every field name an event may carry (the twelve kinds, envelope, span shape); others are dropped
 FIELDS = {
-    "origin", "text_len", "words",                                          # turn_start
-    "band", "page", "hits", "source", "n", "score", "named", "offer",       # recall
-    "name", "arg_keys", "ms", "result_len", "ok",                           # tool_call
-    "purpose", "model", "max_tokens", "ttft_ms", "tokens_in", "tokens_out", "fallback_reason",  # llm_call
-    "reply_len", "tools", "ctx_pct", "outcome",                             # turn_end
-    "ingest_kind", "raw", "bytes", "pages",                                 # ingest_start
-    "path", "title", "ops_applied", "ops_rejected", "kind", "reason_code", "already", "degraded",  # ingest_end
-    "items", "sources",                                                     # briefing
-    "rel", "state", "seconds",                                              # batch_file
-    "facts_added", "facts_dropped",                                         # memory_save
-    "scope", "where", "exc_type", "message", "code", "traceback",           # error
-    "event", "profile", "version", "pid", "code",                           # service / ws
-    "span_id", "parent_id", "start", "duration_ms", "status", "run_id",     # span shape, run id
-}
-#: string fields cut to CAP instead of dropped when longer (titles and paths)
-NAMED = {"title", "path", "page", "source"}
-#: fields whose values come from a fixed vocabulary: anything else is "other" in events (and the
-#: original goes to verbose.jsonl in dev). `vocab()` adds the values other modules own (tool names, op kinds).
-VOCAB = {
+    # turn_start
+    "origin": {"typed", "spoken", "briefing", "card"}, "text_len": ANY, "words": ANY,
+    # recall
+    "band": ANY, "page": CUT, "hits": ANY, "source": CUT, "n": ANY, "score": ANY, "named": ANY, "offer": ANY,
+    # tool_call
+    "name": {"llm", "asr"}, "arg_keys": IDENTIFIER, "ms": ANY, "result_len": ANY, "ok": ANY,
+    # llm_call
+    "purpose": ANY, "model": ANY, "max_tokens": ANY, "ttft_ms": ANY, "tokens_in": ANY, "tokens_out": ANY,
+    "fallback_reason": {"not_covered"},
+    # turn_end
+    "reply_len": ANY, "tools": set(), "ctx_pct": ANY, "outcome": ANY,
+    # ingest_start
+    "ingest_kind": ANY, "raw": ANY, "bytes": ANY, "pages": ANY,
+    # ingest_end (`kind` / `reason_code` inside ops_rejected)
+    "path": CUT, "title": CUT, "ops_applied": ANY, "ops_rejected": ANY, "kind": set(),
+    "reason_code": {"bad_path", "not_indexed", "author_page", "unknown_op", "no_source", "user_page", "other"},
+    "already": ANY, "degraded": ANY,
+    # briefing
+    "items": ANY, "sources": ANY,
+    # batch_file
+    "rel": ANY, "state": {"filed", "would file", "already", "needs-ocr", "unsupported", "too-large", "resume", "failed"},
+    "seconds": ANY,
+    # memory_save
+    "facts_added": ANY, "facts_dropped": ANY,
+    # error
+    "scope": ANY, "exc_type": ANY, "message": ANY, "code": ANY, "traceback": TAIL,
     "where": {"respond", "briefing", "write_up", "save_note", "new_topic", "ingest", "summarise",
               "propose_page_ops", "meeting_from_transcript"},
-    "state": {"filed", "would file", "already", "needs-ocr", "unsupported", "too-large", "resume", "failed"},
-    "name": {"llm", "asr"},
-    "fallback_reason": {"not_covered"},
-    "reason_code": {"bad_path", "not_indexed", "author_page", "unknown_op", "no_source", "user_page", "other"},
-    "kind": set(),
-    "origin": {"typed", "spoken", "briefing", "card"},
-    "tools": set(),
-    "arg_keys": set(),
+    # service / ws
+    "event": ANY, "profile": ANY, "version": ANY, "pid": ANY,
+    # span shape, run id
+    "span_id": ANY, "parent_id": ANY, "start": ANY, "duration_ms": ANY, "status": ANY, "run_id": ANY,
 }
-IDENTIFIER = re.compile(r"[a-z_][a-z0-9_]{0,39}")
 #: rejection texts → a stable reason_code (sources.restrict_ops, wiki ops, memory.reject_user_pages)
 REASONS = [(re.compile(p), code) for p, code in (
     (r"^bad path", "bad_path"), (r"is not in the index", "not_indexed"), (r"is not in the user's profile", "author_page"),
     (r"^unknown op", "unknown_op"), (r"^source is required", "no_source"), (r"is the user, not another person", "user_page"))]
 
+# ------------------------------------------------------------------ context: the one place ids live
+
 _turn = contextvars.ContextVar("turn_id", default=None)
+_turn_state = contextvars.ContextVar("turn_state", default=None)      # {"failed": True} once a handler failed
 _ingest = contextvars.ContextVar("ingest", default=None)     # (ingest_id, state dict)
 _root = contextvars.ContextVar("root_span", default=None)
 _run = contextvars.ContextVar("run_id", default=None)
@@ -90,6 +103,64 @@ _ids = itertools.count(1)
 _runs = itertools.count(1)     # run ids: process-wide, so a reconnect (turn ids restart) never reuses one
 _lock = threading.RLock()
 _state: dict = {}
+
+
+@contextlib.contextmanager
+def _bind(*pairs):
+    """Set `(contextvar, value)` pairs for the body; reset them after, last set first."""
+    tokens = [(var, var.set(value)) for var, value in pairs]
+    try:
+        yield
+    finally:
+        for var, token in reversed(tokens):
+            var.reset(token)
+
+
+def _new_run() -> str:
+    return f"{os.getpid()}-{next(_runs)}"
+
+
+def _span_id() -> str:
+    return os.urandom(8).hex()
+
+
+def _iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="milliseconds")
+
+
+def ms_since(t0: float) -> int:
+    """Whole milliseconds since `t0` (a `time.monotonic()` reading)."""
+    return round((time.monotonic() - t0) * 1000)
+
+
+# ------------------------------------------------------------------ profile
+
+
+def decide(env=None) -> tuple:
+    """``(profile, reason)``: the profile this process runs under and why it must not start ("" = it may).
+
+    `TRACE_PROFILE` picks it (default dev). An unknown value fails closed: the profile is prod and the
+    reason names the value, so `configure()` refuses it while a lazy writer (an import, a test) runs
+    as prod. dev refuses inside a container (`/.dockerenv`) or with any of DATA_VARS under
+    ~/docker-data — dev never touches prod data.
+    """
+    env = os.environ if env is None else env
+    requested = (env.get("TRACE_PROFILE") or "dev").strip().lower()
+    if requested not in PROFILES:
+        return "prod", f"unknown TRACE_PROFILE {requested!r} (prod|dev)"
+    if requested != "dev":
+        return requested, ""
+    if os.path.exists(DOCKERENV):
+        return requested, "TRACE_PROFILE=dev inside a container; set TRACE_PROFILE=prod"
+    prod = os.path.realpath(os.path.expanduser(PROD_DATA))
+    for name in DATA_VARS:
+        value = env.get(name)
+        if not value:
+            continue
+        path = os.path.realpath(os.path.expanduser(value))
+        if path == prod or path.startswith(prod + os.sep):
+            return requested, f"TRACE_PROFILE=dev with {name}={value} under {PROD_DATA}; set TRACE_PROFILE=prod"
+    return requested, ""
 
 
 # ------------------------------------------------------------------ stdout logging
@@ -115,6 +186,13 @@ if not _log_root.handlers:
     _log_root.addHandler(_Stdout())
 
 
+def _set_level(profile: str) -> None:
+    _log_root.setLevel(logging.DEBUG if profile == "dev" else logging.INFO)
+
+
+_set_level(decide()[0])
+
+
 def logger(name: str) -> logging.Logger:
     """The stdout logger whose lines read `[name] …`."""
     return logging.getLogger("vb." + name)
@@ -123,36 +201,7 @@ def logger(name: str) -> logging.Logger:
 log = logger("Trace")
 
 
-def _env_profile() -> str:
-    """The profile `TRACE_PROFILE` asks for; an unknown value fails closed to prod."""
-    value = (os.getenv("TRACE_PROFILE") or "dev").strip().lower()
-    return value if value in PROFILES else "prod"
-
-
-_log_root.setLevel(logging.DEBUG if _env_profile() == "dev" else logging.INFO)
-
-
-# ------------------------------------------------------------------ profile
-
-
-def refusal(profile: str, env=None) -> str:
-    """Why this process must not start under `profile`, or "" (dev never touches prod data)."""
-    env = os.environ if env is None else env
-    if profile not in PROFILES:
-        return f"unknown TRACE_PROFILE {profile!r} (prod|dev)"
-    if profile != "dev":
-        return ""
-    if os.path.exists(DOCKERENV):
-        return "TRACE_PROFILE=dev inside a container; set TRACE_PROFILE=prod"
-    prod = os.path.realpath(os.path.expanduser(PROD_DATA))
-    for name in DATA_VARS:
-        value = env.get(name)
-        if not value:
-            continue
-        path = os.path.realpath(os.path.expanduser(value))
-        if path == prod or path.startswith(prod + os.sep):
-            return f"TRACE_PROFILE=dev with {name}={value} under {PROD_DATA}; set TRACE_PROFILE=prod"
-    return ""
+# ------------------------------------------------------------------ startup
 
 
 def _version() -> str:
@@ -171,8 +220,8 @@ def _setup(profile: str | None = None) -> None:
     with _lock:
         if _state.get("profile"):
             return
-        _state.update(profile=profile or _env_profile(), dir=TRACE_DIR, handlers={}, complained=0.0)
-        _log_root.setLevel(logging.DEBUG if _state["profile"] == "dev" else logging.INFO)
+        _state.update(profile=profile or decide()[0], dir=TRACE_DIR, handlers={}, complained=0.0)
+        _set_level(_state["profile"])
     event("service", event="start", profile=_state["profile"], version=_version(), pid=os.getpid())
 
 
@@ -182,8 +231,7 @@ def configure(out=None) -> None:
     A host script passes `out=sys.stderr` so the profile line stays out of its own output; its events
     go to `TRACE_DIR` like the app's (never a folder derived from the vault).
     """
-    profile = (os.getenv("TRACE_PROFILE") or "dev").strip().lower()
-    reason = refusal(profile)
+    profile, reason = decide()
     if reason:
         sys.stderr.write(f"[Trace] refusing to start: {reason}\n")
         sys.exit(2)
@@ -198,7 +246,7 @@ def configure(out=None) -> None:
 
 
 def profile() -> str:
-    return _state.get("profile") or _env_profile()
+    return _state.get("profile") or decide()[0]
 
 
 def paths() -> dict:
@@ -231,22 +279,11 @@ def _complain(exc) -> None:
         sys.stderr.write(f"[Trace] write failed: {exc}\n")
 
 
-def _write(stream: str, record: dict) -> None:
-    with _lock:
-        handler = _state["handlers"].get(stream)
-        if handler is None:
-            path = paths()[stream]
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            handler = _Handler(path, maxBytes=MAX_BYTES, backupCount=BACKUPS, delay=True, encoding="utf-8")
-            _state["handlers"][stream] = handler
-    handler.handle(logging.makeLogRecord({"msg": json.dumps(record, default=str, ensure_ascii=False)}))
-
-
 def vocab(field: str, values) -> None:
     """Add the values `field` may take (tool names from llm, op kinds from wiki)."""
-    VOCAB.setdefault(field, set()).update(values)
+    FIELDS[field].update(values)
     if field == "name":
-        VOCAB["tools"].update(values)
+        FIELDS["tools"].update(values)
 
 
 def reason_code(reason) -> str:
@@ -255,39 +292,33 @@ def reason_code(reason) -> str:
     return next((code for pattern, code in REASONS if pattern.search(text)), "other")
 
 
-def _word(name: str, value: str):
-    """A vocabulary field's value, or "other" (the original to verbose.jsonl in dev)."""
-    ok = IDENTIFIER.fullmatch(value) if name == "arg_keys" else value in VOCAB[name]
-    if ok:
-        return value
-    verbose("vocab_miss", field=name, value=value)
-    return "other"
-
-
-def _clean(value, name: str = ""):
-    """Allow-listed names only, vocabulary fields mapped, strings capped; nested dicts / lists the
-    same way. `_DROP` = drop it."""
-    if isinstance(value, dict):
-        return {k: v for k, v in ((k, _clean(v, k)) for k, v in value.items() if k in FIELDS) if v is not _DROP}
-    if isinstance(value, (list, tuple, set)):
-        items = [_clean(v, name) for v in list(value)[:LIST_CAP]]
-        return [v for v in items if v is not _DROP]
-    if isinstance(value, str):
-        if name in VOCAB:
-            return _word(name, value)
-        if name == "traceback":
-            return value[-TRACEBACK_CAP:]
-        if len(value) > CAP:
-            return value[:CAP] if name in NAMED else _DROP
-    return value
-
-
 _DROP = object()
 
 
+def _clean(fields, name: str = ""):
+    """`fields` by the FIELDS rules: unknown names dropped, nested dicts / lists the same way
+    (lists cut to LIST_CAP); `_DROP` = leave the value out."""
+    if isinstance(fields, dict):
+        return {k: v for k, v in ((k, _clean(v, k)) for k, v in fields.items() if k in FIELDS) if v is not _DROP}
+    if isinstance(fields, (list, tuple, set)):
+        return [v for v in (_clean(v, name) for v in list(fields)[:LIST_CAP]) if v is not _DROP]
+    if not isinstance(fields, str):
+        return fields
+    rule = FIELDS.get(name, ANY)
+    if rule is TAIL:
+        return fields[-TRACEBACK_CAP:]
+    if isinstance(rule, (set, re.Pattern)):
+        if rule.fullmatch(fields) if isinstance(rule, re.Pattern) else fields in rule:
+            return fields
+        verbose("vocab_miss", field=name, value=fields)
+        return "other"
+    if len(fields) > CAP:
+        return fields[:CAP] if rule is CUT else _DROP
+    return fields
+
+
 def _envelope(kind: str) -> dict:
-    rec = {"ts": datetime.now().astimezone().isoformat(timespec="milliseconds"), "kind": kind,
-           "profile": _state.get("profile"), "pid": os.getpid()}
+    rec = {"ts": _iso(), "kind": kind, "profile": _state.get("profile"), "pid": os.getpid()}
     if _run.get() is not None:
         rec["run_id"] = _run.get()
     if _turn.get() is not None:
@@ -297,24 +328,35 @@ def _envelope(kind: str) -> dict:
     return rec
 
 
-def event(kind: str, /, **fields) -> None:
-    """One events.jsonl line; never raises."""
+def _emit(stream: str, kind: str, fields: dict) -> None:
+    """The one writer path: events are cleaned, verbose lines exist only in dev; never raises."""
     try:
         _setup()
-        _write("events", {**_clean(fields), **_envelope(kind)})     # the envelope always wins
+        if stream == "verbose" and _state["profile"] != "dev":
+            return                                  # prod never opens the file
+        if stream == "events":
+            fields = _clean(fields)
+        record = {**fields, **_envelope(kind)}      # the envelope always wins
+        with _lock:
+            handler = _state["handlers"].get(stream)
+            if handler is None:
+                path = paths()[stream]
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                handler = _Handler(path, maxBytes=MAX_BYTES, backupCount=BACKUPS, delay=True, encoding="utf-8")
+                _state["handlers"][stream] = handler
+        handler.handle(logging.makeLogRecord({"msg": json.dumps(record, default=str, ensure_ascii=False)}))
     except Exception as exc:  # noqa: BLE001 — the trace never breaks a turn
         _complain(exc)
 
 
+def event(kind: str, /, **fields) -> None:
+    """One events.jsonl line."""
+    _emit("events", kind, fields)
+
+
 def verbose(kind: str, /, **fields) -> None:
-    """One verbose.jsonl line in dev (prompts, turn text, tool results); prod never opens the file."""
-    try:
-        _setup()
-        if _state["profile"] != "dev":
-            return
-        _write("verbose", {**fields, **_envelope(kind)})
-    except Exception as exc:  # noqa: BLE001
-        _complain(exc)
+    """One verbose.jsonl line in dev (prompts, turn text, tool results)."""
+    _emit("verbose", kind, fields)
 
 
 def error(scope: str, where: str, exc: BaseException | None = None) -> None:
@@ -323,9 +365,8 @@ def error(scope: str, where: str, exc: BaseException | None = None) -> None:
     exc = exc or sys.exc_info()[1]
     if exc is None:
         return
-    state = _ingest.get()[1] if _ingest.get() else None
-    if state is not None:
-        state.setdefault("_seen", set()).add(id(exc))
+    if _ingest.get() is not None:
+        _ingest.get()[1].setdefault("_seen", set()).add(id(exc))
     if scope == "turn":
         fail_turn()
     frames = "".join(f'  File "{f.filename}", line {f.lineno}, in {f.name}\n'
@@ -334,9 +375,6 @@ def error(scope: str, where: str, exc: BaseException | None = None) -> None:
     event("error", scope=scope, where=where, exc_type=code, message=code, code=code,
           traceback=frames[-TRACEBACK_CAP:])
     verbose("error_text", scope=scope, where=where, message=str(exc))
-
-
-_turn_state = contextvars.ContextVar("turn_state", default=None)
 
 
 def fail_turn() -> None:
@@ -353,14 +391,6 @@ def turn_failed() -> bool:
 # ------------------------------------------------------------------ units and spans
 
 
-def _span_id() -> str:
-    return os.urandom(8).hex()
-
-
-def _iso() -> str:
-    return datetime.now().astimezone().isoformat(timespec="milliseconds")
-
-
 def root_span() -> str | None:
     return _root.get()
 
@@ -372,15 +402,8 @@ def turn(turn_id):
     if _turn.get() == turn_id and _root.get():
         yield _root.get()
         return
-    tokens = (_turn.set(turn_id), _root.set(_span_id()), _run.set(f"{os.getpid()}-{next(_runs)}"),
-              _turn_state.set({}))
-    try:
+    with _bind((_turn, turn_id), (_root, _span_id()), (_run, _new_run()), (_turn_state, {})):
         yield _root.get()
-    finally:
-        _turn_state.reset(tokens[3])
-        _run.reset(tokens[2])
-        _root.reset(tokens[1])
-        _turn.reset(tokens[0])
 
 
 @contextlib.contextmanager
@@ -389,11 +412,8 @@ def run(run_id: str | None):
     if not run_id:
         yield
         return
-    token = _run.set(run_id)
-    try:
+    with _bind((_run, run_id)):
         yield
-    finally:
-        _run.reset(token)
 
 
 @contextlib.contextmanager
@@ -410,9 +430,20 @@ def span(kind: str, /, **fields):
         status = "error"
         raise
     finally:
-        ms = round((time.monotonic() - t0) * 1000)
+        ms = ms_since(t0)
         out.setdefault("ms", ms)
         event(kind, span_id=_span_id(), parent_id=parent, start=start, duration_ms=ms, status=status, **out)
+
+
+def llm_span(purpose: str, messages, /, **fields):
+    """The `llm_call` span of one completion; its prompt goes to verbose.jsonl (dev) first."""
+    verbose("prompt", purpose=purpose, messages=messages)
+    return span("llm_call", purpose=purpose, **fields)
+
+
+def usage_fields(usage) -> dict:
+    """`tokens_in` / `tokens_out` from a completion's `usage` (null when there is none)."""
+    return {"tokens_in": getattr(usage, "prompt_tokens", None), "tokens_out": getattr(usage, "completion_tokens", None)}
 
 
 def mark(**fields) -> None:
@@ -432,25 +463,21 @@ def ingest(kind: str, **fields):
     if _ingest.get() is not None:
         yield _ingest.get()[1]
         return
-    n = next(_ids)
-    iid = f"{os.getpid()}-{n}"
+    iid = f"{os.getpid()}-{next(_ids)}"
     state = {"ops_applied": 0, "ops_rejected": [], "pages": [], "already": False, "degraded": False}
     sid, parent, start, t0 = _span_id(), _root.get(), _iso(), time.monotonic()
-    tokens = (_ingest.set((iid, state)), _root.set(sid), _run.set(_run.get() or f"{os.getpid()}-{next(_runs)}"))
     shape = {"span_id": sid, "parent_id": parent, "start": start}
-    event("ingest_start", ingest_kind=kind, **shape, **fields)
-    status = "ok"
-    try:
-        yield state
-    except BaseException as exc:
-        status = "error"
-        if id(exc) not in state.get("_seen", ()):
-            error("ingest", "ingest", exc)
-        raise
-    finally:
-        ms = round((time.monotonic() - t0) * 1000)
-        event("ingest_end", **shape, duration_ms=ms, status=status, ms=ms,
-              **{k: v for k, v in state.items() if not k.startswith("_")})
-        _run.reset(tokens[2])
-        _root.reset(tokens[1])
-        _ingest.reset(tokens[0])
+    with _bind((_ingest, (iid, state)), (_root, sid), (_run, _run.get() or _new_run())):
+        event("ingest_start", ingest_kind=kind, **shape, **fields)
+        status = "ok"
+        try:
+            yield state
+        except BaseException as exc:
+            status = "error"
+            if id(exc) not in state.get("_seen", ()):
+                error("ingest", "ingest", exc)
+            raise
+        finally:
+            ms = ms_since(t0)
+            event("ingest_end", **shape, duration_ms=ms, status=status, ms=ms,
+                  **{k: v for k, v in state.items() if not k.startswith("_")})

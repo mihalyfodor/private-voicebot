@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 49 — Event trace: structured logs with a prod and a dev profile
 

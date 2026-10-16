@@ -13,12 +13,11 @@ import chatbot
 import llm
 import tracing
 from session import Session
-from tests.conftest import (RawStreamClient, StreamClient, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
+from tests.conftest import (SENTINEL, RawStreamClient, StreamClient, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
                             tool_call_chunk, trace_lines, trace_text)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
-SENTINEL = "ZQX-SENTINEL"
 QUESTION = f"tell me about the {SENTINEL} project plans for next week"
 REPLY = f"[neutral] The {SENTINEL} plans look fine to me."
 
@@ -190,9 +189,7 @@ def _turn_raising(turn: int):
     return _typed(turn, "hello there friend", RawStreamClient([broken()]))
 
 
-def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch):
-    monkeypatch.setenv("TRACE_PROFILE", "prod")
-    tracing.reset()
+def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch, prod_profile):
     monkeypatch.setattr(llm, "run_tool", _raising_tool)
     _tool_turn(1)
     _turn_raising(2)

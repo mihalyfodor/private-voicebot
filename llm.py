@@ -324,9 +324,8 @@ def client() -> OpenAI:
 def _stream(purpose: str, fallback_reason: str | None = None, **kw):
     """A streamed completion (usage asked for) whose chunks pass through; one `llm_call` span when
     it ends: ms, ttft_ms (first content or tool delta), tokens from the last chunk's usage or null."""
-    tracing.verbose("prompt", purpose=purpose, messages=kw.get("messages"))
-    with tracing.span("llm_call", purpose=purpose, model=kw.get("model"), max_tokens=kw.get("max_tokens"),
-                    fallback_reason=fallback_reason) as span:
+    with tracing.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+                          fallback_reason=fallback_reason) as span:
         t0, ttft, usage = time.monotonic(), None, None
         stream = client().chat.completions.create(stream=True, stream_options={"include_usage": True}, **kw)
         try:
@@ -335,25 +334,21 @@ def _stream(purpose: str, fallback_reason: str | None = None, **kw):
                 if ttft is None and chunk.choices:
                     delta = chunk.choices[0].delta
                     if getattr(delta, "content", None) or getattr(delta, "tool_calls", None):
-                        ttft = round((time.monotonic() - t0) * 1000)
+                        ttft = tracing.ms_since(t0)
                 yield chunk
         except GeneratorExit:
             getattr(stream, "close", lambda: None)()        # an abandoned generation stops at the server
             raise
         finally:
-            span.update(ms=round((time.monotonic() - t0) * 1000), ttft_ms=ttft,
-                        tokens_in=getattr(usage, "prompt_tokens", None),
-                        tokens_out=getattr(usage, "completion_tokens", None))
+            span.update(ms=tracing.ms_since(t0), ttft_ms=ttft, **tracing.usage_fields(usage))
 
 
 def _complete(purpose: str, **kw):
     """A plain completion with its `llm_call` span (no ttft; tokens when the response has usage)."""
-    tracing.verbose("prompt", purpose=purpose, messages=kw.get("messages"))
-    with tracing.span("llm_call", purpose=purpose, model=kw.get("model"), max_tokens=kw.get("max_tokens"),
-                    ttft_ms=None) as span:
+    with tracing.llm_span(purpose, kw.get("messages"), model=kw.get("model"), max_tokens=kw.get("max_tokens"),
+                          ttft_ms=None) as span:
         resp = client().chat.completions.create(**kw)
-        usage = getattr(resp, "usage", None)
-        span.update(tokens_in=getattr(usage, "prompt_tokens", None), tokens_out=getattr(usage, "completion_tokens", None))
+        span.update(tracing.usage_fields(getattr(resp, "usage", None)))
         return resp
 
 

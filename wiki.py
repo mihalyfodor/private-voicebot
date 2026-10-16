@@ -605,6 +605,18 @@ def op_kind(op) -> str:
     return kind if kind in OPS else "other"
 
 
+def log_rejected(bad_ops: list, out) -> list:
+    """Log each rejected op on `out` by kind and reason code (the op text only at DEBUG); returns the
+    trace's `ops_rejected` shape `[{kind, reason_code}]`."""
+    shape = []
+    for bad in bad_ops:
+        short = {"kind": op_kind(bad.get("op")), "reason_code": tracing.reason_code(bad.get("reason"))}
+        out.info(f"rejected {short['kind']}: {short['reason_code']}")
+        out.debug(f"rejected {bad['op']}: {bad['reason']}")
+        shape.append(short)
+    return shape
+
+
 #: bumped by every applied batch, so callers can tell "did this save file anything?"
 _applied_batches = 0
 
@@ -1739,9 +1751,7 @@ def ingest(turns: list, client, model: str) -> list:
         return []
     ops, about_user = reject_user_pages(ops, names)
     applied, rejected = apply_page_ops(ops, f"session {memory._today_iso()}")
-    for bad in about_user + rejected:
-        log.info(f"rejected {op_kind(bad['op'])}: {tracing.reason_code(bad['reason'])}")
-        log.debug(f"rejected {bad['op']}: {bad['reason']}")
+    log_rejected(about_user + rejected, log)
     if applied:
         log.info(f"{len(applied)} page op{'s' if len(applied) != 1 else ''} applied")
     return applied

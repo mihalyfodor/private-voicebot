@@ -1641,7 +1641,7 @@ def save(session_turns: list, client, model: str, sources=()) -> list | None:
     applied = _save(session_turns, client, model, sources)
     ops = [op.get("op") for op in applied or []]
     tracing.event("memory_save", facts_added=ops.count("ADD"), facts_dropped=ops.count("DELETE"),
-                ms=round((time.monotonic() - t0) * 1000), ok=applied is not None)
+                  ms=tracing.ms_since(t0), ok=applied is not None)
     return applied
 
 

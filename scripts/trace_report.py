@@ -113,6 +113,12 @@ def table(head: list, rows: list) -> str:
     return "\n".join("  ".join(str(c).ljust(w) for c, w in zip(row, widths)).rstrip() for row in [head] + rows)
 
 
+def error_table(errors: list) -> str:
+    if not errors:
+        return "no errors"
+    return table(["ts", "scope", "where", "exc", "traceback"], [error_row(e) for e in errors])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("path")
@@ -138,10 +144,7 @@ def main(argv=None) -> int:
                 print(json.dumps(e, ensure_ascii=False))
         return 0 if picked else 1
     if a.errors:
-        if errors:
-            print(table(["ts", "scope", "where", "exc", "traceback"], [error_row(e) for e in errors]))
-        else:
-            print("no errors")
+        print(error_table(errors))
         return 1 if errors else 0
 
     print(table(["turn", "ts", "origin", "band", "tools", "llm ms / ttft", "tokens", "reply", "error"],
@@ -149,8 +152,7 @@ def main(argv=None) -> int:
     print()
     print(table(["ingest", "kind", "title", "ms", "ops", "degraded"], [ingest_row(k, ev) for k, ev in ingests]))
     print()
-    print(table(["ts", "scope", "where", "exc", "traceback"], [error_row(e) for e in errors]) if errors
-          else "no errors")
+    print(error_table(errors))
     return 0
 
 

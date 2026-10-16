@@ -61,6 +61,17 @@ def file_sandbox(monkeypatch, tmp_path):
     tracing.reset()
 
 
+#: text no prod event may carry: a fixture puts it in what the user said or read, a test greps for it
+SENTINEL = "ZQX-SENTINEL"
+
+
+@pytest.fixture
+def prod_profile(monkeypatch):
+    """This test's process runs the prod trace profile (no verbose.jsonl, no text)."""
+    monkeypatch.setenv("TRACE_PROFILE", "prod")
+    tracing.reset()
+
+
 def trace_lines(stream: str = "events", kind: str | None = None) -> list:
     """The parsed lines of this test's events.jsonl (or `stream="verbose"`), optionally one kind."""
     path = tracing.paths()[stream]

@@ -89,7 +89,7 @@ voicebot/
 ├── characters.py     # character card loader + persona builder
 ├── characters/       # editable YAML character cards
 ├── session.py        # Session (per-connection state) + TurnController (single worker; `submit(..., turn_id=)` opens the turn's trace context)
-├── tracing.py        # PRD 49 event trace (stdlib; not trace.py, which would shadow the stdlib module): `event` (allow-listed fields, 200-char cap), `verbose` (dev only), `span` / `turn` / `ingest` / `run` contexts (turn_id, ingest_id, run_id, span ids), `error`, `configure` (profile + refusal), 10 MB × 5 rotation, the `[Module]` stdout loggers
+├── tracing.py        # PRD 49 event trace (stdlib; not trace.py, which would shadow the stdlib module): `FIELDS` (one table: allow-list, per-field vocabularies, 200-char cap), `event` / `verbose` (dev only) via one writer, `decide` (profile + refusal), `span` / `turn` / `ingest` / `run` contexts (turn_id, ingest_id, run_id, span ids), `error`, `configure`, `llm_span` / `usage_fields` / `ms_since` call-site helpers, 10 MB × 5 rotation, the `[Module]` stdout loggers
 ├── vad.py            # Silero VAD endpointer (hands-free); Recorder is an unused PTT leftover
 ├── asr.py            # mlx-whisper transcription + junk filter, optional initial_prompt name biasing; `last_error` after a failed remote call (PRD 41)
 ├── services.py       # PRD 41: oMLX / ASR health probe (`probe`, `refresh`, 30 s daemon + `recheck` after a failed call), `START_HINT`, the `services` payload; addendum: `admin_password()` (env, else settings.json; `python -m services --admin-password` for the script), `model_op` load/unload via the admin API
@@ -269,7 +269,7 @@ voicebot/
     ├── 46-briefing.md           # PRD: "what's new?" — spoken recap of vault/memory changes since the last briefing, card on request (done)
     ├── 47-remarkable-pull.md    # PRD: scripts/remarkable_sync.py pull — notebooks over USB → page PNGs → image ingest, one source per notebook; fake device in tests (done)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
-    └── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (refactoring)
+    └── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
 ```
 
 ## Active PRDs

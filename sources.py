@@ -181,13 +181,10 @@ def _client_model() -> tuple:
 def _ask(client, model: str, system: str, content, max_tokens: int) -> str:
     """One completion. `content` is a string, or the multimodal content-part list for an image."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": content}]
-    tracing.verbose("prompt", purpose="ingest", messages=messages)
-    with tracing.span("llm_call", purpose="ingest", model=model, max_tokens=max_tokens, ttft_ms=None) as span:
+    with tracing.llm_span("ingest", messages, model=model, max_tokens=max_tokens, ttft_ms=None) as span:
         response = client.chat.completions.create(model=model, messages=messages, temperature=0,
                                                   max_tokens=max_tokens)
-        usage = getattr(response, "usage", None)
-        span.update(tokens_in=getattr(usage, "prompt_tokens", None),
-                    tokens_out=getattr(usage, "completion_tokens", None))
+        span.update(tracing.usage_fields(getattr(response, "usage", None)))
     return response.choices[0].message.content or ""
 
 
@@ -1222,12 +1219,7 @@ def _file_page(client, model: str, summary: dict, extracted, *, raw_rel: str, so
     if ops:
         kept, rejected = restrict_ops(ops, raw_rel, names, kind)
         applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
-        shape = [{"kind": wiki.op_kind(b.get("op")), "reason_code": tracing.reason_code(b.get("reason"))}
-                 for b in rejected + more]
-        for bad, short in zip(rejected + more, shape):
-            log.info(f"rejected {short['kind']}: {short['reason_code']}")     # the op text only at DEBUG
-            log.debug(f"rejected {bad['op']}: {bad['reason']}")
-        tracing.mark(ops_rejected=shape)
+        tracing.mark(ops_rejected=wiki.log_rejected(rejected + more, log))
 
     fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
                   for op in applied if op.get("path")}

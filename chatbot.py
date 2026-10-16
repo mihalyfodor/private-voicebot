@@ -572,8 +572,7 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         finally:
             if tracing.turn_failed():
                 end["outcome"] = "error"
-            tracing.event("turn_end", ms=round((time.monotonic() - t0) * 1000), ctx_pct=llm.context_usage()["pct"],
-                        **end)
+            tracing.event("turn_end", ms=tracing.ms_since(t0), ctx_pct=llm.context_usage()["pct"], **end)
 
 
 def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict):
