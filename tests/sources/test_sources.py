@@ -626,7 +626,7 @@ def test_the_page_ops_prompt_lists_a_page_the_index_cut(vault, monkeypatch):
 
     user = client.calls[0]["messages"][1]["content"]
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
-    assert "projects/zephyr" not in index_part
+    assert "projects/zephyr" not in index_part and index_part.startswith("# Vault map\n## people (10)")
     assert "(update these rather than duplicating):" in block and "projects/zephyr" in block
 
 

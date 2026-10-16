@@ -613,7 +613,7 @@ def _wiki_block() -> str:
     try:
         import wiki
 
-        index = wiki.index_text(wiki.WIKI_INDEX_TOKENS)
+        index = wiki.vault_map(wiki.WIKI_INDEX_TOKENS)
         note = f"\n{WIKI_NOTE}" if wiki.tools_registered() else ""
     except Exception as exc:  # noqa: BLE001
         log.warning(f"warning: wiki index unavailable ({exc})")
@@ -729,7 +729,7 @@ def _transcript(turns: list) -> str:
     )
 
 
-def _extract_json(text: str, opener: str = "[", closer: str = "]"):
+def extract_json(text: str, opener: str = "[", closer: str = "]"):
     """Parse the first `opener`...`closer` block, tolerating ```json fences and prose."""
     if not text:
         return None
@@ -768,7 +768,7 @@ def propose_ops(profile: dict, turns: list, sources=()) -> list | None:
     except Exception as exc:  # noqa: BLE001 — memory must never break a session
         log.warning(f"warning: op proposal failed ({exc})")
         return None
-    ops = _extract_json(content)
+    ops = extract_json(content)
     if not isinstance(ops, list):
         log.warning("warning: could not parse ops from model output")
         log.debug(f"ops output: {content[:200]!r}")          # model text about the user: dev only
@@ -1418,7 +1418,7 @@ def reflect(profile: dict) -> dict:
     except Exception as exc:  # noqa: BLE001
         log.warning(f"warning: reflection failed ({exc})")
         return profile
-    cleaned = _extract_json(content, "{", "}")
+    cleaned = extract_json(content, "{", "}")
     if not isinstance(cleaned, dict):
         log.warning("warning: could not parse reflection output")
         log.debug(f"reflection output: {content[:200]!r}")
@@ -1547,7 +1547,7 @@ def migrate_if_needed() -> dict:
 
 
 #: the one-line assistant turns that stand in for a card / a briefing (PRD 43, PRD 46): never news
-STAND_INS = ("wrote up: ", "briefed: ")
+STAND_INS = ("wrote up: ", "briefed: ", "researched: ")
 #: a user line that is nothing but a write-up request ("yes, write it up please", `/write`)
 WRITEUP_REQUEST = re.compile(
     r"^(?:(?:yes|yeah|ok(?:ay)?|sure|please|just)[,\s]+)*(?:(?:please\s+)?write\s+(?:it|that|this)\s+(?:up|out)"

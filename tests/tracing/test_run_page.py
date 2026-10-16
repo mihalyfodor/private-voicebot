@@ -82,3 +82,32 @@ def test_a_malformed_run_id_is_refused_before_the_log_is_read(monkeypatch, path)
 
     monkeypatch.setattr(runs, "load", never)
     assert _get(path).status_code == 404
+
+
+# --------------------------------------------------------------- PRD 54 scenario 11: a research run
+
+
+def test_a_research_run_page_shows_the_chain_with_timings_and_no_question(vault, prod_profile):
+    import json
+    import re
+
+    from tests.conftest import research_turn, trace_lines, write_page
+
+    question = "Zephyr budget SENTINELQUESTION"
+    quote = "The Zephyr budget is 40k for the first quarter SENTINELQUOTE"
+    write_page("projects/zephyr", "Zephyr", f"\n## Summary\n{quote}.\n")
+    write = (f'# Zephyr SENTINELTITLE\n\n## Findings\n- Q1 SENTINELCLAIM: "{quote}" — Zephyr\n'
+             '- Made up SENTINELDROPCLAIM: "SENTINELFAKE words" — Zephyr\n')
+    judge = json.dumps([{"id": 1, "verdict": "keep", "reason": "the page SENTINELREASON"}])
+    research_turn(f"research {question}", json.dumps(["Zephyr budget SENTINELSUB", "Zephyr quarter"]), judge, write)
+    (start,) = trace_lines(kind="turn_start")
+    text = _get(f"/runs/{start['run_id']}").text
+    assert "<h1>Research</h1>" in text and 'run-chip run-done">done<' in text
+    chain = [name for name, _ms in re.findall(r"<li>(plan|search|judge|read|write|verify) · (\d+) ms · ", text)]
+    assert chain == ["plan", "search", "search", "judge", "read", "write", "verify"]
+    for purpose in ("research_plan", "research_judge", "research_write"):
+        assert f"model · {purpose}" in text
+    assert "Zephyr" in text                                              # the page read, under Did · Sources
+    for sentinel in ("SENTINELQUESTION", "SENTINELSUB", "SENTINELQUOTE", "SENTINELTITLE", "SENTINELCLAIM",
+                     "SENTINELDROPCLAIM", "SENTINELFAKE", "SENTINELREASON"):
+        assert sentinel not in text and sentinel not in trace_text(), sentinel

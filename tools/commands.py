@@ -33,6 +33,15 @@ SAVE_NOTE = re.compile(
 #: "write it up", "write that up", "written version", "write it out" — and the typed `/write`
 WANTS_WRITEUP = re.compile(r"\bwrite\s+(?:it|that|this)\s+(?:up|out)\b|\bwritten\s+version\b|^/write\s*$", re.I)
 
+# --- research mode (docs/54-vault-map-research.md): explicit only, typed or spoken -------
+#: "research how the Falcon and Zephyr budgets differ", "/research Zephyr budget", "Research, the Zephyr budget".
+#: The noun use never starts a run: "research shows / is / papers / on …" (the word after it is one of these).
+NOT_RESEARCH = ("shows|show|showed|shown|says|said|suggests|suggested|indicates|indicated|finds|found|proves|proved"
+                "|papers|paper|is|was|are|were|has|had|have|will|would|can|could|should|may|might|must|does|did"
+                "|on|about|into|from|by|for|in|of|at|with|to|that|which|and|or|but|it|team|group|project|done")
+RESEARCH = re.compile(r"^(?:please,?\s+)?(?:/research\s+|research[,:]?\s+"
+                      rf"(?!(?:{NOT_RESEARCH})\b))(?P<question>\S.*?)[\s?.!]*$", re.I)
+
 # --- approvals (docs/52-approvals.md) ---------------------------------------------------
 #: the words a source title is spoken with; "forget <title>" needs one at the end ("forget my address" and
 #: "forget Anna" are memory requests for the model, not a source)
@@ -82,6 +91,12 @@ def save_note_command(text: str) -> bool:
 def wants_writeup(text: str) -> bool:
     """"write it up", "yes, write that up please", "give me the written version", typed `/write`."""
     return bool(WANTS_WRITEUP.search(normalise(text)))
+
+
+def research_command(text: str) -> str | None:
+    """The question a "research X" / `/research X` turn asks (PRD 54), else None."""
+    m = RESEARCH.match(normalise(text))
+    return m.group("question").strip() if m else None
 
 
 def forget_command(text: str) -> str | None:

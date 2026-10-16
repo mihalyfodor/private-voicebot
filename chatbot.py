@@ -20,6 +20,7 @@ import approvals
 import llm
 import memory
 import notebooks
+import research
 import runs
 import wiki
 import splitter
@@ -512,7 +513,10 @@ def save_card(card_id: str | None, folder: str = "") -> list:
         raise ValueError(NOTHING_TO_SAVE)
     if card.get("saved"):
         raise ValueError(ALREADY_SAVED)
-    path, reason = wiki.save_card(card_path(card, folder), card["title"], card["markdown"], card["sources"])
+    markdown, run_id = card["markdown"], ""
+    if card.get("workflow") == "research":            # PRD 54: the run in frontmatter, the dropped quotes stay out
+        markdown, run_id = research.saved_markdown(markdown), card.get("run_id", "")
+    path, reason = wiki.save_card(card_path(card, folder), card["title"], markdown, card["sources"], run_id)
     if reason:
         raise ValueError(reason)
     card["saved"] = path
@@ -532,6 +536,15 @@ def write_up(ctx: Ctx):
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
+        researched = llm.research_card()
+        if researched is not None:                  # PRD 54: the research card is the write-up; no second card
+            llm.reuse_card(researched, user_text)
+            send_sync(card_update(researched, markdown=researched["markdown"], title=researched["title"],
+                                  sources=researched["sources"]))
+            llm.record_assistant(say_canned(llm.WRITTEN_LINE, send_sync))
+            send_sync(context_msg())
+            _wait_for_playback_then_idle(sess, send_sync)
+            return
         if not llm.can_write_up():
             raise ValueError(llm.NOTHING_TO_WRITE)
         run = runs.Run("write-up")
@@ -561,6 +574,29 @@ def write_up(ctx: Ctx):
     except Exception as e:
         _run_failed(run, "write", runs.failure_reason(e), send_sync, card)
         _turn_failed(send_sync, "write_up", e, "The write-up failed.", recheck=True)
+
+
+@registry.handler("research")
+def research_turn(ctx: Ctx):
+    """The research turn (docs/54-vault-map-research.md), typed or spoken, never confirmed: one short
+    spoken line, then the run card — `running` at once, a `card_update` per finished step (state stays
+    `thinking`), and the last one with the markdown, title and sources. The body is never spoken."""
+    sess, turn, send_sync = ctx.session, ctx.turn, ctx.send
+    try:
+        send_sync({"type": "state", "value": "thinking"})
+        _arm_playback(sess, turn)
+        say_canned(research.LINE, send_sync)
+        send_sync({"type": "state", "value": "thinking"})
+
+        def notify(card, new=False):
+            send_sync(card_msg(card) if new else card_update(card))
+
+        card = research.run(commands.research_command(ctx.text) or ctx.text, ctx.origin, notify, ctx.text)
+        send_sync(card_update(card, markdown=card["markdown"], title=card["title"], sources=card["sources"]))
+        send_sync(context_msg())
+        _wait_for_playback_then_idle(sess, send_sync)
+    except Exception as e:
+        _turn_failed(send_sync, "research", e, "The research failed.", recheck=True)
 
 
 @registry.handler("save_note")

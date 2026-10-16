@@ -19,7 +19,7 @@ from collections import defaultdict
 
 INDEX_DIR = ".index"
 DB_NAME = "search.sqlite"
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"          # 2: `pages.links` (the vault map's inbound counts, PRD 54)
 K1, B = 1.5, 0.75
 PAGE, CHUNK = "page", "chunk"
 #: meta keys that describe this file, not the vault: left out of `dump`
@@ -27,7 +27,8 @@ VOLATILE_META = ("epoch", "generation", "checked_at", "manifest")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pages(path TEXT PRIMARY KEY, mtime INTEGER, sha TEXT, type TEXT, name TEXT,
-                                 tags TEXT, updated TEXT, one_liner TEXT, length INTEGER);
+                                 tags TEXT, updated TEXT, one_liner TEXT, length INTEGER,
+                                 links TEXT);
 CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY, source TEXT, raw TEXT, sha TEXT, title TEXT,
                                   n INTEGER, total INTEGER, text_offset INTEGER, length INTEGER);
 CREATE INDEX IF NOT EXISTS chunks_sha ON chunks(sha);
@@ -188,13 +189,14 @@ class Index:
     # --- pages ----------------------------------------------------------------------
 
     def put_page(self, path: str, mtime: int, sha: str, fields: dict, tokens: list) -> None:
-        """Replace one page's row and postings. `fields`: type, name, tags (json), updated, one_liner."""
+        """Replace one page's row and postings. `fields`: type, name, tags (json), updated, one_liner,
+        links (json: the page's wikilink targets)."""
         with self.write() as db:
             self._drop_doc(db, PAGE, path)
-            db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            db.execute("INSERT OR REPLACE INTO pages VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                        (path, mtime, sha, fields.get("type", ""), fields.get("name", ""),
                         fields.get("tags", "[]"), fields.get("updated", ""), fields.get("one_liner", ""),
-                        len(tokens)))
+                        len(tokens), fields.get("links", "[]")))
             self._add_doc(db, PAGE, path, tokens, positions=False)
 
     def drop_page(self, path: str) -> None:
@@ -228,6 +230,15 @@ class Index:
         """path -> (type, tags json, updated) for the search filters."""
         with self.lock:
             return {p: (t, g, u) for p, t, g, u in self.conn.execute("SELECT path, type, tags, updated FROM pages")}
+
+    def map_rows(self) -> list:
+        """(path, type, name, tags json, updated, one_liner, links json) of every page, in path order —
+        what the vault map folds (PRD 54), memoised until the next write."""
+        def build():
+            with self.lock:
+                return self.conn.execute("SELECT path, type, name, tags, updated, one_liner, links FROM pages "
+                                         "ORDER BY path").fetchall()
+        return self.cached("map_rows", build)
 
     def page_lengths(self) -> dict:
         """path -> token count of every indexed page."""

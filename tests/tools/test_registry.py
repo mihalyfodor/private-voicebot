@@ -31,9 +31,9 @@ def test_read_tools_and_hosts_derive_from_the_records():
 
 def test_invariants():
     names = registry.names()
-    assert len(set(names)) == len(names) == 18
+    assert len(set(names)) == len(names) == 19
     assert len(registry.schemas()) == 11
-    assert names[11:] == ["new_topic", "save_note", "briefing", "forget", "push", "write_up",
+    assert names[11:] == ["new_topic", "save_note", "briefing", "forget", "push", "write_up", "research",
                           "open_page"]   # routing order
     for t in registry.REGISTRY:
         assert (t.trigger is None) != (t.schema is None), t.name
@@ -51,6 +51,7 @@ def test_invariants():
 PREDICATES = {"new_topic": commands.new_topic_command, "save_note": commands.save_note_command,
               "briefing": commands.briefing_command, "write_up": commands.wants_writeup,
               "forget": lambda t: commands.forget_command(t) is not None, "push": commands.push_command,
+              "research": lambda t: commands.research_command(t) is not None,
               "open_page": lambda t: commands.page_command(t) is not None}
 PHRASES = [
     ("new topic", "new_topic"), ("/new", "new_topic"), ("New topic!", "new_topic"),
@@ -65,6 +66,13 @@ PHRASES = [
     ("forget the Morrowind guide", "forget"), ("please forget Morrowind guide", "forget"),
     ("remove the Morrowind guide source", "forget"),
     ("send that to my reMarkable", "push"), ("push it to the tablet", "push"),
+    # PRD 54: research is explicit only
+    ("research how the Falcon and Zephyr budgets differ", "research"), ("/research Zephyr budget", "research"),
+    ("Research, the Zephyr budget.", "research"), ("research", None), ("I did some research on Zephyr", None),
+    ("Research the Falcon and Zephyr budgets", "research"), ("research how the budgets differ", "research"),
+    ("research Zephyr", "research"), ("Research shows coffee is healthy", None),
+    ("research papers on Zephyr are boring", None), ("Research is fun, isn't it?", None),
+    ("research on Zephyr", None), ("research says otherwise", None), ("/research on Zephyr", "research"),
     ("what's new with you", None), ("hello there", None), ("", None),
     # PRD 52 negatives: none of these is a forget / push
     ("forget it", None), ("forget about it", None), ("don't forget to call Anna", None),

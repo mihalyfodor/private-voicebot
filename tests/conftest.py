@@ -887,3 +887,34 @@ def png_bytes(width: int = 4, height: int = 4) -> bytes:
 
 def notebook_pages(n: int) -> list:
     return [png_bytes(4 + i, 4) for i in range(n)]       # distinct bytes per page
+
+
+# --------------------------------------------------------------------------- research (PRD 54)
+
+
+def research_run(question: str, *replies, notify=None) -> tuple:
+    """One `research.run` inside a turn against scripted plan / judge / write replies: (card, fake)."""
+    import research
+    with fake_model(*replies) as fake, trace.turn(1):
+        card = research.run(question, "typed", notify)
+    return card, fake
+
+
+def judge_reply(hits: list, keep, reason: str = "on topic", drop_reason: str = "off topic") -> str:
+    """A judge reply over `hits` (numbered from 1): `keep(hit) -> bool` decides each verdict."""
+    return json.dumps([{"id": n + 1, "verdict": "keep" if keep(h) else "drop",
+                        "reason": reason if keep(h) else drop_reason} for n, h in enumerate(hits)])
+
+
+def research_turn(text: str, *replies, origin: str = "typed", sess=None, turn: int = 1) -> tuple:
+    """A "research X" turn through the server (typed, or `origin="spoken"` through a fake ASR) against
+    scripted plan / judge / write replies, the model up: (sent messages, fake)."""
+    import numpy as np
+    import services
+    from session import Session
+    sess = sess or Session()
+    with fake_model(*replies) as fake, patch.object(chatbot, "synthesize", fake_tts), \
+            patch.object(services, "llm_ok", lambda: True), patch.object(chatbot, "asr", fake_asr(text)):
+        if origin == "typed":
+            return run_turn(chatbot.handle_text, sess, turn, text), fake
+        return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32)), fake

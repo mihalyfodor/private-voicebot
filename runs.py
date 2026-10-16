@@ -39,6 +39,10 @@ REASONS = {
     "rejected": "Rejected: nothing was changed.",
     "expired": "Not approved: the next turn moved on, nothing was changed.",
     "changed": "It changed since the proposal: nothing was changed.",
+    # research (docs/54-vault-map-research.md): the governor's cut, written from what was read
+    "budget-time": "budget: time",
+    "budget-reads": "budget: reads",
+    "nothing": "nothing",
 }
 FAILED = "Failed with {exc_type}."          # `failed-<exc_type>`
 OFFLINE_TYPES = ("APIConnectionError", "APITimeoutError")
@@ -102,10 +106,12 @@ class Run:
         self.step(label, "error", reason_sentence(reason))
         self.end("failed", reason)
 
-    def card(self, actions: list, steps: list | None = None) -> dict:
-        """The card's run fields (docs/51-run-cards.md, Data model)."""
+    def card(self, actions: list, steps: list | None = None, fold: bool = True) -> dict:
+        """The card's run fields (docs/51-run-cards.md, Data model). `fold=False` keeps every step row
+        (a research card: the governor bounds its rows, PRD 54)."""
+        steps = list(self.steps if steps is None else steps)
         return {"run_id": self.run_id, "workflow": self.workflow, "status": self.status,
-                "steps": card_steps(self.steps if steps is None else steps), "actions": actions,
+                "steps": card_steps(steps) if fold else steps, "actions": actions,
                 "run_url": f"/runs/{self.run_id}"}
 
 

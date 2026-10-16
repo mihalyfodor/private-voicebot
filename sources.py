@@ -852,7 +852,7 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
         trace.error("ingest", "meeting_from_transcript", exc)
         _degraded("ops")
         return None
-    data = memory._extract_json(raw, "{", "}")
+    data = memory.extract_json(raw, "{", "}")
     if not isinstance(data, dict):
         log.info("could not parse the meeting; filing the transcript only")
         _degraded("ops")
@@ -1055,7 +1055,7 @@ def summarise(kind: str, text: str, image_part, hint: str, title: str,
                 raise
             fallback["summary"] = "the summary model could not be reached; the raw file is filed."
             return fallback
-        parsed = memory._extract_json(raw, "{", "}")
+        parsed = memory.extract_json(raw, "{", "}")
         if isinstance(parsed, dict):
             data = parsed
             if str(data.get("title") or "").strip():
@@ -1089,7 +1089,7 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
     For a published work (`kind` in PUBLISHED_KINDS) the prompt adds that authors and cited
     experts are not people pages.
     """
-    index = wiki.index_text(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
+    index = wiki.vault_map(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
     related = wiki.related_context(" ".join(
         [str(summary.get("title") or ""), str(summary.get("summary") or "")]
@@ -1115,7 +1115,7 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
         trace.error("ingest", "propose_page_ops", exc)
         _degraded("ops")
         return []
-    ops = memory._extract_json(raw)
+    ops = memory.extract_json(raw)
     if not isinstance(ops, list):
         log.info("could not parse the page ops; filing the source page only")
         _degraded("ops")

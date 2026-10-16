@@ -2,7 +2,7 @@
 
 Usage (from the repo root, with the app's .env loaded):
     python tests/qa/stress.py seed  /tmp/qa/vault          # file the guides + books into a temp vault
-    python tests/qa/stress.py run   /tmp/qa/vault --port 8014 [--only A,B]   # drive the battery (A–F)
+    python tests/qa/stress.py run   /tmp/qa/vault --port 8014 [--only A,B]   # drive the battery (A–F; G research on request)
     python tests/qa/stress.py both  /tmp/qa/vault --port 8014
 
 The vault is a throwaway (never ~/llm-wiki); the raw files are read-only copies from
@@ -463,6 +463,36 @@ def battery(d: Driver, vault: pathlib.Path, only: set):
         d.go_chat()
 
 
+    if "G" in only:
+        # PRD 54: research mode — 3 typed research turns on the seeded guides; each records the card's
+        # status, its "Verified n/m quotes" step, the quotes the verifier dropped and the wall time.
+        def research_card():
+            c = d.page.evaluate("""(() => { const c = [...document.querySelectorAll('#history .msg.card')].pop();
+                if (!c) return null;
+                const steps = [...c.querySelectorAll('.run-step')].map(s => s.innerText.replace(/\\s+/g, ' ').trim());
+                const body = c.querySelector('.card-body');
+                return {status: (c.querySelector('.run-chip') || {}).textContent, steps,
+                        text: body ? body.innerText : ''}; })()""")
+            if not c:
+                return {"card": None}
+            verified = next((s for s in c["steps"] if s.startswith("Verified")), "")
+            m = re.search(r"(\d+)/(\d+) quotes", verified)
+            dropped = c["text"].split("Dropped", 1)[1].strip().splitlines() if "Dropped" in c["text"] else []
+            return {"card": c["text"][:600], "research_status": c["status"], "steps": c["steps"],
+                    "quotes_verified": int(m.group(1)) if m else 0, "quotes_total": int(m.group(2)) if m else 0,
+                    "quotes_dropped": len([line for line in dropped if line.strip()])}
+
+        for sid, question, expect in (
+                ("G1", "research what the Fallout 4 guide says about the SAFE test at Covenant",
+                 "card done/partial: Findings with verified quotes from the Fallout 4 guide"),
+                ("G2", "research how to get through Bleak Falls Barrow in Skyrim",
+                 "card done/partial: Findings quoting the Skyrim guide (the pillars, the claw)"),
+                ("G3", "research how lockpicking works in Fallout 4 and in Skyrim",
+                 "card done/partial: sub-questions for both games, quotes from both guides")):
+            d.ask(sid, question, expect + "; one spoken line; <= 90 s or partial with 'budget: time'",
+                  extra=research_card)
+
+
 def recall_predictor(vault: pathlib.Path):
     """Offline BM25 recall against the same vault: which source would be injected for a question."""
     os.environ.update(vault_env(vault))
@@ -492,7 +522,8 @@ def write_outputs(results: list, max_ctx: int):
         lines.append(f"expect: {r.get('expect', '')}")
         lines.append(f"tools: {r.get('tool_calls')} session: {r.get('session_tools')} recall: {r.get('predicted_recall')}")
         for k in ("view", "selected", "placeholder", "top_item", "divider", "statuses", "replies_added", "error", "server_errors",
-                  "sentences", "ends_with_offer", "card_sections", "card_sources", "card_save", "card_note", "note", "note_head", "card"):
+                  "sentences", "ends_with_offer", "card_sections", "card_sources", "card_save", "card_note", "note", "note_head",
+                  "research_status", "steps", "quotes_verified", "quotes_total", "quotes_dropped", "card"):
             if r.get(k):
                 lines.append(f"{k}: {r[k]}")
         lines.append(f"A: {r.get('reply', '')}\n")

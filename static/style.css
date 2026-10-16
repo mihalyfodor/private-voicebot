@@ -230,6 +230,8 @@ main {
 #intake-toast.toast-link { cursor: pointer; text-decoration: underline; }
 .run-chip.run-done { border-color: #6fae63; color: #9ac58f; }
 .run-chip.run-nothing { border-color: #666; color: #aaa; }
+/* PRD 54: a research run cut by its budget */
+.run-chip.run-partial { border-color: #d9a441; color: #e6c27a; }
 .run-chip.run-failed { border-color: #c96b6b; color: #e29a9a; }
 .run-steps { list-style: none; font-size: 12px; color: #c9c9c9; margin: 2px 0 4px; }
 .run-step-error { color: #e29a9a; }

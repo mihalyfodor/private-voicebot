@@ -286,6 +286,7 @@ def test_load_injects_the_wiki_index(vault, memory_sandbox):
     prompt = memory.load("BASE")
     assert "<wiki_index>" in prompt and "[[people/anna]]" in prompt
     assert "read_page" in prompt and "search_wiki" in prompt
+    assert "<wiki_index>\n# Vault map\n## people (1)" in prompt                # the map, not index.md (PRD 54)
     block = prompt.split("<wiki_index>")[1].split("</wiki_index>")[0]
     assert memory.tokens_est(block) <= wiki.WIKI_INDEX_TOKENS
 
@@ -486,6 +487,32 @@ def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
     assert "projects/zephyr" not in index_part
     assert "(update these rather than duplicating):" in block and "projects/zephyr" in block
+
+
+def test_session_ingest_over_320_pages_updates_zephyr_from_the_map(memory_sandbox, monkeypatch):
+    """PRD 54 scenario 3: the map names `projects/zephyr` (z sorts last) next to `related_context`; the
+    proposed op appends to it and no duplicate page appears."""
+    from tests.perf.make_vault import make_vault
+
+    make_vault(wiki.WIKI_PATH, pages=320, sources_n=0, seed=3)
+    write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr budget rollout.\n", extra="")
+    for i in range(5):
+        rel = f"notes/p{4 * i + 3:05d}.md"
+        wiki._write(rel, read(rel) + "\n- see [[projects/zephyr]]\n")
+    pages_before = len(wiki.page_paths())
+    client = FakeClient(json.dumps([{"op": "append_note", "path": "projects/zephyr",
+                                     "text": "The Zephyr budget slipped a week."}]))
+    monkeypatch.setattr(core_llm, "_client", client)
+
+    applied = wiki.ingest([{"role": "user", "content": "the Zephyr budget rollout slipped a week"}])
+
+    user = client.calls[0]["messages"][1]["content"]
+    index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
+    assert "[[projects/zephyr]]" in index_part and index_part.startswith("# Vault map")
+    assert "projects/zephyr" in block
+    assert [op["path"] for op in applied] == ["projects/zephyr"]
+    assert "The Zephyr budget slipped a week." in read("projects/zephyr.md")
+    assert len(wiki.page_paths()) == pages_before
 
 
 # --------------------------------------------------------------- 7. ingest

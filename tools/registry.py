@@ -108,6 +108,8 @@ REGISTRY: tuple[Tool, ...] = (
                   writes=True),
     _trigger_tool("write_up", "Turn the last answer into a written card.", _commands.WANTS_WRITEUP,
                   takeover=True, needs_llm=True),
+    _trigger_tool("research", "Research a question over the wiki and sources into a card of verified quotes.",
+                  _commands.RESEARCH, takeover=True, needs_llm=True),
     _trigger_tool("open_page", "Open the page asked for, then answer with a note.", _commands.OPEN_PAGE_ANY,
                   needs_llm=True),
 )

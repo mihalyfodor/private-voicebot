@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 54 — Vault map and research mode
 
@@ -94,6 +94,58 @@ PRD 51 card step and a trace event (PRD 49):
   `tests/perf/make_vault.py`, marker `perf`).
 - Risk: the map shifts with recency and makes the system prompt less cache-friendly; mitigation: the map is
   computed at conversation start / `new_topic`, not per turn.
+- Implementation: `research.py` is a root module (the `agent/` layer does not exist yet); it moves to
+  `agent/research.py` at PRD 50 step 9. It imports `core.*`, `wiki`, `llm`, `memory` and `runs`.
+- Implementation: inbound counts come from a new `pages.links` column (each page's wikilink targets, written by the
+  same `_put_page` hook; `index_db` schema 2, so an old index file is rebuilt once on first open) over reading
+  `backlinks` per page: the map stays a fold over the rows with zero page reads. `backlinks` is unchanged.
+- Implementation: the map is computed inside `memory.load`, which runs only at `llm.reset`, `refresh_context`
+  (the write paths' hook), `set_avatar` and now `new_thread`; no turn rebuilds it. The rows are memoised on the
+  index stamp (`Index.cached("map_rows")`), which every write hook moves.
+- Implementation: map header `# Vault map`; a page row is `- [[path]] — <the stored one-liner>` (name, type
+  [, status] — first Summary line, the `index.md` description); "+n more" is its own line under the folder;
+  root-level pages (decisions.md) sit under `(root)`. Ties on inbound × 2 + recency break by path; a missing
+  `updated` has recency 0, a future one 1.
+- Implementation: reason codes on the trace / run page are `budget-time`, `budget-reads` and
+  `nothing` (the `reason` field is a fixed shape); the card and the run record carry the PRD's wording
+  ("budget: time", …), and the cut is its own card row (`Budget`, skipped) and `budget` step span.
+- Implementation: a research card's steps are not folded at 6 (Plan + ≤ 4 sub-questions + Read + Budget? + Wrote
+  + Verified ≤ 9, bounded by the governor); the judge has no row of its own — its verdicts show as "kept n" on
+  each sub-question row; the run page's timeline shows the `judge` span.
+- Implementation: the spoken line is said first (typed and spoken alike, like the write-up's line), then the
+  state returns to `thinking` until the card is done; the conversation records the user's turn and the card
+  marker, the session turns "researched: <title>" (a third `memory.STAND_INS`).
+- Implementation: the governor checks the clock before the judge and before each read; out of time before the
+  judge leaves every hit "not judged", so nothing is read and the run ends `nothing` (with the Budget row).
+  Scenario 8's `partial` + `budget: time` is tested with the clock passing 90 s once reading began (the first
+  read happened); a cut right after Search is tested separately and ends `nothing`.
+- Implementation: a quote whose citation names nothing read is checked against all text read in the run (the
+  invariant still holds); one whose citation names a read part is checked against that part only. A failed
+  quote leaves its bullet's claim; a bullet left empty goes. Verified 0 → `nothing` even when cut by budget.
+- Implementation: the battery's section G runs on request (`--only G`); the default `--only A,B,C,D,E,F` and
+  sections A–F are unchanged.
+- Review fix: the verifier trims only a leading / trailing ellipsis; a quote with an inner `…` or `...` is dropped
+  ("contains an ellipsis") — its fragments could come from anywhere.
+- Review fix: every Findings bullet carrying a quote or a citation counts toward "Verified n/m" and must hold exactly
+  one double-quoted span of ≥ 2 characters that verifies; no quote, an empty or 1-character one, single quotes, a
+  `>` blockquote ("no quote to check"), two quotes ("more than one quote") or a quote without a source ("no source
+  cited") lose quote and citation (the claim stays; a blockquote goes whole) and are listed under `### Dropped`.
+- Review fix (supersedes the "any text read" bullet above): a citation must name a part this run asked
+  `read_source` for (or a page it read) and the quote must be in that read's text, else "not in <cited part>";
+  a quote found only in a neighbour part the read returned keeps the bullet with the neighbour's citation.
+- Review fix: the call cap cannot cut a run (plan 1 + judge ≤ 5 + write 1 < 8, the write's call kept in reserve),
+  so `budget: calls` is gone from the reasons; the cap stays as the judge fallback's guard.
+- Review fix: spoken / typed "research X" starts a run only when the word after "research" is not one of the noun
+  uses' next words (`tools.commands.NOT_RESEARCH`: shows/says/suggests/indicates/finds/proves…, papers/paper,
+  is/was/are/has/will/can…, on/about/into/from/by/for/in/of/at/with/to, that/which/and/or/but/it, team/group/
+  project/done); typed `/research X` always runs.
+- Review fix: Save to wiki / "save that as a note" on a research card files the title, `## Findings` and
+  `## Sources` only — the `### Dropped` list stays on the card, never in the vault.
+- Review fix: "write it up" / `/write` after research re-shows the research card (`card_update` with its body,
+  same id, sources and run id; one spoken line) instead of minting a second card.
+- Review fix: a map row's one-liner is cut at `MAP_ONE_LINER_CHARS` = 100 ("…").
+- Review fix: `llm.fit`, `llm.card_title` and `memory.extract_json` are public names (research uses them); research
+  completions go through `core.llm.complete` with a purpose.
 
 ## Data model
 - Page row: `{path, folder, one_liner, inbound: int, updated: date, tags: [..]}`; invariant: the map is a pure

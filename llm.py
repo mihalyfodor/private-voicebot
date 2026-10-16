@@ -569,7 +569,7 @@ def focus_block(question: str) -> str:
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     if summary:
         head, sections = head + "\n\n" + summary, [s for s in sections if s is not summary]
-    parts = _fit([head], FOCUS_HEAD_TOKENS, "")
+    parts = fit([head], FOCUS_HEAD_TOKENS, "")
     # "summarise this" names no topic: the head + Summary is the answer, not a random chunk (PRD 42)
     topical = bool(wiki.topic_terms(question))
     chunk = wiki.best_chunk(path, question) if view == "sources" and topical else None
@@ -579,9 +579,9 @@ def focus_block(question: str) -> str:
     else:
         section = wiki.best_section(sections, question) if topical else None
     if section:
-        parts += _fit([section], FOCUS_SECTION_TOKENS, "")
+        parts += fit([section], FOCUS_SECTION_TOKENS, "")
     note = FOCUS_NOTE.format(title=title)
-    kept = _fit(["\n\n".join(p for p in parts if p)], FOCUS_MAX_TOKENS, note)
+    kept = fit(["\n\n".join(p for p in parts if p)], FOCUS_MAX_TOKENS, note)
     if not kept or not kept[0].strip():
         return "\n\n" + note
     return "\n\n" + untrusted(kept[0], title) + "\n" + note
@@ -594,7 +594,7 @@ def is_affirmative(text: str) -> bool:
             and all(w in _AFFIRMATIVE_WORDS for w in words))
 
 
-def _fit(lines: list, budget: int, note: str) -> list:
+def fit(lines: list, budget: int, note: str) -> list:
     """`lines` cut to fit `budget` tokens together with `note` and the tags: whole lines while
     they fit, the first one that does not is truncated, the rest dropped."""
     used = memory.tokens_est(note) + 40
@@ -674,7 +674,7 @@ def deeper_block(offer: dict) -> str:
     note = DEEPER_NOTE.format(title=f'"{title}"')
     lines = [f"Part {n}/{len(chunks)}: {chunks[n - 1]['text']}"
              for n in deeper_parts(offer["parts"], len(chunks))]
-    quotes = _fit(lines, DEEPER_MAX_TOKENS, note)
+    quotes = fit(lines, DEEPER_MAX_TOKENS, note)
     if not quotes:
         return ""
     return (f'\n\n<source title="{title}">\n' + "\n\n".join(untrusted(q, title) for q in quotes)
@@ -747,7 +747,7 @@ def card_sources(sources: list, pages: list) -> list:
     return out
 
 
-def _card_title(markdown: str, question: str) -> str:
+def card_title(markdown: str, question: str) -> str:
     """The card's `# Title` line, else the question itself (trimmed)."""
     for line in markdown.splitlines():
         if line.startswith("# "):
@@ -820,7 +820,7 @@ def write_up(request: str = "", card_id: str | None = None) -> dict:
         markdown, sources = _card_completion(ctx)
     card = _cards.get(card_id) if card_id else None         # the running card issued at turn start (PRD 51)
     card = card if card is not None else {"id": card_id or next_card_id()}
-    card.update(markdown=markdown, sources=sources, title=_card_title(markdown, ctx["question"]))
+    card.update(markdown=markdown, sources=sources, title=card_title(markdown, ctx["question"]))
     _cards[card["id"]] = card
     _loose.pop(card["id"], None)
     last_card = card
@@ -832,10 +832,42 @@ def write_up(request: str = "", card_id: str | None = None) -> dict:
     return card
 
 
+def file_research(card: dict, request: str) -> dict:
+    """Make a finished research card (docs/54-vault-map-research.md) a turn of the conversation: the
+    request and the card marker in `_conversation`, "researched: <title>" in the session turns, `last_card`
+    (what "save that" means) and `_last_context` holding its markdown, so "write it up" / `/write` after it
+    returns the same card without a completion (the briefing pattern)."""
+    global last_card, _deeper_offer, _last_context
+    _deeper_offer = None
+    _cards[card["id"]] = card
+    _loose.pop(card["id"], None)
+    last_card = card
+    _conversation.append({"role": "user", "content": request})
+    _session_turns.append({"role": "user", "content": request})
+    _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{card["markdown"]}\n</card>'})
+    _session_turns.append({"role": "assistant", "content": f"{memory.STAND_INS[2]}{card['title']}"})
+    _last_context = {"question": request, "extra": "", "tools": [], "reply": "", "sources": [], "pages": [],
+                     "card": card["markdown"], "research_card": card}
+    return card
+
+
+def research_card() -> dict | None:
+    """The research card the last answer was, or None: "write it up" / `/write` re-shows it (PRD 54)."""
+    return (_last_context or {}).get("research_card")
+
+
+def reuse_card(card: dict, request: str) -> None:
+    """A write-up request answered by an existing card: it becomes `last_card` again; the request is a turn."""
+    global last_card, _deeper_offer
+    _deeper_offer = None
+    last_card = card
+    record_user(request)
+
+
 def _card_completion(ctx: dict) -> tuple:
     """``(markdown, sources)``: one `long` completion over the last answer's context + its Sources line."""
     material = "\n\n".join(p for p in [ctx["extra"].strip()] + ctx["tools"] if p)
-    material = "".join(_fit([material], CARD_CONTEXT_TOKENS, CARD_PROMPT)) if material else ""
+    material = "".join(fit([material], CARD_CONTEXT_TOKENS, CARD_PROMPT)) if material else ""
     user = f"Question: {ctx['question']}\n\nThe answer you gave: {strip_tag(ctx['reply'])}"
     if material:
         user += "\n\nMaterial:\n" + material
@@ -1019,7 +1051,7 @@ def _page_recall(question: str, terms: set) -> dict | None:
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     section = wiki.best_section([s for s in sections if s is not summary], question)
     body = "\n\n".join(p for p in (head, summary, section) if p)
-    kept = _fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
+    kept = fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
     if kept:
         _turn_pages.append(title)
     return {"line": kept[0], "path": path, "title": title} if kept else None
@@ -1031,7 +1063,7 @@ def _quote_block(tag: str, page: dict | None, hits: list, budget: int, note_text
     lines = ([page["line"]] if page else []) + [
         f'From "{h["title"]}" (part {h["n"]}/{h["total"]}): {h["text"]}' for h in hits]
     titles = ([page["title"]] if page else []) + [h["title"] for h in hits]
-    quotes = _fit(lines, budget, note_text)
+    quotes = fit(lines, budget, note_text)
     if not quotes:
         return ""
     titles = titles[:len(quotes)]
@@ -1353,6 +1385,7 @@ def new_thread() -> str:
     _deeper_offer, _turn_sources, last_page = None, [], None
     _last_trimmed, _context_warned = 0, False
     _forget_cards()
+    _rebuild_system_prompt()            # the vault map is computed here and at start, not per turn (PRD 54)
     return summary
 
 

@@ -2807,7 +2807,8 @@ const cards = new Map();          // id → { save, picker, folder, note }
 const cardEls = new Map();        // id → { div, msg } (the element a `card_update` re-renders)
 const CARD_FOLDER = 'notes/';
 const RUN_WORKFLOWS = { briefing: 'Briefing', 'write-up': 'Write-up', remarkable: 'reMarkable pull',
-                        batch: 'Batch import', ingest: 'Ingest', forget: 'Forget', push: 'reMarkable push' };
+                        batch: 'Batch import', ingest: 'Ingest', forget: 'Forget', push: 'reMarkable push',
+                        research: 'Research' };
 // PRD 52: an approval card (status `awaiting`) shows its proposal and Approve / Reject; a click sends
 // `resolve {run_id, decision}` and both buttons stay disabled until the `card_update` or an `error`.
 const APPROVAL_KINDS = ['approve', 'reject'];

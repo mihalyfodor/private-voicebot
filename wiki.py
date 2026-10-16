@@ -21,6 +21,7 @@ import os
 import re
 import subprocess
 from collections import Counter
+from datetime import date
 
 import index_db
 import memory
@@ -67,6 +68,10 @@ MAX_NOTE_CHARS = 600            # one `## Notes` bullet
 MAX_READ_BYTES = 4 * 1024       # read_page() ceiling
 TRUNCATED = "\n\n[... truncated]"
 WIKI_INDEX_TOKENS = int(os.getenv("WIKI_INDEX_TOKENS", "600"))
+MAP_LINK_WEIGHT = 2              # vault map rank: inbound links × this + recency (docs/54-vault-map-research.md)
+MAP_RECENCY_HALF_LIFE_D = 30     # … recency = 0.5 ** (days since `updated` / this)
+MAP_TOP_TAGS = 3                 # tags named on a folder's header
+MAP_ONE_LINER_CHARS = 100        # a map row's one-liner is cut here ("…"), so a folder still shows several pages
 RELATED_TOKENS = int(os.getenv("WIKI_RELATED_TOKENS", "200"))
 INDEX_MAX_LINES = 200
 
@@ -405,7 +410,8 @@ def rebuild_index() -> str:
 
 
 def index_text(max_tokens: int = WIKI_INDEX_TOKENS) -> str:
-    """The index trimmed to `max_tokens` — what goes into the prompt and into the ingest call.
+    """The alphabetical index trimmed to `max_tokens` — the human `index.md` order, for tests and tools;
+    the prompt and the ingest calls see :func:`vault_map` instead (PRD 54).
 
     Built from the search index's `pages` table (no page read) rather than read from `index.md`,
     so every write hook's change is already reflected. "" when there is nothing to show.
@@ -419,6 +425,100 @@ def index_text(max_tokens: int = WIKI_INDEX_TOKENS) -> str:
     while lines and memory.tokens_est("\n".join(lines)) > max_tokens:
         lines.pop()
     return "\n".join(lines).strip()
+
+
+def _map_folder(rel: str) -> str:
+    return rel.split("/", 1)[0] if "/" in rel else "(root)"
+
+
+def _recency(updated: str, today: date) -> float:
+    """0.5 ** (days since `updated` / half-life), 1.0 for today or a future date, 0.0 without a date."""
+    try:
+        age = (today - date.fromisoformat(str(updated)[:10])).days
+    except ValueError:
+        return 0.0
+    return 0.5 ** (max(age, 0) / MAP_RECENCY_HALF_LIFE_D)
+
+
+def _cut(text: str, limit: int = MAP_ONE_LINER_CHARS) -> str:
+    return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
+
+
+def map_folders(today: date | None = None) -> list:
+    """The vault map's model: ``[{folder, count, tags, rows}]`` (folders by page count, then name),
+    each folder's `rows` ranked by inbound links × `MAP_LINK_WEIGHT` + recency, then path.
+
+    A pure fold over the `pages` table (one-liner, type, name, tags, updated, links): no page is read.
+    """
+    if not exists():
+        return []
+    today = today or memory._today()
+    rows = _db().map_rows()
+    inbound = Counter()
+    for rel, *_rest, links in rows:
+        own = wikilink(rel)
+        for target in {str(t).strip().removesuffix(".md") for t in json.loads(links or "[]")}:
+            if target != own:
+                inbound[target] += 1
+    folders = {}
+    for rel, _type, _name, tag_json, updated, one_liner, _links in rows:
+        path = wikilink(rel)
+        rank = inbound[path] * MAP_LINK_WEIGHT + _recency(updated, today)
+        folders.setdefault(_map_folder(rel), []).append(
+            (rank, path, f"- [[{path}]]" + (f" — {_cut(one_liner)}" if one_liner else ""), json.loads(tag_json or "[]")))
+    out = []
+    for name, pages in folders.items():
+        pages.sort(key=lambda p: (-p[0], p[1]))
+        tag_counts = Counter(t for p in pages for t in p[3])
+        top = [t for t, _ in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:MAP_TOP_TAGS]]
+        out.append({"folder": name, "count": len(pages), "tags": top, "rows": [p[2] for p in pages]})
+    return sorted(out, key=lambda f: (-f["count"], f["folder"]))
+
+
+def _render_map(folders: list, shown: dict) -> str:
+    lines = ["# Vault map"]
+    for f in folders:
+        if f["folder"] not in shown:
+            continue
+        n = shown[f["folder"]]
+        lines.append(f"## {f['folder']} ({f['count']})" + (f" — tags: {', '.join(f['tags'])}" if f["tags"] else ""))
+        lines += f["rows"][:n]
+        if f["count"] > n:
+            lines.append(f"+{f['count'] - n} more")
+    return "\n".join(lines)
+
+
+def vault_map(max_tokens: int = WIKI_INDEX_TOKENS, today: date | None = None) -> str:
+    """The vault as the prompt and the ingest calls see it (PRD 54): per folder a header (page count, top
+    tags), its best pages and "+n more", fitted round-robin into `max_tokens` — every folder's header and
+    best page first, then the next page of each, so no folder vanishes while the cap allows its header.
+
+    Replaces `index_text` at its three prompt sites; `index.md` stays the alphabetical file. "" when
+    there are no pages (or not even one header fits).
+    """
+    folders = map_folders(today)
+    if not folders:
+        return ""
+
+    def fits(shown):
+        return memory.tokens_est(_render_map(folders, shown)) <= max_tokens
+
+    shown = {}
+    for f in folders:                                       # headers first, in folder order
+        if not fits({**shown, f["folder"]: 0}):
+            break
+        shown[f["folder"]] = 0
+    if not shown:
+        return ""
+    open_ = [f for f in folders if f["folder"] in shown]
+    while open_:                                            # then one more page per folder per round
+        for f in list(open_):
+            name = f["folder"]
+            if shown[name] >= f["count"] or not fits({**shown, name: shown[name] + 1}):
+                open_.remove(f)
+                continue
+            shown[name] += 1
+    return _render_map(folders, shown)
 
 
 def related_context(text: str, k: int = 5) -> str:
@@ -758,12 +858,12 @@ def create_page(path: str) -> tuple:
 CARD_SOURCE = "written answer"
 
 
-def save_card(path: str, title: str, markdown: str, sources: list) -> tuple:
+def save_card(path: str, title: str, markdown: str, sources: list, run_id: str = "") -> tuple:
     """A written answer filed as a note (PRD 43): ``(path, None)`` or ``(None, reason)``.
 
     One validated user write (any single-level folder but `raw/`, no existing page) and one
     commit: frontmatter `type: note`, `name: <title>`, `source: written answer`, `sources:` the
-    card's list; the body is the card markdown as it was rendered.
+    card's list (+ `run_id:` for a research card, PRD 54); the body is the card markdown as it was rendered.
     """
     with vault_lock.LOCK:
         ensure_vault()
@@ -773,6 +873,8 @@ def save_card(path: str, title: str, markdown: str, sources: list) -> tuple:
         today = memory._today_iso()
         fm = {"type": "note", "name": title, "tags": [], "source": CARD_SOURCE, "updated": today,
               "seen": today, "sources": [str(x).replace(",", " ") for x in sources]}
+        if run_id:
+            fm["run_id"] = str(run_id)
         body = markdown.strip() + "\n"
         if not body.startswith("# "):
             body = f"# {title}\n\n" + body
@@ -899,7 +1001,7 @@ def _put_page(idx: index_db.Index, rel: str, text: str, mtime: int) -> None:
     fm, body = parse_page(text)
     fields = {"type": str(fm.get("type") or ""), "name": str(fm.get("name") or ""),
               "tags": json.dumps(tags(text)), "updated": str(fm.get("updated") or ""),
-              "one_liner": _one_liner(fm, body)}
+              "one_liner": _one_liner(fm, body), "links": json.dumps(links_in(body))}
     idx.put_page(rel, mtime, _sha(text), fields, _tokenise(text))
 
 
@@ -2031,7 +2133,7 @@ def ingest(turns: list) -> list:
     system = INGEST_SYSTEM % (memory.user_note(names), memory._today_iso())
     related = related_context(transcript)
     user = (f"Schema:\n{_read(SCHEMA_FILE) or SCHEMA_TEXT}\n\n"
-            f"Index:\n{index_text(WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
+            f"Index:\n{vault_map(WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
             + (f"{related}\n\n" if related else "")
             + f"Transcript:\n{transcript}")
     try:
@@ -2039,7 +2141,7 @@ def ingest(turns: list) -> list:
     except Exception as exc:  # noqa: BLE001
         log.info(f"ingest failed: {exc}")
         return []
-    ops = memory._extract_json(raw)
+    ops = memory.extract_json(raw)
     if not isinstance(ops, list):
         log.info("could not parse page ops; nothing filed")
         return []
