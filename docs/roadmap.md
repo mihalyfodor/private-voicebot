@@ -143,6 +143,28 @@ only". File:line list is in PRD 49 §Out of scope. Effort S–M.
 ASR plist → `scripts/prod.sh migrate` (moves the real vault) → build → up; then the backup plist. Do this after PRD 49
 so prod starts with the prod trace profile from day one.
 
+## 9. PRD 50 — Modular layout (after PRD 49 merges)
+
+Seven layers importing only downward (core, vault, memory, ingest, tools, agent, server), enforced by a ratchet layer
+test; one tool registry with two entry modes (trigger regex = deterministic workflow, schema = model-pickable); twelve
+pure-move refactor commits with shims and per-step test retargeting. See docs/50-modular-layout.md. Can interleave with
+51–55; no PRD waits for it.
+
+## 10. PRD 51 — Run cards and run pages · PRD 52 — Approvals · PRD 47b — reMarkable push
+
+Trust surface: a card with steps, actions and a run link; a server-rendered `/runs/<id>` page built from the PRD 49
+events; one pending slot where a spoken "yes" and a card button resolve a write identically; push to the tablet as the
+second approved write after forget. docs/51-run-cards.md, docs/52-approvals.md, docs/47b-remarkable-push.md.
+
+## 11. PRD 53 — Scalable index · PRD 54 — Vault map + research mode · PRD 55 — Hybrid measurement
+
+Scale to thousands of pages: SQLite postings with incremental updates and golden BM25 parity (and the 200-line index
+lint bug fixed); a representative two-level map in place of the alphabetical prompt index plus a typed "research X"
+workflow with a judge, verified citations and a budget; embeddings via the local :8082 server measured against BM25 on
+a synthetic vault and adopted only on numbers. docs/53-, 54-, 55-*.md.
+
+Open design questions for all of the above, with recommendations: docs/reviews/2026-10-16-design-questions.md.
+
 ## Parked (needs IT)
 
 Microsoft Graph read-only mail/calendar (device-code flow, mirrors `tools/gmail.py`), Teams transcripts (admin-only
