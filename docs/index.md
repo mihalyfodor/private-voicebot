@@ -246,7 +246,8 @@ voicebot/
     ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (done)
     ├── 43-written-answers.md    # PRD: length by origin+groundedness, written cards (Copy / Save to wiki), explicit notes/ save (done)
     ├── 44-vault-health.md       # PRD: lint for dead source refs / uncited raw files / duplicate names; related pages at ingest (done)
-    └── 45-ask-before-lookup.md  # PRD: spoken turns with weak recall evidence ask before looking up; typed unchanged (done)
+    ├── 45-ask-before-lookup.md  # PRD: spoken turns with weak recall evidence ask before looking up; typed unchanged (done)
+    └── 46-briefing.md           # PRD: "what's new?" — spoken recap of vault/memory changes since the last briefing, card on request (exploration)
 ```
 
 ## Active PRDs
