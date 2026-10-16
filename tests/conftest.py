@@ -571,3 +571,135 @@ def client_fixture() -> dict:
 def r(client_fixture) -> dict:
     """The short name the client-assertion tests use for `client_fixture`."""
     return client_fixture
+
+
+# --------------------------------------------------------------------------- the reMarkable fakes (PRD 47)
+
+
+def _serve(handler_cls) -> tuple:
+    """A `ThreadingHTTPServer` on 127.0.0.1:0 in a daemon thread -> ``(server, base url)``."""
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_cls)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def notebook_pdf(pages: int = 2, shade: int = 0) -> bytes:
+    """An image-only PDF (Pillow, no text layer) of `pages` small flat-colour pages; another
+    `shade` gives other pixels (an edited notebook)."""
+    import io
+    from PIL import Image
+
+    images = [Image.new("RGB", (100, 130), (40 * i, 200, shade % 256)) for i in range(pages)]
+    out = io.BytesIO()
+    images[0].save(out, "PDF", save_all=True, append_images=images[1:])
+    return out.getvalue()
+
+
+@pytest.fixture
+def fake_remarkable():
+    """The tablet's USB web interface as documented: `/documents/` (root), `/documents/<id>`
+    (a folder) and `/download/<id>/pdf` (two pages, pixels derived from `ModifiedClient`).
+    `fake.docs` is ``{id: item}`` with a `parent` key ("" = root); edit it (e.g. bump
+    `ModifiedClient`) between pulls. `fake.downloads` logs ids."""
+    import zlib
+    from http.server import BaseHTTPRequestHandler
+
+    fake = SimpleNamespace(downloads=[], url="", docs={
+        "f1": {"ID": "f1", "VissibleName": "wiki-inbox", "Type": "CollectionType", "parent": ""},
+        "n1": {"ID": "n1", "VissibleName": "Standup", "Type": "DocumentType", "fileType": "notebook",
+               "ModifiedClient": "2026-10-14T09:00:00.000Z", "parent": "f1"},
+        "n2": {"ID": "n2", "VissibleName": "Ideas", "Type": "DocumentType", "fileType": "notebook",
+               "ModifiedClient": "2026-10-14T10:00:00.000Z", "parent": "f1"},
+        "p1": {"ID": "p1", "VissibleName": "Paper", "Type": "DocumentType", "fileType": "pdf",
+               "ModifiedClient": "2026-10-14T11:00:00.000Z", "parent": "f1"},
+        "n9": {"ID": "n9", "VissibleName": "Outside", "Type": "DocumentType", "fileType": "notebook",
+               "ModifiedClient": "2026-10-14T12:00:00.000Z", "parent": ""},
+    })
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def _send(self, status: int, body: bytes, ctype: str) -> None:
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            parts = [p for p in self.path.split("/") if p]
+            if parts[:1] == ["documents"] and len(parts) <= 2:
+                parent = parts[1] if len(parts) == 2 else ""
+                items = [{k: v for k, v in d.items() if k != "parent"}
+                         for d in fake.docs.values() if d["parent"] == parent]
+                return self._send(200, json.dumps(items).encode(), "application/json")
+            if len(parts) == 3 and parts[0] == "download" and parts[2] == "pdf" and parts[1] in fake.docs:
+                fake.downloads.append(parts[1])
+                doc = fake.docs[parts[1]]
+                shade = zlib.crc32((doc["ID"] + doc.get("ModifiedClient", "")).encode())
+                return self._send(200, notebook_pdf(2, shade), "application/pdf")
+            self._send(404, b"not found", "text/plain")
+
+    server, fake.url = _serve(Handler)
+    yield fake
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def fake_ingest():
+    """A stand-in for the app's `POST /ingest`: every request parsed into `fake.requests`
+    (``{fields: {name: str}, files: [(filename, bytes)]}``); a title in `fake.fail` gets a 500."""
+    import hashlib
+    from email import policy
+    from email.parser import BytesParser
+    from http.server import BaseHTTPRequestHandler
+
+    fake = SimpleNamespace(requests=[], fail=set(), url="")
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            head = f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode()
+            msg = BytesParser(policy=policy.default).parsebytes(head + body)
+            fields, files = {}, []
+            for part in msg.iter_parts():
+                name = part.get_param("name", header="content-disposition")
+                if part.get_filename():
+                    files.append((part.get_filename(), part.get_payload(decode=True)))
+                else:
+                    fields[name] = part.get_payload(decode=True).decode()
+            fake.requests.append({"path": self.path, "fields": fields, "files": files})
+            if fields.get("title") in fake.fail:
+                status, reply = 500, {"detail": "boom"}
+            else:
+                slug = wiki.slugify(fields.get("title", ""))
+                sha = hashlib.sha256(b"".join(data for _name, data in files)).hexdigest()
+                status, reply = 200, {"filed": [{"path": f"sources/{slug}", "raw": "", "already": False,
+                                                 "sha256": sha}], "errors": []}
+            data = json.dumps(reply).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+    server, fake.url = _serve(Handler)
+    yield fake
+    server.shutdown()
+    server.server_close()
+
+
+def free_port() -> int:
+    """A port nothing listens on (bound, then released)."""
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]

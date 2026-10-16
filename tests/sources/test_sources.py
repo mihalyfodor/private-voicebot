@@ -933,3 +933,184 @@ def test_strict_refuses_an_unparseable_or_unreadable_summary(vault, idle_port, e
     assert res["failed"] == 1 and res["exit"] == 1 and res["filed"] == 0
     assert sources.manifest_entries() == [] and raw_files() == []
     assert not [f for f in os.listdir(os.path.join(wiki.WIKI_PATH, "sources")) if f.endswith(".md")]
+
+
+# --------------------------------------------------------------------------- PRD 47: reMarkable notebooks
+
+NOTE_TEXT = "Standup: Anna ships the Falcon load test on Friday."
+
+
+def notebook_pages(n: int) -> list:
+    return [png_bytes(4 + i, 4) for i in range(n)]       # distinct bytes per page
+
+
+def notebook_summary(title: str = "Standup") -> str:
+    return json.dumps({"title": title, "summary": f"{title}: handwritten notes.", "entities": [],
+                       "topic": "work", "unreadable": False})
+
+
+def file_notebook(pages: list, client, **kw) -> dict:
+    return sources.ingest_notebook(pages, title=kw.pop("title", "Standup"), client=client, model="m", **kw)
+
+
+def test_a_notebook_is_transcribed_page_by_page_and_filed_once(vault):
+    client = FakeClient(NOTE_TEXT, NOTE_TEXT + " Two.", NOTE_TEXT + " Three.", notebook_summary(), OPS)
+    before = len(commits())
+    stages = []
+    filed = file_notebook(notebook_pages(3), client, ocr=["anna ships", "", "three"], device_id="n1",
+                          on_stage=stages.append)
+
+    calls = client.calls[:3]
+    for call in calls:
+        parts = call["messages"][1]["content"]
+        assert [p["type"] for p in parts].count("image_url") == 1
+        assert call["max_tokens"] == 600
+    assert "transcribing 2/3" in stages
+    stem = filed["raw"][:-len(".md")]
+    assert filed["raw"].startswith("raw/remarkable/") and filed["raw"].endswith("-standup.md")
+    pngs = [f"{stem}/page-0{i}.png" for i in (1, 2, 3)]
+    assert [r for r in raw_files() if r.endswith(".png")] == pngs
+    transcript = read(filed["raw"])
+    for i in (1, 2, 3):
+        assert f"## Page {i}" in transcript
+    assert "> Apple Vision OCR:" in transcript and "anna ships" in transcript
+    assert transcript.count("> Apple Vision OCR:") == 2                 # the empty entry adds no block
+    fm, _ = wiki.parse_page(read(filed["path"] + ".md"))
+    assert fm["kind"] == "notebook" and fm["source"].startswith("remarkable ")
+    assert len(commits()) == before + 1
+    entry = sources.manifest_find(filed["sha256"])
+    assert entry["pages"] == pngs and entry["device_id"] == "n1" and entry["path"] == filed["raw"]
+    assert filed["sha256"] == sources.sha256(b"".join(notebook_pages(3)))
+
+
+def test_the_same_pages_again_are_already_filed_without_a_model_call(vault):
+    file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), OPS))
+    again = FakeClient()
+    res = file_notebook(notebook_pages(2), again)
+
+    assert res["already"] is True and again.calls == []
+
+
+def test_a_short_page_is_marked_unreadable(vault):
+    filed = file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, "ok", notebook_summary(), OPS))
+
+    assert "[page 2: unreadable]" in read(filed["raw"])
+    assert "ok" not in read(filed["raw"]).split("## Page 2", 1)[1]
+
+
+def test_an_all_unreadable_notebook_files_its_page_without_ops(vault):
+    client = FakeClient("ok", "", notebook_summary(), OPS)
+    filed = file_notebook(notebook_pages(2), client)
+
+    assert len(client.calls) == 2                       # the two transcriptions; no summary, no ops
+    assert read(filed["path"] + ".md")
+    assert not wiki.page_exists("projects/falcon")
+    assert "[page 1: unreadable]" in read(filed["raw"]) and "[page 2: unreadable]" in read(filed["raw"])
+
+
+def test_replaces_forgets_the_earlier_source_and_its_raw_files(vault):
+    old = file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"))
+    old_pngs = sources.manifest_find(old["sha256"])["pages"]
+    new = file_notebook(notebook_pages(3), FakeClient(NOTE_TEXT, NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"),
+                        replaces=old["sha256"])
+
+    assert sources.manifest_find(old["sha256"]) is None
+    assert old["path"] != new["path"] and not read(old["path"] + ".md")
+    for rel in [old["raw"], *old_pngs]:
+        assert rel not in raw_files()
+    assert new["raw"] in raw_files() and len([r for r in raw_files() if r.endswith(".png")]) == 3
+    assert read(new["path"] + ".md")
+
+
+def test_a_long_notebook_is_sampled_head_middle_tail(vault):
+    page = ("Falcon load test notes, written by hand. " * 30).strip()      # ~1200 chars a page
+    client = FakeClient(*[page] * 40, notebook_summary(), "[]")
+    file_notebook(notebook_pages(40), client)
+
+    summary_prompt = client.calls[40]["messages"][1]["content"]
+    assert summary_prompt.count("tokens skipped") == 2
+
+
+def test_more_than_50_pages_is_413_before_any_model_call(vault):
+    client = FakeClient()
+    with pytest.raises(sources.IngestError) as exc:
+        file_notebook(notebook_pages(51), client)
+
+    assert exc.value.status == 413 and client.calls == [] and raw_files() == []
+
+
+def test_ingest_endpoint_files_a_notebook(http, monkeypatch):
+    client, _ws = http
+    fake = FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]")
+    monkeypatch.setattr(sources, "_client_model", lambda: (fake, "m"))
+    pages = notebook_pages(2)
+    files = [("file", (f"page-0{i}.png", data, "image/png")) for i, data in enumerate(pages, 1)]
+    response = _post(client, kind="notebook", title="Standup", ocr=json.dumps(["", ""]),
+                     device_id="n1", files=files)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["errors"] == [] and body["filed"][0]["already"] is False
+    assert body["filed"][0]["sha256"] == sources.sha256(b"".join(pages))
+    assert len([r for r in raw_files() if r.endswith(".png")]) == 2
+
+
+def test_ingest_endpoint_refuses_a_notebook_page_that_is_not_png(http):
+    client, _ws = http
+    response = _post(client, kind="notebook", title="Standup",
+                     files=[("file", ("page-01.jpg", png_bytes(), "image/jpeg"))])
+
+    assert response.status_code == 415 and raw_files() == []
+
+
+def test_a_failed_replace_is_retried_when_the_same_pages_come_again(vault, monkeypatch):
+    v1 = file_notebook(notebook_pages(2), FakeClient(NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"), device_id="n1")
+    real_forget, calls = sources.forget, []
+
+    def flaky(digest):
+        calls.append(digest)
+        if len(calls) == 1:
+            raise RuntimeError("git fell over")
+        return real_forget(digest)
+
+    monkeypatch.setattr(sources, "forget", flaky)
+    v2_pages = notebook_pages(3)
+    with pytest.raises(RuntimeError):
+        file_notebook(v2_pages, FakeClient(NOTE_TEXT, NOTE_TEXT, NOTE_TEXT, notebook_summary(), "[]"),
+                      device_id="n1", replaces=v1["sha256"])
+    assert sources.manifest_find(v1["sha256"]) is not None
+
+    again = FakeClient()
+    res = file_notebook(v2_pages, again, device_id="n1", replaces=v1["sha256"])
+    assert res["already"] is True and again.calls == []
+    assert [e["sha256"] for e in sources.manifest_entries()] == [sources.sha256(b"".join(v2_pages))]
+
+
+def test_replaces_must_name_a_notebook_from_the_same_device(vault):
+    drop = sources.ingest_upload(b"# Falcon\n\nFalcon is amber.\n", "falcon.md",
+                                 client=FakeClient(SUMMARY, "[]"), model="m")
+    sha = sources.manifest_entries()[0]["sha256"]
+    other = file_notebook(notebook_pages(1), FakeClient(NOTE_TEXT, notebook_summary(), "[]"), device_id="n2")
+    for bad in (sha, other["sha256"], "f" * 64):
+        client = FakeClient()
+        with pytest.raises(sources.IngestError) as exc:
+            file_notebook(notebook_pages(2), client, device_id="n1", replaces=bad)
+        assert exc.value.status == 400 and client.calls == []
+    assert read(drop["path"] + ".md") and sources.manifest_find(other["sha256"])
+
+
+def test_ingest_endpoint_refuses_replacing_a_dropped_file(http, monkeypatch):
+    client, _ws = http
+    drop = _post(client, files={"file": ("falcon.md", b"Falcon is amber.", "text/markdown")}).json()["filed"][0]
+    sha = sources.manifest_entries()[0]["sha256"]
+    response = _post(client, kind="notebook", title="Standup", device_id="n1", replaces=sha,
+                     files=[("file", ("page-01.png", png_bytes(), "image/png"))])
+
+    assert response.status_code == 400 and "replaces" in response.json()["detail"]
+    assert read(drop["path"] + ".md") and sources.manifest_find(sha)
+
+
+def test_a_notebook_page_without_the_png_magic_is_415(vault):
+    with pytest.raises(sources.IngestError) as exc:
+        file_notebook([b"GIF89a not a png"], FakeClient())
+    assert exc.value.status == 415

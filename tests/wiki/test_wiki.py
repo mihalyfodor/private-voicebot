@@ -843,3 +843,18 @@ def test_the_users_own_editor_saves_and_saved_cards_are_not_news(vault, monkeypa
 
     assert [(p["path"], p["change"]) for p in digest["pages"]] == [("projects/falcon", "new")]
     assert digest["chat_pages"] == []
+
+
+def test_lint_counts_a_notebooks_page_pngs_as_cited(vault):
+    """PRD 47: the manifest's `pages` list cites the notebook's PNGs; a replace leaves none behind."""
+    import sources
+    from tests.conftest import FakeClient
+
+    summary = json.dumps({"title": "Standup", "summary": "Standup: notes.", "entities": [], "unreadable": False})
+    text = "Standup: Anna ships the load test."
+    old = sources.ingest_notebook([b"\x89PNG\r\n\x1a\n1", b"\x89PNG\r\n\x1a\n2"], title="Standup", device_id="n1",
+                                  client=FakeClient(text, text, summary, "[]"), model="m")
+    assert not [f for f in wiki.lint() if ".png" in f]
+    sources.ingest_notebook([b"\x89PNG\r\n\x1a\n3"], title="Standup", device_id="n1", replaces=old["sha256"],
+                            client=FakeClient(text, summary, "[]"), model="m")
+    assert not [f for f in wiki.lint() if ".png" in f]

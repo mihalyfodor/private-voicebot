@@ -707,7 +707,7 @@ async def api_config():
     }
 
 
-INGEST_KINDS = ("file", "paste_text", "paste_image")
+INGEST_KINDS = ("file", "paste_text", "paste_image", "notebook")
 
 
 def _push_ingest_progress(filename: str, stage: str, i: int, n: int) -> None:
@@ -719,6 +719,10 @@ def _push_ingest_progress(filename: str, stage: str, i: int, n: int) -> None:
 
 def _file_one(item: dict, on_stage=None) -> dict:
     """One popup item -> `sources`. Runs on a worker thread: it does IO, git and two LLM calls."""
+    if item["kind"] == "notebook":          # PRD 47: all pages of one reMarkable notebook
+        return sources.ingest_notebook(item["pages"], title=item["title"], ocr=item["ocr"],
+                                       replaces=item["replaces"], device_id=item["device_id"],
+                                       on_stage=on_stage)
     if item["kind"] == "paste_text":
         return sources.ingest_note(item["text"], title=item["title"], hint=item["hint"],
                                    page=item["page"], on_stage=on_stage)
@@ -757,7 +761,9 @@ async def ingest(request: Request):
     Nothing is filed without `confirm=true`: the popup is the only sender, and the guard is what
     keeps a future "helpful" auto-path from writing to the vault behind the user's back.
     The form is parsed by hand so a big pasted text is not refused by the framework's 1 MB
-    per-part default before `sources` gets to apply its own cap.
+    per-part default before `sources` gets to apply its own cap. `kind=notebook` (PRD 47,
+    scripts/remarkable_sync.py) is one item: every `file` part a page PNG, plus `ocr` (JSON list,
+    one string per page), `replaces` (an earlier sha) and `device_id`.
     """
     if not _origin_allowed(request.headers.get("origin")):
         raise HTTPException(status_code=403, detail="bad origin")
@@ -775,6 +781,24 @@ async def ingest(request: Request):
     fields = {"kind": kind, "title": title, "hint": hint, "page": page}
     items = []
     try:
+        if kind == "notebook":
+            pages = [await upload.read() for upload in file]
+            for upload, data in zip(file, pages):
+                sources.check_upload(upload.filename or "", len(data), kind)
+            sources.check_notebook(pages)
+            replaces, device_id = str(form.get("replaces") or ""), str(form.get("device_id") or "")
+            digest = sources.sha256(b"".join(pages))
+            if replaces and replaces != digest and not sources.manifest_find(digest):
+                sources.check_replaces(replaces, device_id)      # refused here: 400, nothing forgotten
+            try:
+                ocr = json.loads(str(form.get("ocr") or "[]"))
+            except ValueError:
+                ocr = None
+            if not isinstance(ocr, list) or not all(isinstance(x, str) for x in ocr):
+                raise sources.IngestError(400, "ocr must be a JSON list of strings")
+            items.append({**fields, "pages": pages, "ocr": ocr, "filename": title or "notebook",
+                          "replaces": replaces, "device_id": device_id})
+            file = []
         for upload in file or []:
             data = await upload.read()
             # refuse type/size here as well as in sources, so a bad drop costs no worker thread

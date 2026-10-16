@@ -37,6 +37,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 
 import avatars
 import memory
@@ -61,6 +62,11 @@ DOWNSCALE_ABOVE_BYTES = 256 * 1024
 
 #: a PDF that yields less than this much text has no text layer we can use
 MIN_PDF_CHARS = 20
+#: a reMarkable notebook (PRD 47): PNG pages, each under MAX_IMAGE_BYTES
+MAX_NOTEBOOK_PAGES = 50
+TRANSCRIBE_TOKENS = 600
+TRANSCRIBE_PROMPT = ("Transcribe any text visible on this handwritten page as markdown; `[?]` for illegible "
+                     "words; reply with the text only.")
 
 MANIFEST = "raw/manifest.jsonl"
 
@@ -1150,15 +1156,19 @@ def is_generic_title(title: str) -> bool:
 
 
 def _summarise_raw(client, model: str, raw_rel: str, data: bytes, kind: str, hint: str,
-                   title: str, names, on_stage=None, strict: bool = False) -> tuple:
+                   title: str, names, on_stage=None, strict: bool = False,
+                   unreadable: bool = False) -> tuple:
     """Extract the stored original and run the summary completion — steps 3 and 4 of an ingest.
 
     ``(summary, extracted)``: the kind the extraction settled on (`extracted.kind`) is the one
     that lands on the page. A calendar never reaches the model. `on_stage` (PRD 36) hears
-    "extracting" and "summarising" as each step starts.
+    "extracting" and "summarising" as each step starts. `unreadable` (PRD 47: every notebook page
+    came back empty) takes the no-text path: no summary call, no ops.
     """
     _stage(on_stage, "extracting")
     extracted = extract(raw_rel, data, kind)
+    if unreadable:
+        extracted.text = ""
     stem = os.path.splitext(os.path.basename(raw_rel))[0]
     label = title or ("" if is_generic_title(stem) else stem)
     if extracted.kind == "calendar":
@@ -1231,20 +1241,23 @@ def _stage(on_stage, stage: str) -> None:
 
 def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: str = "",
                page: str = "", client=None, model: str = "", on_stage=None,
-               source: str = "", strict: bool = False) -> dict:
+               source: str = "", strict: bool = False, digest: str = "", pages=None,
+               unreadable: bool = False, extra: dict | None = None) -> dict:
     """The one ingest path: store, extract, summarise, file, commit once.
 
     Returns ``{path, raw, already}`` — `path` is the source page (`sources/<slug>`), `raw` the
     vault-relative original, `already` True when these exact bytes were filed before.
     `on_stage(stage)` hears "extracting" / "summarising" / "filing" as the steps start (PRD 36);
-    an already-filed drop reports nothing.
+    an already-filed drop reports nothing. A notebook (PRD 47) passes its own `digest` (the
+    pages', not the transcript's), the page PNGs as `pages` — stored next to the raw file under
+    `<stem>/page-NN.png` and listed in the manifest — and `extra` manifest fields.
     """
     if client is None:
         client, model = _client_model()
     with vault_lock.LOCK:
         wiki.ensure_vault()
         names = memory.user_names()
-        digest = sha256(data)
+        digest = digest or sha256(data)
         seen = manifest_find(digest)
         if seen:
             return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True}
@@ -1256,7 +1269,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
 
         try:
             summary, extracted = _summarise_raw(client, model, raw_rel, data, kind, hint, title,
-                                                names, on_stage, strict)
+                                                names, on_stage, strict, unreadable)
         except Exception:
             if strict:          # PRD 48: nothing but the stored original exists yet; drop just that file
                 os.remove(wiki._path(raw_rel))
@@ -1264,6 +1277,10 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         kind = extracted.kind
         page_title = title or summary.get("title") or stem
         raw_rel = _rename_generic_raw(raw_rel, page_title)
+        page_rels = []
+        for i, png in enumerate(pages or [], 1):
+            page_rels.append(f"{os.path.splitext(raw_rel)[0]}/page-{i:02d}.png")
+            _store(page_rels[-1], png)
         source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
         _stage(on_stage, "filing")
         fed = _file_page(client, model, summary, extracted, raw_rel=raw_rel,
@@ -1272,7 +1289,8 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
-                          "page": wiki.wikilink(source_rel), "pages_touched": fed})
+                          "page": wiki.wikilink(source_rel), "pages_touched": fed,
+                          **({"pages": page_rels} if page_rels else {}), **(extra or {})})
         wiki.raw_chunks(raw_rel)          # PRD 32: the chunk cache, built while the bytes are hot
         wiki.rebuild_index()
         wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
@@ -1397,10 +1415,13 @@ def forget(digest: str) -> dict:
                 continue
             wiki._edit_page(rel, lambda body: _without_source_notes(body, raw_rel))
             cleaned.append(wiki.wikilink(rel))
-        for rel in (f"{page}.md", raw_rel):
+        for rel in (f"{page}.md", raw_rel, *(entry.get("pages") or [])):
             wiki._git("rm", "-q", "-f", "--", rel, quiet=True)
             if os.path.exists(wiki._path(rel)):
                 os.remove(wiki._path(rel))
+        for folder in {os.path.dirname(rel) for rel in entry.get("pages") or []}:
+            if os.path.isdir(wiki._path(folder)) and not os.listdir(wiki._path(folder)):
+                os.rmdir(wiki._path(folder))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
         wiki.drop_raw_chunks(digest)
         wiki.rebuild_index()
@@ -1426,7 +1447,9 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
     ext = os.path.splitext(filename or "")[1].lower()
     if kind_hint == "paste_image" and ext not in IMAGE_EXTS:
         ext = ".png"
-    kind = KINDS.get(ext)
+    if kind_hint == "notebook" and ext != ".png":
+        raise IngestError(415, f"a notebook page must be a PNG, not {ext or filename!r}")
+    kind = "notebook" if kind_hint == "notebook" else KINDS.get(ext)
     if kind is None:
         raise IngestError(415, f"unsupported file type {ext or filename!r}")
     limit = (MAX_IMAGE_BYTES if ext in IMAGE_EXTS
@@ -1448,6 +1471,92 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
                       client=client, model=model, on_stage=on_stage, source=source, strict=strict)
+
+
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+def check_notebook(pages: list) -> None:
+    """`IngestError` unless 1..`MAX_NOTEBOOK_PAGES` PNG pages each fit `MAX_IMAGE_BYTES` (PRD 47)."""
+    if not pages:
+        raise IngestError(400, "nothing to file: the notebook has no pages")
+    if len(pages) > MAX_NOTEBOOK_PAGES:
+        raise IngestError(413, f"a notebook is at most {MAX_NOTEBOOK_PAGES} pages, not {len(pages)}")
+    for i, png in enumerate(pages, 1):
+        check_upload(f"page-{i:02d}.png", len(png), "notebook")
+        if not png.startswith(PNG_MAGIC):
+            raise IngestError(415, f"notebook page {i} is not a PNG")
+
+
+def check_replaces(replaces: str, device_id: str) -> None:
+    """`IngestError` 400 unless `replaces` is a filed notebook from the same `device_id`."""
+    entry = manifest_find(replaces)
+    if entry is None:
+        raise IngestError(400, f"replaces: no filed source with sha {replaces[:12]}")
+    if entry.get("kind") != "notebook" or entry.get("device_id", "") != device_id:
+        raise IngestError(400, f"replaces: {replaces[:12]} is not a notebook from this device")
+
+
+def _transcribe(client, model: str, png: bytes, folder: str, n: int) -> str:
+    """One page -> its markdown, or `[page N: unreadable]` under `MIN_PDF_CHARS`."""
+    full = os.path.join(folder, f"page-{n:02d}.png")
+    with open(full, "wb") as f:
+        f.write(png)
+    _downscale(full)
+    text = _ask(client, model, DOCUMENT_RULE,
+                [{"type": "text", "text": TRANSCRIBE_PROMPT}, _image_part(full)], TRANSCRIBE_TOKENS).strip()
+    return text if len(text) >= MIN_PDF_CHARS else f"[page {n}: unreadable]"
+
+
+def _ocr_block(text: str) -> str:
+    lines = [line.rstrip() for line in (text or "").strip().splitlines()]
+    return "\n".join(["> Apple Vision OCR:", *(f"> {line}" if line else ">" for line in lines)])
+
+
+def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", device_id: str = "",
+                    client=None, model: str = "", on_stage=None) -> dict:
+    """A reMarkable notebook (PRD 47): page PNGs in order -> one transcript source.
+
+    The digest is the pages' bytes in order, checked before any model call; each page gets one
+    transcription completion outside the lock; the transcript `.md` then takes the text-kind path
+    of `file_bytes`, the PNGs stored beside it. `ocr` (one string per page, "" = none) adds an
+    Apple Vision block per page. `replaces` (an earlier notebook's sha, same `device_id`) is
+    forgotten after the new filing — and on an `already` filing too, so a forget that failed is
+    retried by the next pull; there an sha already gone is done, not an error.
+    Returns `file_bytes`'s result plus `sha256`.
+    """
+    check_notebook(pages)
+    digest = sha256(b"".join(pages))
+    replaces = "" if replaces == digest else replaces
+    seen = manifest_find(digest)
+    if seen:
+        if replaces and manifest_find(replaces):
+            check_replaces(replaces, device_id)
+            forget(replaces)
+        return {"path": seen.get("page", ""), "raw": seen.get("path", ""), "already": True, "sha256": digest}
+    if replaces:
+        check_replaces(replaces, device_id)
+    if client is None:
+        client, model = _client_model()
+    ocr = list(ocr or [])
+    texts = []
+    with tempfile.TemporaryDirectory() as folder:
+        for n, png in enumerate(pages, 1):
+            _stage(on_stage, f"transcribing {n}/{len(pages)}")
+            texts.append(_transcribe(client, model, png, folder, n))
+    blocks = []
+    for n, text in enumerate(texts, 1):
+        extra = ocr[n - 1] if n <= len(ocr) else ""
+        blocks.append(f"## Page {n}\n\n{text}" + (f"\n\n{_ocr_block(extra)}" if str(extra).strip() else ""))
+    unreadable = all(t == f"[page {n}: unreadable]" for n, t in enumerate(texts, 1))
+    today = memory._today_iso()
+    res = file_bytes(("\n\n".join(blocks) + "\n").encode(), f"raw/remarkable/{_dated(title or 'notebook')}.md",
+                     "notebook", title=title, client=client, model=model, on_stage=on_stage,
+                     source=f"remarkable {today}", digest=digest, pages=pages, unreadable=unreadable,
+                     extra={"device_id": device_id} if device_id else None)
+    if replaces and manifest_find(replaces):
+        forget(replaces)
+    return {**res, "sha256": digest}
 
 
 def check_note(text: str) -> str:

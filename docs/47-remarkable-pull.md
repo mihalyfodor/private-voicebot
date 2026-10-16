@@ -1,4 +1,4 @@
-Status: implementation
+Status: refactoring
 
 # 47 — reMarkable 2 over USB: pull handwriting into the vault
 
@@ -94,6 +94,10 @@ skipped without `pdftoppm`.
 8. Manual, with the device (the user's): enable the USB web interface, create `wiki-inbox`, write one page; `pull` ->
    a readable source; second `pull` -> nothing new; edit -> replaced. Real listing-shape findings go into the fake
    device before the Implementation gate.
+   Fake-device assumptions to verify on the real device: (a) the listing is a `GET /documents/[<id>]` (some
+   firmware wants `POST`); (b) the export is `GET /download/<id>/pdf` (older firmware: `/download/<id>/placeholder`);
+   (c) the field names `ID`, `VissibleName`, `Type` (`CollectionType`/`DocumentType`), `fileType`, `ModifiedClient`;
+   (d) `ModifiedClient` changes on every edit of a notebook and only then.
 
 ## Out of scope
 reMarkable cloud / rmapi, `.rm` vector parsing, an on-device app, pulling annotations on PDFs/EPUBs, creating or

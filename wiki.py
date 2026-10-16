@@ -1607,6 +1607,7 @@ def lint() -> list:
         cited |= {str(fm.get(key) or "") for key in ("source", "raw")}
         labels.append((name, " ".join(str(fm.get("name") or "").split())))
     cited |= {e.get("path") for e in sources.manifest_entries()}
+    cited |= {rel for e in sources.manifest_entries() for rel in e.get("pages") or []}   # PRD 47 PNGs
     for root, dirs, files in os.walk(_path(RAW_DIR)):
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
         for fname in sorted(files):
