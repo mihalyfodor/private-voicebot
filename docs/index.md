@@ -219,7 +219,7 @@ voicebot/
     ├── process.md              # development process
     ├── roadmap.md              # ordered next steps (PRDs 44–46, backlog, dropped ideas)
     ├── protocol.md             # WS protocol reference: every client action and server message type (tests/test_protocol_doc.py keeps it in sync)
-    ├── reviews/                # dated read-only review notes (architecture, developer experience)
+    ├── reviews/                # dated read-only review notes (architecture, developer experience, 2026-10-16 design questions for PRDs 47b/50–55)
     ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, obsidian-host/, wanko-motions.md
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
     ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
@@ -268,8 +268,15 @@ voicebot/
     ├── 45-ask-before-lookup.md  # PRD: spoken turns with weak recall evidence ask before looking up; typed unchanged (done)
     ├── 46-briefing.md           # PRD: "what's new?" — spoken recap of vault/memory changes since the last briefing, card on request (done)
     ├── 47-remarkable-pull.md    # PRD: scripts/remarkable_sync.py pull — notebooks over USB → page PNGs → image ingest, one source per notebook; fake device in tests (done)
+    ├── 47b-remarkable-push.md   # PRD: "send this to my reMarkable" — host push service on :8021, markdown→PDF, approval via PRD 52 (exploration)
     ├── 48-batch-import.md       # PRD: scripts/ingest_batch.py — file a folder of PDFs/docx (OneNote exports) through the normal pipeline, resumable (done)
-    └── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
+    ├── 49-event-trace.md        # PRD: events.jsonl via tracing.py — prod profile (actionable, never text) vs dev profile (+ verbose file); rotation; trace_report.py; /trace skill (done)
+    ├── 50-modular-layout.md     # PRD: layered packages (core/vault/memory/ingest/tools/agent/server), tool registry with trigger + schema modes, layer ratchet test; 12 pure-move steps (exploration)
+    ├── 51-run-cards.md          # PRD: run cards (steps, actions, run_url) + server-rendered /runs/<id> page from the event log (exploration)
+    ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (exploration)
+    ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (exploration)
+    ├── 54-vault-map-research.md # PRD: two-level vault map replaces the alphabetical prompt index; typed "research X" workflow with judge, citations, budget (exploration)
+    └── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers (exploration)
 ```
 
 ## Active PRDs
