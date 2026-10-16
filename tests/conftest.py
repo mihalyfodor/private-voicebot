@@ -328,10 +328,13 @@ def read(rel: str) -> str:
     return wiki._read(rel)
 
 
-def write_page(rel: str, name: str, body: str) -> None:
-    """A minimal note page dropped straight into the vault, bypassing page ops."""
-    text = (f"---\ntype: note\nname: {name}\ntags: []\nsource: seed\n"
-            f"updated: 2026-08-30\nseen: 2026-08-30\n---\n{body}")
+def write_page(rel: str, name: str, body: str, source: str = "seed", extra: str = "") -> None:
+    """A minimal note page dropped straight into the vault, bypassing page ops.
+
+    `extra` is raw frontmatter lines (newline-terminated) appended after `seen`.
+    """
+    text = (f"---\ntype: note\nname: {name}\ntags: []\nsource: {source}\n"
+            f"updated: 2026-08-30\nseen: 2026-08-30\n{extra}---\n{body}")
     full = os.path.join(wiki.WIKI_PATH, rel + ".md")
     os.makedirs(os.path.dirname(full), exist_ok=True)
     open(full, "w").write(text)

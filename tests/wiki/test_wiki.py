@@ -370,8 +370,7 @@ def test_lint_and_log_only_writes_when_there_are_findings(vault):
 
 
 def stamped(rel, source, name="Anna", extra=""):
-    wiki._write(rel + ".md", f"---\ntype: note\nname: {name}\ntags: []\nsource: {source}\n"
-                f"updated: 2026-08-30\nseen: 2026-08-30\n{extra}---\n\n## Summary\nx\n")
+    write_page(rel, name, "\n## Summary\nx\n", source, extra)
     wiki.rebuild_index()
 
 

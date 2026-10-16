@@ -1,4 +1,4 @@
-Status: refactoring
+Status: done
 
 # 44 — Vault health: three more lint findings; related pages at ingest
 
