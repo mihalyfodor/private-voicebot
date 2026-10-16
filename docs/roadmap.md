@@ -9,9 +9,18 @@ the end so they are not re-proposed.
 Not a PRD; one `Fix:`-style commit. Do first — it protects the vault before anything below touches it.
 
 - `scripts/prod.sh backup`: add `KEEP` (default 7), delete all but the newest N `.tgz` and `.bundle` (`scripts/prod.sh:67`).
+- Runaway guards, all in `cmd_backup` so manual and scheduled runs share them:
+  - rotate *before* writing, then refuse to run if free space in `BACKUP_DIR` is below `MIN_FREE_MB` (default 2048) or the
+    new archive would push the backup folder past `MAX_TOTAL_MB` (default 5120); exit non-zero with a one-line reason;
+  - write to a temp name and `mv` into place, so a killed run never leaves a half archive counted as a backup;
+  - a lock (`mkdir`-based or `flock`) so an overlapping run exits immediately instead of stacking;
+  - skip the run when the vault has no new commit since the last backup (compare `git rev-parse HEAD` with a marker file);
+  - log one line per run to `$DATA/logs/backup.log`, itself truncated to the last 200 lines.
 - `scripts/launchd/com.voicebot.backup.plist` with `StartCalendarInterval`, explicit `PATH` (launchd has none for git/tar), logs under `$DATA/logs`.
 - `docs/deploy.md`: one install line next to the ASR plist.
-- Tests: `tests/prod/test_prod_script.py` — temp `DATA`/`BACKUP_DIR` seeded with 9 old files, 7 of each kind remain; `plutil -lint` on the plist.
+- Tests: `tests/prod/test_prod_script.py` — temp `DATA`/`BACKUP_DIR` seeded with 9 old files, 7 of each kind remain;
+  `MIN_FREE_MB` set absurdly high → non-zero exit and no new file; a held lock → immediate exit; unchanged HEAD → no new
+  file; `plutil -lint` on the plist.
 - Effort S. No app behaviour change.
 
 ## 1. PRD 44 — Vault health
