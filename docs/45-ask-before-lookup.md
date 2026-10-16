@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 45 — Ask before lookup (recall calibration)
 
@@ -36,8 +36,10 @@ evidence gets one short offer ("Want me to check your Morrowind guide?"), and a 
     precision rule), or the gate fails: neither `content_question()` (`llm.py:673`) passes nor a
     `wiki.proper_match` (`wiki.py:1203`) term is in the top hit.
   - high: a named page or a named source (`hit["named"]`); or `content_question()` and the top hit has a proper match
-    or a score ≥ `RECALL_HIGH_SCORE`; or, without a content question, a proper bigram held whole (`hit["phrases"]`,
-    "Caius Cosades") or ≥ 2 proper terms matched ("Thieves Guild in Riften").
+    or a score ≥ `RECALL_HIGH_SCORE`; or a *name question* — the turn starts with who / where / which / when (new
+    `ASK_WORDS`, band-only, `CONTENT_WORDS` untouched) and the top hit has a proper match ("Who is Vivec?"); or,
+    without a content question, a proper bigram held whole (`hit["phrases"]`, "Caius Cosades") or ≥ 2 proper terms
+    matched ("Thieves Guild in Riften").
   - medium: everything else with a kept hit — a non-content turn carried by one proper term (Uncle, Vivec,
     Balmora), a content question matched on plain words only below `RECALL_HIGH_SCORE` ("2024 Paris Olympics" →
     an architecture book on "open", "paris", 6.5).
@@ -62,8 +64,8 @@ evidence gets one short offer ("Want me to check your Morrowind guide?"), and a 
   outranks a real question (measured above).
 - Spoken only over both origins: TTS is the cost; typed long answers are PRD 43's deliberate policy, and the typed
   battery then guards against regressions.
-- `CONTENT_WORDS` unchanged (no who/where/which): adding them would also change PRD 43 typed length; "Who is Vivec?"
-  aloud gets one offer, which is the intended ask-first.
+- `CONTENT_WORDS` unchanged; a band-only `ASK_WORDS` (who/where/which/when at the start of the turn) instead: a
+  one-name question is almost never chit-chat, so it answers directly, while PRD 43 typed length is untouched.
 - Server-appended offer over prompting the model to end with it: PRD 34 needed per-turn repetition for 6/6, and
   `ends_with_offer` detection is not needed when the server writes the sentence.
 - Risk: offers on chat that mentions a corpus name feel naggy; mitigation: one sentence, never twice in a row.
@@ -79,7 +81,7 @@ evidence gets one short offer ("Want me to check your Morrowind guide?"), and a 
 Unit tests use `FakeClient` / `StreamClient` from `tests/conftest.py` and the `fallout` / `both` FAQ fixtures; new file
 `tests/llm/test_ask_before_lookup.py`.
 1. Band table (marker `live`, skips without `~/llm-wiki-dev`; deterministic, no LLM): over a copy of the dev vault,
-   "Are you listening, Uncle?" → medium; "Who is Vivec?" → medium; "What does Caius want?" → high; "Where is Caius
+   "Are you listening, Uncle?" → medium; "Who is Vivec?" → high; "Vivec is annoying" → medium; "What does Caius want?" → high; "Where is Caius
    Cosades?" → high; every A/C battery question in `tests/qa/stress.py` that recalls today → high; "How long should
    I steep green tea?" → low. Printed with score, matched and proper terms.
 2. Spoken four-word mis-transcription against a fixture where a proper term carries one hit: the message has no
