@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 47b — reMarkable push: send a card or page to the tablet
 
