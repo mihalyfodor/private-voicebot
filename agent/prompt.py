@@ -23,6 +23,7 @@ VERBOSITY_RULES = {
     "normal": "two to four sentences; a little longer only when actually explaining something",
     "long": "as long as the answer needs, but still spoken prose — no lists or headings",
 }
+DEEPER_MAX_TOKENS = 2500   # owned here so written/offers do not read each other at import time
 VERBOSITY_MAX_TOKENS = {"short": 400, "normal": 400, "long": 800}
 
 _verbosity = "normal"

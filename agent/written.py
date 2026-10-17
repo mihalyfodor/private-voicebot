@@ -32,7 +32,7 @@ CARD_PROMPT = ("You write reference notes in Markdown. Answer the question below
                "No emotion tag, no greeting, no closing question, no offer, and no sources section: the "
                "sources are appended for you.")
 CARD_MAX_TOKENS = a_prompt.VERBOSITY_MAX_TOKENS["long"]
-CARD_CONTEXT_TOKENS = offers.DEEPER_MAX_TOKENS
+CARD_CONTEXT_TOKENS = a_prompt.DEEPER_MAX_TOKENS
 CARD_HISTORY_TURNS = 6
 _CARD_MARK = re.compile(r"^<card id=\"([a-z0-9]+)\">\n(.*)\n</card>$", re.S)
 

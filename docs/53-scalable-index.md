@@ -15,7 +15,7 @@ path, and keeps scores, recall rules and the prompt index byte-for-byte what the
 - As a user, an edit I make in Wanko's editor is searchable on the next turn, and after a crash or an edit made while
   the app was down the index repairs itself at startup.
 - As a user, `lint` no longer tells me 50 pages are "missing from index.md" just because there are 250 of them.
-- As a developer, `python -m wiki reindex` (or `wiki.reindex()`, the `rebuild` command) recovers a broken or deleted index in one call.
+- As a developer, `python -m vault reindex` (or `wiki.reindex()`, the `rebuild` command) recovers a broken or deleted index in one call.
 
 ## UI/UX
 None. No new screen, message or setting; `index.md` stays a human-readable view.
@@ -117,8 +117,8 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
 - Accept that the first app start after the upgrade builds the index synchronously at import (the prompt build reads
   `index_text`); every later start only runs the stat check. Whatever imports the app against a vault it does not mean
   to index guards it: tests/conftest.py and eval/harness.py point `WIKI_PATH` at a missing tmp path first, and
-  `python -m wiki reindex` resolves the vault from the environment, else the checkout's `.env` (dev → ~/llm-wiki-dev).
-- Chose to refuse `python -m wiki reindex` while the app answers on its ports (exit 2, the batch-import guard
+  `python -m vault reindex` resolves the vault from the environment, else the checkout's `.env` (dev → ~/llm-wiki-dev).
+- Chose to refuse `python -m vault reindex` while the app answers on its ports (exit 2, the batch-import guard
   `batch_import.running_app`) over swapping the file under it; `open_index` also reopens when the file's (device,
   inode) changed, so a swapped file is picked up instead of writing to an orphan.
 - Chose to skip a source that cannot be chunked (raw file gone, extraction fails, no chunk cache) during a sync, logged
@@ -126,7 +126,7 @@ None. No new screen, message or setting; `index.md` stays a human-readable view.
   must not stop search, the prompt index, page writes or app start (whose check is also log-and-continue).
 - Chose to read DF from `terms` for the whole corpus (the PRD data model; kept equal to the postings count per change,
   asserted by a test) and to count postings only for a subset (named sources, filters).
-- Chose to name the fix in the finding ("… — run python -m wiki reindex") over repairing from `lint`: lint reports,
+- Chose to name the fix in the finding ("… — run python -m vault reindex") over repairing from `lint`: lint reports,
   the user decides; the startup check already repairs what a missed hook leaves.
 
 ## Data model

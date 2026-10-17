@@ -140,7 +140,11 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
 6. A trigger tool receives a `Ctx`; `file_source` calls `ctx.push_panel()` and the panel stub receives the wiki
    refresh, while `tools/sources.py` contains no `chatbot`/`server` import (tests/tools/test_registry.py).
 7. `tests/conftest.py` has one fake model client patched at `core.llm`; an ingest, a memory save and a typed turn all
-   consume its queued replies (tests/agent/test_fold.py, tests/ingest/test_pipeline.py, tests/agent/test_turn.py).
+   consume its queued replies (tests/core/test_llm.py; tests/agent/test_fold.py, tests/ingest/test_pipeline.py, tests/agent/test_turn.py).
+
+Review backlog (not done): relative and dynamic imports are invisible to the layer test; `core/toolset.TOOLS` is empty
+until `agent.prompt` is imported (the app always does; a process rendering the identity block without it drops the
+WIKI_NOTE); `tools/__init__.py` still holds a `TOOLS` list read only by tests.
 8. `tests/test_protocol_doc.py` green reading `server/*.py`; `ACTIONS` keys unchanged.
 9. Every step: `scripts/check.sh` green, passed count ≥ the previous step's, quoted in the commit body.
 10. After step 12: an app module importing `llm` / `wiki` / `sources` / `chatbot` (the deleted shims) fails the

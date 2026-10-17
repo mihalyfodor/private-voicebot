@@ -1,4 +1,4 @@
-"""`python -m vault reindex`: rebuild the vault's search index (PRD 53; was `python -m vault reindex`).
+"""`python -m vault reindex`: rebuild the vault's search index (PRD 53; was `python -m wiki reindex`).
 
 Refused (exit 2) while the app runs, because swapping the file under a running app would orphan its open handle.
 """

@@ -113,3 +113,48 @@ def test_importing_a_deleted_root_module_fails(tmp_path):
     assert [p.split(": ", 1)[1] for p in found] == ["imports deleted module chatbot", "imports deleted module llm",
                                                       "imports deleted module wiki", "imports deleted module sources"]
     assert found[1].startswith("server/app.py:1:") and found[3].startswith("server/app.py:5:")
+
+
+def _script_files():
+    files = [os.path.join(ROOT, n) for n in ("Dockerfile", "docker-compose.yml")]
+    for d, _, names in os.walk(os.path.join(ROOT, "scripts")):
+        files += [os.path.join(d, n) for n in names if n.endswith((".py", ".sh"))]
+    return [f for f in files if os.path.exists(f)]
+
+
+def test_scripts_do_not_reference_deleted_modules():
+    """scripts/ may import anything that exists, but not a deleted root module (a heredoc in fetch_assets.sh did)."""
+    import re
+    names = "|".join(sorted(DELETED))
+    pat = re.compile(rf"^\s*(?:import\s+(?:{names})\b|from\s+(?:{names})\s+import\b)|python3?\s+-m\s+(?:{names})\b", re.M)
+    bad = []
+    for f in _script_files():
+        for m in pat.finditer(open(f, encoding="utf-8", errors="replace").read()):
+            bad.append(f"{os.path.relpath(f, ROOT)}: {m.group(0).strip()}")
+    assert not bad, bad
+
+
+def _app_modules():
+    mods = []
+    for layer in LAYERS:
+        for n in sorted(os.listdir(os.path.join(ROOT, layer))):
+            if n.endswith(".py") and n != "__init__.py":
+                mods.append(f"{layer}.{n[:-3]}" if n != "__main__.py" else None)
+            elif os.path.isfile(os.path.join(ROOT, layer, n, "__init__.py")):
+                mods.append(f"{layer}.{n}")
+    return [m for m in mods if m]
+
+
+def test_every_module_imports_fresh():
+    """Each app module imports alone in a new interpreter (import cycles that only bite on a given entry order)."""
+    import subprocess
+    import sys
+    from concurrent.futures import ThreadPoolExecutor
+
+    def run(mod):
+        r = subprocess.run([sys.executable, "-c", f"import {mod}"], cwd=ROOT, capture_output=True, text=True)
+        return mod, r.returncode, r.stderr.strip().splitlines()[-1:] 
+
+    with ThreadPoolExecutor(8) as ex:
+        failed = [(m, e) for m, rc, e in ex.map(run, _app_modules()) if rc]
+    assert not failed, failed

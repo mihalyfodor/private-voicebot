@@ -25,7 +25,7 @@ def drop_offer() -> None:
     conversation._deeper_offer = None
 
 DEEPER_MAX_CHUNKS = 3
-DEEPER_MAX_TOKENS = 2500
+DEEPER_MAX_TOKENS = prompt.DEEPER_MAX_TOKENS
 WIKIPEDIA_NOTE = ("The user said yes to checking Wikipedia. Call get_wikipedia now with the topic of the "
                   "question as the query (the article name, like \"Ada Lovelace\", not the whole question), "
                   "then answer the question fully from the result, in several sentences, and say once, in "

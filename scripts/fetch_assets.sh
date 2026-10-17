@@ -64,7 +64,7 @@ mkdir -p static/backdrops
 python3 - <<'PY'
 import urllib.request, os, sys
 sys.path.insert(0, ".")
-from backdrops import BACKDROPS
+from server.backdrops import BACKDROPS
 for b in BACKDROPS.values():
     if not b["url"]:
         continue

@@ -19,6 +19,7 @@ from html.parser import HTMLParser
 
 from core import settings
 from core import trace
+from core import util
 
 log = trace.logger("Sources")
 
@@ -41,10 +42,6 @@ TEAMS_MIN_TURNS = 3
 DEFAULT_HORIZON_DAYS = 14
 
 
-def _tokens_est(text: str) -> int:
-    return len(text) // 4        # memory.tokens_est, without the upward import
-
-
 def sample_text(text: str) -> tuple:
     """``(shown, shown_tokens, total_tokens)`` — `text` sampled to `RAW_CHUNK_TOKENS`.
 
@@ -53,17 +50,17 @@ def sample_text(text: str) -> tuple:
     need the shape of the document, and one call is all it gets (no chunk-and-merge).
     """
     text = text or ""
-    total = _tokens_est(text)
+    total = util.tokens_est(text)
     if total <= RAW_CHUNK_TOKENS:
         return text, total, total
     budget = RAW_CHUNK_TOKENS * 4
     head_n, mid_n, tail_n = (int(budget * share) for share in SAMPLE_SHARES)
     mid_at = (len(text) - mid_n) // 2
     head, mid, tail = text[:head_n], text[mid_at:mid_at + mid_n], text[len(text) - tail_n:]
-    gap1 = _tokens_est(text[head_n:mid_at])
-    gap2 = _tokens_est(text[mid_at + mid_n:len(text) - tail_n])
+    gap1 = util.tokens_est(text[head_n:mid_at])
+    gap2 = util.tokens_est(text[mid_at + mid_n:len(text) - tail_n])
     shown = "\n\n".join([head.rstrip(), SKIPPED % gap1, mid.strip(), SKIPPED % gap2, tail.lstrip()])
-    return shown, _tokens_est(head + mid + tail), total
+    return shown, util.tokens_est(head + mid + tail), total
 
 
 def cap_text(text: str) -> str:
