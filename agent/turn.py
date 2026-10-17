@@ -102,9 +102,6 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     recall band (PRD 45). `note` is a one-turn system remark (a page was just opened for the
     user, PRD 38) appended to this turn's user message only.
     """
-
-
-    conv_len = len(a_conversation._conversation)
     a_conversation._evidence, a_conversation.last_band = (None, []), None
     turns_len = len(a_conversation._session_turns)
     # An offer lives exactly one turn: a short "yes" takes it, anything else drops it.
@@ -252,8 +249,12 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             yield ("delta", text)
             yield ("delta", " " + offer_text)
         reply = "".join(parts)
-    except Exception:
-        del a_conversation._conversation[conv_len:]
+    except BaseException:                                       # incl. GeneratorExit: the consumer closed mid-stream
+        # trim_history pops from the front, so the user message is found by identity, not by index
+        for i, m in enumerate(a_conversation._conversation):
+            if m is user_msg:
+                del a_conversation._conversation[i:]
+                break
         del a_conversation._session_turns[turns_len:]
         raise
 

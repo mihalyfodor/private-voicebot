@@ -1,6 +1,7 @@
 """The context budget: model context length, token estimate, history trimming, the usage meter and its 90 % notice (docs/39-context-meter.md; PRD 50 step 9, from llm.py)."""
 import json
 import os
+import time
 from core import trace
 from core import llm as core_llm
 from tools import registry
@@ -13,13 +14,18 @@ log = trace.logger("llm")
 CONTEXT_BUDGET = int(os.getenv("CONTEXT_BUDGET", "16000"))
 _model_context_len_cache: int | None = None
 _model_context_len_warned = False
+_model_context_len_failed_at: float | None = None   # a failed lookup is not retried for RETRY_S
+_MODEL_CONTEXT_RETRY_S = 60
 
 
 def model_context_len() -> int | None:
     """Lazily query /v1/models for OMLX_MODEL's max_model_len. Returns None on any failure."""
-    global _model_context_len_cache, _model_context_len_warned
+    global _model_context_len_cache, _model_context_len_warned, _model_context_len_failed_at
     if _model_context_len_cache is not None:
         return _model_context_len_cache
+    if _model_context_len_failed_at is not None and time.monotonic() - _model_context_len_failed_at < _MODEL_CONTEXT_RETRY_S:
+        return None
+    _model_context_len_failed_at = time.monotonic()
     try:
         models = core_llm.client().models.list()
         for m in models:
@@ -30,6 +36,7 @@ def model_context_len() -> int | None:
                     max_len = dumped.get("max_model_len")
                 if max_len:
                     _model_context_len_cache = int(max_len)
+                    _model_context_len_failed_at = None
                     return _model_context_len_cache
         return None
     except Exception as e:

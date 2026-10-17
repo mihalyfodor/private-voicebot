@@ -680,6 +680,7 @@ results.horizon_sent = [...socket.sent];
 
 // ---- PRD 35: the page offers its position once per connect; the Settings row shows what is in use
 if (socket.onopen) socket.onopen();                       // the stub never fires it on its own
+results.history_after_open = t.historyLines().length + t.cards().length;   // a (re)connect replays the conversation: the page starts empty
 results.location_sent = socket.sent.filter(m => m.action === 'set_location');
 socket.sent.length = 0;
 t.recv({ type: 'setting', key: 'location', value: { lat: 46.771, lon: 23.624, tz: 'Europe/Bucharest', source: 'browser', name: 'Cluj-Napoca, Romania' } });

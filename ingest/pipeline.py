@@ -1,6 +1,6 @@
 """Raw ingestion — the office document stack feeds the wiki (docs/20-raw-ingestion.md).
 
-wiki.py owns page mechanics (frontmatter, ops, index, commits). This module owns *sources*:
+vault/store.py and vault/pages.py own page mechanics (frontmatter, ops, index, commits). This module owns *sources*:
 the bytes the user drops (files, pastes, screenshots), emails and news items they ask to file.
 
 One ingest is always the same five steps, under `vault_lock.LOCK`, ending in one commit:
@@ -21,8 +21,6 @@ meeting completion -> ``meetings/<date>-<slug>`` plus notes on the attendees' pa
 
 Nothing here is ever triggered automatically: the popup, a tool call or the harness asks for it.
 """
-import base64
-import binascii
 import datetime as dt
 import os
 import re
@@ -944,13 +942,4 @@ def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "") ->
     with trace.ingest("news", raw=f"raw/news/{v_store.slugify(title)}.md", bytes=len(markdown.encode())):
         return file_bytes(markdown.encode(), f"raw/news/{v_store.slugify(title)}.md", "news",
                           title=title, hint=hint, page=page)
-
-
-def decode_data_url(value: str) -> bytes:
-    """`data:image/png;base64,…` -> bytes (the paste path when it arrives as a string)."""
-    payload = value.split(",", 1)[1] if value.startswith("data:") else value
-    try:
-        return base64.b64decode(payload, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise IngestError(415, "the pasted image could not be decoded") from exc
 

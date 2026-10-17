@@ -15,7 +15,7 @@ from vault import search, store
 def cli_vault(env_file: str) -> str:
     """The vault this CLI works on: WIKI_PATH from the environment, else from `env_file`
     (the checkout's `.env`, so a dev checkout targets its dev vault), else the default."""
-    value = os.environ.get("WIKI_PATH") or dotenv_values(env_file).get("WIKI_PATH") or "~/llm-wiki-dev"
+    value = os.environ.get("WIKI_PATH") or dotenv_values(env_file).get("WIKI_PATH") or config.DEFAULT_WIKI_PATH
     return os.path.expanduser(value)
 
 

@@ -149,7 +149,7 @@ _filler_wavs: dict[str, bytes] = {}
 def speak_stream(events, send_sync, tts=None):
     """Consume LLM events, TTS each sentence and push it over the socket.
 
-    `events` yields ("tool_calls", [names]) and ("delta", text) — see llm.ask_events.
+    `events` yields ("tool_calls", [names]) and ("delta", text) — see agent.turn.ask_events.
     A cached filler is spoken as soon as a tool call is detected.
     Returns the full reply text (tag stripped, fillers excluded).
     `send_sync(dict)` must be thread-safe; `tts(text) -> wav bytes` defaults to Kokoro.

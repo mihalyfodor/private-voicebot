@@ -166,7 +166,7 @@ async def websocket_endpoint(websocket: WebSocket):
         if old_ws is not None:
             with contextlib.suppress(Exception):
                 await old_ws.close(code=4000)
-    loop = panels._loop = asyncio.get_event_loop()
+    loop = panels._loop = asyncio.get_running_loop()
     await _on_connect(sess, loop)
     try:
         while True:

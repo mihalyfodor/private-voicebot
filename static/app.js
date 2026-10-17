@@ -2707,6 +2707,10 @@ function connect() {
   };
 
   ws.onopen = () => {
+    // The server replays the whole conversation on every (re)connect: start from an empty page.
+    historyEl.replaceChildren();
+    cards.clear();
+    cardEls.clear();
     if (backendDown) { backendDown = false; renderServices(); }
     renderComposer();
     focusSent = '';            // a (re)connected server starts on Chat: tell it where we are

@@ -14,7 +14,7 @@ from ingest import notebooks
 from ingest import remarkable
 from agent import research
 from agent import runs
-from agent import digest as v_digest
+from agent import digest as a_digest
 from vault import focus as v_focus
 from vault import pages as v_pages
 from vault import search as v_search
@@ -76,7 +76,7 @@ def briefing(ctx: Ctx):
         run = runs.Run("briefing")
         digest = _gather(run, since)
         stage = "phrased"
-        empty = v_digest.digest_empty(digest)
+        empty = a_digest.digest_empty(digest)
         if not empty and not services.llm_ok():
             _run_failed(run, "phrased", "failed-offline", send_sync)
             send_sync({"type": "error", "scope": "turn", "text": panels.llm_offline_text()})
@@ -85,7 +85,7 @@ def briefing(ctx: Ctx):
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
         if empty:
-            say_canned(f"Nothing new since {v_digest.briefing_when(since)}.", send_sync)
+            say_canned(f"Nothing new since {a_digest.briefing_when(since)}.", send_sync)
             run.end("nothing", "nothing-to-do")
         else:
             t0 = time.monotonic()
@@ -109,7 +109,7 @@ def _gather(run, since: str) -> dict:
     """The briefing's `gather` step (+ a `skip` step for the housekeeping commits it left out):
     the digest, with its counts and the pages' commits on the event — never a title's text beyond that."""
     with trace.span("step", name="gather", detail=f"since {since[11:16]}") as step:
-        digest = v_digest.changes_since(since)
+        digest = a_digest.changes_since(since)
         pages = len(digest.get("pages") or []) + len(digest.get("chat_pages") or [])
         n_sources = len(digest.get("sources") or [])
         mem = digest.get("memory") or {}
@@ -119,7 +119,7 @@ def _gather(run, since: str) -> dict:
                            for p in digest.get("pages") or []
                            if isinstance(p, dict)],
                     memory={k: int(mem.get(k) or 0) for k in ("added", "updated", "removed")})
-    run.step("gathered", "ok", f"since {v_digest.briefing_when(since)} — {_n(pages, 'page')}, {_n(n_sources, 'source')}, "
+    run.step("gathered", "ok", f"since {a_digest.briefing_when(since)} — {_n(pages, 'page')}, {_n(n_sources, 'source')}, "
                                f"{_n(n_memory, 'memory change')}")
     skipped = int(digest.get("skipped") or 0)
     if skipped:
@@ -212,7 +212,7 @@ def save_card(card_id: str | None, folder: str = "") -> list:
 @registry.handler("write_up")
 def write_up(ctx: Ctx):
     """The write-up turn: one spoken line, then the card's body; the body is never spoken. A run
-    (PRD 51): the card goes out `running` first (kept in `llm`'s card store, so a reconnect replays
+    (PRD 51): the card goes out `running` first (kept in `agent.written`'s card store, so a reconnect replays
     it), then `card_update` done (with the markdown, title and sources) or failed."""
     sess, turn, user_text, send_sync = ctx.session, ctx.turn, ctx.text, ctx.send
     run = card = None

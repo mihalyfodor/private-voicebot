@@ -285,6 +285,12 @@ class FakeAdmin:
     def __init__(self, bearer=200, login=200):
         self.bearer, self.login, self.calls, self.logged_in = bearer, login, [], False
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
     def post(self, url, json=None, headers=None, timeout=None):
         self.calls.append((url, json, headers))
         if url.endswith("/admin/api/login"):
@@ -343,6 +349,8 @@ def test_model_load_with_a_wrong_password_reports_the_401(monkeypatch):
 def test_model_unload_with_omlx_down_reports_it():
     def boom(*a, **k):
         raise requests.ConnectionError("refused")
-    with patch.object(requests, "Session", lambda: SimpleNamespace(post=boom)):
+    down = FakeAdmin()
+    down.post = boom
+    with patch.object(requests, "Session", lambda: down):
         with pytest.raises(services.AdminError, match="not answering"):
             services.model_op("unload")

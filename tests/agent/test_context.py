@@ -19,6 +19,7 @@ def setup_function():
     conversation.reset()
     a_context._model_context_len_cache = None
     a_context._model_context_len_warned = False
+    a_context._model_context_len_failed_at = None
 
 
 # --- scenario 1: trimming drops oldest first, keeps system + latest user ---
@@ -160,3 +161,23 @@ def test_memory_load_caps_the_profile_block(monkeypatch, tmp_path):
     assert "person 0" in result and "person 49" not in result
     block = result.split("<user_profile>\n")[1].split("\n</user_profile>")[0]
     assert util.tokens_est(block) <= 100
+
+
+def test_model_context_len_failure_is_not_retried_within_the_window(monkeypatch):
+    calls = []
+
+    class BoomClient:
+        class models:
+            @staticmethod
+            def list():
+                calls.append(1)
+                raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(a_context, "_model_context_len_failed_at", None)
+    with patch.object(core_llm, "_client", BoomClient()):
+        assert a_context.model_context_len() is None
+        assert a_context.model_context_len() is None
+        assert len(calls) == 1
+        a_context._model_context_len_failed_at -= a_context._MODEL_CONTEXT_RETRY_S + 1
+        assert a_context.model_context_len() is None
+        assert len(calls) == 2

@@ -86,7 +86,9 @@ def _walk(folder: str) -> list:
 def _last_states(log: str) -> dict:
     last = {}
     if os.path.exists(log):
-        for line in open(log).read().splitlines():
+        with open(log) as f:
+            lines = f.read().splitlines()
+        for line in lines:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:

@@ -52,6 +52,16 @@ def post(url: str, body: dict) -> tuple:
         return e.code, json.loads(e.read())
 
 
+def test_push_refuses_browsers_and_non_json(push_service):
+    body = json.dumps({"title": "x", "markdown": "x"}).encode()
+    for headers, code in (({"Content-Type": "application/json", "Origin": "http://evil.example"}, 403),
+                          ({"Content-Type": "text/plain"}, 415)):
+        req = urllib.request.Request(f"{push_service}/push", data=body, method="POST", headers=headers)
+        with pytest.raises(urllib.error.HTTPError) as err:
+            urllib.request.urlopen(req, timeout=10)
+        assert err.value.code == code
+
+
 def test_health(push_service):
     assert json.loads(urllib.request.urlopen(f"{push_service}/health").read()) == {"ok": True}
 

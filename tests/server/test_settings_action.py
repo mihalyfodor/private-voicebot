@@ -164,6 +164,7 @@ def test_bad_locations_are_refused_and_nothing_is_saved(isolated_settings, paylo
 
 
 def test_the_page_offers_its_position_once_and_renders_the_row(r):
+    assert r["history_after_open"] == 0
     assert r["location_sent"] == [{"action": "set_location", "lat": 46.7712, "lon": 23.6236, "tz": "Europe/Bucharest"}]
     assert r["location_shown"] == "Cluj-Napoca, Romania · 46.771, 23.624 · Europe/Bucharest · from browser"
 

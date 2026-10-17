@@ -58,7 +58,7 @@ STALE_FIELD = "stale"      # the one entry field that holds a boolean
 SEEN_FIELD = "seen"        # "YYYY-MM-DD", last time the user confirmed the entry
 
 
-_LOCK = vault_lock.LOCK   # the vault-wide lock; wiki.py and sources.py take the same one
+_LOCK = vault_lock.LOCK   # the vault-wide lock; vault/ and ingest/ take the same one
 
 
 UI_REASONS = ("ui", "ui:restore", "ui:reset")   # audit tags that mark a hand edit

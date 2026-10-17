@@ -240,7 +240,7 @@ def _end(pending: dict, decision: str, via: str, status: str, reason: str) -> No
 
 def propose(sess, kind: str, target: str) -> dict:
     """Plan `kind` for `target` (raises ValueError / `pipeline.IngestError` before anything is opened),
-    then open its run, issue the awaiting card (`llm`'s card store, so a reconnect replays it) and set
+    then open its run, issue the awaiting card (`agent.written`'s card store, so a reconnect replays it) and set
     `sess.pending` — an older pending is expired first. Returns the pending dict."""
     spec = KINDS[kind]
     expire(sess, "button")                 # the older one goes first: a failed plan leaves nothing pending

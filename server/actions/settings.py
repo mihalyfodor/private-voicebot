@@ -49,8 +49,7 @@ async def _action_set_verbosity(sess, msg, loop):
 
 #: Settings the UI may write straight to settings.json via `set_setting`, and the type each
 #: one must have. Deliberately tiny: everything with side effects keeps its own action.
-# key -> expected type. Empty since PRD 22b removed `panel_pinned`; the action stays so the
-# next persisted UI preference is one line here instead of a new action.
+# key -> expected type. A new persisted UI preference is one line here instead of a new action.
 #: `calendar_horizon_days` — how far a recurring invite is expanded into meeting stubs (PRD 31)
 #: `recall_min_score` — the BM25-per-word floor a source passage must clear to be quoted (PRD 32)
 #: `omlx_admin_password` — the oMLX admin password for load/unload (PRD 41 addendum); "" clears it and

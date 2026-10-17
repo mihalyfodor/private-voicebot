@@ -6,7 +6,7 @@ import os
 
 from core import characters
 from core import trace
-from core.settings import load_settings, save_setting, save_settings  # noqa: F401  (shim, deleted in step 12)
+from core import settings
 
 log = trace.logger("avatars")
 
@@ -43,7 +43,7 @@ def reload() -> dict:
 
 
 def _load_saved() -> str | None:
-    return load_settings().get("avatar")
+    return settings.load_settings().get("avatar")
 
 
 def _resolve(key: str) -> str:
@@ -67,7 +67,7 @@ def current_key() -> str:
 def set_current(key: str) -> dict:
     global _current
     _current = _resolve(key)
-    save_setting("avatar", _current)
+    settings.save_setting("avatar", _current)
     return current()
 
 

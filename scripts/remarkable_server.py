@@ -118,6 +118,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path != "/push":
             return self._send(404, {"ok": False, "error": "not found"})
+        # A browser page can reach loopback: no Origin (curl, the app server) and a JSON type
+        # (not a no-preflight form/text post) or nothing is pushed.
+        if self.headers.get("Origin"):
+            return self._send(403, {"ok": False, "error": "browser requests are not accepted"})
+        if not (self.headers.get("Content-Type") or "").startswith("application/json"):
+            return self._send(415, {"ok": False, "error": "Content-Type must be application/json"})
         try:
             payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
             if not isinstance(payload, dict):

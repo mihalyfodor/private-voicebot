@@ -200,24 +200,24 @@ def model_op(op: str) -> None:
     assert op in ("load", "unload"), op
     url = f"{_llm_host()}/admin/api/models/{core_llm.OMLX_MODEL}/{op}"
     headers = {"Authorization": f"Bearer {core_llm.OMLX_API_KEY}"}
-    s = requests.Session()
-    try:
-        r = s.post(url, headers=headers, timeout=120)
-        if r.status_code < 400:
-            return
-        if r.status_code not in (401, 403):
-            raise AdminError(f"{op} failed: HTTP {r.status_code}")
-        password = admin_password()
-        if not password:
-            raise AdminError(f"{op} needs the oMLX admin password — set it in Settings or OMLX_ADMIN_PASSWORD")
-        login = s.post(f"{_llm_host()}/admin/api/login", json={"password": password}, timeout=10)
-        if login.status_code >= 400:
-            raise AdminError(f"oMLX admin login refused (HTTP {login.status_code}) — check the password")
-        r = s.post(url, headers=headers, timeout=120)
-        if r.status_code >= 400:
-            raise AdminError(f"{op} failed after login: HTTP {r.status_code}")
-    except requests.RequestException as exc:
-        raise AdminError(f"{op} failed: oMLX not answering ({exc.__class__.__name__})") from exc
+    with requests.Session() as s:
+        try:
+            r = s.post(url, headers=headers, timeout=120)
+            if r.status_code < 400:
+                return
+            if r.status_code not in (401, 403):
+                raise AdminError(f"{op} failed: HTTP {r.status_code}")
+            password = admin_password()
+            if not password:
+                raise AdminError(f"{op} needs the oMLX admin password — set it in Settings or OMLX_ADMIN_PASSWORD")
+            login = s.post(f"{_llm_host()}/admin/api/login", json={"password": password}, timeout=10)
+            if login.status_code >= 400:
+                raise AdminError(f"oMLX admin login refused (HTTP {login.status_code}) — check the password")
+            r = s.post(url, headers=headers, timeout=120)
+            if r.status_code >= 400:
+                raise AdminError(f"{op} failed after login: HTTP {r.status_code}")
+        except requests.RequestException as exc:
+            raise AdminError(f"{op} failed: oMLX not answering ({exc.__class__.__name__})") from exc
 
 
 def reset() -> None:
@@ -229,9 +229,9 @@ def reset() -> None:
 
 
 if __name__ == "__main__":
-    # `python -m services --admin-password`: scripts/voicebot asks the same resolver the server uses.
+    # `python -m server.services --admin-password`: scripts/voicebot asks the same resolver the server uses.
     import sys
     if sys.argv[1:] == ["--admin-password"]:
         print(admin_password())
     else:
-        sys.exit("usage: python -m services --admin-password")
+        sys.exit("usage: python -m server.services --admin-password")
