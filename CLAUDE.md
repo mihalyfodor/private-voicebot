@@ -12,8 +12,10 @@ Follow [docs/process.md](docs/process.md). Every feature goes through Exploratio
 - Tests define "done" — if it's not tested, it's not finished
 - Keep scope tight — cut anything non-essential
 - Never paste secrets/keys/tokens into prompts or code
+- Dev never touches the prod vault: the default vault path is `~/llm-wiki-dev`; prod sets `WIKI_PATH` explicitly (compose)
+- When in doubt simplify: a feature the app visibly lacks beats one that costs tokens and will not be used
 - Delegate basic implementation to small sub-agents; the main thread plans, coordinates and reviews
-- AI commits on feature branches at each quality gate (no trailers); user reviews and merges to `main`; AI never pushes
+- AI commits on feature branches at each quality gate (no trailers) and merges to `main` when check.sh and smoke are green; AI never pushes
 
 ## Lessons
 
@@ -25,6 +27,7 @@ One line per real past failure. Add to this list, don't delete from it.
 - process.md promised ruff/black for months with neither installed. Don't promise tooling that scripts/check.sh doesn't run.
 - The WebSocket protocol had two sources of truth (server dict + client ladder). One table in docs/protocol.md, enforced by a test.
 - Without a single check command, `node --check` was never run. Everything goes through scripts/check.sh.
+- The code default vault path was the real vault; a bare import built a search index inside ~/llm-wiki. Defaults point at dev; prod is always explicit.
 - "Tests pass" claimed from memory is worthless. Only this session's check.sh output with its counts proves green.
 
 ## Quick Reference

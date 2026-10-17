@@ -1,7 +1,7 @@
 # Deploy — Docker as prod (PRD 40)
 
 Prod is a pinned image built from `main`, running against one data folder; dev keeps running from the
-checkout (`.venv`, `PORT=8011 WIKI_PATH=~/llm-wiki-dev`). oMLX and the ASR service stay native on the host.
+checkout (`.venv`, `PORT=8011`, vault `~/llm-wiki-dev`, which is also the code default; only the container sets `WIKI_PATH` to the real vault). oMLX and the ASR service stay native on the host.
 
 ## What is where
 

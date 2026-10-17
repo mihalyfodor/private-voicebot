@@ -3,7 +3,8 @@ Module-specific settings (ASR, TTS, Gmail, ports) stay next to their module. Mod
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # repo root
-WIKI_PATH = os.path.expanduser(os.getenv("WIKI_PATH", "~/llm-wiki"))
+# Default is the DEV vault: nothing reaches the real vault unless WIKI_PATH says so (prod compose sets /data/llm-wiki).
+WIKI_PATH = os.path.expanduser(os.getenv("WIKI_PATH", "~/llm-wiki-dev"))
 MEMORY_DIR = os.getenv("MEMORY_DIR") or ROOT        # MEMORY_DIR env: e2e tests use a temp dir
 # SETTINGS_PATH env overrides the location (the e2e tests point it at a temp dir)
 SETTINGS_PATH = os.getenv("SETTINGS_PATH") or os.path.join(ROOT, "settings.json")

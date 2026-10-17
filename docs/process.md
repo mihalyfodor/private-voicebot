@@ -120,8 +120,8 @@ Spawn the reviewer agent (`.claude/agents/reviewer.md`) on the branch diff. It n
 - [ ] No change in externally observable behavior (UI, routes, persisted data, public props)
 - [ ] PRD status updated to `done`
 - [ ] `docs/index.md` updated
-- [ ] AI commits on the feature branch with message: `Refactor: <feature>`; user reviews
-- [ ] User merges the feature branch to `main`
+- [ ] AI commits on the feature branch with message: `Refactor: <feature>`
+- [ ] AI runs the smoke pass (`/smoke`); green → AI fast-forward-merges the branch to `main`; red → it stays on the branch and the user decides
 
 **Model:** Opus
 
@@ -130,8 +130,8 @@ Spawn the reviewer agent (`.claude/agents/reviewer.md`) on the branch diff. It n
 - `main` stays clean and deployable
 - Feature branch created at Phase 1 sign-off: `feature/<name>`
 - Each quality gate = one AI commit on the feature branch (`PRD:` / `Impl:` / `Refactor:` messages, no trailers)
-- User reviews each gate commit and merges to `main` after Phase 3
-- AI never pushes and never merges to `main`
+- AI merges to `main` after Phase 3 once this session's `scripts/check.sh` and the smoke pass are green (user rule of 2026-10-17); the user reviews on `main`
+- AI never pushes
 - Bug fixes outside a PRD phase: `Fix: <what>` commits, each with a regression test that failed before the fix
 - A commit-msg hook (`scripts/hooks/commit-msg`, enabled via `git config core.hooksPath scripts/hooks`) rejects AI-attribution trailers
 

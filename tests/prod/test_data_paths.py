@@ -72,3 +72,25 @@ def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_pat
     assert os.path.isdir(tmp_path / "wiki" / ".git")
     assert commits()
     assert set(os.listdir(ROOT)) == root_before
+
+
+DEFAULT_PATHS = """
+import json, wiki
+from core import config
+print(json.dumps([config.WIKI_PATH, wiki.WIKI_PATH, wiki.cli_vault("/nonexistent/.env")]))
+"""
+
+
+def test_default_vault_is_never_the_prod_vault(tmp_path):
+    """Two environments: with no WIKI_PATH anywhere, every default lands on the dev vault, never ~/llm-wiki
+    (the 2026-10-16 incident: a bare import built an index inside the real vault)."""
+    env = {k: v for k, v in os.environ.items() if k not in ("WIKI_PATH", "DATA")}
+    env["GIT_CONFIG_GLOBAL"] = os.devnull
+    env["PYTHONPATH"] = ROOT
+    out = subprocess.run([sys.executable, "-c", DEFAULT_PATHS], cwd=tmp_path, env=env,
+                         capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    paths = json.loads(out.stdout)
+    prod = os.path.expanduser("~/llm-wiki")
+    assert all(p == os.path.expanduser("~/llm-wiki-dev") for p in paths), paths
+    assert prod not in paths

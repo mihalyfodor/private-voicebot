@@ -1,6 +1,6 @@
 """Wiki layer — an Obsidian-compatible markdown vault the assistant maintains.
 
-The vault (``WIKI_PATH``, default ``~/llm-wiki``) is the *durable* half of long-term memory:
+The vault (``WIKI_PATH``, default ``~/llm-wiki-dev``; prod sets its own) is the *durable* half of long-term memory:
 the profile in memory.py is "who the user is" (small, always in the prompt, decays), the vault
 is "what we are working on" (unbounded, on demand, human co-edited in Obsidian).
 
@@ -2224,7 +2224,7 @@ def cli_vault(env_file: str) -> str:
     (the checkout's `.env`, so a dev checkout targets its dev vault), else the default."""
     from dotenv import dotenv_values
 
-    value = os.environ.get("WIKI_PATH") or dotenv_values(env_file).get("WIKI_PATH") or "~/llm-wiki"
+    value = os.environ.get("WIKI_PATH") or dotenv_values(env_file).get("WIKI_PATH") or "~/llm-wiki-dev"
     return os.path.expanduser(value)
 
 
