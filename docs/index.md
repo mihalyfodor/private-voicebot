@@ -307,7 +307,7 @@ voicebot/
     ├── process.md              # development process
     ├── roadmap.md              # ordered next steps (PRDs 44–46, backlog, dropped ideas)
     ├── protocol.md             # WS protocol reference: every client action and server message type (tests/test_protocol_doc.py keeps it in sync)
-    ├── reviews/                # dated read-only review notes (architecture, developer experience, 2026-10-16 design questions for PRDs 47b/50–55)
+    ├── reviews/                # dated read-only review notes (architecture, developer experience, 2026-10-16 design questions for PRDs 47b/50–55, 2026-10-17 session handling: research + design for PRDs 56/57)
     ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, wanko-motions.md (the PRD 21 obsidian-host spike was deleted 2026-10-17)
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
     ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
