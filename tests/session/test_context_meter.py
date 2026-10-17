@@ -15,6 +15,7 @@ from tools import commands, registry
 import chatbot
 import llm
 import memory
+from agent import fold as m_fold
 from session import Session
 from tests.conftest import FakeClient, StreamClient, fake_asr, fake_tts, run_turn, typed
 from core import llm as core_llm
@@ -34,7 +35,7 @@ def spoken_text(sent: list) -> str:
 def recorded_memory(monkeypatch):
     """`memory.save` replaced by a recorder: the turns it was handed, applied ops []."""
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, sources=(): saved.append(list(turns)) or [])
+    monkeypatch.setattr(m_fold, "save", lambda turns, sources=(): saved.append(list(turns)) or [])
     return saved
 
 

@@ -1,6 +1,8 @@
 """Session ingest: ask the model for page ops over a transcript and apply them (PRD 50 step 7, from wiki.py)."""
 import os
-import memory
+from memory import identity
+from memory import ops as m_ops
+from memory import render
 from core import trace
 from core import llm as core_llm
 from core.untrusted import DOCUMENT_RULE
@@ -62,7 +64,7 @@ def user_page_reason(op: dict, names) -> str | None:
         text = " ".join(str(value or "").split())
         if "/" in text:
             continue
-        if text and memory.is_user(text, names):
+        if text and identity.is_user(text, names):
             return f"{text} is the user, not another person"
     return None
 
@@ -81,11 +83,11 @@ def ingest(turns: list) -> list:
 
     Never raises: a wiki failure must not cost the user their profile save (see memory.save).
     """
-    transcript = memory._transcript(turns)
+    transcript = m_ops._transcript(turns)
     if not transcript.strip():
         return []
-    names = memory.user_names()
-    system = INGEST_SYSTEM % (memory.user_note(names), memory._today_iso())
+    names = identity.user_names()
+    system = INGEST_SYSTEM % (identity.user_note(names), render._today_iso())
     related = v_index.related_context(transcript)
     user = (f"Schema:\n{store._read(store.SCHEMA_FILE) or store.SCHEMA_TEXT}\n\n"
             f"Index:\n{v_index.vault_map(store.WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
@@ -96,12 +98,12 @@ def ingest(turns: list) -> list:
     except Exception as exc:  # noqa: BLE001
         log.info(f"ingest failed: {exc}")
         return []
-    ops = memory.extract_json(raw)
+    ops = m_ops.extract_json(raw)
     if not isinstance(ops, list):
         log.info("could not parse page ops; nothing filed")
         return []
     ops, about_user = reject_user_pages(ops, names)
-    applied, rejected = v_pages.apply_page_ops(ops, f"session {memory._today_iso()}")
+    applied, rejected = v_pages.apply_page_ops(ops, f"session {render._today_iso()}")
     v_pages.log_rejected(about_user + rejected, log)
     if applied:
         log.info(f"{len(applied)} page op{'s' if len(applied) != 1 else ''} applied")

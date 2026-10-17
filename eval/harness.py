@@ -34,7 +34,9 @@ os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{o
 import avatars  # noqa: E402
 from vault import index_db
 import llm  # noqa: E402
-import memory  # noqa: E402
+from memory import ops as m_ops
+from memory import render as m_render
+from memory import store as m_store
 from ingest import pipeline  # noqa: E402
 from core import settings, trace  # noqa: E402
 from vault import lint
@@ -50,7 +52,7 @@ CATEGORIES = (
     "preference",
 )
 
-DUP_RATIO = memory.DUP_RATIO  # one fuzzy-match threshold, shared with memory.py
+DUP_RATIO = m_ops.DUP_RATIO  # one fuzzy-match threshold, shared with memory.py
 
 
 # --------------------------------------------------------------------------- mocked clock
@@ -76,8 +78,8 @@ def shift_clock(spec) -> str:
     """
     _CLOCK["offset"] += _parse_offset(spec)
     offset = _CLOCK["offset"]
-    memory._today = lambda: date.today() + offset
-    return memory._today().isoformat()
+    m_render._today = lambda: date.today() + offset
+    return m_render._today().isoformat()
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -114,24 +116,24 @@ class Sandbox:
         self.wiki_path = os.path.join(self._tmpdir, "wiki")
 
         self._saved = {
-            "memory": memory.MEMORY_PATH,
+            "memory": m_store.MEMORY_PATH,
             "wiki": store.WIKI_PATH,
-            "ops": memory.OPS_LOG_PATH,
-            "shortmem": memory.SHORTMEM_PATH,
+            "ops": m_store.OPS_LOG_PATH,
+            "shortmem": m_store.SHORTMEM_PATH,
             "settings": settings.SETTINGS_PATH,
             "tools": llm.TOOLS,
             "trace_dir": trace.TRACE_DIR,
             "avatar": avatars._current,
             "system_prompt": llm.SYSTEM_PROMPT,
-            "today": memory._today,
+            "today": m_render._today,
         }
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
-        memory.MEMORY_PATH = self.memory_path
+        m_store.MEMORY_PATH = self.memory_path
         store.WIKI_PATH = self.wiki_path        # a live run must never touch the real ~/llm-wiki
         index_db.close()
-        memory.OPS_LOG_PATH = self.ops_path
-        memory.SHORTMEM_PATH = self.shortmem_path
+        m_store.OPS_LOG_PATH = self.ops_path
+        m_store.SHORTMEM_PATH = self.shortmem_path
         settings.SETTINGS_PATH = self.settings_path
         avatars._current = None
         if not self.tools:
@@ -153,18 +155,18 @@ class Sandbox:
         return lint.pages()
 
     def __exit__(self, *exc) -> bool:
-        memory.MEMORY_PATH = self._saved["memory"]
+        m_store.MEMORY_PATH = self._saved["memory"]
         store.WIKI_PATH = self._saved["wiki"]
         index_db.close()
-        memory.OPS_LOG_PATH = self._saved["ops"]
-        memory.SHORTMEM_PATH = self._saved["shortmem"]
+        m_store.OPS_LOG_PATH = self._saved["ops"]
+        m_store.SHORTMEM_PATH = self._saved["shortmem"]
         settings.SETTINGS_PATH = self._saved["settings"]
         llm.TOOLS = self._saved["tools"]
         trace.reset()
         trace.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
         llm.SYSTEM_PROMPT = self._saved["system_prompt"]
-        memory._today = self._saved["today"]
+        m_render._today = self._saved["today"]
         _CLOCK["offset"] = timedelta(0)
         if self._tmpdir:
             shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -198,13 +200,13 @@ class Session:
 
         The structured ops also land in ``self.last_ops``.
         """
-        before_ops = _read(memory.OPS_LOG_PATH)
-        before_text = _read(memory.SHORTMEM_PATH)
+        before_ops = _read(m_store.OPS_LOG_PATH)
+        before_text = _read(m_store.SHORTMEM_PATH)
         llm.save_memory()
-        self.last_ops = _read_ops(_appended(before_ops, _read(memory.OPS_LOG_PATH)))
+        self.last_ops = _read_ops(_appended(before_ops, _read(m_store.OPS_LOG_PATH)))
         if self.last_ops:
             return "\n".join(format_op(op) for op in self.last_ops)
-        return _appended(before_text, _read(memory.SHORTMEM_PATH))
+        return _appended(before_text, _read(m_store.SHORTMEM_PATH))
 
 
 def _read(path: str) -> str:
@@ -326,7 +328,7 @@ def duplicate_lines(text: str, ratio: float = DUP_RATIO) -> list:
     dups = []
     for i, line in enumerate(lines):
         for j in range(i):
-            if memory._similar(line, lines[j], ratio):
+            if m_ops._similar(line, lines[j], ratio):
                 dups.append({"line": line, "duplicate_of": lines[j]})
                 break
     return dups
@@ -341,17 +343,17 @@ def as_profile(text: str):
         data = json.loads(stripped)
     except json.JSONDecodeError:
         return None
-    return data if isinstance(data, dict) and data.get("version") == memory.VERSION else None
+    return data if isinstance(data, dict) and data.get("version") == m_store.VERSION else None
 
 
 def duplicate_entries(profile: dict, ratio: float = DUP_RATIO) -> list:
     """List entries whose identifying key near-duplicates an earlier one in the same list."""
     dups = []
-    for section, key_field in memory.LIST_KEY.items():
+    for section, key_field in m_store.LIST_KEY.items():
         keys = [str(e.get(key_field, "")) for e in profile.get(section, []) if isinstance(e, dict)]
         for i, key in enumerate(keys):
             for j in range(i):
-                if memory._similar(key, keys[j], ratio):
+                if m_ops._similar(key, keys[j], ratio):
                     dups.append({"section": section, "line": key, "duplicate_of": keys[j]})
                     break
     return dups
@@ -359,22 +361,22 @@ def duplicate_entries(profile: dict, ratio: float = DUP_RATIO) -> list:
 
 def profile_stats(profile: dict) -> dict:
     """Section sizes, episodic count, render token estimate and duplicate entries."""
-    rendered = memory.render(profile, budget_tokens=10 ** 6)
+    rendered = m_render.render(profile, budget_tokens=10 ** 6)
     sections = {
         section: len([k for k in profile.get(section, {}) if k != "superseded"])
-        for section in memory.SCALAR_SECTIONS
+        for section in m_store.SCALAR_SECTIONS
     }
-    sections.update({section: len(profile.get(section, [])) for section in memory.LIST_SECTIONS})
+    sections.update({section: len(profile.get(section, [])) for section in m_store.LIST_SECTIONS})
     dups = duplicate_entries(profile)
     return {
-        "version": memory.VERSION,
+        "version": m_store.VERSION,
         "render": rendered,
         "sections": sections,
         "episodic": sections["episodic"],
-        "episodic_live": len(memory.live_episodics(profile)),
+        "episodic_live": len(m_render.live_episodics(profile)),
         "lines": len(rendered.splitlines()),
         "fact_lines": sum(sections.values()),
-        "tokens_est": memory.tokens_est(rendered),
+        "tokens_est": m_render.tokens_est(rendered),
         "duplicates": len(dups),
         "duplicate_pairs": dups,
     }
@@ -423,7 +425,7 @@ def _run_edit(spec, verbose: bool = True) -> dict:
     the way the memory panel does.
     """
     ops = list(spec) if isinstance(spec, list) else [spec]
-    profile, error = memory.edit_many(ops) if len(ops) > 1 else memory.edit(ops[0])
+    profile, error = m_ops.edit_many(ops) if len(ops) > 1 else m_ops.edit(ops[0])
     if len(ops) == 1:
         error = {"path": ops[0].get("path"), "reason": error} if error else None
     if verbose:

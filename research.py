@@ -14,7 +14,7 @@ import re
 import time
 
 import llm
-import memory
+from memory import ops
 import runs
 from vault import chunks as v_chunks
 from vault import focus
@@ -97,7 +97,7 @@ def _complete(budget: Budget, purpose: str, system: str, user: str, max_tokens: 
 def parse_plan(raw: str, question: str) -> list:
     """``[{q, filters}]`` from the plan reply: at most MAX_SUBQUESTIONS (extra dropped), duplicates and
     empties out; an unparseable or empty reply is the question itself."""
-    data = memory.extract_json(raw)
+    data = ops.extract_json(raw)
     out = []
     for item in data if isinstance(data, list) else []:
         if isinstance(item, dict):
@@ -166,7 +166,7 @@ def _judge_prompt(question: str, subs: list, hits: list) -> str:
 
 def _verdicts(raw: str) -> dict:
     """hit number -> (keep, reason) from a judge reply; {} when it does not parse."""
-    data = memory.extract_json(raw)
+    data = ops.extract_json(raw)
     out = {}
     for item in data if isinstance(data, list) else []:
         if not isinstance(item, dict):

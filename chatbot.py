@@ -18,7 +18,10 @@ import webbrowser
 
 import approvals
 import llm
-import memory
+from memory import identity
+from memory import ops as m_ops
+from memory import render as m_render
+from memory import store as m_store
 from ingest import notebooks
 import remarkable
 import research
@@ -158,7 +161,7 @@ _loop: asyncio.AbstractEventLoop | None = None
 
 def _memory_msg(profile: dict) -> dict:
     """The `memory` message the panel re-renders itself from: profile + rendered block + count."""
-    return {"type": "memory", **memory.snapshot(profile)}
+    return {"type": "memory", **m_ops.snapshot(profile)}
 
 
 def _wiki_msg() -> dict:
@@ -194,7 +197,7 @@ def push_memory(with_wiki: bool = False) -> None:
     send_sync = _panel_sender()
     if send_sync is None:
         return
-    send_sync(_memory_msg(memory.load_profile()))
+    send_sync(_memory_msg(m_store.load_profile()))
     if with_wiki:
         send_sync(_wiki_msg())
 
@@ -396,7 +399,7 @@ def briefing(ctx: Ctx):
     sess, turn, user_text, send_sync, origin = ctx.session, ctx.turn, ctx.text, ctx.send, ctx.origin
     run, stage = None, "gathered"
     try:
-        now = memory._stamp("%H:%M:%S")
+        now = m_render._stamp("%H:%M:%S")
         since = settings.load_settings().get("briefing_at") or \
             (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
         run = runs.Run("briefing")
@@ -511,7 +514,7 @@ def card_update(card: dict, **extra) -> dict:
 def card_path(card: dict, folder: str = "") -> str:
     """`notes/<date>-<slug(title)>` (or the folder given): the page a saved card becomes."""
     folder = str(folder or "").strip().strip("/") or DEFAULT_CARD_FOLDER
-    return f"{folder}/{memory._today_iso()}-{v_store.slugify(card['title'])[:60]}"
+    return f"{folder}/{m_render._today_iso()}-{v_store.slugify(card['title'])[:60]}"
 
 
 def save_card(card_id: str | None, folder: str = "") -> list:
@@ -918,7 +921,7 @@ def handle_utterance(sess: Session, turn: int, audio, loop):
     send_sync = make_sender(loop, turn)
     try:
         send_sync({"type": "state", "value": "processing"})
-        text = asr.transcribe(audio, prompt=memory.asr_prompt())
+        text = asr.transcribe(audio, prompt=identity.asr_prompt())
         if getattr(asr, "last_error", None):
             services.recheck()   # the remote ASR failed: re-probe now
     except Exception as e:
@@ -1015,7 +1018,7 @@ async def api_config():
         "hands_free": hands_free,
         "verbosity": llm.current_verbosity(),
         # read-only facts shown in the Settings view
-        "stale_days": dict(memory.STALE_DAYS),
+        "stale_days": dict(m_store.STALE_DAYS),
         "calendar_horizon_days": formats.calendar_horizon_days(),
         "recall_min_score": chunks.recall_min_score(),
         "location": weather_tool.location(),
@@ -1145,12 +1148,12 @@ async def ingest(request: Request):
     if not items:
         raise HTTPException(status_code=400, detail="nothing to file")
 
-    before = memory.snapshot(memory.load_profile())
+    before = m_ops.snapshot(m_store.load_profile())
     result = await asyncio.to_thread(_ingest_all, items, run_id)
     if any(not f.get("already") for f in result["filed"]):
         await _send_wiki()
-    if memory.snapshot(memory.load_profile()) != before:
-        await send(_memory_msg(memory.load_profile()))
+    if m_ops.snapshot(m_store.load_profile()) != before:
+        await send(_memory_msg(m_store.load_profile()))
     return result
 
 
@@ -1351,7 +1354,7 @@ async def _save_session_memory() -> None:
     """
     filed = v_pages.applied_count()
     await asyncio.to_thread(_ingest_now)
-    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    await send(_memory_msg(await asyncio.to_thread(m_store.load_profile)))
     if v_pages.applied_count() != filed:
         await _send_wiki()
 
@@ -1364,7 +1367,7 @@ async def _action_get_memory(sess, msg, loop):
     turn is running — the save runs and a second, fresh snapshot follows. While a turn is in
     flight nothing is saved here; the periodic save catches up.
     """
-    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    await send(_memory_msg(await asyncio.to_thread(m_store.load_profile)))
     if llm.has_unsaved_turns() and not controller.busy:
         await _save_session_memory()
 
@@ -1374,7 +1377,7 @@ async def _action_save_memory(sess, msg, loop):
     if controller.busy:
         await _error("memory", "Wait until the reply finishes.")
         return
-    await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
+    await send(_memory_msg(await asyncio.to_thread(m_store.load_profile)))
     await _save_session_memory()
 
 
@@ -1446,7 +1449,7 @@ async def _action_memory_op(sess, msg, loop):
     """
     op = {"op": msg.get("op"), "path": msg.get("path"),
           "value": msg.get("value"), "reason": msg.get("reason")}
-    profile, reason = await asyncio.to_thread(memory.edit, op)
+    profile, reason = await asyncio.to_thread(m_ops.edit, op)
     if reason:
         await _send_memory_error(op["path"], reason)
         return
@@ -1460,7 +1463,7 @@ async def _action_memory_ops(sess, msg, loop):
     nothing is written and the panel gets a `memory_error` naming that op's path.
     """
     ops = msg.get("ops")
-    profile, error = await asyncio.to_thread(memory.edit_many, ops)
+    profile, error = await asyncio.to_thread(m_ops.edit_many, ops)
     if error:
         await _send_memory_error(error.get("path"), error.get("reason"))
         return
@@ -1469,7 +1472,7 @@ async def _action_memory_ops(sess, msg, loop):
 
 async def _action_memory_reset(sess, msg, loop):
     """The panel's "Forget everything": the profile is emptied and the reset is audited."""
-    profile = await asyncio.to_thread(memory.reset)
+    profile = await asyncio.to_thread(m_ops.reset)
     await send(_memory_msg(profile))
 
 
@@ -1487,7 +1490,7 @@ async def _action_wiki_note(sess, msg, loop):
     """The "add note" box: append one dated bullet under `## Notes`, then refresh both panes."""
     path = str(msg.get("path") or "")
     op = {"op": "append_note", "path": path, "text": msg.get("text"),
-          "source": f"user note {memory._today_iso()}"}
+          "source": f"user note {m_render._today_iso()}"}
     applied, rejected = await asyncio.to_thread(v_pages.apply_page_ops, [op], op["source"])
     if not applied:
         reason = rejected[0]["reason"] if rejected else "nothing to add"
@@ -1547,7 +1550,7 @@ async def _action_wiki_search(sess, msg, loop):
 async def _action_wiki_ingest(sess, msg, loop):
     """"Re-ingest last session": run the memory save (which includes wiki ingest) on demand."""
     await asyncio.to_thread(_ingest_now)
-    await send(_memory_msg(memory.load_profile()))
+    await send(_memory_msg(m_store.load_profile()))
     await _send_wiki()
 
 
@@ -1563,12 +1566,12 @@ async def _bridge(move, *args):
 
 async def _action_archive_memory(sess, msg, loop):
     """Drag a memory row onto the Wiki tab: file the entry, then mark it stale."""
-    await _bridge(memory.archive, str(msg.get("section") or ""), msg.get("index"))
+    await _bridge(m_ops.archive, str(msg.get("section") or ""), msg.get("index"))
 
 
 async def _action_pull_wiki(sess, msg, loop):
     """Drag a wiki page onto a memory section: recreate a live entry from the page."""
-    await _bridge(memory.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
+    await _bridge(m_ops.pull, str(msg.get("path") or ""), str(msg.get("section") or ""))
 
 
 async def _action_save_card(sess, msg, loop):

@@ -11,6 +11,7 @@ import time
 import pytest
 
 import memory
+from memory import render
 from core import vault_lock
 import wiki
 from vault import store
@@ -46,7 +47,7 @@ def test_save_preserves_every_byte_except_the_updated_line(vault, monkeypatch):
     make("projects/atlas", page_type="project")
     text = with_body("people/anna.md", "\n## Notes\n- see [[projects/atlas|the rewrite]] and "
                      "[[projects/atlas#Summary]]; ![[people/anna]] #infra `code #not-a-tag`\n")
-    monkeypatch.setattr(memory, "_today_iso", lambda: "2031-01-01")
+    monkeypatch.setattr(render, "_today_iso", lambda: "2031-01-01")
 
     result, reason = wiki.save_page("people/anna", text, wiki.etag(read("people/anna.md")))
 

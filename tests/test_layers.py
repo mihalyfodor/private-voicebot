@@ -10,12 +10,10 @@ SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "
 # (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
 # new upward import in the same file fails. May only shrink (docs/50-modular-layout.md).
 ALLOWED = {
-    # step 5: the moved modules still import root modules; each pair goes when its target moves (memory 8, remarkable 11)
-    ("ingest/pipeline.py", "memory"),
-    ("ingest/notebooks.py", "memory"),
+    # step 5: the moved modules still import root modules; each pair goes when its target moves (remarkable 11)
     ("ingest/notebooks.py", "remarkable"),
-    ("ingest/batch.py", "memory"),
-    # steps 6-7: vault/ modules still import root memory (step 8) and llm (steps 9-10)
+    # steps 6-8: vault/ modules still import memory (a layer above them: tokens_est, _today_iso, user-page guards; the
+    # step 12 cleanup moves those helpers down) and llm (steps 9-10)
     ("vault/store.py", "memory"),
     ("vault/index.py", "memory"),
     ("vault/pages.py", "memory"),

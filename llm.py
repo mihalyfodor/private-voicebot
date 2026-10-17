@@ -5,7 +5,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Iterator
 
-import memory
+from agent import fold
+from memory import identity
+from memory import render
 import avatars
 from core import settings
 from core import trace
@@ -331,7 +333,7 @@ def _offer_kind(recall_offer: bool) -> str:
 def reset():
     global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources, _sources_seen
     global _last_trimmed, _context_warned, _turn_pages, _last_context, _card_seq
-    _conversation = [{"role": "system", "content": memory.load(SYSTEM_PROMPT)}]
+    _conversation = [{"role": "system", "content": identity.load(SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
     _deeper_offer = None
@@ -402,7 +404,7 @@ def _rebuild_system_prompt(note: str = "") -> None:
     """Rebuild SYSTEM_PROMPT from the current avatar and swap `_conversation[0]` in place."""
     global SYSTEM_PROMPT
     SYSTEM_PROMPT = build_system_prompt(avatars.current())
-    system = {"role": "system", "content": memory.load(SYSTEM_PROMPT) + note}
+    system = {"role": "system", "content": identity.load(SYSTEM_PROMPT) + note}
     if _conversation:
         _conversation[0] = system
     else:
@@ -601,14 +603,14 @@ def is_affirmative(text: str) -> bool:
 def fit(lines: list, budget: int, note: str) -> list:
     """`lines` cut to fit `budget` tokens together with `note` and the tags: whole lines while
     they fit, the first one that does not is truncated, the rest dropped."""
-    used = memory.tokens_est(note) + 40
+    used = render.tokens_est(note) + 40
     kept = []
     for line in lines:
         room = (budget - used) * 4
         if room <= 0:
             break
         kept.append(line[:room])
-        used += memory.tokens_est(kept[-1])
+        used += render.tokens_est(kept[-1])
     return kept
 
 
@@ -832,7 +834,7 @@ def write_up(request: str = "", card_id: str | None = None) -> dict:
         _conversation.append({"role": "user", "content": request})
         _session_turns.append({"role": "user", "content": request})
     _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{markdown}\n</card>'})
-    _session_turns.append({"role": "assistant", "content": f"{memory.STAND_INS[0]}{card['title']}"})
+    _session_turns.append({"role": "assistant", "content": f"{fold.STAND_INS[0]}{card['title']}"})
     return card
 
 
@@ -849,7 +851,7 @@ def file_research(card: dict, request: str) -> dict:
     _conversation.append({"role": "user", "content": request})
     _session_turns.append({"role": "user", "content": request})
     _conversation.append({"role": "assistant", "content": f'<card id="{card["id"]}">\n{card["markdown"]}\n</card>'})
-    _session_turns.append({"role": "assistant", "content": f"{memory.STAND_INS[2]}{card['title']}"})
+    _session_turns.append({"role": "assistant", "content": f"{fold.STAND_INS[2]}{card['title']}"})
     _last_context = {"question": request, "extra": "", "tools": [], "reply": "", "sources": [], "pages": [],
                      "card": card["markdown"], "research_card": card}
     return card
@@ -943,7 +945,7 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     _conversation.append({"role": "user", "content": user_text})
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content":
-                           f"{memory.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
+                           f"{fold.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
                            f"{len(digest['sources'])} sources, {v_digest.memory_total(digest)} memory changes"})
     _last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
                      "pages": titles, "card": card_md}
@@ -1321,7 +1323,7 @@ def save_memory():
         _sources_seen = sources + [s for s in _sources_seen if s not in sources]
 
     try:
-        applied = memory.save(turns, sources=sources)
+        applied = fold.save(turns, sources=sources)
     except Exception:
         restore()
         raise

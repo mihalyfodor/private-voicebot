@@ -26,6 +26,7 @@ import chatbot
 from vault import index_db
 import llm
 import memory
+from memory import store as m_store
 import sources
 from core import llm as core_llm
 from core import settings, trace
@@ -63,9 +64,9 @@ def file_sandbox(monkeypatch, tmp_path):
     monkeypatch.setattr(trace, "TRACE_DIR", str(tmp_path))
     monkeypatch.delenv("TRACE_PROFILE", raising=False)
     trace.reset()
-    monkeypatch.setattr(memory, "MEMORY_PATH", str(tmp_path / "memory.json"))
-    monkeypatch.setattr(memory, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
-    monkeypatch.setattr(memory, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
+    monkeypatch.setattr(m_store, "MEMORY_PATH", str(tmp_path / "memory.json"))
+    monkeypatch.setattr(m_store, "OPS_LOG_PATH", str(tmp_path / "memory_ops.jsonl"))
+    monkeypatch.setattr(m_store, "SHORTMEM_PATH", str(tmp_path / "shortmem.txt"))
     monkeypatch.setattr(gmail_tool, "GMAIL_CREDENTIALS_PATH", str(tmp_path / "credentials.json"))
     monkeypatch.setattr(gmail_tool, "GMAIL_TOKEN_PATH", str(tmp_path / "token.json"))
     yield tmp_path

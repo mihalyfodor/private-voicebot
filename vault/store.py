@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 from vault import index_db
-import memory
+from memory import render
 from core import config, trace
 
 log = trace.logger("Wiki")
@@ -192,7 +192,7 @@ def ensure_vault() -> str:
     if not os.path.exists(_path(DECISIONS_FILE)):
         _write(DECISIONS_FILE, _page_text(
             {"type": "decisions", "name": "Decisions", "tags": [], "source": "bootstrap",
-             "updated": memory._today_iso(), "seen": memory._today_iso()},
+             "updated": render._today_iso(), "seen": render._today_iso()},
             "# Decisions\n",
         ))
     ignore = _read(".gitignore")     # `.index/` (PRD 53) carries its own `*` .gitignore: no tracked edit here
@@ -272,7 +272,7 @@ def _edit_page(rel: str, body_fn=None, defaults: dict | None = None, **fields) -
     "never rewrite, only append" is enforced in one place.
     """
     fm, body = parse_page(_read(rel))
-    fm["updated"] = memory._today_iso()
+    fm["updated"] = render._today_iso()
     for key, value in (defaults or {}).items():
         fm.setdefault(key, value)
     fm.update(fields)

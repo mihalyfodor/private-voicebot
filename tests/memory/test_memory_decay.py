@@ -12,6 +12,7 @@ import pytest
 
 import llm
 import memory
+from memory import render as m_render
 from eval import harness
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 from core import llm as core_llm
@@ -27,7 +28,7 @@ def clock(monkeypatch):
     """`clock(200)` makes memory believe 200 days have passed."""
     def travel(days: int) -> date:
         when = date.today() + timedelta(days=days)
-        monkeypatch.setattr(memory, "_today", lambda: when)
+        monkeypatch.setattr(m_render, "_today", lambda: when)
         return when
     return travel
 
@@ -172,11 +173,12 @@ def test_mark_stale_is_idempotent_and_windows_are_per_section(clock):
 def test_stale_windows_default_and_are_env_overridable(monkeypatch):
     """MEMORY_STALE_<SECTION>=<days> overrides a window; loaded as a fresh module so the
     live, sandboxed `memory` is left alone."""
+    import importlib
     import importlib.util
     assert memory.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
     monkeypatch.setenv("MEMORY_STALE_PEOPLE", "30")
     monkeypatch.setenv("MEMORY_STALE_RECURRING", "7")
-    spec = importlib.util.spec_from_file_location("memory_under_env", memory.__file__)
+    spec = importlib.util.spec_from_file_location("memory_under_env", importlib.import_module("memory.store").__file__)
     fresh = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fresh)
     assert fresh.STALE_DAYS == {"people": 30, "projects": 120, "recurring": 7}
@@ -194,7 +196,7 @@ def test_render_omits_stale_entries_but_they_stay_counted_andon_disk():
         recurring=[{"what": "gym", "seen": days_ago(100), "stale": True}],
         episodic=[{"date": TODAY, "text": "ran a 10k", "importance": 3, "stale": True}],
     )
-    rendered = memory.render(profile)
+    rendered = m_render.render(profile)
     assert "Anna" not in rendered and "gym" not in rendered and "10k" not in rendered
     assert "Bob" in rendered
     assert memory.fact_count(profile) == 5                # stale facts still count
@@ -391,7 +393,7 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
     intro = '[{"op":"ADD","path":"people[]","value":{"name":"Anna","rel":"colleague"}}]'
     monkeypatch.setattr(core_llm, "_client", FakeClient(intro))
     memory.save([{"role": "user", "content": "Anna joined my team"}])
-    assert "Anna" in memory.render(memory.load_profile())
+    assert "Anna" in m_render.render(memory.load_profile())
 
     clock(200)
     monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
@@ -399,7 +401,7 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
 
     profile = memory.load_profile()
     assert profile["people"][0]["stale"] is True
-    assert "Anna" not in memory.render(profile)          # out of the prompt, still on disk
+    assert "Anna" not in m_render.render(profile)          # out of the prompt, still on disk
     assert memory.fact_count(profile) == 1
 
     monkeypatch.setattr(core_llm, "_client", FakeClient('[{"op":"CONFIRM","path":"people[]","value":{"name":"Anna"}}]'))
@@ -407,7 +409,7 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
     profile = memory.load_profile()
     assert "stale" not in profile["people"][0]
     assert profile["people"][0]["seen"] == memory._today().isoformat()
-    assert "Anna (colleague)" in memory.render(profile)
+    assert "Anna (colleague)" in m_render.render(profile)
 
 
 def test_a_save_that_learns_nothing_still_writes_the_retirement(clock, capsys, monkeypatch):
@@ -470,7 +472,7 @@ def test_harness_clock_turn_shifts_memorys_today():
         harness.shift_clock("+1w")           # offsets accumulate for the rest of the run
         assert memory._today() == date.today() + timedelta(days=207)
     finally:
-        memory._today = original
+        m_render._today = original
         harness._CLOCK["offset"] = timedelta(0)
     with pytest.raises(ValueError):
         harness._parse_offset("soon")

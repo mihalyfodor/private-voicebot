@@ -14,6 +14,7 @@ import pytest
 
 import llm
 import memory
+from memory import render as m_render
 import sources
 import wiki
 from vault import chunks as v_chunks
@@ -216,7 +217,7 @@ def test_a_scalar_from_a_document_is_stamped_and_a_restatement_clears_it():
     ])
     assert profile["preferences"] == {"editor": "vim", "sources": {"editor": "Setup guide"}}
     assert profile["people"][0]["source"] == "Setup guide" and applied[0]["source"] == "Setup guide"
-    assert memory.fact_count(profile) == 2 and "Setup guide" not in memory.render(profile)
+    assert memory.fact_count(profile) == 2 and "Setup guide" not in m_render.render(profile)
     profile, _ = memory.apply_ops(profile, [{"op": "UPDATE", "path": "preferences.editor", "value": "emacs"}])
     assert "sources" not in profile["preferences"]
     assert memory._normalise(json.loads(json.dumps(profile)))["people"][0]["source"] == "Setup guide"

@@ -136,13 +136,15 @@ def test_model_context_len_caps_budget(monkeypatch):
 def test_memory_load_caps_the_profile_block(monkeypatch, tmp_path):
     import json
     import memory
+    from memory import render
+    from memory import store
     path = tmp_path / "memory.json"
     profile = memory._empty_profile()
     profile["identity"] = {"name": "Mihaly"}
     profile["people"] = [{"name": f"person {i}", "note": "x" * 20} for i in range(50)]
     path.write_text(json.dumps(profile))
-    monkeypatch.setattr(memory, "MEMORY_PATH", str(path))
-    monkeypatch.setattr(memory, "BUDGET_TOKENS", 100)
+    monkeypatch.setattr(store, "MEMORY_PATH", str(path))
+    monkeypatch.setattr(render, "BUDGET_TOKENS", 100)
 
     result = memory.load("SYSTEM")
     assert result.startswith("SYSTEM")

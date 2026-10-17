@@ -14,6 +14,7 @@ import pytest
 import chatbot
 import llm
 import memory
+from memory import render as m_render
 from core import llm as core_llm
 from tests.conftest import Blocker, FakeClient, audit_log, on_disk, seed
 
@@ -131,7 +132,7 @@ def test_get_memory_returns_the_rendered_block_and_the_visible_fact_count(panel)
     reply = panel.send({"action": "get_memory"})
 
     assert reply["type"] == "memory"
-    assert reply["rendered"] == memory.render(memory.load_profile())
+    assert reply["rendered"] == m_render.render(memory.load_profile())
     assert reply["count"] == 7            # 2 scalars + 2 people + 1 project + 1 recurring + 1 episodic
     assert reply["profile"]["identity"]["superseded"] == {"name": ["Misi"]}
     assert "meta" not in reply["profile"] and "version" not in reply["profile"]

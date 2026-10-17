@@ -29,7 +29,9 @@ import re
 
 from core.formats import (Extracted, _decode, _downscale, _image_part, docx_text, eml_text, epub_text, ics_events,
                           msg_text, pdf_text, pptx_text, sample_text, vtt_text, xlsx_text)
-import memory
+from memory import identity as m_identity
+from memory import ops as m_ops
+from memory import render
 from core import llm as core_llm
 from core import trace
 from core.untrusted import DOCUMENT_RULE, untrusted
@@ -184,10 +186,10 @@ def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
         _downscale(full)
         return Extracted("", _image_part(full), kind)
     if ext == ".ics":
-        events = ics_events(data, today=dt.date.fromisoformat(memory._today_iso()))
+        events = ics_events(data, today=dt.date.fromisoformat(render._today_iso()))
         text = "\n".join(f"{e['date']} {e['time']} {e['title']} — {', '.join(e['attendees'])}"
                          for e in events)
-        return Extracted(text, None, kind, memory.tokens_est(text), memory.tokens_est(text), events)
+        return Extracted(text, None, kind, render.tokens_est(text), render.tokens_est(text), events)
     if ext == ".docx":
         kind = docx_text(data)[1]
     shown, shown_tokens, total_tokens = sample_text(raw_text(raw_rel, data))
@@ -216,7 +218,7 @@ def _entity_line(entity: dict, user_names=()) -> str:
     name = " ".join(str(entity.get("name") or "").split())
     if not name:
         return ""
-    if memory.is_user(name, user_names):
+    if m_identity.is_user(name, user_names):
         return f"- the user ({name})"
     etype = " ".join(str(entity.get("type") or "").split()).lower()
     folder = {"person": "people", "project": "projects"}.get(etype)
@@ -239,7 +241,7 @@ def _source_body(title: str, summary: str, entities: list, fed: list, user_names
 def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest: str,
                        summary: str, entities: list, fed: list, source: str,
                        user_names=(), tags=(), extra: dict | None = None) -> None:
-    today = memory._today_iso()
+    today = render._today_iso()
     fm = {"type": "source", "name": title, "tags": list(tags), "source": source,
           "updated": today, "seen": today,
           "kind": kind, "raw": raw_rel, "sha256": digest, **(extra or {})}
@@ -251,7 +253,7 @@ def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest:
 
 def _attendee_link(name: str, user_names=()) -> str:
     """`people/<slug>` for a colleague, the literal "the user" for the profile owner."""
-    return "the user" if memory.is_user(name, user_names) else f"people/{v_store.slugify(name)}"
+    return "the user" if m_identity.is_user(name, user_names) else f"people/{v_store.slugify(name)}"
 
 
 def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees: list,
@@ -262,7 +264,7 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
     Written here, not through the `new_page` op, because the op cannot carry `date` / `time` /
     `attendees` or the Decisions/Actions sections — the same arrangement the source page has.
     """
-    today = memory._today_iso()
+    today = render._today_iso()
     links = []
     for name in attendees:
         link = _attendee_link(name, user_names)
@@ -290,14 +292,14 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
     """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
     summary}``, tidied; None when the model cannot be reached or parsed."""
     try:
-        system = MEETING_SYSTEM % (memory.user_note(user_names), memory._today_iso())
+        system = MEETING_SYSTEM % (m_identity.user_note(user_names), render._today_iso())
         raw = core_llm.complete(system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
         trace.error("ingest", "meeting_from_transcript", exc)
         _degraded("ops")
         return None
-    data = memory.extract_json(raw, "{", "}")
+    data = m_ops.extract_json(raw, "{", "}")
     if not isinstance(data, dict):
         log.info("could not parse the meeting; filing the transcript only")
         _degraded("ops")
@@ -309,7 +311,7 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
 
     date = str(data.get("date") or "").strip()
     if not _DROP_DATE.fullmatch(date):
-        date = memory._today_iso()
+        date = render._today_iso()
     return {
         "title": " ".join(str(data.get("title") or title or "Meeting").split())[:120],
         "date": date,
@@ -331,7 +333,7 @@ def _attendee_ops(meeting: dict, meeting_rel: str, user_names=()) -> list:
     when = f"{meeting['title']}, {meeting['date']}"
     ops = []
     for name in meeting["attendees"]:
-        if memory.is_user(name, user_names):
+        if m_identity.is_user(name, user_names):
             continue
         path = f"people/{v_store.slugify(name)}"
         if not v_store.page_exists(f"{path}.md"):
@@ -415,7 +417,7 @@ def restrict_ops(ops, raw_rel: str, user_names=(), kind: str = "", people=None) 
     """
     candidates, rejected = v_ingest.reject_user_pages(ops, user_names)
     if kind in PUBLISHED_KINDS and people is None:
-        people = memory.people_names()
+        people = m_identity.people_names()
     kept = []
     for raw in candidates:
         op = raw if isinstance(raw, dict) else {}
@@ -445,7 +447,7 @@ def _author_page_reason(op: dict, people: list) -> str | None:
         return None
     slug_name = os.path.basename(rel)[:-3].replace("-", " ")
     names = [" ".join(str(v or "").split()) for v in (op.get("name"), slug_name)]
-    if any(name and memory.is_user(name, people) for name in names):
+    if any(name and m_identity.is_user(name, people) for name in names):
         return None
     return (f"{names[0] or slug_name} is not in the user's profile; a published work's "
             "authors and cited experts are not people pages")
@@ -487,7 +489,7 @@ def summarise(kind: str, text: str, image_part, hint: str, title: str,
         content = [{"type": "text", "text": f"{header}\n\nSummarise this image."}, image_part]
     else:
         content = f"{header}\n\nDocument:\n{untrusted(text, title or kind)}"
-    system = SUMMARY_SYSTEM % (memory.user_note(user_names), memory._today_iso())
+    system = SUMMARY_SYSTEM % (m_identity.user_note(user_names), render._today_iso())
     data = None
     for attempt in range(1, SUMMARY_ATTEMPTS + 1):
         try:
@@ -500,7 +502,7 @@ def summarise(kind: str, text: str, image_part, hint: str, title: str,
                 raise
             fallback["summary"] = "the summary model could not be reached; the raw file is filed."
             return fallback
-        parsed = memory.extract_json(raw, "{", "}")
+        parsed = m_ops.extract_json(raw, "{", "}")
         if isinstance(parsed, dict):
             data = parsed
             if str(data.get("title") or "").strip():
@@ -550,17 +552,17 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
     if hint_page:
         parts.append(f"The user filed this under: {hint_page}")
     try:
-        rules = memory.user_note(user_names)
+        rules = m_identity.user_note(user_names)
         if kind in PUBLISHED_KINDS:
             rules += "\n- " + PUBLISHED_NOTE
-        system = OPS_SYSTEM % (rules, memory._today_iso())
+        system = OPS_SYSTEM % (rules, render._today_iso())
         raw = core_llm.complete(system, "\n\n".join(parts), 800, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
         trace.error("ingest", "propose_page_ops", exc)
         _degraded("ops")
         return []
-    ops = memory.extract_json(raw)
+    ops = m_ops.extract_json(raw)
     if not isinstance(ops, list):
         log.info("could not parse the page ops; filing the source page only")
         _degraded("ops")
@@ -698,7 +700,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
     """
     with vault_lock.LOCK:
         v_store.ensure_vault()
-        names = memory.user_names()
+        names = m_identity.user_names()
         digest = digest or sha256(data)
         seen = manifest_find(digest)
         if seen:
@@ -728,10 +730,10 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _stage(on_stage, "filing")
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
-                         hint=hint, page=page, source=source or f"user drop {memory._today_iso()}",
+                         hint=hint, page=page, source=source or f"user drop {render._today_iso()}",
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
-                          "ingested_at": memory._stamp("%H:%M:%S"),
+                          "ingested_at": render._stamp("%H:%M:%S"),
                           "page": v_store.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
         chunks.index_source(chunks.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
@@ -804,7 +806,7 @@ def reingest(digest: str) -> dict:
                 data = f.read()
         except OSError as exc:
             raise IngestError(410, f"the raw file {raw_rel} is gone") from exc
-        names = memory.user_names()
+        names = m_identity.user_names()
         kind = str(entry.get("kind") or KINDS.get(os.path.splitext(raw_rel)[1].lower()) or "txt")
         old_fm = v_store.parse_page(v_store._read(source_rel))[0]
         summary, extracted = _summarise_raw(raw_rel, data, kind, "", "", names)
@@ -812,10 +814,10 @@ def reingest(digest: str) -> dict:
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint="", page="",
-                         source=str(old_fm.get("source") or f"user drop {memory._today_iso()}"),
+                         source=str(old_fm.get("source") or f"user drop {render._today_iso()}"),
                          names=names)
         fed = sorted(set(entry.get("pages_touched") or []) | set(fed))
-        stamp = memory._stamp("%H:%M:%S")
+        stamp = render._stamp("%H:%M:%S")
         _manifest_write([{**e, "pages_touched": fed, "ingested_at": stamp}
                          if e.get("sha256") == digest else e for e in manifest_entries()])
         v_index.rebuild_index()
@@ -870,7 +872,7 @@ def _plan(digest: str, targets: dict) -> dict:
     """The proposal dict `forget_plan` returns (and `forget` compares with the approved one)."""
     return {"sha": digest, "title": targets["title"], "page": targets["page"], "raw": targets["raw"],
             "images": targets["files"], "cleaned": [v_store.wikilink(rel) for rel in targets["cleaned"]],
-            "memory": memory.source_entries(targets["title"])}
+            "memory": m_ops.source_entries(targets["title"])}
 
 
 def forget_plan(digest: str) -> dict:
@@ -909,14 +911,14 @@ def forget(digest: str, expected: dict | None = None) -> dict:
         v_index._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])
         v_store._commit(f"wiki: forgot {raw_rel}")
-        forgotten = memory.forget_source(targets["title"])
+        forgotten = m_ops.forget_source(targets["title"])
         return {"path": page, "raw": raw_rel, "cleaned": cleaned, "memory": forgotten}
 
 
 def _dated(slug: str) -> str:
     """`<today>-<slug>`; a slug that already starts with a date loses it (no double date)."""
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)
-    return f"{memory._today_iso()}-{v_store.slugify(slug)}"
+    return f"{render._today_iso()}-{v_store.slugify(slug)}"
 
 
 def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:

@@ -136,7 +136,15 @@ voicebot/
 ├── splitter.py         # LLM delta stream → (emotion, sentence) pairs, strips the leading [tag]
 ├── vault_lock.py       # shim → core/vault_lock.py (PRD 50)
 ├── untrusted.py        # shim → core/untrusted.py (PRD 50)
-├── memory.py           # structured profile memory: load/render, LLM-proposed ops (`save`/`reflect`/`propose_ops` call `core.llm.complete` unspanned; no client/model parameters) (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset); `source_entries(title)` = what `forget_source` would drop (PRD 52)
+├── memory/             # PRD 50 layer 3 (the old memory.py; `__init__` keeps `memory.<name>` readable for tests, assigning a moved name raises, `memory.render` is the submodule)
+│   ├── __init__.py
+│   ├── identity.py      # aliases, `is_user`, `user_names`, `user_note`, alias ops, ASR prompt, the wiki block and `load(system_prompt)` (docs/26)
+│   ├── ops.py           # `apply_ops` and its per-path appliers, the audit log, the editor (`snapshot`, `edit`, `edit_many`, `archive`, `pull`, `reset`), `source_entries` / `forget_source`, `extract_json`, `_transcript`
+│   ├── render.py        # dates and decay (`is_stale`, `is_expired`, `_mark_stale`), episodic scoring, `tokens_est`, `render` (the token budget)
+│   └── store.py         # paths and schema constants, `load_profile`, `_write_profile`, `_normalise`, `has_content`
+├── agent/              # PRD 50 layer 6 (llm.py splits in here at steps 9-10)
+│   ├── __init__.py
+│   └── fold.py          # `propose_ops`, `reflect` + its validators, `migrate_if_needed`, `save` (stand-in turns, the vault ingest + lint after a save): the model-calling half of memory; structured profile memory: load/render, LLM-proposed ops (`save`/`reflect`/`propose_ops` call `core.llm.complete` unspanned; no client/model parameters) (attributed to `conversation` or a document title when the session read documents — `source` on entries, `sources` map for scalar keys, `forget_source`; PRD 33), seen/stale decay, reflection, the identity section (aliases, is_user, user_note, ASR name prompt) and the editor entry points (snapshot/edit/edit_many/reset); `source_entries(title)` = what `forget_source` would drop (PRD 52)
 ├── index_db.py         # shim → vault/index_db.py (same module object; PRD 50)
 ├── wiki.py             # shim → vault/ (store, index, pages, search, chunks, focus, digest, lint, ingest, bridge; PRD 50): names stay readable, assigning one raises; keeps `python -m wiki reindex`
 ├── sources.py          # shim → core/formats.py + vault/manifest.py + ingest/pipeline.py (PRD 50; tests only)

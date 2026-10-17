@@ -2,7 +2,8 @@
 import json
 import os
 import re
-import memory
+from memory import render
+from memory import store as m_store
 from core import trace, vault_lock
 from vault import store
 from vault import focus
@@ -99,7 +100,7 @@ def _source_changes(ts: str) -> list:
 def _memory_changes(ts: str) -> dict:
     counts = {"added": 0, "updated": 0, "removed": 0, "examples": []}
     try:
-        with open(memory.OPS_LOG_PATH) as f:
+        with open(m_store.OPS_LOG_PATH) as f:
             lines = f.readlines()
     except OSError:
         return counts
@@ -109,7 +110,7 @@ def _memory_changes(ts: str) -> dict:
         except json.JSONDecodeError:
             continue
         kind = _MEMORY_OPS.get(str(rec.get("op") or ""))
-        if not kind or str(rec.get("ts") or "") <= ts or rec.get("reason") in memory.UI_REASONS:
+        if not kind or str(rec.get("ts") or "") <= ts or rec.get("reason") in m_store.UI_REASONS:
             continue
         counts[kind] += 1
         if len(counts["examples"]) < 2:
@@ -153,7 +154,7 @@ def briefing_when(ts: str) -> str:
         day = date.fromisoformat(ts[:10])
     except ValueError:
         return ts
-    today = memory._today()
+    today = render._today()
     if day == today:
         return ts[11:16]
     if day == today - timedelta(days=1):
@@ -180,7 +181,7 @@ def _capped(items: list) -> list:
 
 def briefing_card(digest: dict) -> str:
     """The briefing as a Markdown card: `## Pages` / `## Sources` / `## Memory`, empty ones left out."""
-    out = [f"# Briefing {_day(memory._today())}"]
+    out = [f"# Briefing {_day(render._today())}"]
     pages = _capped([f"{p['change']}: " + (p["title"] if p["change"] == "deleted" else f"[[{p['path']}|{p['title']}]]")
                      for p in digest["pages"]])
     chat = digest["chat_pages"]

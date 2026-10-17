@@ -1,6 +1,7 @@
 """Bridge helpers used by memory.archive / memory.pull, and the `python -m wiki reindex` entry points (PRD 50 step 7, from wiki.py)."""
 import os
-import memory
+from memory import render
+from memory import store as m_store
 from core import trace
 from vault import index as v_index
 from vault import pages as v_pages
@@ -30,7 +31,7 @@ def history_line(section: str, entry: dict) -> str:
               "projects": ("name", "status", "note"),
               "recurring": ("what", "when", "note")}.get(section, ("name", "note"))
     parts = [str(entry[f]).strip() for f in fields if str(entry.get(f, "")).strip()]
-    seen = str(entry.get(memory.SEEN_FIELD) or "").strip()
+    seen = str(entry.get(m_store.SEEN_FIELD) or "").strip()
     text = "; ".join(parts) or section
     return f"{text} (last seen {seen})" if seen else text
 
@@ -39,7 +40,7 @@ def archive_entry(section: str, entry: dict) -> tuple:
     """Create or extend the wiki page for `entry`; ``(page, None)`` or ``(None, reason)``."""
     store.ensure_vault()
     rel, page_type, name = page_for(section, entry)
-    source = f"archived from {section} {memory._today_iso()}"
+    source = f"archived from {section} {render._today_iso()}"
     ops = []
     if not store.page_exists(rel):
         ops.append({"op": "new_page", "path": rel, "type": page_type,
@@ -61,7 +62,7 @@ def entry_from_page(path: str, section: str) -> tuple:
     fm, body = store.parse_page(store._read(rel))
     name = str(fm.get("name") or os.path.basename(rel)[:-3]).strip()
     summary = v_index._summary_line(body)
-    entry = {memory.SEEN_FIELD: memory._today_iso()}
+    entry = {m_store.SEEN_FIELD: render._today_iso()}
     if section == "recurring":
         entry["what"] = name
         if summary:

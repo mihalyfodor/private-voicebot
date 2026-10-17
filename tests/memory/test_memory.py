@@ -7,6 +7,8 @@ from datetime import date
 import pytest
 
 import memory
+from agent import fold
+from memory import render as m_render
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 from core import llm as core_llm
 
@@ -55,8 +57,8 @@ def test_update_scalar_stores_superseded():
     assert profile["identity"]["superseded"] == {"occupation": ["software engineer"]}
     assert applied[0]["op"] == "UPDATE"
     # the old value is kept for undo but never rendered — it made the model volunteer it
-    assert "software engineer" not in memory.render(profile)
-    assert memory.render(profile) == "Identity: occupation: engineering manager"
+    assert "software engineer" not in m_render.render(profile)
+    assert m_render.render(profile) == "Identity: occupation: engineering manager"
 
 
 def test_update_list_entry_matches_by_key_and_delete_removes():
@@ -155,7 +157,7 @@ def test_render_orders_episodics_by_recency_times_importance_and_drops_expired()
         {"date": days_ago(2), "text": "big thing", "ttl_days": 30, "importance": 3},
         {"date": days_ago(40), "text": "expired thing", "ttl_days": 7, "importance": 3},
     ])
-    block = memory.render(profile)
+    block = m_render.render(profile)
     assert "expired thing" not in block
     assert block.index("big thing") < block.index("medium thing")
 
@@ -166,7 +168,7 @@ def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
         {"date": days_ago(0), "text": "had a sandwich for lunch", "ttl_days": 3, "importance": 1},
         {"date": days_ago(0), "text": "signed the flat contract", "ttl_days": 30, "importance": 3},
     ])
-    block = memory.render(profile)
+    block = m_render.render(profile)
     assert "sandwich" not in block
     assert "flat contract" in block
     assert len(profile["episodic"]) == 2
@@ -175,12 +177,12 @@ def test_render_skips_importance_one_episodics_but_keeps_them_on_disk():
 
 def test_render_folds_nickname_into_the_name_line():
     profile = empty_profile(identity={"name": "Mihaly", "nickname": "Misi", "location": "Budapest"})
-    assert memory.render(profile) == "Identity: name: Mihaly (call them: Misi); location: Budapest"
+    assert m_render.render(profile) == "Identity: name: Mihaly (call them: Misi); location: Budapest"
 
 
 def test_render_shows_a_nickname_without_a_name():
     profile = empty_profile(identity={"nickname": "Misi"})
-    assert memory.render(profile) == "Identity: call them: Misi"
+    assert m_render.render(profile) == "Identity: call them: Misi"
 
 
 def test_render_shows_at_most_five_episodics_and_stays_in_budget():
@@ -188,9 +190,9 @@ def test_render_shows_at_most_five_episodics_and_stays_in_budget():
         identity={"name": "Mihaly"},
         episodic=[{"date": days_ago(i), "text": f"episode number {i} " + "x" * 200,
                    "ttl_days": 90, "importance": 2} for i in range(20)])
-    full = memory.render(profile, budget_tokens=10 ** 6)
+    full = m_render.render(profile, budget_tokens=10 ** 6)
     assert full.count("\n- ") == memory.EPISODIC_SHOWN
-    tight = memory.render(profile, budget_tokens=40)
+    tight = m_render.render(profile, budget_tokens=40)
     assert memory.tokens_est(tight) <= 40
     assert tight.startswith("Identity: name: Mihaly")
     assert not tight.rstrip().endswith("Recent:")
@@ -247,7 +249,7 @@ def test_reflect_keeps_profile_on_unparseable_output(capsys, monkeypatch):
 
 def test_reflect_runs_every_five_saves(monkeypatch):
     calls = []
-    monkeypatch.setattr(memory, "reflect", lambda p: calls.append(p) or p)
+    monkeypatch.setattr(fold, "reflect", lambda p: calls.append(p) or p)
     for i in range(memory.REFLECT_EVERY):
         client = FakeClient(json.dumps([{"op": "ADD", "path": "preferences.k%d" % i, "value": "v"}]))
         monkeypatch.setattr(core_llm, "_client", client)
@@ -328,7 +330,7 @@ def test_load_ignores_a_corrupt_profile(memory_sandbox, capsys):
 def test_save_writes_atomically_and_audits_every_applied_op(memory_sandbox, monkeypatch, capsys):
     replaces = []
     real_replace = os.replace
-    monkeypatch.setattr(memory.os, "replace",
+    monkeypatch.setattr(os, "replace",
                         lambda s, d: (replaces.append((s, d)), real_replace(s, d))[1])
     ops = [{"op": "ADD", "path": "identity.name", "value": "Mihaly", "reason": "said so"},
            {"op": "ADD", "path": "people[]", "value": {"name": "Anna"}, "reason": "new colleague"}]
@@ -433,7 +435,7 @@ def test_shutdown_hook_saves_memory(monkeypatch):
 def test_save_memory_is_idempotent(monkeypatch):
     import llm
     saved = []
-    monkeypatch.setattr(memory, "save", lambda turns, **kw: (saved.append(list(turns)), [])[1])
+    monkeypatch.setattr(fold, "save", lambda turns, **kw: (saved.append(list(turns)), [])[1])
     monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
@@ -443,7 +445,7 @@ def test_save_memory_is_idempotent(monkeypatch):
 
 def test_save_memory_keeps_the_turns_when_the_save_fails(monkeypatch):
     import llm
-    monkeypatch.setattr(memory, "save", lambda turns, **kw: None)
+    monkeypatch.setattr(fold, "save", lambda turns, **kw: None)
     monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
@@ -458,7 +460,7 @@ def test_save_memory_keeps_the_turns_when_the_save_raises(monkeypatch):
     def boom(turns, **kw):
         raise RuntimeError("disk full")
 
-    monkeypatch.setattr(memory, "save", boom)
+    monkeypatch.setattr(fold, "save", boom)
     monkeypatch.setattr(core_llm, "_client", object())
     llm.reset()
     llm._session_turns.append({"role": "user", "content": "hi"})
@@ -487,20 +489,20 @@ def test_aliases_accept_a_comma_separated_string_and_render_as_a_clause():
     profile = memory._normalise({"identity": {"name": "Mihaly Fodor", "nickname": "Michael",
                                               "aliases": "Misi, Mihály"}})
     assert profile["identity"]["aliases"] == ["Misi", "Mihály"]
-    assert memory.render(profile) == \
+    assert m_render.render(profile) == \
         "Identity: name: Mihaly Fodor (call them: Michael; also: Misi, Mihály)"
 
 
 def test_an_empty_alias_list_adds_no_clause_and_no_fact():
     profile = memory._normalise({"identity": {"name": "Mihaly Fodor", "aliases": "  ,  "}})
     assert "aliases" not in profile["identity"]
-    assert memory.render(profile) == "Identity: name: Mihaly Fodor"
+    assert m_render.render(profile) == "Identity: name: Mihaly Fodor"
     assert memory.fact_count(profile) == 1
 
 
 def test_aliases_are_rendered_on_their_own_when_there_is_no_name():
     profile = memory._normalise({"identity": {"aliases": ["Misi"]}})
-    assert memory.render(profile) == "Identity: also known as: Misi"
+    assert m_render.render(profile) == "Identity: also known as: Misi"
 
 
 # Scenario 2: the ops.

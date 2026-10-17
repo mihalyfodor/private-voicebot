@@ -17,7 +17,7 @@ def _build():
     owners = {}
     for module in _MODULES:
         for name, obj in vars(module).items():
-            if not isinstance(obj, _types.ModuleType) and getattr(obj, "__module__", module.__name__) == module.__name__:
+            if not isinstance(obj, _types.ModuleType) and (not callable(obj) or getattr(obj, "__module__", module.__name__) == module.__name__):
                 owners.setdefault(name, module)
     return owners
 

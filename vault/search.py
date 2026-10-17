@@ -6,7 +6,7 @@ import os
 import re
 from collections import Counter
 from vault import index_db
-import memory
+from memory import render
 from core import trace
 from vault import index as v_index
 from vault import store
@@ -128,7 +128,7 @@ def startup_check() -> int:
     idx = index_db.open_index(store.WIKI_PATH)
     changed = _check(idx)
     idx.checked = True                  # only after it ran: a failed check is retried on the next open
-    idx.set_meta("checked_at", memory._stamp("%H:%M:%S"))
+    idx.set_meta("checked_at", render._stamp("%H:%M:%S"))
     return changed
 
 
