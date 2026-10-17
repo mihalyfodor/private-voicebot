@@ -5,6 +5,8 @@ Turn helpers, the streaming fake and the seeded seeded_vault come from tests/con
 """
 
 import json
+import threading
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -159,7 +161,7 @@ def three_turns():
             turn.ask(q)
 
 
-def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, recorded_memory):
+def test_new_thread_restarts_on_a_short_summary_and_leaves_the_fold_to_the_caller(seeded_vault, recorded_memory):
     three_turns()
     a_recall.set_focus("wiki", "people/anna")
     conversation._deeper_offer = {"source": "s", "title": "t", "parts": [1]}
@@ -169,7 +171,7 @@ def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, r
         summary = conversation.new_thread()
 
     assert summary == "We checked Falcon (amber) and agreed Anna runs Friday's deploy."
-    assert [t["content"] for t in recorded_memory[0]][::2] == ["how is Falcon doing", "who runs the deploy", "when is it"]
+    assert recorded_memory == []                                           # PRD 56: no fold inside new_thread
     assert len(summary_client.calls) == 1 and summary_client.calls[0]["max_tokens"] == conversation.SUMMARY_TOKENS
     assert summary_client.calls[0]["messages"][-1]["content"] == conversation.SUMMARY_PROMPT
     assert conversation._conversation[1:] == [{"role": "user", "content": f"<earlier>{summary}</earlier>"},
@@ -177,7 +179,8 @@ def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, r
     assert conversation._conversation[0]["role"] == "system"
     assert util.tokens_est(conversation._conversation[1]["content"]) <= 150
     assert conversation._deeper_offer is None and conversation._turn_sources == [] and a_recall.last_page is None
-    assert conversation.get_session_turns() == []
+    assert [t["content"] for t in conversation.get_session_turns()][::2] == [
+        "how is Falcon doing", "who runs the deploy", "when is it"]       # still queued for the caller's fold
 
 
 def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memory):
@@ -241,7 +244,7 @@ def test_summary_failure_falls_back_to_first_sentences(seeded_vault, recorded_me
                                      {"role": "assistant", "content": conversation.NEW_TOPIC_ACK}]
     out = capsys.readouterr().out
     assert out.count("summary failed") == 1 and "model down" in out
-    assert len(recorded_memory) == 1
+    assert recorded_memory == []
 
 
 def test_new_thread_on_an_empty_conversation_makes_no_summary_call(seeded_vault, recorded_memory):
@@ -249,6 +252,95 @@ def test_new_thread_on_an_empty_conversation_makes_no_summary_call(seeded_vault,
     with patch.object(core_llm, "_client", client):
         assert conversation.new_thread() == conversation.EARLIER_EMPTY
     assert client.calls == [] and recorded_memory == []
+
+
+# --------------------------------------------------------------- PRD 56: avatar note, new topic answers first
+
+
+def test_avatar_note_survives_refresh_and_clears_on_new_thread(seeded_vault, recorded_memory):
+    three_turns()
+    conversation.set_avatar()
+    assert "from now on you are" in conversation._conversation[0]["content"]
+    conversation.refresh_context()
+    assert "from now on you are" in conversation._conversation[0]["content"]
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Summary.")):
+        conversation.new_thread()
+    assert "from now on you are" not in conversation._conversation[0]["content"]
+    conversation.reset()
+    conversation.set_avatar()                                              # a one-message conversation: no note
+    assert "from now on you are" not in conversation._conversation[0]["content"]
+    three_turns()
+    conversation.set_avatar()
+    assert "from now on you are" in conversation._conversation[0]["content"]
+    conversation.reset()
+    assert "from now on you are" not in conversation._conversation[0]["content"]
+    conversation.refresh_context()
+    assert "from now on you are" not in conversation._conversation[0]["content"]
+
+
+@pytest.fixture
+def slow_fold(monkeypatch):
+    """`fold.save` parked until released; `calls` holds the turns of every call, `order` the milestones."""
+    started, release, calls, order = threading.Event(), threading.Event(), [], []
+
+    def save(turns, sources=()):
+        order.append("fold")
+        calls.append(list(turns))
+        started.set()
+        release.wait(timeout=5)
+        return []
+
+    monkeypatch.setattr(m_fold, "save", save)
+    yield SimpleNamespace(started=started, release=release, calls=calls, order=order)
+    release.set()
+    panels.controller.join_idle(timeout=5)
+
+
+def test_new_thread_returns_before_the_fold_and_the_handler_speaks_first(seeded_vault, slow_fold):
+    three_turns()
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Falcon and the deploy.")):
+        conversation.new_thread()
+    assert slow_fold.calls == [] and not panels.controller.hook_running   # new_thread alone never folds
+
+    def speak(text):
+        slow_fold.order.append("speech")
+        return fake_tts(text)
+
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Falcon and the deploy.")), \
+            patch.object(s_speech, "synthesize", speak):
+        sent = run_turn(server_turns.new_topic_turn, Session(), 1)
+    assert slow_fold.started.wait(timeout=5) and panels.controller.hook_running
+    assert slow_fold.order == ["speech", "fold"]                           # the ack is spoken, then the fold starts
+    assert sent[-1] == {"type": "state", "value": "idle"}                  # the turn is over while the fold still runs
+    assert len(slow_fold.calls) == 1
+
+
+def test_a_failing_fold_after_new_thread_keeps_the_turns_and_a_second_topic_starts_no_second_fold(
+        seeded_vault, monkeypatch, slow_fold):
+    three_turns()
+    six = list(conversation.get_session_turns())
+    with patch.object(core_llm, "_client", FakeClient("[neutral] First.", "[neutral] Second.")), \
+            patch.object(s_speech, "synthesize", fake_tts):
+        run_turn(server_turns.new_topic_turn, Session(), 1)
+        assert slow_fold.started.wait(timeout=5)
+        run_turn(server_turns.new_topic_turn, Session(), 2)                # the fold of the first is still running
+    assert len(slow_fold.calls) == 1                                       # the overlap guard skipped the second
+    assert "<earlier>" in conversation._conversation[1]["content"]
+    slow_fold.release.set()
+    assert panels.controller.join_idle(timeout=5)
+
+    # a failing fold: the snapshot goes back in front, the conversation stays on the new thread
+    def boom(turns, sources=()):
+        raise RuntimeError("model down")
+
+    monkeypatch.setattr(m_fold, "save", boom)
+    conversation._session_turns[:] = list(six)
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Third.")), patch.object(s_speech, "synthesize", fake_tts):
+        run_turn(server_turns.new_topic_turn, Session(), 3)
+    assert panels.controller.join_idle(timeout=5)
+    assert conversation.get_session_turns() == six
+    assert conversation._conversation[1]["content"].startswith("<earlier>")
+    assert conversation._conversation[-1]["content"] == conversation.NEW_TOPIC_ACK
 
 
 # --------------------------------------------------------------- 7. reload replay

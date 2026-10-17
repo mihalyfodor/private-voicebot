@@ -252,7 +252,7 @@ def test_the_system_prompt_names_the_place_after_set_location(isolated_settings,
     _send({"action": "set_location", "lat": 21.307, "lon": -157.858, "tz": "Pacific/Honolulu"})
     conversation.refresh_context()
     prompt = m_prompt.build_system_prompt(avatars.current())
-    assert re.search(r"The user is in Honolulu, United States \(timezone Pacific/Honolulu, local time \d\d:\d\d\)\.",
+    assert re.search(r"The user is in Honolulu, United States \(timezone Pacific/Honolulu\)\. ",
                      prompt), prompt
     if conversation._conversation:
         assert "The user is in Honolulu, United States" in conversation._conversation[0]["content"]

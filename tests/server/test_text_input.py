@@ -54,6 +54,7 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
 def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch):
     """Scenario 1 end to end: `text_turn` → llm → a `typed` turn in the trace (PRD 49) → memory turns."""
     conversation.reset()
+    monkeypatch.setattr(panels.controller, "save_now", lambda: None)    # the disconnect fold (PRD 56) would empty the turns
     monkeypatch.setattr(s_speech, "synthesize", fake_tts)
     fake = FakeClient("[happy] Sure thing.")
 
@@ -148,3 +149,37 @@ def test_backdrop_thumbs_match_the_settings_chips(r):
         {"cls": "bd-thumb", "bg": 'url("/static/backdrops/office.jpg")'},
     ]
     assert r["thumb_payload"] == [{"action": "set_backdrop", "key": "office"}]
+
+
+# ---------------------------------------------------------------- PRD 56 scenario 4: memory actions refresh the prompt
+
+
+def _system() -> str:
+    return conversation._conversation[0]["content"]
+
+
+def test_memory_actions_rebuild_the_system_prompt_and_a_rejected_edit_does_not(vault, panel):
+    from tests.conftest import seed
+    seed(identity={"name": "Misi"}, people=[{"name": "Anna", "rel": "colleague"}])
+    conversation.reset()
+    assert "Misi" in _system()
+
+    panel.send({"action": "memory_op", "op": "UPDATE", "path": "identity.name", "value": "Mihaly"})
+    assert "Mihaly" in _system()
+
+    before = conversation._conversation[0]
+    bad = panel.send({"action": "memory_op", "op": "UPDATE", "path": "nonsense.path", "value": "x"})
+    assert bad["type"] == "memory_error" and conversation._conversation[0] is before
+
+    panel.send({"action": "memory_ops", "ops": [{"op": "UPDATE", "path": "identity.name", "value": "Misi2"}]})
+    assert "Misi2" in _system()
+    before = conversation._conversation[0]
+    bad = panel.send({"action": "memory_ops", "ops": [{"op": "UPDATE", "path": "nonsense.path", "value": "x"}]})
+    assert bad["type"] == "memory_error" and conversation._conversation[0] is before
+
+    assert "Anna" in _system()
+    panel.send_many({"action": "archive_memory", "section": "people", "index": 0}, 2)
+    assert _system() != before.get("content") and "Anna" not in _system().split("<wiki_index>")[0]
+
+    panel.send({"action": "memory_reset"})
+    assert "Misi2" not in _system() and "Mihaly" not in _system()

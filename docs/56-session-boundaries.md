@@ -55,12 +55,14 @@ summary call. Non-goals: a thread archive, an idle new thread, topic detection, 
 
 ### 3. Day boundary (S)
 - `a_conversation.last_turn_at: datetime | None`, stamped (aware, user timezone) when a turn completes, cleared by
-  `reset()` and `new_thread()`. Not persisted: a restart already starts a new conversation.
+  `reset()` and `new_thread()`. Not persisted: a restart already starts a new conversation. `agent.prompt.prompt_date`
+  is the date the last built system prompt states (set in `build_system_prompt`: start, refresh, new thread, avatar).
 - In `turns.respond` (and `canned_turn`) before `_respond`: `a_conversation.day_rollover(now)` is true when
-  `last_turn_at` is set, `now.date() != last_turn_at.date()` (user timezone) and `now - last_turn_at >= 60 min`
+  `prompt.today() != prompt_date`, `last_turn_at` is set and `now - last_turn_at >= 60 min`
   (`DAY_GAP_MIN = 60`). Then the turn runs the same body as `new_topic` first (`new_thread`, `thread` frame, no
   spoken ack), then answers the user's text.
-- A date change under 60 minutes (chatting across midnight) calls `refresh_context()` only, so the date line is right.
+- A stale prompt date otherwise (under 60 minutes: chatting across midnight; or no turn stamped, e.g. after "new topic" or
+  an idle server) calls `refresh_context()` only, so the date line is right and no second thread starts.
 - **What the user sees:** the "thinking" state for 2-4 s (one summary call), then a quiet `<earlier>` divider in the
   transcript, the same one a reconnect replay shows. No spoken line, no toast.
 - Checked at turn start, not on a timer: a timer does not fire while the laptop sleeps.

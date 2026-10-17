@@ -10,12 +10,16 @@ import os
 import queue
 import threading
 
+from agent import conversation as a_conversation
 from core import trace
 log = trace.logger("Turn")
 
 #: how many completed turns between periodic hook calls (the session-memory save).
 #: Override with MEMORY_SAVE_EVERY=<n> in the environment.
 MEMORY_SAVE_EVERY = int(os.getenv("MEMORY_SAVE_EVERY", "5"))
+#: minutes of silence after which unsaved turns are folded into memory (PRD 56).
+#: Override with IDLE_SAVE_MIN=<n> in the environment.
+IDLE_SAVE_MIN = int(os.getenv("IDLE_SAVE_MIN", "10"))
 
 
 class Session:
@@ -49,7 +53,7 @@ class TurnController:
     window between "submitted" and "started".
     """
 
-    def __init__(self, on_turn_complete=None):
+    def __init__(self, on_turn_complete=None, on_turn_end=None):
         self._queue: queue.Queue = queue.Queue()
         self._lock = threading.Lock()
         self._pending = 0
@@ -59,6 +63,7 @@ class TurnController:
         self._hook_idle.set()
         self.completed = 0
         self.on_turn_complete = on_turn_complete
+        self.on_turn_end = on_turn_end      # every turn's end, on the worker thread (the idle timer's re-arm)
         self._thread = threading.Thread(target=self._run, daemon=True, name="turn-worker")
         self._thread.start()
 
@@ -106,6 +111,14 @@ class TurnController:
 
         threading.Thread(target=run, daemon=True, name="turn-hook").start()
 
+    def save_now(self) -> None:
+        """Fold the unsaved turns on the hook thread (idle timer, disconnect, "new topic"): the
+        periodic hook with the same overlap guard, and a no-op when nothing is unsaved. A skipped
+        call leaves the turns queued for the next trigger."""
+        if self.on_turn_complete is None or not a_conversation.has_unsaved_turns():
+            return
+        self._start_hook(self.completed)
+
     def _run(self) -> None:
         while True:
             fn, args, turn_id = self._queue.get()
@@ -121,5 +134,7 @@ class TurnController:
                     count = self.completed
                     if self._pending == 0:
                         self._idle.set()
+                if self.on_turn_end is not None:
+                    self.on_turn_end()
                 if self.on_turn_complete is not None and count % MEMORY_SAVE_EVERY == 0:
                     self._start_hook(count)

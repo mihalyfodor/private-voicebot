@@ -195,6 +195,9 @@ async def websocket_endpoint(websocket: WebSocket):
     finally:
         trace.event("ws", event="disconnect", code=code)
         approvals.expire(sess, "disconnect")
+        if code != 4000 and panels.session is sess:     # not on a takeover (4000) or for an evicted socket: the user has not left
+            panels.cancel_idle_timer()                  # (and the new tab may already have armed its own timer)
+            panels.controller.save_now()                # the user is away: fold what is unsaved (PRD 56)
         sess.websocket = None
         sess.playback_done.set()  # never leave a turn blocked on a dead socket
         if panels.session is sess:

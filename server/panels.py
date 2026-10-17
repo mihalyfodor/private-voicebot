@@ -12,7 +12,7 @@ from vault import search as v_search
 from vault import store as v_store
 from core import settings
 from server import services
-from server.session import Session, TurnController
+from server.session import IDLE_SAVE_MIN, Session, TurnController
 
 log = trace.logger("App")
 ws_log = trace.logger("WS")
@@ -123,7 +123,45 @@ def _periodic_memory(count: int) -> None:
     push_memory(with_wiki=v_pages.applied_count() != filed)
 
 
-controller = TurnController(on_turn_complete=_periodic_memory)
+# ---------------------------------------------------------------- idle save (PRD 56)
+# One `call_later` handle on the app loop. A finished turn re-arms it (from the worker thread, via
+# `call_soon_threadsafe`); firing hands the fold to the hook thread, so the loop never blocks.
+_idle_handle = None
+
+
+def arm_idle_timer() -> None:
+    """(Re)start the idle countdown. Loop thread only."""
+    global _idle_handle
+    cancel_idle_timer()
+    if _loop is not None:
+        _idle_handle = _loop.call_later(IDLE_SAVE_MIN * 60, _idle_fire)
+
+
+def cancel_idle_timer() -> None:
+    global _idle_handle
+    if _idle_handle is not None:
+        _idle_handle.cancel()
+        _idle_handle = None
+
+
+def _idle_fire() -> None:
+    """The user has been quiet: fold, unless a turn is in flight (then count again from its end)."""
+    global _idle_handle
+    _idle_handle = None
+    if controller.busy:
+        arm_idle_timer()
+        return
+    controller.save_now()
+
+
+def _turn_ended() -> None:
+    """Worker thread: a turn finished; re-arm the idle timer on the loop."""
+    loop = _loop
+    if loop is not None and not loop.is_closed():
+        loop.call_soon_threadsafe(arm_idle_timer)
+
+
+controller = TurnController(on_turn_complete=_periodic_memory, on_turn_end=_turn_ended)
 
 greeted = False
 hands_free = bool(settings.load_settings().get("hands_free", False))

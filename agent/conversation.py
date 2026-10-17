@@ -1,5 +1,6 @@
 """Conversation state: the turns, the one-turn slots, reset, save to memory, and `new_thread` (docs/39-context-meter.md; PRD 50 step 10, from llm.py)."""
 import re
+from datetime import datetime, timedelta
 from agent import fold
 from memory import identity
 from core import avatars
@@ -9,6 +10,7 @@ from core.emotions import strip_tag
 from agent import context as a_context
 from agent import prompt as a_prompt
 from agent import recall as a_recall
+from tools import time as t_time
 
 log = trace.logger("llm")
 
@@ -41,11 +43,17 @@ last_card: dict | None = None
 #: id -> how many `dialogue()` lines preceded it, so a reconnect replays it in place
 _loose: dict = {}
 _card_seq = 0              # every card issued takes the next id; only `reset` starts over
+#: the avatar-switch note, appended to the system prompt by every rebuild until the thread restarts
+_avatar_note = ""
+#: when the last turn completed (aware, user timezone); None on a fresh conversation (PRD 56)
+last_turn_at: datetime | None = None
+#: a date change counts as a new day only after this many minutes of silence
+DAY_GAP_MIN = 60
 
 
 def reset():
     global _conversation, _session_turns, _last_tool_calls, _deeper_offer, _turn_sources, _sources_seen
-    global _turn_pages, _last_context, _card_seq
+    global _turn_pages, _last_context, _card_seq, _avatar_note, last_turn_at
     _conversation = [{"role": "system", "content": identity.load(a_prompt.SYSTEM_PROMPT)}]
     _session_turns = []
     _last_tool_calls = []
@@ -54,6 +62,7 @@ def reset():
     _turn_pages = []
     _sources_seen = []
     _last_context = None
+    _avatar_note, last_turn_at = "", None
     a_context._last_trimmed = 0
     a_context._context_warned = False
     _forget_cards()
@@ -67,11 +76,12 @@ def _forget_cards() -> None:
     last_card = None
 
 
-def _rebuild_system_prompt(note: str = "") -> None:
-    """Rebuild SYSTEM_PROMPT from the current avatar and swap `_conversation[0]` in place."""
+def _rebuild_system_prompt() -> None:
+    """Rebuild SYSTEM_PROMPT from the current avatar and swap `_conversation[0]` in place
+    (one item assignment, so the hook thread may call it); the avatar-switch note rides along."""
 
     a_prompt.SYSTEM_PROMPT = a_prompt.build_system_prompt(avatars.current())
-    system = {"role": "system", "content": identity.load(a_prompt.SYSTEM_PROMPT) + note}
+    system = {"role": "system", "content": identity.load(a_prompt.SYSTEM_PROMPT) + _avatar_note}
     if _conversation:
         _conversation[0] = system
     else:
@@ -90,10 +100,12 @@ def refresh_context() -> None:
 
 def set_avatar():
     """Swap the persona in place, keeping the conversation history."""
+    global _avatar_note
     a = avatars.current()
     note = (f"\n\n(Note: from now on you are {a['name']}. Earlier assistant turns in this conversation "
             f"were spoken by a previous character; continue naturally as {a['name']}.)")
-    _rebuild_system_prompt(note if len(_conversation) > 1 else "")
+    _avatar_note = note if len(_conversation) > 1 else ""
+    _rebuild_system_prompt()
 
 
 def record_user(text: str) -> None:
@@ -145,6 +157,8 @@ def save_memory():
         raise
     if applied is None:
         restore()
+    elif applied:
+        _rebuild_system_prompt()        # the profile just changed: the next turn sees it (PRD 56)
 
 
 # --- new topic (docs/39-context-meter.md) ---------------------------------------------
@@ -187,24 +201,40 @@ def dialogue() -> list:
             if m.get("role") in ("user", "assistant") and m.get("content")]
 
 
+def stamp_turn() -> None:
+    """A turn just completed: the day-boundary clock starts here."""
+    global last_turn_at
+    last_turn_at = t_time.now()
+
+
+def date_changed() -> bool:
+    """True when the calendar date moved on since the system prompt was built (it states the date)."""
+    return a_prompt.today() != a_prompt.prompt_date
+
+
+def day_rollover(now: datetime) -> bool:
+    """True when the prompt's date is stale and the last turn is at least DAY_GAP_MIN minutes ago:
+    the first turn after a night, not a chat running across midnight (PRD 56)."""
+    return (date_changed() and last_turn_at is not None
+            and now - last_turn_at >= timedelta(minutes=DAY_GAP_MIN))
+
+
 def new_thread() -> str:
-    """Fold memory, then restart the conversation on a short visible summary; returns it.
+    """Restart the conversation on a short visible summary; returns it. The memory fold is the
+    caller's, after it has answered (`TurnController.save_now`): `_session_turns` is not touched.
 
     `_conversation` becomes [system, `<earlier>summary</earlier>` (user), NEW_TOPIC_ACK]; the
-    deeper offer, the turn's sources, the remembered page and the trim count are cleared.
+    deeper offer, the turn's sources, the remembered page, the avatar note and the trim count
+    are cleared.
     """
-    global _deeper_offer, _turn_sources, _last_context
+    global _deeper_offer, _turn_sources, _last_context, _avatar_note, last_turn_at
     turns = dialogue()
     _last_context = None
-    try:
-        save_memory()
-    except Exception as e:
-        log.exception("memory save failed")
-        trace.error("memory", "memory_save", e, fatal_for="none")
     summary = _summarise(turns)
     _conversation[1:] = [{"role": "user", "content": f"<earlier>{summary}</earlier>"},
                          {"role": "assistant", "content": NEW_TOPIC_ACK}]
     _deeper_offer, _turn_sources, a_recall.last_page = None, [], None
+    _avatar_note, last_turn_at = "", None
     a_context._last_trimmed, a_context._context_warned = 0, False
     _forget_cards()
     _rebuild_system_prompt()            # the vault map is computed here and at start, not per turn (PRD 54)

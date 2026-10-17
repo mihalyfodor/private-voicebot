@@ -7,7 +7,8 @@ import io
 import json
 import asyncio
 import threading
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -29,6 +30,7 @@ from server import panels
 from server import speech as s_speech
 from tools import registry
 from agent import conversation
+from agent import prompt as a_prompt
 from agent import conversation
 from agent import turn as a_turn
 from agent import fold
@@ -396,6 +398,242 @@ def test_periodic_memory_tells_the_ui_while_it_saves(monkeypatch):
     seen = [m for m in sent if m == "saved" or m.get("type") == "memory_saving"]
     assert seen == [{"type": "memory_saving", "value": True}, "saved",
                     {"type": "memory_saving", "value": False}]
+
+
+# ---------------------------------------------------------------- idle save, disconnect save, day boundary (PRD 56)
+
+
+class FakeLoop:
+    """The app loop's `call_later` on a virtual clock: `advance(seconds)` fires what is due, in order."""
+
+    def __init__(self):
+        self.now, self.timers = 0.0, []
+
+    def call_later(self, delay, cb):
+        handle = SimpleNamespace(due=self.now + delay, cb=cb, cancelled=False)
+        handle.cancel = lambda: setattr(handle, "cancelled", True)
+        self.timers.append(handle)
+        return handle
+
+    def call_soon_threadsafe(self, cb, *args):
+        cb(*args)
+
+    def is_closed(self):
+        return False
+
+    def pending(self):
+        return [t for t in self.timers if not t.cancelled]
+
+    def advance(self, seconds):
+        target = self.now + seconds
+        while True:
+            due = sorted((t for t in self.pending() if t.due <= target), key=lambda t: t.due)
+            if not due:
+                break
+            self.now = due[0].due
+            due[0].cancelled = True
+            due[0].cb()
+        self.now = target
+
+
+def wait_for(cond, timeout=5.0):
+    import time
+    end = time.time() + timeout
+    while not cond() and time.time() < end:
+        time.sleep(0.005)
+    assert cond()
+
+
+@pytest.fixture
+def idle(monkeypatch):
+    """A fake loop under the panels, a recording `fold.save`, and one unsaved turn."""
+    lp = FakeLoop()
+    monkeypatch.setattr(panels, "_loop", lp)
+    monkeypatch.setattr(panels, "_idle_handle", None)
+    folds = []
+    monkeypatch.setattr(fold, "save", lambda turns, sources=(): folds.append(list(turns)) or [])
+    conversation.reset()
+    conversation._session_turns.append({"role": "user", "content": "hello"})
+    yield SimpleNamespace(loop=lp, folds=folds)
+    panels.cancel_idle_timer()
+    panels.controller.join_idle(timeout=5)
+
+
+def finish_a_turn(lp, count):
+    """One turn through the worker; its end re-arms the idle timer (the worker does that after `join_idle` fires)."""
+    panels.controller.submit(lambda: None)
+    wait_for(lambda: len(lp.timers) >= count)
+
+
+def test_idle_save_folds_once_ten_minutes_after_the_last_turn(idle):
+    assert session_mod.IDLE_SAVE_MIN == 10
+    finish_a_turn(idle.loop, 1)
+    idle.loop.advance(9 * 60)
+    assert idle.folds == []
+    idle.loop.advance(60)
+    assert panels.controller.join_idle(timeout=5)
+    assert idle.folds == [[{"role": "user", "content": "hello"}]]
+    assert conversation.get_session_turns() == []
+
+
+def test_idle_save_does_nothing_without_unsaved_turns(idle):
+    conversation._session_turns.clear()
+    finish_a_turn(idle.loop, 1)
+    idle.loop.advance(11 * 60)
+    assert panels.controller.join_idle(timeout=5)
+    assert idle.folds == []
+
+
+def test_idle_save_never_folds_while_a_turn_is_in_flight(idle):
+    finish_a_turn(idle.loop, 1)
+    blocker = Blocker()
+    blocker.hold(panels.controller)
+    assert panels.controller.busy
+    idle.loop.advance(10 * 60)                              # fires, sees busy, re-arms
+    assert idle.folds == [] and len(idle.loop.pending()) == 1
+    blocker.free(panels.controller)
+    wait_for(lambda: len(idle.loop.pending()) == 1 and idle.loop.pending()[0].due > idle.loop.now)
+    idle.loop.advance(10 * 60)
+    assert panels.controller.join_idle(timeout=5)
+    assert len(idle.folds) == 1
+
+
+def test_idle_save_timer_restarts_at_every_completed_turn(idle):
+    finish_a_turn(idle.loop, 1)
+    idle.loop.advance(6 * 60)
+    finish_a_turn(idle.loop, 2)                             # six minutes later: the countdown starts over
+    idle.loop.advance(4 * 60)                               # minute 10
+    assert idle.folds == []
+    idle.loop.advance(6 * 60)                               # minute 16
+    assert panels.controller.join_idle(timeout=5)
+    assert len(idle.folds) == 1
+
+
+def test_disconnect_saves_unsaved_turns(idle, monkeypatch):
+    def connect_and_leave():
+        with TestClient(app.app).websocket_connect("/ws"):
+            pass
+        assert panels.controller.join_idle(timeout=5)
+
+    monkeypatch.setattr(panels, "greeted", True)
+    connect_and_leave()
+    assert idle.folds == [[{"role": "user", "content": "hello"}]]
+    connect_and_leave()                                     # nothing unsaved any more
+    assert len(idle.folds) == 1
+
+
+def test_a_takeover_does_not_fold_but_the_final_close_does(idle, monkeypatch):
+    monkeypatch.setattr(panels, "greeted", True)
+    client = TestClient(app.app)
+    with client.websocket_connect("/ws") as ws1:
+        ws1.receive_json(); ws1.receive_json()
+        with client.websocket_connect("/ws") as ws2:
+            ws2.receive_json(); ws2.receive_json()
+            with pytest.raises(WebSocketDisconnect):
+                ws1.receive_json()                          # ws1 was evicted with 4000
+            panels.controller.join_idle(timeout=5)
+            assert idle.folds == []                         # the new socket continues the same conversation
+    assert panels.controller.join_idle(timeout=5)
+    assert len(idle.folds) == 1
+
+
+def test_a_running_fold_makes_the_idle_and_disconnect_saves_skip(idle, monkeypatch):
+    started, release, calls = threading.Event(), threading.Event(), []
+
+    def slow(turns, sources=()):
+        calls.append(list(turns))
+        started.set()
+        release.wait(timeout=5)
+        return []
+
+    monkeypatch.setattr(fold, "save", slow)
+    panels.controller.save_now()
+    assert started.wait(timeout=5)
+    conversation._session_turns.append({"role": "user", "content": "later"})   # said after the snapshot
+    finish_a_turn(idle.loop, 1)
+    idle.loop.advance(10 * 60)                              # the idle fire: skipped by the overlap guard
+    with TestClient(app.app).websocket_connect("/ws"):
+        pass                                                # the disconnect save: skipped too
+    assert len(calls) == 1
+    assert conversation.get_session_turns() == [{"role": "user", "content": "later"}]
+    release.set()
+    assert panels.controller.join_idle(timeout=5)
+
+
+ZONE = ZoneInfo("Pacific/Honolulu")
+
+
+@pytest.fixture
+def rollover(monkeypatch):
+    """A conversation with a few turns, a recording fold and a clock the test sets; `answer` runs one typed turn."""
+    from tools import time as t_time
+    folds = []
+    monkeypatch.setattr(fold, "save", lambda turns, sources=(): folds.append(list(turns)) or [])
+    conversation.reset()
+    conversation._conversation.extend([{"role": "user", "content": "plan the deploy"},
+                                       {"role": "assistant", "content": "[neutral] Friday."}])
+    conversation._session_turns.extend(conversation.dialogue())
+
+    def at(last, now):
+        monkeypatch.setattr(a_prompt, "prompt_date", (last or now - timedelta(days=1)).date())   # the prompt was built then
+        conversation.last_turn_at = last
+        monkeypatch.setattr(t_time, "now", lambda: now)
+
+    def answer(*replies):
+        fake = FakeClient(*replies)
+        with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts):
+            sent = run_turn(server_turns.handle_text, Session(), 1, "good morning")
+        assert panels.controller.join_idle(timeout=5)
+        return sent
+
+    return SimpleNamespace(at=at, answer=answer, folds=folds)
+
+
+def test_day_rollover_starts_a_new_thread_quietly_and_answers(rollover):
+    rollover.at(datetime(2026, 10, 16, 22, 0, tzinfo=ZONE), datetime(2026, 10, 17, 8, 0, tzinfo=ZONE))
+    sent = rollover.answer("[neutral] We planned Friday's deploy.", "[happy] Good morning.")
+    conv = conversation._conversation
+    assert conv[1] == {"role": "user", "content": "<earlier>We planned Friday's deploy.</earlier>"}
+    assert {"type": "thread", "text": "We planned Friday's deploy."} in sent
+    assert conversation.NEW_TOPIC_ACK not in json.dumps(sent)                  # no spoken ack
+    assert "Saturday, October 17 2026" in conv[0]["content"]
+    assert [m["content"] for m in conv[-2:]] == ["good morning", "[happy] Good morning."]
+    assert {"type": "transcript", "role": "assistant", "text": "Good morning."} in [
+        {k: v for k, v in m.items() if k != "turn"} for m in sent]
+    assert rollover.folds and rollover.folds[0][0]["content"] == "plan the deploy"   # yesterday folded
+    assert conversation.last_turn_at == datetime(2026, 10, 17, 8, 0, tzinfo=ZONE)
+
+
+def test_day_rollover_does_not_split_a_chat_across_midnight(rollover):
+    rollover.at(datetime(2026, 10, 16, 23, 58, tzinfo=ZONE), datetime(2026, 10, 17, 0, 3, tzinfo=ZONE))
+    sent = rollover.answer("[happy] Still here.")
+    assert not [m for m in sent if m.get("type") == "thread"]
+    assert conversation._conversation[1]["content"] == "plan the deploy"
+    assert "Saturday, October 17 2026" in conversation._conversation[0]["content"]
+
+
+def test_day_rollover_needs_a_previous_turn_and_a_new_date(rollover):
+    rollover.at(None, datetime(2026, 10, 17, 8, 0, tzinfo=ZONE))
+    assert conversation.day_rollover(datetime(2026, 10, 17, 8, 0, tzinfo=ZONE)) is False
+    rollover.at(datetime(2026, 10, 17, 1, 0, tzinfo=ZONE), datetime(2026, 10, 17, 6, 0, tzinfo=ZONE))
+    assert conversation.date_changed() is False                            # same date as the prompt
+    assert conversation.day_rollover(datetime(2026, 10, 17, 6, 0, tzinfo=ZONE)) is False
+
+
+def test_new_topic_at_night_then_a_turn_next_morning_refreshes_the_date_without_a_second_thread(rollover):
+    rollover.at(datetime(2026, 10, 16, 22, 55, tzinfo=ZONE), datetime(2026, 10, 16, 23, 0, tzinfo=ZONE))
+    with patch.object(core_llm, "_client", FakeClient("[neutral] Deploy planning.")), \
+            patch.object(s_speech, "synthesize", fake_tts):
+        run_turn(server_turns.new_topic_turn, Session(), 1)
+    assert panels.controller.join_idle(timeout=5)
+    assert conversation.last_turn_at is None
+    assert "October 16 2026" in conversation._conversation[0]["content"]
+    rollover.at(None, datetime(2026, 10, 17, 8, 0, tzinfo=ZONE))
+    a_prompt.prompt_date = date(2026, 10, 16)
+    sent = rollover.answer("[happy] Good morning.")
+    assert "Saturday, October 17 2026" in conversation._conversation[0]["content"]
+    assert not [m for m in sent if m.get("type") == "thread"]
+    assert sum(m["content"].startswith("<earlier>") for m in conversation._conversation[1:]) == 1
 
 
 def test_overlapping_hook_runs_are_skipped(monkeypatch):

@@ -1,13 +1,13 @@
 """The system prompt: verbosity, grounding and routing rules, the location line, per-avatar prompt text (PRD 50 step 9, from llm.py)."""
 import os
-from datetime import datetime
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from datetime import date
 from core import avatars
 from core import settings
 from core import trace
 from vault import focus as v_focus
 from core.emotions import EMOTIONS
 from tools import registry
+from tools import time as _time
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE
 from core import toolset
@@ -130,21 +130,28 @@ def wikipedia_registered() -> bool:
     return any((t.get("function") or {}).get("name") == "get_wikipedia" for t in toolset.TOOLS if isinstance(t, dict))
 
 
+def today() -> date:
+    """The user's calendar date: the prompt's date line and the day-boundary check both call this."""
+    return _time.now().date()
+
+
 def location_line() -> str:
-    """`The user is in <name> (timezone <tz>, local time HH:MM). ` — empty when no place name is known
-    (the built-in default is a weather fallback, not where the user is)."""
+    """`The user is in <name> (timezone <tz>). ` — empty when no place name is known (the built-in
+    default is a weather fallback, not where the user is). No clock: it would be stale by the next
+    hour; `get_time` serves it."""
     where = _weather.location()
     if not where.get("name") or where["source"] == "default":
         return ""
-    try:
-        local = datetime.now(ZoneInfo(where["tz"])).strftime("%H:%M")
-    except (ZoneInfoNotFoundError, ValueError, KeyError):
-        local = datetime.now().strftime("%H:%M")
-    return f"The user is in {where['name']} (timezone {where['tz']}, local time {local}). "
+    return f"The user is in {where['name']} (timezone {where['tz']}). "
+
+
+#: the date the last built prompt states; the day-boundary check compares `today()` with it (PRD 56)
+prompt_date: date = today()
 
 
 def build_system_prompt(avatar: dict) -> str:
-    global _verbosity
+    global _verbosity, prompt_date
+    prompt_date = today()
     verbosity = resolve_verbosity(avatar)
     _verbosity = verbosity
     return _prompt_text(avatar, verbosity) + grounding_rules()
@@ -161,7 +168,7 @@ def _prompt_text(avatar: dict, verbosity: str) -> str:
     f"special formatting — plain spoken sentences only. "
     f"Begin every reply with exactly one emotion tag from this list, then a space: "
     f"{' '.join(f'[{e}]' for e in EMOTIONS)}. "
-    f"Today's date is {datetime.now().strftime('%A, %B %d %Y')}. "
+    f"Today's date is {prompt_date.strftime('%A, %B %d %Y')}. "
     f"{location_line()}"
     f"Use the get_time tool when asked for the current time. "
     f"Use the get_weather tool when asked about the weather — when reporting weather, give a "

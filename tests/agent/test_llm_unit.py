@@ -149,3 +149,57 @@ def test_exception_rolls_back_conversation(make_fake):
 
     assert [m["role"] for m in conversation._conversation] == ["system"]
     assert conversation._session_turns == []
+
+
+# --------------------------------------------------------------------------- PRD 56: prompt freshness
+
+
+def test_prompt_has_no_clock(monkeypatch):
+    import re
+    from datetime import date
+    from core import avatars
+    from agent import prompt
+    from tools import weather
+    monkeypatch.setattr(weather, "location", lambda: {"name": "Honolulu", "tz": "Pacific/Honolulu",
+                                                      "lat": 0, "lon": 0, "source": "env"})
+    monkeypatch.setattr(prompt, "today", lambda: date(2026, 10, 17))
+    text = prompt.build_system_prompt(avatars.current())
+    assert not re.search(r"\b\d{1,2}:\d\d\b", text)
+    assert "Today's date is Saturday, October 17 2026." in text
+    assert "The user is in Honolulu (timezone Pacific/Honolulu). " in text
+
+
+def test_today_is_the_date_in_the_users_timezone(monkeypatch):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from agent import prompt
+    from tools import time as t_time
+    from tools import weather
+    monkeypatch.setattr(weather, "location", lambda: {"tz": "Pacific/Auckland", "source": "env"})
+    assert prompt.today() == datetime.now(ZoneInfo("Pacific/Auckland")).date()
+    monkeypatch.setattr(weather, "location", lambda: {"tz": "auto", "source": "env"})
+    assert t_time.now().tzinfo is not None and prompt.today() == t_time.now().date()
+
+
+def test_save_memory_rebuilds_prompt_when_ops_applied(monkeypatch):
+    from agent import fold
+    from tests.conftest import seed
+    seed(identity={"name": "Misi"})
+    conversation.reset()
+    before = conversation._conversation[0]
+    assert "Misi" in before["content"]
+    conversation._session_turns.append({"role": "user", "content": "call me Mihaly"})
+
+    def applied(turns, sources=()):
+        seed(identity={"name": "Mihaly"})
+        return [{"op": "UPDATE"}]
+
+    monkeypatch.setattr(fold, "save", applied)
+    conversation.save_memory()
+    assert "Mihaly" in conversation._conversation[0]["content"]
+
+    same = conversation._conversation[0]
+    conversation._session_turns.append({"role": "user", "content": "hello"})
+    monkeypatch.setattr(fold, "save", lambda turns, sources=(): [])      # nothing applied: no rebuild
+    conversation.save_memory()
+    assert conversation._conversation[0] is same

@@ -23,6 +23,7 @@ from ingest import pipeline
 from core import settings
 from server import services
 from tools import commands, registry
+from tools import time as t_time
 from tools.registry import Ctx
 from server import asr
 from server.session import Session
@@ -454,7 +455,7 @@ def _with_context_notice(events):
 
 @registry.handler("new_topic")
 def new_topic(ctx: Ctx):
-    """Fold memory, restart on a summary, tell the page (`thread`), speak the ack, idle."""
+    """Restart on a summary, tell the page (`thread`), speak the ack, start the memory fold, idle."""
     sess, turn, send_sync = ctx.session, ctx.turn, ctx.send
     try:
         send_sync({"type": "state", "value": "thinking"})
@@ -462,6 +463,7 @@ def new_topic(ctx: Ctx):
         summary = a_conversation.new_thread()
         send_sync({"type": "thread", "text": summary})
         say_canned(a_conversation.NEW_TOPIC_ACK, send_sync)
+        panels.controller.save_now()      # the fold comes after the answer, on the hook thread (PRD 56)
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
@@ -503,6 +505,19 @@ def open_page(ctx: Ctx) -> str:
     return recall.OPENED_NOTE.format(title=title)
 
 
+def _day_boundary(send_sync) -> None:
+    """Turn start (PRD 56): the first turn after a night restarts the thread (the divider, no
+    spoken ack, the old turns folded); a stale date otherwise (a chat across midnight, or no turn since
+    a new topic) only refreshes the prompt."""
+    if a_conversation.day_rollover(t_time.now()):
+        send_sync({"type": "state", "value": "thinking"})
+        summary = a_conversation.new_thread()
+        send_sync({"type": "thread", "text": summary})
+        panels.controller.save_now()
+    elif a_conversation.date_changed():
+        a_conversation.refresh_context()
+
+
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
     """One turn between its `turn_start` and `turn_end` events (docs/49-event-trace.md); see `_respond`."""
     with trace.turn(turn):
@@ -512,7 +527,11 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         trace.event("turn_start", origin=label, text_len=len(user_text), words=len(user_text.split()))
         t0, end = time.monotonic(), {"outcome": "ok", "reply_len": 0, "tools": [], "band": None}
         try:
+            if tool is None or tool.name != "new_topic":
+                _day_boundary(send_sync)
             _respond(sess, turn, user_text, send_sync, origin, end, tool)
+            if end["outcome"] == "ok" and (tool is None or tool.name != "new_topic"):
+                a_conversation.stamp_turn()
         except BaseException:
             end["outcome"] = "error"
             raise
@@ -613,10 +632,12 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
     """Speak a canned line as a full turn: optional thinking state, TTS, record, idle."""
     send_sync = panels.make_sender(loop, turn)
     try:
+        _day_boundary(send_sync)
         if thinking:
             send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
         a_conversation.record_assistant(say_canned(text, send_sync))
+        a_conversation.stamp_turn()
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
         with trace.turn(turn):

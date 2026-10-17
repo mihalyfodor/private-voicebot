@@ -69,6 +69,7 @@ async def _action_memory_op(sess, msg, loop):
     if reason:
         await _send_memory_error(op["path"], reason)
         return
+    await asyncio.to_thread(a_conversation.refresh_context)
     await panels.send(panels._memory_msg(profile))
 
 
@@ -83,12 +84,14 @@ async def _action_memory_ops(sess, msg, loop):
     if error:
         await _send_memory_error(error.get("path"), error.get("reason"))
         return
+    await asyncio.to_thread(a_conversation.refresh_context)
     await panels.send(panels._memory_msg(profile))
 
 
 async def _action_memory_reset(sess, msg, loop):
     """The panel's "Forget everything": the profile is emptied and the reset is audited."""
     profile = await asyncio.to_thread(m_ops.reset)
+    await asyncio.to_thread(a_conversation.refresh_context)
     await panels.send(panels._memory_msg(profile))
 
 
@@ -98,6 +101,7 @@ async def _bridge(move, *args):
     if error:
         await _send_memory_error(error.get("path"), error.get("reason"))
         return
+    await asyncio.to_thread(a_conversation.refresh_context)
     await panels.send(panels._memory_msg(profile))
     await s_wiki._send_wiki()
 

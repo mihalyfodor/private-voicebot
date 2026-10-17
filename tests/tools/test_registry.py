@@ -17,8 +17,19 @@ def test_schemas_match_the_golden_fixture():
     assert json.dumps(registry.schemas()) == (ROOT / "tests/fixtures/tool_schemas.json").read_text()
 
 
+def test_get_time_names_the_weekday_date_time_and_timezone(monkeypatch):
+    """PRD 56 scenario 2: the clock lives here, not in the system prompt."""
+    import re
+    from tools import weather
+    monkeypatch.setattr(weather, "location", lambda: {"tz": "Pacific/Honolulu", "source": "env"})
+    out = registry.run_tool("get_time", {})
+    assert re.fullmatch(r"[A-Z][a-z]+day, \d\d [A-Z][a-z]+ \d{4}, \d\d:\d\d:\d\d \(Pacific/Honolulu\)", out), out
+    monkeypatch.setattr(weather, "location", lambda: {"tz": "auto", "source": "env"})
+    assert re.fullmatch(r"[A-Z][a-z]+day, \d\d [A-Z][a-z]+ \d{4}, \d\d:\d\d:\d\d \(.+\)", registry.run_tool("get_time", {}))
+
+
 def test_tokens_is_the_old_constant():
-    assert registry.tokens() == 1089
+    assert registry.tokens() == 1096
 
 
 def test_read_tools_and_hosts_derive_from_the_records():
