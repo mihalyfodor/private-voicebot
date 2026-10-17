@@ -35,7 +35,7 @@ ROOT = config.ROOT
 TRACE_DIR = config.TRACE_DIR     # dev: repo-local, gitignored
 PROFILES = ("prod", "dev")
 DOCKERENV = "/.dockerenv"
-PROD_DATA = "~/docker-data"
+PROD_DATA = "~/.voicebot"
 DATA_VARS = ("DATA", "WIKI_PATH", "MEMORY_DIR")
 MAX_BYTES = 10 * 1024 * 1024
 BACKUPS = 5
@@ -158,7 +158,7 @@ def decide(env=None) -> tuple:
     `TRACE_PROFILE` picks it (default dev). An unknown value fails closed: the profile is prod and the
     reason names the value, so `configure()` refuses it while a lazy writer (an import, a test) runs
     as prod. dev refuses inside a container (`/.dockerenv`) or with any of DATA_VARS under
-    ~/docker-data — dev never touches prod data.
+    ~/.voicebot — dev never touches prod data.
     """
     env = os.environ if env is None else env
     requested = (env.get("TRACE_PROFILE") or "dev").strip().lower()

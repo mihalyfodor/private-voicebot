@@ -4,17 +4,19 @@ Status: done
 
 ## Overview
 Prod runs as a pinned container built from `main`; dev keeps running from the checkout. All state lives in one
-folder, `~/docker-data/voicebot/`, which is the single thing to back up; code stays in git; models stay in
+folder, `~/.voicebot/data/`, which is the single thing to back up; code stays in git; models stay in
 `~/models`. The Apple-only pieces — oMLX and mlx-whisper — stay native on the host as services the container calls.
 Runtime: colima (Docker Engine 29.x).
 
 ## User stories
 - As a user, `scripts/prod.sh up` gives me a stable Wanko on :8010 while I break things on :8011 from the checkout.
-- As a user, backing up `~/docker-data/` is the whole job; `prod.sh backup` / `restore` prove it round-trips.
+- As a user, backing up `~/.voicebot/` is the whole job; `prod.sh backup` / `restore` prove it round-trips.
 - As a user, voice keeps its native speed: ASR runs on the host, the container only talks to it.
 - As a developer, every state path has an env knob and nothing is written next to the code.
 
-## Data folder (`DATA=~/docker-data/voicebot`)
+Renamed to ~/.voicebot/{data,backups} on 2026-10-17.
+
+## Data folder (`DATA=~/.voicebot/data`)
 ```
 llm-wiki/        WIKI_PATH  — the existing vault, moved here (its own git repo; Obsidian vault name unchanged)
 memory/          MEMORY_DIR — memory.json, memory_ops.jsonl, shortmem.txt

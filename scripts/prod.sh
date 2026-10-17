@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # Prod lifecycle (docs/40-docker-prod.md, docs/deploy.md):
 #   prod.sh build | up | down | logs | status | migrate | backup | restore <archive> <bundle> <dir> | start | stop
-# Env: DATA (default ~/docker-data/voicebot), TAG (image tag; default latest), PROD_PORT (default 8010),
-#      PROJECT (compose project; default voicebot), BACKUP_DIR (default ~/docker-data/backups),
+# Env: DATA (default ~/.voicebot/data), TAG (image tag; default latest), PROD_PORT (default 8010),
+#      PROJECT (compose project; default voicebot), BACKUP_DIR (default ~/.voicebot/backups),
 #      KEEP (backups kept, 7), MIN_FREE_MB (2048), MAX_TOTAL_MB (5120), FORCE=1 (back up even if the vault head is unchanged).
 # start/stop delegate to scripts/voicebot (docs/41-service-health.md), which also brings up oMLX/ASR/colima.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 
-DATA=${DATA:-$HOME/docker-data/voicebot}
+DATA=${DATA:-$HOME/.voicebot/data}
 PROD_PORT=${PROD_PORT:-8010}
 PROJECT=${PROJECT:-voicebot}
-BACKUP_DIR=${BACKUP_DIR:-$HOME/docker-data/backups}
+BACKUP_DIR=${BACKUP_DIR:-$HOME/.voicebot/backups}
 KEEP=${KEEP:-7}
 MIN_FREE_MB=${MIN_FREE_MB:-2048}
 MAX_TOTAL_MB=${MAX_TOTAL_MB:-5120}

@@ -1,5 +1,5 @@
 # Prod (docs/40-docker-prod.md). Driven by scripts/prod.sh, which exports DATA, TAG and PROD_PORT.
-#   DATA      the one state folder (default ~/docker-data/voicebot)
+#   DATA      the one state folder (default ~/.voicebot/data)
 #   TAG       image tag from `prod.sh build` (default latest)
 #   PROD_PORT host port on loopback (default 8010; the app inside always listens on 8010)
 services:

@@ -4,10 +4,10 @@
     scripts/ingest_batch.py <folder> [--vault PATH] [--kinds pdf,docx] [--resume] [--dry-run] [--limit N] [--sleep S]
 
 Run it with the app stopped (`scripts/voicebot stop`). The vault is `--vault`, else WIKI_PATH like the app
-(dev ~/llm-wiki-dev, prod ~/docker-data/voicebot/llm-wiki); MEMORY_DIR / SETTINGS_PATH come from the same env.
+(dev ~/llm-wiki-dev, prod ~/.voicebot/data/llm-wiki); MEMORY_DIR / SETTINGS_PATH come from the same env.
 Idempotent (the manifest sha guard); `<folder>/batch.log` remembers skips and failures for --resume.
 Exit 0 nothing failed, 1 something failed, 2 refused start (bad args, dirty vault, app running, a dev
-TRACE_PROFILE against ~/docker-data — docs/49-event-trace.md).
+TRACE_PROFILE against ~/.voicebot — docs/49-event-trace.md).
 """
 import argparse
 import os

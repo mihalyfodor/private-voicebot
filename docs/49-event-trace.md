@@ -40,7 +40,7 @@ prompts, turn text and tool results, so an agent can see what happens while buil
   (`ingest_batch.py`, `remarkable_sync.py`) call the same `configure()`; compose sets `TRACE_DIR: /data/logs`.
 - **Profiles**: `TRACE_PROFILE` = `prod|dev`, default `dev` from a checkout; docker-compose.yml sets
   `TRACE_PROFILE: prod`. `tracing.configure()` at startup refuses (exit 2, one line on stderr) when the profile is
-  `dev` and `/.dockerenv` exists or any of `DATA`, `WIKI_PATH`, `MEMORY_DIR` resolves under `~/docker-data`; it
+  `dev` and `/.dockerenv` exists or any of `DATA`, `WIKI_PATH`, `MEMORY_DIR` resolves under `~/.voicebot`; it
   prints the profile line and writes `service {event:"start", profile, version, pid}` as the first event.
 - **Event kinds and fields** (prod; never text — titles, paths, scores, lengths, timings, ids only):
   1. `turn_start` origin (spoken/typed/card/briefing), text_len, words
@@ -88,7 +88,7 @@ prompts, turn text and tool results, so an agent can see what happens while buil
   the report shows `–`; revisit with a tokenizer count.
 - Risk: a new call site adds a free-text field to a prod event; mitigation: `event()` drops any string field
   longer than 200 chars outside an allow-list (`title`, `path`, `page`, `source`, `message`) and the sentinel test.
-- Chose refusing dev also inside the container (`/.dockerenv`), not only for `~/docker-data` paths: the
+- Chose refusing dev also inside the container (`/.dockerenv`), not only for `~/.voicebot` paths: the
   container's paths are `/data/…`, so the path check alone would not catch a bad compose override.
 
 ## Data model
@@ -125,9 +125,9 @@ prompts, turn text and tool results, so an agent can see what happens while buil
 6. tests/tracing/test_trace.py: writing > 10 MB with a small `maxBytes` override → at most 5 backups exist;
    a write to an unwritable dir does not raise.
 7. tests/tracing/test_trace_profile.py: `TRACE_PROFILE=prod` turn → `verbose.jsonl` never created; first event is
-   `service start` with profile prod; `TRACE_PROFILE=dev` with `WIKI_PATH=~/docker-data/…` → `chatbot.py` exits
+   `service start` with profile prod; `TRACE_PROFILE=dev` with `WIKI_PATH=~/.voicebot/…` → `chatbot.py` exits
    non-zero with one stderr line naming the path, and so does `scripts/ingest_batch.py --dry-run --vault <fake
-   ~/docker-data path>`; compose file sets `TRACE_PROFILE: prod` and `max-size`.
+   ~/.voicebot path>`; compose file sets `TRACE_PROFILE: prod` and `max-size`.
 8. tests/tracing/test_trace.py: dev profile turn → `prompt` and `turn_text` lines in verbose.jsonl only, carrying
    the sentinel and the same `turn_id`; events.jsonl still has no sentinel.
 9. tests/tracing/test_trace_report.py: fixture events file (2 turns, 1 ingest, 1 error) → `--turn 2` prints only that

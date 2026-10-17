@@ -173,7 +173,7 @@ def test_a_batch_import_is_one_run_with_a_needs_ocr_did_not_row(vault, monkeypat
 
 def test_the_batch_script_in_dev_against_docker_data_exits_2(tmp_path):
     home = tmp_path / "home"
-    vault = home / "docker-data" / "voicebot" / "llm-wiki"     # looks like prod data by the refusal's own rule
+    vault = home / ".voicebot" / "data" / "llm-wiki"     # looks like prod data by the refusal's own rule
     vault.mkdir(parents=True)
     (tmp_path / "export").mkdir()
     env = dict(os.environ, HOME=str(home), TRACE_PROFILE="dev", WIKI_PATH=str(vault),

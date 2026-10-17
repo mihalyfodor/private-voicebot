@@ -30,7 +30,7 @@ def test_migrate_moves_state_into_data_and_refuses_twice(tmp_path):
     for name in state:
         (src / name).write_text(name)
 
-    data = home / "docker-data" / "voicebot"
+    data = home / ".voicebot" / "data"
     env = dict(os.environ, HOME=str(home), SRC=str(src), DATA=str(data), GIT_CONFIG_GLOBAL=os.devnull)
     out = subprocess.run(["bash", PROD_SH, "migrate"], env=env, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr

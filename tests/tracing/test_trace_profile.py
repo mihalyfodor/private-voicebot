@@ -26,7 +26,7 @@ def test_prod_turn_never_creates_verbose_and_starts_with_service_start(vault, pr
 
 def test_dev_against_prod_data_refuses_to_start(tmp_path):
     home = tmp_path / "home"
-    wiki_path = home / "docker-data" / "voicebot" / "llm-wiki"
+    wiki_path = home / ".voicebot" / "data" / "llm-wiki"
     env = dict(os.environ, HOME=str(home), TRACE_PROFILE="dev", WIKI_PATH=str(wiki_path),
                TRACE_DIR=str(tmp_path / "logs"), MEMORY_DIR=str(tmp_path / "memory"),
                SETTINGS_PATH=str(tmp_path / "settings.json"), OPEN_BROWSER="0", PORT="0")
@@ -40,7 +40,7 @@ def test_dev_against_prod_data_refuses_to_start(tmp_path):
 
 def test_a_host_script_against_prod_data_refuses_too(tmp_path):
     home = tmp_path / "home"
-    vault = home / "docker-data" / "voicebot" / "llm-wiki"
+    vault = home / ".voicebot" / "data" / "llm-wiki"
     vault.mkdir(parents=True)
     (tmp_path / "export").mkdir()
     env = dict(os.environ, HOME=str(home), TRACE_PROFILE="dev", MEMORY_DIR=str(tmp_path / "memory"), PORT="1")

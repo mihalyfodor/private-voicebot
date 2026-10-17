@@ -62,8 +62,8 @@ Depends on PRD 49 (event trace: `run_id`, spans). Consumed by PRD 52 (approvals)
   - Batch import: run id `batch-<ts>`, a `step` per file (`needs-ocr`, unsupported, too-large, already → Did not;
     batch_import.py:145, :194). The script runs while the app is down and so writes its own events: it must call
     `trace.configure()` (today only chatbot.py:14 does), and against prod it runs with `TRACE_PROFILE=prod
-    TRACE_DIR=~/docker-data/voicebot/logs` so its lines land in the same `events.jsonl` the app writes; dev against
-    `~/docker-data` is refused by `trace.refusal` (trace.py:117).
+    TRACE_DIR=~/.voicebot/data/logs` so its lines land in the same `events.jsonl` the app writes; dev against
+    `~/.voicebot` is refused by `trace.refusal` (trace.py:117).
 - **Reason codes** `runs.REASONS`: `ok`, `nothing-to-do`, `failed-model`, `failed-offline`, `failed-<exc_type>`,
   `needs-ocr`, `unreadable`, `unsupported`, `too-large`, `already-filed`, `rejected-op` → one sentence each; the
   card's reason line and the page's outcome sentence both come from this table.
@@ -153,7 +153,7 @@ Depends on PRD 49 (event trace: `run_id`, spans). Consumed by PRD 52 (approvals)
    the reason sentence; the run page shows `exc_type`; the sentinel `ZQX-SENTINEL` from the context is absent from
    events.jsonl and from the page.
 7. tests/trace/test_runs.py: `batch_import.ingest_batch` over 1 PDF + 1 image-only PDF → one run, a `needs-ocr`
-   Did-not row; with `TRACE_PROFILE=dev` and `WIKI_PATH` under `~/docker-data` the script exits 2.
+   Did-not row; with `TRACE_PROFILE=dev` and `WIKI_PATH` under `~/.voicebot` the script exits 2.
 8. tests/ui/test_run_cards.py (via tests/app_fixture.mjs): a card with steps renders the chip, 3 step rows and an
    "Open run" link with `target=_blank`; `card_update` swaps chip and steps in place (same element); a card without
    run fields renders exactly as PRD 43 (existing tests/llm/test_written_answers.py card assertions green).

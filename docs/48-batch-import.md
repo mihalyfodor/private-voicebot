@@ -29,7 +29,7 @@ the first real run is a manual scenario for the user.
 - **Script** `scripts/ingest_batch.py` (argparse, `ROOT` on `sys.path`, `.env` via `load_dotenv` like
   `scripts/smoke.py`); the importable core is `batch_import.ingest_batch(folder, *, kinds, resume, dry_run, limit, sleep,
   client=None, model="", out=print) -> dict` so tests drive it in-process. `--vault PATH` sets `WIKI_PATH` before
-  `wiki`/`sources` are imported (default: the env, i.e. `~/llm-wiki-dev` for dev, `~/docker-data/voicebot/llm-wiki` for
+  `wiki`/`sources` are imported (default: the env, i.e. `~/llm-wiki-dev` for dev, `~/.voicebot/data/llm-wiki` for
   prod per docs/deploy.md); `MEMORY_DIR` / `SETTINGS_PATH` come from the same env as the app.
 - **Walk**: `folder` recursively, sorted by relative path, extensions from `--kinds` (default `pdf,docx`); other files
   (`.one`, `.mht`, images) are counted `unsupported`. Hidden files and `batch.log` are ignored.

@@ -11,7 +11,7 @@ python3 chatbot.py    # opens http://localhost:8011 automatically
 ## How to run — prod (docker)
 
 ```bash
-# one-time: host ASR service (launchd), then move the state into ~/docker-data/voicebot — see docs/deploy.md
+# one-time: host ASR service (launchd), then move the state into ~/.voicebot/data — see docs/deploy.md
 cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
 cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist   # daily 03:30 backup
 scripts/prod.sh migrate
@@ -83,7 +83,7 @@ The server prints to stdout through `logging` (`[Memory]`, `[WS]`, `[Tool] name(
 only as DEBUG in dev); started as `nohup python3 chatbot.py > /tmp/voicebot.log 2>&1 &` that is where to look; in prod
 `scripts/prod.sh logs` (json-file, 10 MB × 5). PRD 49: `events.jsonl` (+ `verbose.jsonl` in dev only) in `TRACE_DIR`
 (repo-local `logs/` in dev, gitignored; `/data/logs` in prod), rotated 10 MB × 5; `TRACE_PROFILE` = dev (checkout default) | prod
-(forced by compose; dev refuses to start against `~/docker-data` or in a container). Read it with
+(forced by compose; dev refuses to start against `~/.voicebot` or in a container). Read it with
 `scripts/trace_report.py events.jsonl [--since 24h] [--turn ID] [--ingest ID] [--errors]` (the /trace skill).
 `session.log` is retired (an old one is still moved by `prod.sh migrate`). The e2e run writes screenshots to
 `/tmp/e2e/<test>-<name>.png` and the spawned server's output to `server.log` in its temp dir (kept with `E2E_KEEP=1`).
@@ -284,9 +284,9 @@ voicebot/
 │   │   └── test_splitter.py            # SentenceSplitter / split_stream / strip_tag, every emotion tag round-trips
 │   ├── tracing/              # PRD 49: the event trace
 │   │   ├── test_trace.py               # scenarios 1–3, 5, 6, 8: a turn's ids + no text in events, tool_call size not result, llm_call usage/ttft/span, a turn raising mid-stream, rotation + unwritable dir, the field allow-list, dev verbose file; PRD 51: run/step events carry no text in prod; PRD 52: `decision` / `propose` events carry no text in prod
-│   │   ├── test_trace_profile.py       # scenario 7: prod never creates verbose.jsonl, service start first, dev against ~/docker-data refused (chatbot.py and ingest_batch.py), host scripts log next to their data folder, compose forces prod + caps the container log
+│   │   ├── test_trace_profile.py       # scenario 7: prod never creates verbose.jsonl, service start first, dev against ~/.voicebot refused (chatbot.py and ingest_batch.py), host scripts log next to their data folder, compose forces prod + caps the container log
 │   │   ├── test_trace_report.py        # scenario 9: scripts/trace_report.py `--turn` (ordered by start), `--errors` exit codes, the summary tables over rotated files
-│   │   ├── test_runs.py                # PRD 51 scenarios 1, 2, 6, 7: a briefing run (start/end, gather/skip/phrase steps, the run card), nothing new without a model step, chit-chat has no run, "+n more" folding, reason codes allowed, a failing write-up (`card` running → `card_update` failed, page shows exc_type, no sentinel), a working write-up's markdown on the update + replay, a batch import run with a needs-ocr row, the dev refusal against a docker-data-looking path
+│   │   ├── test_runs.py                # PRD 51 scenarios 1, 2, 6, 7: a briefing run (start/end, gather/skip/phrase steps, the run card), nothing new without a model step, chit-chat has no run, "+n more" folding, reason codes allowed, a failing write-up (`card` running → `card_update` failed, page shows exc_type, no sentinel), a working write-up's markdown on the update + replay, a batch import run with a needs-ocr row, the dev refusal against a ~/.voicebot-looking path
 │   │   └── test_run_page.py            # PRD 51 scenarios 3–4: GET /runs/<id> (pages with sha + --stat line, "2 housekeeping commits", the timeline, footer, every value escaped, no page body), 404s (unknown, malformed, too long), the /ingest origin check; PRD 54 scenario 11: a research run's page shows plan → search ×2 → judge → read → write → verify with timings and the three model purposes, never the question
 │   ├── prod/                 # PRD 40: Docker prod
 │   │   ├── test_data_paths.py          # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
@@ -347,7 +347,7 @@ voicebot/
     ├── 37-wikipedia-routing.md   # PRD: get_wikipedia tool + routing between own knowledge / local base / Wikipedia offer (done)
     ├── 38-focus-context.md       # PRD: the open wiki/source page rides on the turn (head + matching section), find/open from chat, go back (done)
     ├── 39-context-meter.md       # PRD: context meter + 75/90 % warnings, recall stripping, explicit "new topic" with a visible summary (done)
-    ├── 40-docker-prod.md         # PRD: prod container + ~/docker-data/voicebot single data folder, host ASR service, prod.sh migrate/backup/restore (done)
+    ├── 40-docker-prod.md         # PRD: prod container + ~/.voicebot/data single data folder, host ASR service, prod.sh migrate/backup/restore (done)
     ├── 41-service-health.md      # PRD: service health banner + Settings rows, scripts/voicebot start/stop/status (done)
     ├── 42-recall-precision-2.md  # PRD: the stress-test recall defects — title words, held-reply lookup fallback, page recall, proper bigrams (done)
     ├── 43-written-answers.md    # PRD: length by origin+groundedness, written cards (Copy / Save to wiki), explicit notes/ save (done)
@@ -403,7 +403,7 @@ voicebot/
 - [37-wikipedia-routing.md](37-wikipedia-routing.md) — Wikipedia search/summary tool with fixed hosts and an offer-then-fetch flow reusing the PRD 34 offer state; routing rules and a 28-question calibration set (done)
 - [38-focus-context.md](38-focus-context.md) — focus context: `set_focus` from the UI, the open page attached to each turn as a capped document block (head + best-matching section), deterministic find/open with `wiki_open`, last-page memory for "go back" (done)
 - [39-context-meter.md](39-context-meter.md) — context meter (`context` message, rail dot, 90 % spoken nudge), recall blocks stripped after their turn, explicit `new_topic` that folds memory first and restarts with a visible `<earlier>` summary divider (done)
-- [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/docker-data/voicebot` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore; runbook in [deploy.md](deploy.md) (done)
+- [40-docker-prod.md](40-docker-prod.md) — Docker as prod: one data folder `~/.voicebot/data` (vault keeps the name llm-wiki), env knobs for every state path, host ASR service so mlx-whisper stays native, compose with read-only rootfs, `scripts/prod.sh` build/up/migrate/backup/restore; runbook in [deploy.md](deploy.md) (done)
 - [41-service-health.md](41-service-health.md) — server-side probes of oMLX / ASR pushed as `services`, UI banner + Settings rows with a copy-the-command button, turns refused with the hint while the LLM is down, `scripts/voicebot start` (starts only what is missing) / `stop` (container down, ASR unloaded, Gemma unloaded via the oMLX admin API) / `status`; addendum 2026-08-30: the admin password stored from Settings (`.env` wins), Load / Unload model buttons through the server (done)
 - [42-recall-precision-2.md](42-recall-precision-2.md) — the 2026-08-30 stress-test recall defects: a source's title words pick the source but never score a chunk, four candidates with no neighbouring pair, a held first sentence that turns "the documents do not mention" into one server-side lookup re-ask (`<lookup>`), wiki pages join recall by name (head + Summary + best section), short questions recall on a proper term, proper bigrams must match whole, "summarise this" uses the page head, routing wording for past events / opinions, trailing "please" in open-page commands, no double date in raw names (done)
 
