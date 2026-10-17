@@ -1,4 +1,4 @@
-Status: implementation (signed off 2026-10-17)
+Status: done (2026-10-17)
 
 # 56 — Session boundaries: fresh prompt, idle and disconnect saves, a new thread each day
 

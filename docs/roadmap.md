@@ -169,7 +169,7 @@ a synthetic vault and adopted only on numbers. docs/53-, 54-, 55-*.md.
 
 Open design questions for all of the above, with recommendations: docs/reviews/2026-10-16-design-questions.md.
 
-## 12. PRD 57 — Context hygiene · PRD 56 — Session boundaries
+## 12. PRD 57 — Context hygiene · PRD 56 — Session boundaries (both done 2026-10-17)
 
 From docs/reviews/2026-10-17-session-handling.md (Opus review + research, 2026-10-17). Both signed off 2026-10-17.
 PRD 57 (S+S, agent/ only) first: stub old tool results under budget pressure before dropping turns; the open page
