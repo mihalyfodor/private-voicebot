@@ -1,4 +1,4 @@
-Status: exploration (signed off 2026-10-17; implementation after PRD 57)
+Status: implementation (signed off 2026-10-17)
 
 # 56 — Session boundaries: fresh prompt, idle and disconnect saves, a new thread each day
 

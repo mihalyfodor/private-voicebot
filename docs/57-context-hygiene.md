@@ -1,4 +1,4 @@
-Status: implementation (signed off 2026-10-17)
+Status: done (2026-10-17)
 
 # 57 — Context hygiene: stub old tool results before dropping turns; page focus only when the question is about the page
 
