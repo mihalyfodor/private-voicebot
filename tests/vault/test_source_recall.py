@@ -326,9 +326,9 @@ def test_a_pasted_note_is_renamed_after_the_model_title(seeded_vault, monkeypatc
     client = FakeClient(summary_json("Falcon launch checklist"), "[]")
     monkeypatch.setattr(core_llm, "_client", client)
     filed = pipeline.ingest_note("Fuel, then countdown, then launch.")
-    assert filed["raw"] == f"raw/inbox/{util._today_iso()}-falcon-launch-checklist.md"
+    assert filed["raw"] == f"raw/inbox/{util.today_iso()}-falcon-launch-checklist.md"
     assert os.path.isfile(store._path(filed["raw"]))
-    assert not os.path.exists(store._path(f"raw/inbox/{util._today_iso()}-note.md"))
+    assert not os.path.exists(store._path(f"raw/inbox/{util.today_iso()}-note.md"))
     entry = manifest.manifest_entries()[0]
     assert entry["path"] == filed["raw"]
     assert f"raw: {filed['raw']}" in store._read(filed["path"] + ".md")

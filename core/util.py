@@ -2,15 +2,15 @@
 import os
 from datetime import date, datetime
 
-def _today() -> date:
+def today() -> date:
     """Today. The single source of "now" for every date the app stores — the eval harness
     monkeypatches it to run a scripted conversation against a shifted clock."""
     return date.today()
 
 
-def _today_iso() -> str:
+def today_iso() -> str:
     """Today as ``YYYY-MM-DD`` — the form every date stored in the profile takes."""
-    return _today().isoformat()
+    return today().isoformat()
 
 
 def tokens_est(text: str) -> int:
@@ -35,6 +35,6 @@ def running_app() -> str:
     return ""
 
 
-def _stamp(time_format: str) -> str:
-    """An ISO timestamp whose date part comes from :func:`_today` (so a mocked clock shows)."""
-    return f"{_today_iso()}T{datetime.now().strftime(time_format)}"
+def stamp(time_format: str) -> str:
+    """An ISO timestamp whose date part comes from :func:`today` (so a mocked clock shows)."""
+    return f"{today_iso()}T{datetime.now().strftime(time_format)}"

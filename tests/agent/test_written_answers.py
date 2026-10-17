@@ -263,7 +263,7 @@ def test_save_card_files_a_note_with_provenance_in_one_commit(card):
         collect(ws, "state")
         ws.send_json({"action": "save_card", "id": card["id"], "folder": "notes"})
         got = collect(ws, "sources")
-    path = f"notes/{util._today_iso()}-the-compound-key-at-covenant"
+    path = f"notes/{util.today_iso()}-the-compound-key-at-covenant"
     assert [m["type"] for m in got] == ["wiki_open", "card_saved", "wiki", "sources"]
     assert got[0] == {"type": "wiki_open", "path": path}
     assert got[1] == {"type": "card_saved", "id": card["id"], "path": path}
@@ -329,7 +329,7 @@ def test_not_a_save_note_command(text):
 def test_spoken_save_that_as_a_note_files_the_last_card(card):
     sent = turn("save that as a note", [], spoken=True)
     types = [m["type"] for m in sent]
-    path = f"notes/{util._today_iso()}-the-compound-key-at-covenant"
+    path = f"notes/{util.today_iso()}-the-compound-key-at-covenant"
     assert {"type": "wiki_open", "path": path} in sent
     assert {"type": "card_saved", "id": card["id"], "path": path} in sent
     assert [m["text"] for m in sent if m["type"] == "speech"] == [f"Saved as {path}."]

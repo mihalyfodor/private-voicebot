@@ -62,7 +62,7 @@ def test_list_sources_is_newest_first_with_the_pages_fed(vault, monkeypatch):
         "title": "Falcon status", "when": rows[1]["when"], "fed": ["projects/falcon"],
         "meeting": "",
     }
-    assert rows[1]["when"].startswith(util._today_iso())
+    assert rows[1]["when"].startswith(util.today_iso())
     assert rows[0]["kind"] == "txt" and rows[0]["fed"] == []
 
 
@@ -86,7 +86,7 @@ def test_reingest_rewrites_the_source_page_adds_notes_and_commits_once(vault, mo
     assert "green again" in page and "940 ms" not in page          # summary replaced
     assert f"sha256: {sha}" in page and "[[projects/falcon]]" in page
     falcon = read("projects/falcon.md")
-    assert f"- {util._today_iso()} p99 down to 310 ms after the fix. (source: {filed['raw']})" in falcon
+    assert f"- {util.today_iso()} p99 down to 310 ms after the fix. (source: {filed['raw']})" in falcon
     assert len(commits()) == before + 1
     entries = manifest.manifest_entries()
     assert len(entries) == 1 and entries[0]["sha256"] == sha

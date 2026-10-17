@@ -81,7 +81,7 @@ def test_new_page_writes_frontmatter_and_sections(vault):
     fm, body = store.parse_page(read("people/anna.md"))
     assert fm["type"] == "person" and fm["name"] == "Anna" and fm["tags"] == []
     assert fm["source"] == "session 2026-08-29"
-    assert fm["updated"] == util._today_iso() and fm["seen"] == util._today_iso()
+    assert fm["updated"] == util.today_iso() and fm["seen"] == util.today_iso()
     assert "# Anna" in body
     assert "Colleague on the platform team." in body
     for section in ("## Summary", "## Notes", "## Related"):
@@ -94,7 +94,7 @@ def test_append_note_adds_a_dated_bullet_under_notes(vault):
                           "text": "moved to the release team"}], "session x")
     _, body = store.parse_page(read("people/anna.md"))
     notes = body.split("## Notes")[1].split("## Related")[0]
-    assert f"- {util._today_iso()} moved to the release team (source: session x)" in notes
+    assert f"- {util.today_iso()} moved to the release team (source: session x)" in notes
 
 
 def test_set_field_touches_only_frontmatter(vault):
@@ -141,7 +141,7 @@ def test_add_decision_appends_a_dated_section(vault):
     m_pages.apply_page_ops([{"op": "add_decision", "title": "deploy on Fridays",
                           "text": "Ship at 10:00, Anna runs it."}], "session 2026-08-29")
     text = read("decisions.md")
-    assert f"## {util._today_iso()} deploy on Fridays" in text
+    assert f"## {util.today_iso()} deploy on Fridays" in text
     assert "Ship at 10:00, Anna runs it." in text
     assert "source: session 2026-08-29" in text
 
@@ -223,7 +223,7 @@ def test_a_batch_makes_one_commit_and_one_log_line_per_op(vault):
     assert len(commits()) == commits_before + 1
     log_lines = [line for line in read("log.md").splitlines() if line.startswith("- ")]
     assert len(log_lines) == 4
-    assert all(util._today_iso() in line for line in log_lines)
+    assert all(util.today_iso() in line for line in log_lines)
     assert any("filed [[people/anna]]" in line for line in log_lines)
 
     index = read("index.md")
@@ -659,7 +659,7 @@ def test_pull_recreates_a_live_entry_from_a_page(vault, memory_sandbox):
     fresh = [e for e in profile["people"] if not render.is_stale(e)]
     assert len(fresh) == 1
     assert fresh[0]["name"] == "Anna"
-    assert fresh[0][m_store.SEEN_FIELD] == util._today_iso()
+    assert fresh[0][m_store.SEEN_FIELD] == util.today_iso()
 
 
 def test_pull_reports_an_unknown_page(vault, memory_sandbox):
@@ -707,7 +707,7 @@ def test_get_wiki_lists_pages_with_lint_and_vault(wiki_panel):
     assert msg["lint"] == []
     assert [p["path"] for p in msg["pages"]] == ["people/anna"]
     assert msg["pages"][0] == {"path": "people/anna", "title": "Anna", "type": "person",
-                               "updated": util._today_iso(), "tags": []}
+                               "updated": util.today_iso(), "tags": []}
 
 
 def test_read_wiki_page_returns_text_and_links(wiki_panel):
@@ -724,7 +724,7 @@ def test_wiki_note_appends_and_refreshes_both_panes(wiki_panel):
     page, listing = wiki_panel.send_many(
         {"action": "wiki_note", "path": "people/anna", "text": "she prefers async standups"}, 2)
     assert page["type"] == "wiki_page" and listing["type"] == "wiki"
-    assert f"user note {util._today_iso()}" in page["text"]
+    assert f"user note {util.today_iso()}" in page["text"]
     assert "she prefers async standups" in page["text"]
 
 

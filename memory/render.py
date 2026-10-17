@@ -25,7 +25,7 @@ def _parse_date(value) -> date | None:
 
 def _age_days(entry: dict) -> int:
     when = _parse_date(entry.get("date"))
-    return 0 if when is None else max(0, (util._today() - when).days)
+    return 0 if when is None else max(0, (util.today() - when).days)
 
 
 
@@ -63,7 +63,7 @@ def _mark_stale(profile: dict) -> list:
     it just stops being rendered. Episodic entries have a TTL instead and are left alone.
     """
     marked = []
-    today = util._today()
+    today = util.today()
     for section, window in store.STALE_DAYS.items():
         for entry in profile.get(section, []):
             if is_stale(entry):

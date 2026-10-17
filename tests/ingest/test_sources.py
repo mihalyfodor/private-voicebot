@@ -110,7 +110,7 @@ def test_a_dropped_markdown_file_is_stored_summarised_and_committed(vault, fake)
     assert entries[0]["path"] == filed["raw"]
     assert entries[0]["kind"] == "md"
     assert entries[0]["pages_touched"] == ["projects/falcon"]
-    assert entries[0]["ingested_at"].startswith(util._today_iso())
+    assert entries[0]["ingested_at"].startswith(util.today_iso())
 
     assert len(commits()) == before + 1           # exactly one commit for the whole ingest
     assert "sources/falcon-status" in read("index.md")
@@ -716,7 +716,7 @@ def test_a_folder_is_filed_through_the_drop_path(vault, idle_port, export):
     assert "filed 3 · skipped 0 · failed 0" in lines[-1]
     docx_entry = next(e for e in manifest.manifest_entries() if e["kind"] == "docx")
     fm, _ = store.parse_page(read(docx_entry["page"] + ".md"))
-    assert fm["source"] == f"batch import {util._today_iso()}"
+    assert fm["source"] == f"batch import {util.today_iso()}"
     sent = prompts(client)
     assert all("User hint: work/falcon" in p for p in sent[4:6])
     assert not any("User hint" in p for p in sent[:4])

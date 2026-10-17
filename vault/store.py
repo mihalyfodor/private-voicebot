@@ -191,7 +191,7 @@ def ensure_vault() -> str:
     if not os.path.exists(_path(DECISIONS_FILE)):
         _write(DECISIONS_FILE, _page_text(
             {"type": "decisions", "name": "Decisions", "tags": [], "source": "bootstrap",
-             "updated": util._today_iso(), "seen": util._today_iso()},
+             "updated": util.today_iso(), "seen": util.today_iso()},
             "# Decisions\n",
         ))
     ignore = _read(".gitignore")     # `.index/` (PRD 53) carries its own `*` .gitignore: no tracked edit here
@@ -271,7 +271,7 @@ def _edit_page(rel: str, body_fn=None, defaults: dict | None = None, **fields) -
     "never rewrite, only append" is enforced in one place.
     """
     fm, body = parse_page(_read(rel))
-    fm["updated"] = util._today_iso()
+    fm["updated"] = util.today_iso()
     for key, value in (defaults or {}).items():
         fm.setdefault(key, value)
     fm.update(fields)

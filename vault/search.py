@@ -128,7 +128,7 @@ def startup_check() -> int:
     idx = index_db.open_index(store.WIKI_PATH)
     changed = _check(idx)
     idx.checked = True                  # only after it ran: a failed check is retried on the next open
-    idx.set_meta("checked_at", util._stamp("%H:%M:%S"))
+    idx.set_meta("checked_at", util.stamp("%H:%M:%S"))
     return changed
 
 

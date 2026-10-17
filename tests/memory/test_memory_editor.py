@@ -146,7 +146,7 @@ def test_get_memory_returns_the_rendered_block_and_the_visible_fact_count(panel)
 def test_snapshot_flags_expired_episodics_without_touching_the_file():
     profile = seed(episodic=[
         {"date": "2020-01-01", "text": "old news", "ttl_days": 5, "importance": 2},
-        {"date": util._today().isoformat(), "text": "today", "ttl_days": 30, "importance": 2},
+        {"date": util.today().isoformat(), "text": "today", "ttl_days": 30, "importance": 2},
     ])
     snap = m_ops.snapshot(profile)
     assert [e["expired"] for e in snap["profile"]["episodic"]] == [True, False]

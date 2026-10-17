@@ -87,7 +87,7 @@ def ingest(turns: list) -> list:
     if not transcript.strip():
         return []
     names = identity.user_names()
-    system = INGEST_SYSTEM % (identity.user_note(names), util._today_iso())
+    system = INGEST_SYSTEM % (identity.user_note(names), util.today_iso())
     related = v_index.related_context(transcript)
     user = (f"Schema:\n{store._read(store.SCHEMA_FILE) or store.SCHEMA_TEXT}\n\n"
             f"Index:\n{v_index.vault_map(store.WIKI_INDEX_TOKENS) or '(empty wiki)'}\n\n"
@@ -103,7 +103,7 @@ def ingest(turns: list) -> list:
         log.info("could not parse page ops; nothing filed")
         return []
     ops, about_user = reject_user_pages(ops, names)
-    applied, rejected = v_pages.apply_page_ops(ops, f"session {util._today_iso()}")
+    applied, rejected = v_pages.apply_page_ops(ops, f"session {util.today_iso()}")
     v_pages.log_rejected(about_user + rejected, log)
     if applied:
         log.info(f"{len(applied)} page op{'s' if len(applied) != 1 else ''} applied")

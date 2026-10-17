@@ -274,7 +274,7 @@ def test_an_upload_named_with_a_date_carries_todays_date_once(seeded_vault, monk
     client = FakeClient(summary_json("Launch note"), "[]")
     monkeypatch.setattr(core_llm, "_client", client)
     filed = pipeline.ingest_upload(b"Fuel first.", "2026-08-30-note.md")
-    today = util._today_iso()
+    today = util.today_iso()
     # "note" is a generic name, so the raw is renamed after the model title (PRD 32) — still
     # `raw/inbox/<today>-…note.md`, dated exactly once
     assert filed["raw"].startswith(f"raw/inbox/{today}-") and filed["raw"].endswith("note.md")
@@ -282,6 +282,6 @@ def test_an_upload_named_with_a_date_carries_todays_date_once(seeded_vault, monk
 
 
 def test_dated_never_doubles_the_date():
-    today = util._today_iso()
+    today = util.today_iso()
     assert pipeline._dated("2026-08-30-note") == f"{today}-note"
     assert pipeline._dated("note") == f"{today}-note"

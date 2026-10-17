@@ -74,16 +74,16 @@ def _parse_offset(spec) -> timedelta:
 
 
 def shift_clock(spec) -> str:
-    """Move `memory._today` by `spec` and keep it there; returns the new "today".
+    """Move `core.util.today` by `spec` and keep it there; returns the new "today".
 
     Decay is dated, so the only way to test it end to end is to fast-forward the clock.
-    `memory._today` is the single source of dates in memory.py (entry `seen`, episodic dates
+    `core.util.today` is the single source of dates in the app (entry `seen`, episodic dates
     and TTLs, the ops log, the profile `updated` stamp), so one patch shifts them all.
     """
     _CLOCK["offset"] += _parse_offset(spec)
     offset = _CLOCK["offset"]
-    util._today = lambda: date.today() + offset
-    return util._today().isoformat()
+    util.today = lambda: date.today() + offset
+    return util.today().isoformat()
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -129,7 +129,7 @@ class Sandbox:
             "trace_dir": trace.TRACE_DIR,
             "avatar": avatars._current,
             "system_prompt": a_prompt.SYSTEM_PROMPT,
-            "today": util._today,
+            "today": util.today,
         }
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
@@ -170,7 +170,7 @@ class Sandbox:
         trace.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
         a_prompt.SYSTEM_PROMPT = self._saved["system_prompt"]
-        util._today = self._saved["today"]
+        util.today = self._saved["today"]
         _CLOCK["offset"] = timedelta(0)
         if self._tmpdir:
             shutil.rmtree(self._tmpdir, ignore_errors=True)

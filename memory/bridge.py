@@ -39,7 +39,7 @@ def archive_entry(section: str, entry: dict) -> tuple:
     """Create or extend the wiki page for `entry`; ``(page, None)`` or ``(None, reason)``."""
     store.ensure_vault()
     rel, page_type, name = page_for(section, entry)
-    source = f"archived from {section} {util._today_iso()}"
+    source = f"archived from {section} {util.today_iso()}"
     ops = []
     if not store.page_exists(rel):
         ops.append({"op": "new_page", "path": rel, "type": page_type,
@@ -61,7 +61,7 @@ def entry_from_page(path: str, section: str) -> tuple:
     fm, body = store.parse_page(store._read(rel))
     name = str(fm.get("name") or os.path.basename(rel)[:-3]).strip()
     summary = v_index._summary_line(body)
-    entry = {m_store.SEEN_FIELD: util._today_iso()}
+    entry = {m_store.SEEN_FIELD: util.today_iso()}
     if section == "recurring":
         entry["what"] = name
         if summary:

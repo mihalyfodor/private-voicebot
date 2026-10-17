@@ -70,7 +70,7 @@ def new_page(op: dict, source: str) -> tuple:
 
 
 def _fresh_page(page_type: str, name: str, summary: str, source: str) -> str:
-    today = util._today_iso()
+    today = util.today_iso()
     fm = {"type": page_type, "name": name, "tags": [], "source": source,
           "updated": today, "seen": today}
     return store._page_text(fm, f"# {name}\n\n## Summary\n{summary}\n\n## Notes\n\n## Related\n")
@@ -89,7 +89,7 @@ def append_note(op: dict, source: str) -> tuple:
     heading = str(op.get("section") or "## Notes")
     if heading not in store.SECTIONS:
         return None, f"unknown section {heading!r}"
-    today = util._today_iso()
+    today = util.today_iso()
     line = f"- {today} {text} (source: {source})"
     oversize = _check_size(rel, line)
     if oversize:
@@ -126,7 +126,7 @@ def add_decision(op: dict, source: str) -> tuple:
         return None, "decision needs a title"
     if len(text) > store.MAX_NOTE_CHARS:
         return None, f"decision longer than {store.MAX_NOTE_CHARS} characters"
-    today = util._today_iso()
+    today = util.today_iso()
     block = f"\n## {today} {title}\n{text}\nsource: {source}\n"
     oversize = _check_size(store.DECISIONS_FILE, block)
     if oversize:
@@ -208,7 +208,7 @@ def _apply_page_ops(ops: list, source_default: str, commit: bool) -> tuple:
     global _applied_batches
     applied, rejected = [], []
     store.ensure_vault()
-    source_default = source_default or f"session {util._today_iso()}"
+    source_default = source_default or f"session {util.today_iso()}"
     entries = []
     for raw in ops:
         op = raw if isinstance(raw, dict) else {}
@@ -252,7 +252,7 @@ def _bump_updated(text: str) -> str:
     end = text.find("\n---", 3)
     if not text.startswith("---") or end == -1:
         return text
-    head = _UPDATED_LINE.sub(f"updated: {util._today_iso()}", text[:end], count=1)
+    head = _UPDATED_LINE.sub(f"updated: {util.today_iso()}", text[:end], count=1)
     return head + text[end:]
 
 
@@ -330,7 +330,7 @@ def save_card(path: str, title: str, markdown: str, sources: list, run_id: str =
         rel, reason = _user_target(path, exists=False)
         if reason:
             return None, reason
-        today = util._today_iso()
+        today = util.today_iso()
         fm = {"type": "note", "name": title, "tags": [], "source": CARD_SOURCE, "updated": today,
               "seen": today, "sources": [str(x).replace(",", " ") for x in sources]}
         if run_id:

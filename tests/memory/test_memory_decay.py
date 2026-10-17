@@ -33,7 +33,7 @@ def clock(monkeypatch):
     """`clock(200)` makes memory believe 200 days have passed."""
     def travel(days: int) -> date:
         when = date.today() + timedelta(days=days)
-        monkeypatch.setattr(c_util, "_today", lambda: when)
+        monkeypatch.setattr(c_util, "today", lambda: when)
         return when
     return travel
 
@@ -413,7 +413,7 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
     fold.save([{"role": "user", "content": "had lunch with Anna today"}])
     profile = store.load_profile()
     assert "stale" not in profile["people"][0]
-    assert profile["people"][0]["seen"] == c_util._today().isoformat()
+    assert profile["people"][0]["seen"] == c_util.today().isoformat()
     assert "Anna (colleague)" in m_render.render(profile)
 
 
@@ -470,14 +470,14 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
 
 
 def test_harness_clock_turn_shifts_memorys_today():
-    original = c_util._today
+    original = c_util.today
     try:
         assert harness.shift_clock("+200d") == (date.today() + timedelta(days=200)).isoformat()
-        assert c_util._today() == date.today() + timedelta(days=200)
+        assert c_util.today() == date.today() + timedelta(days=200)
         harness.shift_clock("+1w")           # offsets accumulate for the rest of the run
-        assert c_util._today() == date.today() + timedelta(days=207)
+        assert c_util.today() == date.today() + timedelta(days=207)
     finally:
-        c_util._today = original
+        c_util.today = original
         harness._CLOCK["offset"] = timedelta(0)
     with pytest.raises(ValueError):
         harness._parse_offset("soon")

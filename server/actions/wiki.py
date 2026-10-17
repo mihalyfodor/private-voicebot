@@ -36,7 +36,7 @@ async def _action_wiki_note(sess, msg, loop):
     """The "add note" box: append one dated bullet under `## Notes`, then refresh both panes."""
     path = str(msg.get("path") or "")
     op = {"op": "append_note", "path": path, "text": msg.get("text"),
-          "source": f"user note {util._today_iso()}"}
+          "source": f"user note {util.today_iso()}"}
     applied, rejected = await asyncio.to_thread(v_pages.apply_page_ops, [op], op["source"])
     if not applied:
         reason = rejected[0]["reason"] if rejected else "nothing to add"

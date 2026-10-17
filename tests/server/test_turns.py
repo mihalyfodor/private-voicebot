@@ -472,7 +472,7 @@ def brief(text: str = "what's new?", *replies, llm_up: bool = True) -> tuple:
     """One typed turn through `handle_text` at the gather-time stamp NOW: (sent, fake)."""
     fake = FakeClient(*replies)
     with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts), \
-            patch.object(util, "_stamp", lambda fmt: NOW), patch.object(services, "llm_ok", lambda: llm_up):
+            patch.object(util, "stamp", lambda fmt: NOW), patch.object(services, "llm_ok", lambda: llm_up):
         sent = run_turn(server_turns.handle_text, Session(), 1, text)
     return sent, fake
 

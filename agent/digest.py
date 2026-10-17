@@ -147,7 +147,7 @@ def briefing_when(ts: str) -> str:
         day = date.fromisoformat(ts[:10])
     except ValueError:
         return ts
-    today = util._today()
+    today = util.today()
     if day == today:
         return ts[11:16]
     if day == today - timedelta(days=1):
@@ -174,7 +174,7 @@ def _capped(items: list) -> list:
 
 def briefing_card(digest: dict) -> str:
     """The briefing as a Markdown card: `## Pages` / `## Sources` / `## Memory`, empty ones left out."""
-    out = [f"# Briefing {_day(util._today())}"]
+    out = [f"# Briefing {_day(util.today())}"]
     pages = _capped([f"{p['change']}: " + (p["title"] if p["change"] == "deleted" else f"[[{p['path']}|{p['title']}]]")
                      for p in digest["pages"]])
     chat = digest["chat_pages"]

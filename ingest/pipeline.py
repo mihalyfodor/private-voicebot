@@ -156,7 +156,7 @@ def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
         _downscale(full)
         return Extracted("", _image_part(full), kind)
     if ext == ".ics":
-        events = ics_events(data, today=dt.date.fromisoformat(util._today_iso()))
+        events = ics_events(data, today=dt.date.fromisoformat(util.today_iso()))
         text = "\n".join(f"{e['date']} {e['time']} {e['title']} — {', '.join(e['attendees'])}"
                          for e in events)
         return Extracted(text, None, kind, util.tokens_est(text), util.tokens_est(text), events)
@@ -211,7 +211,7 @@ def _source_body(title: str, summary: str, entities: list, fed: list, user_names
 def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest: str,
                        summary: str, entities: list, fed: list, source: str,
                        user_names=(), tags=(), extra: dict | None = None) -> None:
-    today = util._today_iso()
+    today = util.today_iso()
     fm = {"type": "source", "name": title, "tags": list(tags), "source": source,
           "updated": today, "seen": today,
           "kind": kind, "raw": raw_rel, "sha256": digest, **(extra or {})}
@@ -234,7 +234,7 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
     Written here, not through the `new_page` op, because the op cannot carry `date` / `time` /
     `attendees` or the Decisions/Actions sections — the same arrangement the source page has.
     """
-    today = util._today_iso()
+    today = util.today_iso()
     links = []
     for name in attendees:
         link = _attendee_link(name, user_names)
@@ -262,7 +262,7 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
     """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
     summary}``, tidied; None when the model cannot be reached or parsed."""
     try:
-        system = MEETING_SYSTEM % (m_identity.user_note(user_names), util._today_iso())
+        system = MEETING_SYSTEM % (m_identity.user_note(user_names), util.today_iso())
         raw = core_llm.complete(system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
@@ -281,7 +281,7 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
 
     date = str(data.get("date") or "").strip()
     if not c_manifest._DROP_DATE.fullmatch(date):
-        date = util._today_iso()
+        date = util.today_iso()
     return {
         "title": " ".join(str(data.get("title") or title or "Meeting").split())[:120],
         "date": date,
@@ -459,7 +459,7 @@ def summarise(kind: str, text: str, image_part, hint: str, title: str,
         content = [{"type": "text", "text": f"{header}\n\nSummarise this image."}, image_part]
     else:
         content = f"{header}\n\nDocument:\n{untrusted(text, title or kind)}"
-    system = SUMMARY_SYSTEM % (m_identity.user_note(user_names), util._today_iso())
+    system = SUMMARY_SYSTEM % (m_identity.user_note(user_names), util.today_iso())
     data = None
     for attempt in range(1, SUMMARY_ATTEMPTS + 1):
         try:
@@ -525,7 +525,7 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
         rules = m_identity.user_note(user_names)
         if kind in PUBLISHED_KINDS:
             rules += "\n- " + PUBLISHED_NOTE
-        system = OPS_SYSTEM % (rules, util._today_iso())
+        system = OPS_SYSTEM % (rules, util.today_iso())
         raw = core_llm.complete(system, "\n\n".join(parts), 800, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
@@ -700,10 +700,10 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _stage(on_stage, "filing")
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
-                         hint=hint, page=page, source=source or f"user drop {util._today_iso()}",
+                         hint=hint, page=page, source=source or f"user drop {util.today_iso()}",
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
-                          "ingested_at": util._stamp("%H:%M:%S"),
+                          "ingested_at": util.stamp("%H:%M:%S"),
                           "page": v_store.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
         chunks.index_source(chunks.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
@@ -753,10 +753,10 @@ def reingest(digest: str) -> dict:
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint="", page="",
-                         source=str(old_fm.get("source") or f"user drop {util._today_iso()}"),
+                         source=str(old_fm.get("source") or f"user drop {util.today_iso()}"),
                          names=names)
         fed = sorted(set(entry.get("pages_touched") or []) | set(fed))
-        stamp = util._stamp("%H:%M:%S")
+        stamp = util.stamp("%H:%M:%S")
         _manifest_write([{**e, "pages_touched": fed, "ingested_at": stamp}
                          if e.get("sha256") == digest else e for e in manifest_entries()])
         v_index.rebuild_index()
@@ -857,7 +857,7 @@ def forget(digest: str, expected: dict | None = None) -> dict:
 def _dated(slug: str) -> str:
     """`<today>-<slug>`; a slug that already starts with a date loses it (no double date)."""
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)
-    return f"{util._today_iso()}-{v_store.slugify(slug)}"
+    return f"{util.today_iso()}-{v_store.slugify(slug)}"
 
 
 def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:

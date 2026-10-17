@@ -94,7 +94,7 @@ def map_folders(today: date | None = None) -> list:
     """
     if not store.exists():
         return []
-    today = today or util._today()
+    today = today or util.today()
     rows = v_search._db().map_rows()
     inbound = Counter()
     for rel, *_rest, links in rows:
@@ -185,7 +185,7 @@ def related_context(text: str, k: int = 5) -> str:
 def _log(entries: list) -> None:
     if not entries:
         return
-    today = util._today_iso()
+    today = util.today_iso()
     with open(store._path(store.LOG_FILE), "a") as f:
         for entry in entries:
             f.write(f"- {today} {entry}\n")

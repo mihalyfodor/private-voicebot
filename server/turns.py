@@ -70,7 +70,7 @@ def briefing(ctx: Ctx):
     sess, turn, user_text, send_sync, origin = ctx.session, ctx.turn, ctx.text, ctx.send, ctx.origin
     run, stage = None, "gathered"
     try:
-        now = util._stamp("%H:%M:%S")
+        now = util.stamp("%H:%M:%S")
         since = settings.load_settings().get("briefing_at") or \
             (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
         run = runs.Run("briefing")
@@ -185,7 +185,7 @@ def card_update(card: dict, **extra) -> dict:
 def card_path(card: dict, folder: str = "") -> str:
     """`notes/<date>-<slug(title)>` (or the folder given): the page a saved card becomes."""
     folder = str(folder or "").strip().strip("/") or DEFAULT_CARD_FOLDER
-    return f"{folder}/{util._today_iso()}-{v_store.slugify(card['title'])[:60]}"
+    return f"{folder}/{util.today_iso()}-{v_store.slugify(card['title'])[:60]}"
 
 
 def save_card(card_id: str | None, folder: str = "") -> list:

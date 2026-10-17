@@ -124,7 +124,7 @@ def _normalise(data: dict) -> dict:
 
 def _seen_default(updated) -> str:
     """The `seen` date for an entry that predates the field: the profile's own `updated` day."""
-    return (render._parse_date(updated) or util._today()).isoformat()
+    return (render._parse_date(updated) or util.today()).isoformat()
 
 
 
@@ -163,7 +163,7 @@ def _back_up_corrupt(exc) -> None:
 def _write_profile(profile: dict) -> None:
     """Atomic write: full file to `.tmp`, fsync, then os.replace."""
     profile["version"] = VERSION
-    profile["updated"] = util._stamp("%H:%M")
+    profile["updated"] = util.stamp("%H:%M")
     tmp = MEMORY_PATH + ".tmp"
     with open(tmp, "w") as f:
         json.dump(profile, f, indent=1, ensure_ascii=False)

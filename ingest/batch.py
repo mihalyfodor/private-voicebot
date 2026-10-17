@@ -104,7 +104,7 @@ def _log(log: str, row: dict) -> None:
 
 
 def _now() -> str:
-    return util._stamp("%Y-%m-%dT%H:%M:%S")
+    return util.stamp("%Y-%m-%dT%H:%M:%S")
 
 
 def _clock(seconds: float) -> str:
@@ -156,7 +156,7 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool) -> dict:
             return {"state": "would file", "sha256": digest, "reason": note}
         reached = True
         res = pipeline.ingest_upload(data, os.path.basename(rel), hint=os.path.dirname(rel),
-                                    source=f"batch import {util._today_iso()}", strict=True)
+                                    source=f"batch import {util.today_iso()}", strict=True)
         entry = manifest.manifest_find(digest) or {}
         fm, _ = store.parse_page((store._read(res["path"] + ".md") or ""))
         return {"state": "filed", "sha256": digest, "page": res["path"],

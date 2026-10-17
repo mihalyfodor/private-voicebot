@@ -78,11 +78,11 @@ def _find(entries: list, key_field: str, key_value) -> int:
 
 def _episodic_entry(value: dict) -> dict:
     entry = {
-        "date": str(value.get("date") or util._today_iso())[:10],
+        "date": str(value.get("date") or util.today_iso())[:10],
         "text": str(value["text"]).strip(),
         "ttl_days": store.DEFAULT_TTL_DAYS,
         "importance": m_render._importance(value),
-        store.SEEN_FIELD: util._today_iso(),
+        store.SEEN_FIELD: util.today_iso(),
     }
     try:
         entry["ttl_days"] = max(1, int(value.get("ttl_days", store.DEFAULT_TTL_DAYS)))
@@ -188,7 +188,7 @@ def _as_bool(value):
 
 def _touch(entry: dict) -> dict:
     """Mark `entry` as confirmed today (ADD / UPDATE / CONFIRM all count as a mention)."""
-    entry[store.SEEN_FIELD] = util._today_iso()
+    entry[store.SEEN_FIELD] = util.today_iso()
     return entry
 
 
@@ -248,7 +248,7 @@ def _apply_stale_op(entry: dict, value, op) -> bool:
             return False
         entry[store.STALE_FIELD] = True
         return True
-    if not m_render.is_stale(entry) and entry.get(store.SEEN_FIELD) == util._today_iso():
+    if not m_render.is_stale(entry) and entry.get(store.SEEN_FIELD) == util.today_iso():
         return False
     _revive(entry)
     return True
@@ -514,7 +514,7 @@ def _reject(op: dict, reason: str) -> None:
 def _log_ops(applied: list) -> None:
     if not applied:
         return
-    stamp = util._stamp("%H:%M:%S")
+    stamp = util.stamp("%H:%M:%S")
     with open(store.OPS_LOG_PATH, "a") as f:
         for op in applied:
             f.write(json.dumps({"ts": stamp, **op}, ensure_ascii=False) + "\n")

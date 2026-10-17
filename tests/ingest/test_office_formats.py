@@ -29,7 +29,7 @@ from tests.ingest.test_sources import SUMMARY, fake, prompts  # noqa: F401 — f
 from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
-TODAY = util._today_iso()
+TODAY = util.today_iso()
 
 
 # --------------------------------------------------------------------------- fixture builders

@@ -115,7 +115,7 @@ def propose_ops(profile: dict, turns: list, sources=()) -> list | None:
     transcript = m_ops._transcript(turns)
     if not transcript.strip():
         return []
-    system = PROPOSE_SYSTEM % util._today_iso()
+    system = PROPOSE_SYSTEM % util.today_iso()
     if sources:
         system += ATTRIBUTION_NOTE % ", ".join(f'"{s}"' for s in sources)
     user = (
@@ -147,7 +147,7 @@ def reflect(profile: dict) -> dict:
     that cannot be traced back to an entry already in `profile`. Returns `profile` unchanged if
     the call fails.
     """
-    system = REFLECT_SYSTEM % util._today_iso()
+    system = REFLECT_SYSTEM % util.today_iso()
     user = json.dumps(m_ops._public(profile), ensure_ascii=False, indent=1)
     try:
         content = core_llm.complete(system, user, 900)
@@ -171,7 +171,7 @@ def _carry_decay(entry: dict, source: dict | None) -> dict:
     """
     carried = dict(entry)
     carried[m_store.SEEN_FIELD] = (source or {}).get(m_store.SEEN_FIELD) or entry.get(m_store.SEEN_FIELD) \
-        or util._today_iso()
+        or util.today_iso()
     if render.is_stale(source or {}):
         carried[m_store.STALE_FIELD] = True
     else:
