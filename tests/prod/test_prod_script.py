@@ -260,3 +260,15 @@ def test_backup_excludes_both_search_indexes(tmp_path):
                            capture_output=True, text=True).stdout
     assert "settings.json" in names
     assert ".index" not in names
+
+
+@pytest.mark.parametrize("agent", ["asr", "backup", "remarkable"])
+def test_install_launchd_renders_the_checkout_paths_and_no_placeholder_survives(agent, tmp_path):
+    env = {**os.environ, "HOME": str(tmp_path)}
+    out = subprocess.run([os.path.join(ROOT, "scripts", "install_launchd.sh"), agent, "--dry-run"],
+                         capture_output=True, text=True, env=env, check=True).stdout
+    assert "__ROOT__" not in out and "__HOME__" not in out and "/Users/" not in out.replace(str(ROOT), "").replace(str(tmp_path), "")
+    assert f"<string>{ROOT}</string>" in out                  # WorkingDirectory is this checkout
+    if agent == "backup":
+        assert f"<string>{tmp_path}</string>" in out          # HOME for launchd's bare environment
+    assert not (tmp_path / "Library").exists()                 # --dry-run writes nothing

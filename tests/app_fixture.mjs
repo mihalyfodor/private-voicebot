@@ -271,9 +271,9 @@ const sandbox = {
     // PRD 41: the copy button's payload lands here
     clipboard: { writeText: (t) => { clipboardLog.push(t); return Promise.resolve(); } },
     // PRD 35: a stubbed position, handed over synchronously on request
-    geolocation: { getCurrentPosition: (ok) => ok({ coords: { latitude: 46.7712, longitude: 23.6236 } }) },
+    geolocation: { getCurrentPosition: (ok) => ok({ coords: { latitude: 21.3069, longitude: -157.8583 } }) },
   },
-  Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: 'Europe/Bucharest' }) }) },
+  Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: 'Pacific/Honolulu' }) }) },
   location: { host: '127.0.0.1:8010' },
   console,
   atob, btoa, Uint8Array, Promise, JSON, Math, Object, Array, Number, String, Set, Map, Error, Date,
@@ -683,7 +683,7 @@ if (socket.onopen) socket.onopen();                       // the stub never fire
 results.history_after_open = t.historyLines().length + t.cards().length;   // a (re)connect replays the conversation: the page starts empty
 results.location_sent = socket.sent.filter(m => m.action === 'set_location');
 socket.sent.length = 0;
-t.recv({ type: 'setting', key: 'location', value: { lat: 46.771, lon: 23.624, tz: 'Europe/Bucharest', source: 'browser', name: 'Cluj-Napoca, Romania' } });
+t.recv({ type: 'setting', key: 'location', value: { lat: 21.307, lon: -157.858, tz: 'Pacific/Honolulu', source: 'browser', name: 'Honolulu, United States' } });
 results.location_shown = doc.getElementById('settings-location').textContent;
 
 // ---- PRD 32: the recall threshold field round-trips through set_setting

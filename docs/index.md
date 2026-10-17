@@ -12,8 +12,8 @@ python3 chatbot.py    # opens http://localhost:8011 automatically
 
 ```bash
 # one-time: host ASR service (launchd), then move the state into ~/.voicebot/data — see docs/deploy.md
-cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
-cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist   # daily 03:30 backup
+scripts/install_launchd.sh asr
+scripts/install_launchd.sh backup   # daily 03:30 backup
 scripts/prod.sh migrate
 # every release
 scripts/prod.sh build && scripts/prod.sh up     # http://localhost:8010, read-only container, state under /data
@@ -187,6 +187,7 @@ voicebot/
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
 │   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
 │   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API (password from .env, else the one saved in Settings)
+│   ├── install_launchd.sh      # renders a launchd template (__ROOT__/__HOME__ → this checkout) into ~/Library/LaunchAgents and loads it
 │   └── launchd/com.voicebot.asr.plist, com.voicebot.backup.plist, com.voicebot.remarkable.plist   # LaunchAgents: asr_server.py, daily prod.sh backup, remarkable_server.py
 ├── static/
 │   ├── index.html      # browser UI: icon rail, companion column (avatar/history/composer), workspace views (Chat / Memory / Wiki editor / Sources / Settings), intake popup, command palette
@@ -307,7 +308,7 @@ voicebot/
     ├── roadmap.md              # ordered next steps (PRDs 44–46, backlog, dropped ideas)
     ├── protocol.md             # WS protocol reference: every client action and server message type (tests/test_protocol_doc.py keeps it in sync)
     ├── reviews/                # dated read-only review notes (architecture, developer experience, 2026-10-16 design questions for PRDs 47b/50–55)
-    ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, obsidian-host/, wanko-motions.md
+    ├── prototypes/             # Phase 1 clickables and sketches: sidebar/, wanko-motions.md (the PRD 21 obsidian-host spike was deleted 2026-10-17)
     ├── 01-voicebot.md           # PRD: initial voicebot (done)
     ├── 02-llm-robustness-tests.md  # PRD: LLM tool-trigger robustness tests (done)
     ├── 03-email-classification.md  # PRD: Gmail triage workflow (done)

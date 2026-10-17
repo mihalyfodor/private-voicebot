@@ -20,9 +20,9 @@ weather tool reads it. `.env` stays as the fallback and the Settings view shows 
   `location: {lat, lon, tz, source: "browser"}`; replies `setting {key: "location", value}`; `/api/config` exposes
   `location` (resolved: browser or env, with `source`).
 - `tools/weather.py`: `location()` → settings.json `location` if present, else `LOCATION_*` env (source `env`),
-  else the built-in default; `run` uses it and names the place when a name is known ("in Cluj") or says "at your
+  else the built-in default; `run` uses it and names the place when a name is known ("in Honolulu") or says "at your
   location"; the tool description no longer bakes a place name in at import.
-- Settings view: a "Location" row under Tools: `46.770, 23.590 · Europe/Bucharest · from browser` (or env/default).
+- Settings view: a "Location" row under Tools: `21.307, -157.858 · Pacific/Honolulu · from browser` (or env/default).
 
 ### Decisions
 - Browser geolocation over IP lookup: no third-party call, one permission prompt, works offline.
@@ -56,7 +56,7 @@ know"). Now `set_location` reverse-geocodes once and the place name reaches the 
 - `location()`: `LOCATION_NAME` from `.env` still wins when set; otherwise the stored `name`.
 - `llm.py`: the system prompt gets one line `The user is in <name> (timezone <tz>, local time <HH:MM>).` built at
   prompt build/refresh time; omitted when no name is known. The weather tool keeps saying "in <name>".
-- Settings row: `Cluj-Napoca, Romania · 46.771, 23.624 · Europe/Bucharest · from browser`; `/api/config.location`
+- Settings row: `Honolulu, United States · 21.307, -157.858 · Pacific/Honolulu · from browser`; `/api/config.location`
   carries `name`.
 
 ### Test scenarios
@@ -65,9 +65,9 @@ know"). Now `set_location` reverse-geocodes once and the place name reaches the 
 6. `set_location` with a mocked geocoder stores `name`; sending nearly the same coordinates again (< 0.01°) does
    not call the geocoder and keeps the name; moving > 0.01° geocodes again; a failing geocoder saves the
    coordinates with `name: ""` and still replies `setting`.
-7. After `set_location` + `refresh_context` the system prompt contains `The user is in Cluj-Napoca, Romania
-   (timezone Europe/Bucharest, local time HH:MM)`; with no location the line is absent.
-8. The weather text says "in Cluj-Napoca, Romania" when the stored name is set and `.env` has none.
+7. After `set_location` + `refresh_context` the system prompt contains `The user is in Honolulu, United States
+   (timezone Pacific/Honolulu, local time HH:MM)`; with no location the line is absent.
+8. The weather text says "in Honolulu, United States" when the stored name is set and `.env` has none.
 9. Fixture: the Settings row renders the name in front of the coordinates.
 10. Host policy: `nominatim.openstreetmap.org` is in `ALLOWED_HOSTS` and the weather module declares it.
-11. Live (`-m live`): Nominatim for 46.771, 23.624 returns a name containing "Cluj".
+11. Live (`-m live`): Nominatim for 21.307, -157.858 returns a name containing "Honolulu".

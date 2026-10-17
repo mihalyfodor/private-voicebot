@@ -188,7 +188,7 @@ Housekeeping backlog (audit 2026-10-17):
 - README stale: memory section, no vault / Docker / `check.sh` / layout
 - FastAPI lifespan migration: two `on_event` sites (`server/app.py:40`, `:54`); run the shutdown save via `asyncio.to_thread`
 - Pin docker requirements: `requirements-docker.lock` from a known-good build (dev is py3.14, the image py3.12)
-- Host launchd plists hardcode the dev checkout path: keep the checkout on `main`, or use a separate clone
+- Host launchd jobs (asr, backup, remarkable) run from the dev checkout (templates render its path via scripts/install_launchd.sh): keep the checkout on `main`, or install from a separate clone
 - Backup only triggers on a new vault HEAD: memory / settings changes alone are skipped
 - Five cross-test fixture imports to move into `conftest.py` (`tests/prod/test_prod_script.py:11`, `tests/ingest/test_office_formats.py:28`,
   `tests/ingest/test_sources_inbox.py:22`, `tests/server/test_remarkable_push.py:16`, `tests/e2e/test_sources.py:150`), so the F811 ignore

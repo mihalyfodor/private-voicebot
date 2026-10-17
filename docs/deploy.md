@@ -25,12 +25,9 @@ through `host.docker.internal` (oMLX `:8000`, ASR `:8020`).
 
 ```bash
 # 1. host services (Apple-only pieces): oMLX on :8000 as today, plus the ASR service
-cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/   # edit the paths if the checkout moved
-launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
-cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/   # daily 03:30 backup
-launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist
-cp scripts/launchd/com.voicebot.remarkable.plist ~/Library/LaunchAgents/   # optional: push cards to the reMarkable (:8021)
-launchctl load ~/Library/LaunchAgents/com.voicebot.remarkable.plist
+scripts/install_launchd.sh asr          # renders scripts/launchd/com.voicebot.asr.plist with this checkout's paths, copies + loads it
+scripts/install_launchd.sh backup       # daily 03:30 backup
+scripts/install_launchd.sh remarkable   # optional: push cards to the reMarkable (:8021); re-run any of these if the checkout moves
 # then add REMARKABLE_PUSH_URL=http://host.docker.internal:8021 to $DATA/.env (unset = the push feature is off)
 curl -s localhost:8020/health                                        # {"ok":true,...}
 

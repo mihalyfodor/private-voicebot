@@ -1,9 +1,0 @@
-{
-  "id": "voicebot-spike",
-  "name": "Voicebot Spike",
-  "version": "0.0.1",
-  "minAppVersion": "1.5.0",
-  "description": "Throwaway spike plugin to answer docs/21-obsidian-host.md spike questions: iframe mic/AEC/TTS behaviour and python child-process lifecycle. Not a product feature.",
-  "author": "spike",
-  "isDesktopOnly": true
-}
