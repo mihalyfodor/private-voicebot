@@ -27,8 +27,10 @@ os.environ.setdefault("WIKI_PATH", os.path.join(tempfile.gettempdir(), f"retriev
 import numpy as np          # noqa: E402
 import requests             # noqa: E402
 
-import index_db             # noqa: E402
+from vault import index_db
 import wiki                 # noqa: E402
+from vault import search
+from vault import store
 
 QUESTIONS = os.path.join(ROOT, "eval", "retrieval_questions.json")
 EMBED_URL = "http://127.0.0.1:8082"
@@ -119,7 +121,7 @@ class Corpus:
 
     def __init__(self, name: str, path: str):
         self.name, self.path = name, path
-        wiki.WIKI_PATH = path
+        store.WIKI_PATH = path
         index_db.close()
         idx = wiki._chunk_index()
         meta = idx.chunk_meta() if idx else {}
@@ -131,7 +133,7 @@ class Corpus:
         self.matrix = None
 
     def activate(self) -> None:
-        wiki.WIKI_PATH = self.path
+        store.WIKI_PATH = self.path
 
 
 # --------------------------------------------------------------------------- ranking, fusion, gate
@@ -191,7 +193,7 @@ class Query:
         if hit is not None:
             return {"raw": raw, "n": n, "score": hit["score"], "matched": hit["matched"], "phrases": hit["phrases"],
                     "named": hit.get("named", False), "cos": cos}
-        tokens = wiki._tokenise(self.corpus.rows[self.corpus.at[(raw, n)]][2])
+        tokens = search._tokenise(self.corpus.rows[self.corpus.at[(raw, n)]][2])
         adjacent = set(zip(tokens, tokens[1:]))
         return {"raw": raw, "n": n, "score": None, "matched": sorted(self.topic & set(tokens)),
                 "phrases": [p for p in self.pairs if tuple(p) in adjacent], "named": False, "cos": cos}

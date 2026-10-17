@@ -1,9 +1,11 @@
 """PRD 54 — the vault map (docs/54-vault-map-research.md, scenarios 1, 2 and 4)."""
 from datetime import date
 
-import index_db
+from vault import index_db
 import memory
 import wiki
+from vault import index as v_index
+from vault import store
 from tests.perf.make_vault import make_vault
 
 TODAY = date(2026, 10, 16)
@@ -78,7 +80,7 @@ def test_the_map_names_zephyr_and_every_folder_where_the_alphabetical_cut_does_n
     path = wiki.WIKI_PATH + "-generated"
     made = make_vault(path, pages=320, sources_n=0, seed=3)
     assert made["pages"] == 320
-    saved, wiki.WIKI_PATH = wiki.WIKI_PATH, path
+    saved, store.WIKI_PATH = wiki.WIKI_PATH, path
     try:
         page("projects/zephyr", "Zephyr", "project", "the Zephyr budget", "2026-10-16", ["money"])
         for i in range(5):                                    # five pages link it
@@ -92,7 +94,7 @@ def test_the_map_names_zephyr_and_every_folder_where_the_alphabetical_cut_does_n
         cut = wiki.index_text(600)
         assert "projects/zephyr" not in cut                   # z sorts last: the alphabetical cut hides it
     finally:
-        wiki.WIKI_PATH = saved
+        store.WIKI_PATH = saved
         index_db.close()
 
 
@@ -105,7 +107,7 @@ def test_writing_one_page_rereads_only_its_row_and_the_map_follows(vault, monkey
     puts, reads = [], []
     real_put, real_read = index_db.Index.put_page, wiki._read
     monkeypatch.setattr(index_db.Index, "put_page", lambda self, rel, *a: (puts.append(rel), real_put(self, rel, *a)))
-    monkeypatch.setattr(wiki, "_read", lambda rel: (reads.append(rel), real_read(rel))[1])
+    monkeypatch.setattr(store, "_read", lambda rel: (reads.append(rel), real_read(rel))[1])
 
     page("projects/zephyr", "Zephyr", "project", "budget approved", "2026-10-16", ["work", "money"])
     got = wiki.vault_map(600, today=TODAY)
@@ -165,7 +167,7 @@ def test_three_typed_turns_never_build_the_map(vault, monkeypatch, fresh_llm):
     twelve_pages()
     calls = []
     real = wiki.vault_map
-    monkeypatch.setattr(wiki, "vault_map", lambda *a, **kw: (calls.append(1), real(*a, **kw))[1])
+    monkeypatch.setattr(v_index, "vault_map", lambda *a, **kw: (calls.append(1), real(*a, **kw))[1])
     for text in ("hello there", "how are you", "tell me a joke"):
         typed(text)
     assert calls == []

@@ -11,6 +11,8 @@ from core import settings
 from core import trace
 from core import llm as core_llm
 import wiki
+from vault import search as v_search
+from vault import store as v_store
 from splitter import EMOTIONS, strip_tag
 from tools import registry
 from tools import weather as _weather
@@ -564,7 +566,7 @@ def focus_block(question: str) -> str:
         return ""
     title = wiki.page_title(path)
     _turn_pages.append(title)
-    head, sections = wiki.split_sections(wiki.parse_page(text)[1])
+    head, sections = wiki.split_sections(v_store.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     if summary:
@@ -1036,7 +1038,7 @@ def _page_recall(question: str, terms: set) -> dict | None:
     is the head + Summary + best-matching section within RECALL_PAGE_TOKENS (PRD 42 §3)."""
     if terms & COMMAND_WORDS:
         return None
-    hits = [h for h in wiki.search(question, 2) if not h["path"].startswith("sources/")]
+    hits = [h for h in v_search.search(question, 2) if not h["path"].startswith("sources/")]
     if not hits:
         return None
     path = hits[0]["path"]
@@ -1047,7 +1049,7 @@ def _page_recall(question: str, terms: set) -> dict | None:
     name_terms = wiki.content_terms(title) or wiki.content_terms(path.rsplit("/", 1)[-1])
     if not name_terms or not name_terms <= terms:
         return None
-    head, sections = wiki.split_sections(wiki.parse_page(text)[1])
+    head, sections = wiki.split_sections(v_store.parse_page(text)[1])
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     section = wiki.best_section([s for s in sections if s is not summary], question)
     body = "\n\n".join(p for p in (head, summary, section) if p)

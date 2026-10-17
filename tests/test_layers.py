@@ -4,7 +4,7 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAYERS = ("core", "vault", "memory", "ingest", "tools", "agent", "server")   # bottom -> top; "root" sits above all
-SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import"}    # root modules that only re-export a new home; app code may not import them
+SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db"}    # root modules that only re-export a new home; app code may not import them
 SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "__pycache__", "logs", "characters"}
 
 # (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
@@ -17,8 +17,12 @@ ALLOWED = {
     ("ingest/notebooks.py", "memory"),
     ("ingest/notebooks.py", "remarkable"),
     ("ingest/batch.py", "memory"),
-    ("ingest/batch.py", "wiki"),
-    ("vault/manifest.py", "wiki"),
+    # step 6: vault/ modules still import root memory (step 8) and the half of wiki.py that moves in step 7
+    ("vault/store.py", "memory"),
+    ("vault/index.py", "memory"),
+    ("vault/pages.py", "memory"),
+    ("vault/search.py", "memory"),
+    ("vault/search.py", "wiki"),
 }
 
 

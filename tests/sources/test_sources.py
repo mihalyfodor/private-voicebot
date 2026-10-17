@@ -16,6 +16,7 @@ import memory
 import notebooks
 import sources
 import wiki
+from vault import store
 from tests.conftest import (SENTINEL, FakeClient, commits, notebook_pages, pdf_bytes, png_bytes, read, trace_lines,  # noqa: F401 — fixture
                             trace_text, vault, write_page)
 from core import llm as core_llm
@@ -620,7 +621,7 @@ def test_the_page_ops_prompt_lists_a_page_the_index_cut(vault, monkeypatch):
         write_page(f"people/p{i}", f"Person number {i}", "\n## Summary\na colleague of the user\n")
     write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr rollout.\n")
     wiki.rebuild_index()
-    monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
+    monkeypatch.setattr(store, "WIKI_INDEX_TOKENS", 40)
     client = FakeClient("[]")
 
     monkeypatch.setattr(core_llm, "_client", client)
@@ -1047,7 +1048,7 @@ def test_a_remarkable_pull_is_one_run_whose_page_lists_each_notebook(http, monke
 
 def test_an_ingest_whose_commit_was_a_no_op_records_no_commit(vault, monkeypatch):
     """PRD 51 review: `ingest_end.commit` only when HEAD moved — a silent no-op commit is not attributed."""
-    monkeypatch.setattr(wiki, "_commit", lambda message: None)
+    monkeypatch.setattr(store, "_commit", lambda message: None)
     monkeypatch.setattr(core_llm, "_client", FakeClient(SUMMARY, "[]"))
     sources.ingest_note("Falcon is amber.", title="Falcon status")
     (end,) = trace_lines(kind="ingest_end")

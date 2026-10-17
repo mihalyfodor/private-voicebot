@@ -23,13 +23,14 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
-import index_db
+from vault import index_db
 import llm
 import memory
 import sources
 from core import llm as core_llm
 from core import settings, trace
 import wiki
+from vault import store
 from tools import gmail as gmail_tool
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -43,7 +44,7 @@ def wiki_sandbox(monkeypatch, tmp_path):
     wiki pays nothing for this.
     """
     vault = tmp_path / "wiki"
-    monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
+    monkeypatch.setattr(store, "WIKI_PATH", str(vault))
     yield vault
     index_db.close()           # the search index (PRD 53) is per vault: no handle outlives its test
 

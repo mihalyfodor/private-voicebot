@@ -14,6 +14,7 @@ import pytest
 from core import settings
 import llm
 import wiki
+from vault import store
 from tests.conftest import ask_turn, deltas, fallout, last_user, trace_lines  # noqa: F401  (fixtures)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
@@ -52,7 +53,7 @@ def test_the_band_table_over_the_dev_vault(monkeypatch, tmp_path):
         pytest.skip("no ~/llm-wiki-dev")
     vault = tmp_path / "dev"
     shutil.copytree(DEV_VAULT, vault, ignore=shutil.ignore_patterns(".git"))
-    monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
+    monkeypatch.setattr(store, "WIKI_PATH", str(vault))
     rows, wrong = [], []
     battery = [(q, "high") for sid, q in _battery_questions() if llm.recall_for(q)]
     for question, want in BAND_TABLE + battery:

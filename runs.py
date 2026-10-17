@@ -159,9 +159,9 @@ def commit_line(sha: str) -> tuple:
     ("", "") for a bad sha or a commit git does not know."""
     if not SHA.fullmatch(str(sha or "")):
         return "", ""
-    import wiki
+    from vault import store
 
-    result = wiki._git("show", "--stat", "--format=%h %s", sha, quiet=True)
+    result = store._git("show", "--stat", "--format=%h %s", sha, quiet=True)
     if result is None or result.returncode != 0:
         return "", ""
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]

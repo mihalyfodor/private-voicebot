@@ -24,6 +24,9 @@ import remarkable
 import research
 import runs
 import wiki
+from vault import pages as v_pages
+from vault import search as v_search
+from vault import store as v_store
 import splitter
 from core import formats
 from vault import manifest
@@ -157,8 +160,8 @@ def _memory_msg(profile: dict) -> dict:
 
 def _wiki_msg() -> dict:
     """The `wiki` message the Wiki tab re-renders itself from: page list + lint + vault path."""
-    wiki.ensure_vault()   # opening the tab is the first use that may create the vault
-    return {"type": "wiki", "pages": wiki.pages(), "lint": wiki.lint(), "vault": wiki.WIKI_PATH}
+    v_store.ensure_vault()   # opening the tab is the first use that may create the vault
+    return {"type": "wiki", "pages": wiki.pages(), "lint": wiki.lint(), "vault": v_store.WIKI_PATH}
 
 
 def _wiki_page_msg(path: str) -> dict:
@@ -168,7 +171,7 @@ def _wiki_page_msg(path: str) -> dict:
         return {"type": "wiki_page", "path": path, "text": f"no such page: {path}",
                 "links": [], "etag": "", "backlinks": []}
     return {"type": "wiki_page", "path": path, "text": text, "links": wiki.links_in(text),
-            "etag": wiki.etag(text), "backlinks": wiki.backlinks(path)}
+            "etag": v_store.etag(text), "backlinks": v_search.backlinks(path)}
 
 
 def _panel_sender():
@@ -233,7 +236,7 @@ def _memory_failed(exc: BaseException) -> None:
 def _periodic_memory(count: int) -> None:
     """Every N completed turns (on the controller's hook thread, not the turn worker): fold
     the session into the memory profile (memory.json)."""
-    filed = wiki.applied_count()
+    filed = v_pages.applied_count()
     _push_saving(True)
     try:
         llm.save_memory()
@@ -243,7 +246,7 @@ def _periodic_memory(count: int) -> None:
         _push_saving(False)
     # an open panel refreshes itself after a background save; the Wiki tab only when the
     # save actually filed something, so a quiet session costs no extra traffic.
-    push_memory(with_wiki=wiki.applied_count() != filed)
+    push_memory(with_wiki=v_pages.applied_count() != filed)
 
 
 controller = TurnController(on_turn_complete=_periodic_memory)
@@ -505,7 +508,7 @@ def card_update(card: dict, **extra) -> dict:
 def card_path(card: dict, folder: str = "") -> str:
     """`notes/<date>-<slug(title)>` (or the folder given): the page a saved card becomes."""
     folder = str(folder or "").strip().strip("/") or DEFAULT_CARD_FOLDER
-    return f"{folder}/{memory._today_iso()}-{wiki.slugify(card['title'])[:60]}"
+    return f"{folder}/{memory._today_iso()}-{v_store.slugify(card['title'])[:60]}"
 
 
 def save_card(card_id: str | None, folder: str = "") -> list:
@@ -519,7 +522,7 @@ def save_card(card_id: str | None, folder: str = "") -> list:
     markdown, run_id = card["markdown"], ""
     if card.get("workflow") == "research":            # PRD 54: the run in frontmatter, the dropped quotes stay out
         markdown, run_id = research.saved_markdown(markdown), card.get("run_id", "")
-    path, reason = wiki.save_card(card_path(card, folder), card["title"], markdown, card["sources"], run_id)
+    path, reason = v_pages.save_card(card_path(card, folder), card["title"], markdown, card["sources"], run_id)
     if reason:
         raise ValueError(reason)
     card["saved"] = path
@@ -813,7 +816,7 @@ def open_page(ctx: Ctx) -> str:
     if kind == "back":
         path, query = llm.last_page, "the last page"
     else:
-        hits = wiki.search(query, 1)
+        hits = v_search.search(query, 1)
         path = hits[0]["path"] if hits else None
     if not path:
         return llm.NO_MATCH_NOTE.format(query=query)
@@ -959,7 +962,7 @@ async def _on_startup():
     """The search index's consistency check (docs/53-scalable-index.md): an edit made while the app
     was down, or a write that missed its hook, is repaired before the first turn."""
     try:
-        repaired = wiki.startup_check()
+        repaired = v_search.startup_check()
     except Exception as e:      # noqa: BLE001 — the app still starts; search repairs on its next open
         log.exception("search index check failed")
         trace.error("index", "startup_check", e, fatal_for="none")
@@ -1013,7 +1016,7 @@ async def api_config():
         "calendar_horizon_days": formats.calendar_horizon_days(),
         "recall_min_score": wiki.recall_min_score(),
         "location": weather_tool.location(),
-        "vault": wiki.WIKI_PATH,
+        "vault": v_store.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,
         # the last service probe (PRD 41); {} plus the hint before the first one
         "services": services.message(),
@@ -1343,10 +1346,10 @@ async def _save_session_memory() -> None:
     The Wiki tab is only refreshed when the save actually filed pages — same rule as the
     periodic save in `_periodic_memory`.
     """
-    filed = wiki.applied_count()
+    filed = v_pages.applied_count()
     await asyncio.to_thread(_ingest_now)
     await send(_memory_msg(await asyncio.to_thread(memory.load_profile)))
-    if wiki.applied_count() != filed:
+    if v_pages.applied_count() != filed:
         await _send_wiki()
 
 
@@ -1482,7 +1485,7 @@ async def _action_wiki_note(sess, msg, loop):
     path = str(msg.get("path") or "")
     op = {"op": "append_note", "path": path, "text": msg.get("text"),
           "source": f"user note {memory._today_iso()}"}
-    applied, rejected = await asyncio.to_thread(wiki.apply_page_ops, [op], op["source"])
+    applied, rejected = await asyncio.to_thread(v_pages.apply_page_ops, [op], op["source"])
     if not applied:
         reason = rejected[0]["reason"] if rejected else "nothing to add"
         await _error("wiki", reason)
@@ -1505,7 +1508,7 @@ async def _wiki_user_op(fn, *args, reply_path=None):
 async def _action_wiki_save(sess, msg, loop):
     """⌘S: `{path, text, etag}` → `wiki_page` (new etag) + `wiki`, or `wiki_conflict` on a stale etag."""
     path = str(msg.get("path") or "")
-    result, reason = await asyncio.to_thread(wiki.save_page, path, msg.get("text"), msg.get("etag"))
+    result, reason = await asyncio.to_thread(v_pages.save_page, path, msg.get("text"), msg.get("etag"))
     if reason:
         await _error("wiki", reason)
     elif result.get("conflict"):
@@ -1517,24 +1520,24 @@ async def _action_wiki_save(sess, msg, loop):
 
 async def _action_wiki_create(sess, msg, loop):
     """A missing link, "Today" or "New page": `{path}` → the new page + list."""
-    await _wiki_user_op(wiki.create_page, str(msg.get("path") or ""), reply_path=lambda p: p)
+    await _wiki_user_op(v_pages.create_page, str(msg.get("path") or ""), reply_path=lambda p: p)
 
 
 async def _action_wiki_rename(sess, msg, loop):
     """`{path, new_path}` → the moved page (links rewritten) + list."""
-    await _wiki_user_op(wiki.rename_page, str(msg.get("path") or ""), str(msg.get("new_path") or ""),
+    await _wiki_user_op(v_pages.rename_page, str(msg.get("path") or ""), str(msg.get("new_path") or ""),
                         reply_path=lambda r: r["path"])
 
 
 async def _action_wiki_delete(sess, msg, loop):
     """`{path}` → the list without it (lint names the links that broke)."""
-    await _wiki_user_op(wiki.delete_page, str(msg.get("path") or ""))
+    await _wiki_user_op(v_pages.delete_page, str(msg.get("path") or ""))
 
 
 async def _action_wiki_search(sess, msg, loop):
     """The list's search box: `{query}` → `{type: wiki_search, query, hits}` (BM25, same as the tool)."""
     query = str(msg.get("query") or "")
-    hits = await asyncio.to_thread(wiki.search, query, 20) if query.strip() else []
+    hits = await asyncio.to_thread(v_search.search, query, 20) if query.strip() else []
     await send({"type": "wiki_search", "query": query, "hits": hits})
 
 

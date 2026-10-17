@@ -18,6 +18,7 @@ from unittest.mock import patch
 
 import sources
 import wiki
+from vault import store
 from tests.conftest import fake_model
 
 SYLLABLES = ("ka", "lo", "mi", "ner", "sto", "pha", "dun", "rel", "vi", "gor", "tal", "shi", "bra", "en",
@@ -123,12 +124,12 @@ def _names(rng: random.Random, vocab: list, k: int) -> list:
 @contextlib.contextmanager
 def _vault(path: str):
     saved = wiki.WIKI_PATH
-    wiki.WIKI_PATH = str(path)
+    store.WIKI_PATH = str(path)
     try:
-        with patch.object(wiki, "_git", lambda *a, **kw: None):
+        with patch.object(store, "_git", lambda *a, **kw: None):
             yield
     finally:
-        wiki.WIKI_PATH = saved
+        store.WIKI_PATH = saved
 
 
 def make_vault(path, pages: int = 5000, sources_n: int = 1000, seed: int = 0, chunks: int = 15,

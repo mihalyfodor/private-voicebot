@@ -36,6 +36,10 @@ from core.untrusted import DOCUMENT_RULE, untrusted
 from core import vault_lock
 from vault.manifest import _manifest_append, _manifest_write, manifest_entries, manifest_find, sha256
 import wiki
+from vault import index as v_index
+from vault import pages as v_pages
+from vault import search as v_search
+from vault import store as v_store
 
 log = trace.logger("Sources")
 
@@ -155,7 +159,7 @@ def raw_text(raw_rel: str, data: bytes) -> str:
     if ext == ".eml":
         return eml_text(data)
     if ext == ".msg":
-        return msg_text(wiki._path(raw_rel))
+        return msg_text(v_store._path(raw_rel))
     if ext == ".docx":
         return docx_text(data)[0]
     if ext == ".pptx":
@@ -172,7 +176,7 @@ def raw_text(raw_rel: str, data: bytes) -> str:
 def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
     """The text (or image part) of a stored raw file — "" means "nothing extractable"."""
     ext = os.path.splitext(raw_rel)[1].lower()
-    full = wiki._path(raw_rel)
+    full = v_store._path(raw_rel)
     kind = kind or KINDS.get(ext, "txt")
     if ext in IMAGE_EXTS:
         _downscale(full)
@@ -195,7 +199,7 @@ def _free_path(folder: str, slug: str, ext: str) -> str:
     """`folder/slug.ext`, with `-2`, `-3`… when that name is taken by other bytes."""
     rel = f"{folder}/{slug}{ext}"
     n = 2
-    while os.path.exists(wiki._path(rel)):
+    while os.path.exists(v_store._path(rel)):
         rel = f"{folder}/{slug}-{n}{ext}"
         n += 1
     return rel
@@ -215,9 +219,9 @@ def _entity_line(entity: dict, user_names=()) -> str:
     etype = " ".join(str(entity.get("type") or "").split()).lower()
     folder = {"person": "people", "project": "projects"}.get(etype)
     if folder:
-        rel = f"{folder}/{wiki.slugify(name)}.md"
-        if wiki.page_exists(rel):
-            return f"- [[{wiki.wikilink(rel)}]] — {name} ({etype or 'entity'})"
+        rel = f"{folder}/{v_store.slugify(name)}.md"
+        if v_store.page_exists(rel):
+            return f"- [[{v_store.wikilink(rel)}]] — {name} ({etype or 'entity'})"
     return f"- {name} ({etype or 'entity'})"
 
 
@@ -237,7 +241,7 @@ def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest:
     fm = {"type": "source", "name": title, "tags": list(tags), "source": source,
           "updated": today, "seen": today,
           "kind": kind, "raw": raw_rel, "sha256": digest, **(extra or {})}
-    wiki._write(rel, wiki._page_text(fm, _source_body(title, summary, entities, fed, user_names)))
+    v_store._write(rel, v_store._page_text(fm, _source_body(title, summary, entities, fed, user_names)))
 
 
 # --- meetings (docs/31-office-formats.md) --------------------------------------------
@@ -245,7 +249,7 @@ def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest:
 
 def _attendee_link(name: str, user_names=()) -> str:
     """`people/<slug>` for a colleague, the literal "the user" for the profile owner."""
-    return "the user" if memory.is_user(name, user_names) else f"people/{wiki.slugify(name)}"
+    return "the user" if memory.is_user(name, user_names) else f"people/{v_store.slugify(name)}"
 
 
 def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees: list,
@@ -266,11 +270,11 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
           "updated": today, "seen": today, "date": date, "time": time,
           "attendees": f"[{', '.join(links)}]"}
     lines = [f"# {title}", "", "## Summary", summary.strip() or "(no summary)",
-             f"Source: [[{wiki.wikilink(source_rel)}]]", "", "## Decisions"]
+             f"Source: [[{v_store.wikilink(source_rel)}]]", "", "## Decisions"]
     lines += [f"- {d}" for d in decisions]
     lines += ["", "## Actions"] + [f"- {a}" for a in actions]
     lines += ["", "## Notes", ""]
-    wiki._write(rel, wiki._page_text(fm, "\n".join(lines)))
+    v_store._write(rel, v_store._page_text(fm, "\n".join(lines)))
 
 
 def _degraded(reason: str) -> None:
@@ -321,25 +325,25 @@ def _attendee_ops(meeting: dict, meeting_rel: str, user_names=()) -> list:
     Proposed exactly like the model's ops would be, so `restrict_ops` and the wiki validate
     them the same way — including "the user never gets a people page".
     """
-    link = f"[[{wiki.wikilink(meeting_rel)}]]"
+    link = f"[[{v_store.wikilink(meeting_rel)}]]"
     when = f"{meeting['title']}, {meeting['date']}"
     ops = []
     for name in meeting["attendees"]:
         if memory.is_user(name, user_names):
             continue
-        path = f"people/{wiki.slugify(name)}"
-        if not wiki.page_exists(f"{path}.md"):
+        path = f"people/{v_store.slugify(name)}"
+        if not v_store.page_exists(f"{path}.md"):
             ops.append({"op": "new_page", "path": path, "type": "person", "name": name,
                         "summary": f"Met in {when}."})
         ops.append({"op": "append_note", "path": path, "text": f"Attended {link} ({when})."})
     if meeting["project"]:
-        path = f"projects/{wiki.slugify(meeting['project'])}"
+        path = f"projects/{v_store.slugify(meeting['project'])}"
         what = meeting["decisions"][0] if meeting["decisions"] else meeting["summary"].split(". ")[0]
-        if not wiki.page_exists(f"{path}.md"):
+        if not v_store.page_exists(f"{path}.md"):
             ops.append({"op": "new_page", "path": path, "type": "project",
                         "name": meeting["project"], "summary": f"Discussed in {when}."})
         ops.append({"op": "append_note", "path": path,
-                    "text": f"{link} ({meeting['date']}): {what}"[:wiki.MAX_NOTE_CHARS]})
+                    "text": f"{link} ({meeting['date']}): {what}"[:v_store.MAX_NOTE_CHARS]})
     return ops
 
 
@@ -349,12 +353,12 @@ def _file_meeting(extracted, *, raw_rel: str, source_rel: str, title: str,
     meeting = meeting_from_transcript(extracted.text, title, names)
     if meeting is None:
         return "", []
-    rel = _free_path("meetings", f"{meeting['date']}-{wiki.slugify(meeting['title'])}", ".md")
+    rel = _free_path("meetings", f"{meeting['date']}-{v_store.slugify(meeting['title'])}", ".md")
     _write_meeting_page(rel, title=meeting["title"], date=meeting["date"], time="",
                         attendees=meeting["attendees"], source_rel=source_rel, raw_rel=raw_rel,
                         summary=meeting["summary"], decisions=meeting["decisions"],
                         actions=meeting["actions"], user_names=names)
-    return wiki.wikilink(rel), _attendee_ops(meeting, rel, names)
+    return v_store.wikilink(rel), _attendee_ops(meeting, rel, names)
 
 
 def _file_calendar(events: list, *, raw_rel: str, source_rel: str, names) -> tuple:
@@ -362,18 +366,18 @@ def _file_calendar(events: list, *, raw_rel: str, source_rel: str, names) -> tup
     a stub that already exists. ``(stubs written, ops for the existing ones)``."""
     written, ops = [], []
     for event in events:
-        rel = f"meetings/{event['date']}-{wiki.slugify(event['title'])}.md"
-        if wiki.wikilink(rel) in written:
+        rel = f"meetings/{event['date']}-{v_store.slugify(event['title'])}.md"
+        if v_store.wikilink(rel) in written:
             continue
-        if wiki.page_exists(rel):
-            ops.append({"op": "append_note", "path": wiki.wikilink(rel),
+        if v_store.page_exists(rel):
+            ops.append({"op": "append_note", "path": v_store.wikilink(rel),
                         "text": (f"updated invite: {event['time'] or 'all day'}, "
-                                 f"{len(event['attendees'])} attendees ([[{wiki.wikilink(source_rel)}]])")})
+                                 f"{len(event['attendees'])} attendees ([[{v_store.wikilink(source_rel)}]])")})
             continue
         _write_meeting_page(rel, title=event["title"], date=event["date"], time=event["time"],
                             attendees=event["attendees"], source_rel=source_rel, raw_rel=raw_rel,
                             summary=event["description"], user_names=names)
-        written.append(wiki.wikilink(rel))
+        written.append(v_store.wikilink(rel))
     return written, ops
 
 
@@ -434,8 +438,8 @@ def _author_page_reason(op: dict, people: list) -> str | None:
     op_kind = str(op.get("op") or "").strip().lower()
     if op_kind not in ("new_page", "append_note"):
         return None
-    rel = wiki.normalise_path(op.get("path"))
-    if rel is None or not rel.startswith("people/") or wiki.page_exists(rel):
+    rel = v_store.normalise_path(op.get("path"))
+    if rel is None or not rel.startswith("people/") or v_store.page_exists(rel):
         return None
     slug_name = os.path.basename(rel)[:-3].replace("-", " ")
     names = [" ".join(str(v or "").split()) for v in (op.get("name"), slug_name)]
@@ -446,13 +450,13 @@ def _author_page_reason(op: dict, people: list) -> str | None:
 
 
 def _target_allowed(path) -> str | None:
-    rel = wiki.normalise_path(path)
+    rel = v_store.normalise_path(path)
     if rel is None:
         return f"bad path {path!r}"
-    if wiki.page_exists(rel):
+    if v_store.page_exists(rel):
         return None
     if rel.split("/")[0] not in NEW_PAGE_FOLDERS:
-        return f"{wiki.wikilink(rel)} is not in the index and not a people/projects page"
+        return f"{v_store.wikilink(rel)} is not in the index and not a people/projects page"
     return None
 
 
@@ -528,13 +532,13 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
     For a published work (`kind` in PUBLISHED_KINDS) the prompt adds that authors and cited
     experts are not people pages.
     """
-    index = wiki.vault_map(wiki.WIKI_INDEX_TOKENS) or "(empty wiki)"
+    index = v_index.vault_map(v_store.WIKI_INDEX_TOKENS) or "(empty wiki)"
     entities = ", ".join(f"{e.get('name')} ({e.get('type')})" for e in summary.get("entities", []))
-    related = wiki.related_context(" ".join(
+    related = v_index.related_context(" ".join(
         [str(summary.get("title") or ""), str(summary.get("summary") or "")]
         + [str(e.get("name") or "") for e in summary.get("entities", [])]))
     parts = [f"Index:\n{index}"] + ([related] if related else [])
-    parts += [f"Source page: {wiki.wikilink(source_rel)}",
+    parts += [f"Source page: {v_store.wikilink(source_rel)}",
              f"Title: {summary.get('title')}",
              f"Summary:\n{untrusted(summary.get('summary'), summary.get('title'))}"]
     if entities:
@@ -566,7 +570,7 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
 
 
 def _store(raw_rel: str, data: bytes) -> None:
-    full = wiki._path(raw_rel)
+    full = v_store._path(raw_rel)
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with open(full, "wb") as f:
         f.write(data)
@@ -578,12 +582,12 @@ def _rename_generic_raw(raw_rel: str, title: str) -> str:
     the raw file now has (deduped like any other)."""
     folder, name = os.path.split(raw_rel)
     stem, ext = os.path.splitext(name)
-    slug = wiki.slugify(title)
+    slug = v_store.slugify(title)
     if not is_generic_title(stem) or is_generic_title(title) or not slug:
         return raw_rel
     date = _DROP_DATE.search(stem)
     new_rel = _free_path(folder, f"{date.group(1)}-{slug}" if date else slug, ext)
-    os.replace(wiki._path(raw_rel), wiki._path(new_rel))
+    os.replace(v_store._path(raw_rel), v_store._path(new_rel))
     return new_rel
 
 
@@ -655,15 +659,15 @@ def _file_page(summary: dict, extracted, *, raw_rel: str, source_rel: str,
     trace.verbose("ingest_text", summary=summary.get("summary", ""), ops=ops)
     if ops:
         kept, rejected = restrict_ops(ops, raw_rel, names, kind)
-        applied, more = wiki.apply_page_ops(kept, raw_rel, commit=False)
-        trace.mark(ops_rejected=wiki.log_rejected(rejected + more, log))
+        applied, more = v_pages.apply_page_ops(kept, raw_rel, commit=False)
+        trace.mark(ops_rejected=v_pages.log_rejected(rejected + more, log))
 
-    fed = sorted({wiki.wikilink(wiki.normalise_path(op["path"]))
+    fed = sorted({v_store.wikilink(v_store.normalise_path(op["path"]))
                   for op in applied if op.get("path")}
                  | {"decisions" for op in applied if op["op"] == "add_decision"}
                  | set(stubs) | ({meeting} if meeting else set()))
     write_page(fed, meeting)     # rewritten now that the ops are in, listing what it actually fed
-    trace.mark(ops_applied=len(applied), pages=[wiki.wikilink(source_rel)] + fed)
+    trace.mark(ops_applied=len(applied), pages=[v_store.wikilink(source_rel)] + fed)
     return fed
 
 
@@ -691,7 +695,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
     `<stem>/page-NN.png` and listed in the manifest — and `extra` manifest fields.
     """
     with vault_lock.LOCK:
-        wiki.ensure_vault()
+        v_store.ensure_vault()
         names = memory.user_names()
         digest = digest or sha256(data)
         seen = manifest_find(digest)
@@ -709,7 +713,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                                                 names, on_stage, strict, unreadable)
         except Exception:
             if strict:          # PRD 48: nothing but the stored original exists yet; drop just that file
-                os.remove(wiki._path(raw_rel))
+                os.remove(v_store._path(raw_rel))
             raise
         kind = extracted.kind
         page_title = title or summary.get("title") or stem
@@ -718,7 +722,7 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         for i, png in enumerate(pages or [], 1):
             page_rels.append(f"{os.path.splitext(raw_rel)[0]}/page-{i:02d}.png")
             _store(page_rels[-1], png)
-        source_rel = _free_path("sources", wiki.slugify(page_title), ".md")
+        source_rel = _free_path("sources", v_store.slugify(page_title), ".md")
         _stage(on_stage, "filing")
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
@@ -726,18 +730,18 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
                           "ingested_at": memory._stamp("%H:%M:%S"),
-                          "page": wiki.wikilink(source_rel), "pages_touched": fed,
+                          "page": v_store.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
         wiki.index_source(wiki.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
-        wiki.rebuild_index()
-        wiki._log([f"filed [[{wiki.wikilink(source_rel)}]] from {raw_rel}"
+        v_index.rebuild_index()
+        v_index._log([f"filed [[{v_store.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
         head = wiki.head_sha()
-        wiki._commit(f"wiki: filed {raw_rel}")
-        trace.mark(path=wiki.wikilink(source_rel), title=page_title)
+        v_store._commit(f"wiki: filed {raw_rel}")
+        trace.mark(path=v_store.wikilink(source_rel), title=page_title)
         if wiki.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
             trace.mark(commit=wiki.head_sha())
-        return {"path": wiki.wikilink(source_rel), "raw": raw_rel, "already": False,
+        return {"path": v_store.wikilink(source_rel), "raw": raw_rel, "already": False,
                 "degraded": trace.marked("_degraded")}
 
 
@@ -757,7 +761,7 @@ def _when(date: str, ingested_at: str) -> str:
 def _source_meta(entry: dict) -> dict:
     """One inbox row: the manifest line joined with its page's frontmatter."""
     page_rel = f"{entry.get('page', '')}.md"
-    fm = wiki.parse_page(wiki._read(page_rel))[0] if wiki.page_exists(page_rel) else {}
+    fm = v_store.parse_page(v_store._read(page_rel))[0] if v_store.page_exists(page_rel) else {}
     match = _DROP_DATE.search(str(fm.get("source") or ""))
     date = match.group(1) if match else str(fm.get("updated") or "")
     return {
@@ -794,13 +798,13 @@ def reingest(digest: str) -> dict:
         entry = _entry_or_raise(digest)
         raw_rel, source_rel = entry["path"], f"{entry['page']}.md"
         try:
-            with open(wiki._path(raw_rel), "rb") as f:
+            with open(v_store._path(raw_rel), "rb") as f:
                 data = f.read()
         except OSError as exc:
             raise IngestError(410, f"the raw file {raw_rel} is gone") from exc
         names = memory.user_names()
         kind = str(entry.get("kind") or KINDS.get(os.path.splitext(raw_rel)[1].lower()) or "txt")
-        old_fm = wiki.parse_page(wiki._read(source_rel))[0]
+        old_fm = v_store.parse_page(v_store._read(source_rel))[0]
         summary, extracted = _summarise_raw(raw_rel, data, kind, "", "", names)
         page_title = str(old_fm.get("name") or summary.get("title") or "")
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
@@ -812,10 +816,10 @@ def reingest(digest: str) -> dict:
         stamp = memory._stamp("%H:%M:%S")
         _manifest_write([{**e, "pages_touched": fed, "ingested_at": stamp}
                          if e.get("sha256") == digest else e for e in manifest_entries()])
-        wiki.rebuild_index()
-        wiki._log([f"re-ingested [[{entry['page']}]] from {raw_rel}"
+        v_index.rebuild_index()
+        v_index._log([f"re-ingested [[{entry['page']}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
-        wiki._commit(f"wiki: re-ingested {raw_rel}")
+        v_store._commit(f"wiki: re-ingested {raw_rel}")
         return {"path": entry["page"], "raw": raw_rel}
 
 
@@ -843,15 +847,15 @@ def _forget_targets(entry: dict) -> dict:
     raw_rel = entry["path"]
     cleaned = []
     for fed in entry.get("pages_touched") or []:
-        rel = wiki.normalise_path(fed)
-        if rel is None or not wiki.page_exists(rel) or rel in cleaned:
+        rel = v_store.normalise_path(fed)
+        if rel is None or not v_store.page_exists(rel) or rel in cleaned:
             continue
-        if f"(source: {raw_rel})" in (wiki._read(rel) or ""):
+        if f"(source: {raw_rel})" in (v_store._read(rel) or ""):
             cleaned.append(rel)
     files = set(entry.get("pages") or [])
     for folder in {os.path.dirname(rel) for rel in files}:          # a notebook's page folder, as it is now
-        if os.path.isdir(wiki._path(folder)):                        # its page images only: a stray file stays
-            files |= {f"{folder}/{name}" for name in os.listdir(wiki._path(folder)) if _PAGE_IMAGE.fullmatch(name)}
+        if os.path.isdir(v_store._path(folder)):                        # its page images only: a stray file stays
+            files |= {f"{folder}/{name}" for name in os.listdir(v_store._path(folder)) if _PAGE_IMAGE.fullmatch(name)}
     return {"page": entry["page"], "raw": raw_rel, "files": sorted(files),
             "cleaned": cleaned, "title": _source_meta(entry)["title"]}
 
@@ -863,7 +867,7 @@ CHANGED_STATUS = 409
 def _plan(digest: str, targets: dict) -> dict:
     """The proposal dict `forget_plan` returns (and `forget` compares with the approved one)."""
     return {"sha": digest, "title": targets["title"], "page": targets["page"], "raw": targets["raw"],
-            "images": targets["files"], "cleaned": [wiki.wikilink(rel) for rel in targets["cleaned"]],
+            "images": targets["files"], "cleaned": [v_store.wikilink(rel) for rel in targets["cleaned"]],
             "memory": memory.source_entries(targets["title"])}
 
 
@@ -886,23 +890,23 @@ def forget(digest: str, expected: dict | None = None) -> dict:
             raise IngestError(CHANGED_STATUS, "the source changed since the proposal")
         raw_rel, page = targets["raw"], targets["page"]
         for rel in targets["cleaned"]:
-            wiki._edit_page(rel, lambda body: _without_source_notes(body, raw_rel))
-        cleaned = [wiki.wikilink(rel) for rel in targets["cleaned"]]
+            v_store._edit_page(rel, lambda body: _without_source_notes(body, raw_rel))
+        cleaned = [v_store.wikilink(rel) for rel in targets["cleaned"]]
         for rel in (f"{page}.md", raw_rel, *targets["files"]):
-            wiki._git("rm", "-q", "-f", "--", rel, quiet=True)
-            if os.path.exists(wiki._path(rel)):
-                os.remove(wiki._path(rel))
-            wiki.unindex_page(rel)
+            v_store._git("rm", "-q", "-f", "--", rel, quiet=True)
+            if os.path.exists(v_store._path(rel)):
+                os.remove(v_store._path(rel))
+            v_search.unindex_page(rel)
         for folder in {os.path.dirname(rel) for rel in targets["files"]}:
-            if os.path.isdir(wiki._path(folder)) and not os.listdir(wiki._path(folder)):
-                os.rmdir(wiki._path(folder))
+            if os.path.isdir(v_store._path(folder)) and not os.listdir(v_store._path(folder)):
+                os.rmdir(v_store._path(folder))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
         wiki.unindex_source(digest)
         wiki.drop_raw_chunks(digest)
-        wiki.rebuild_index()
-        wiki._log([f"forgot [[{page}]] and {raw_rel}"
+        v_index.rebuild_index()
+        v_index._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])
-        wiki._commit(f"wiki: forgot {raw_rel}")
+        v_store._commit(f"wiki: forgot {raw_rel}")
         forgotten = memory.forget_source(targets["title"])
         return {"path": page, "raw": raw_rel, "cleaned": cleaned, "memory": forgotten}
 
@@ -910,7 +914,7 @@ def forget(digest: str, expected: dict | None = None) -> dict:
 def _dated(slug: str) -> str:
     """`<today>-<slug>`; a slug that already starts with a date loses it (no double date)."""
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)
-    return f"{memory._today_iso()}-{wiki.slugify(slug)}"
+    return f"{memory._today_iso()}-{v_store.slugify(slug)}"
 
 
 def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
@@ -982,7 +986,7 @@ def ingest_path(path: str, *, title: str = "", hint: str = "", page: str = "") -
 
 def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = "") -> dict:
     """A fetched email -> `raw/email/<id>.md` (headers block + body, already rendered)."""
-    ident = wiki.slugify(message_id) or _dated("email")
+    ident = v_store.slugify(message_id) or _dated("email")
     subject = next((line[len("Subject: "):] for line in markdown.splitlines()
                     if line.startswith("Subject: ")), "").strip()
     with trace.ingest("email", raw=f"raw/email/{ident}.md", bytes=len(markdown.encode())):
@@ -992,8 +996,8 @@ def ingest_email(message_id: str, markdown: str, *, hint: str = "", page: str = 
 
 def ingest_news(title: str, markdown: str, *, hint: str = "", page: str = "") -> dict:
     """A flagged news article -> `raw/news/<slug>.md`."""
-    with trace.ingest("news", raw=f"raw/news/{wiki.slugify(title)}.md", bytes=len(markdown.encode())):
-        return file_bytes(markdown.encode(), f"raw/news/{wiki.slugify(title)}.md", "news",
+    with trace.ingest("news", raw=f"raw/news/{v_store.slugify(title)}.md", bytes=len(markdown.encode())):
+        return file_bytes(markdown.encode(), f"raw/news/{v_store.slugify(title)}.md", "news",
                           title=title, hint=hint, page=page)
 
 

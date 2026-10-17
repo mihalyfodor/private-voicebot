@@ -612,8 +612,10 @@ def _wiki_block() -> str:
     """
     try:
         import wiki
+        from vault import index as v_index
+        from vault import store as v_store
 
-        index = wiki.vault_map(wiki.WIKI_INDEX_TOKENS)
+        index = v_index.vault_map(v_store.WIKI_INDEX_TOKENS)
         note = f"\n{WIKI_NOTE}" if wiki.tools_registered() else ""
     except Exception as exc:  # noqa: BLE001
         log.warning(f"warning: wiki index unavailable ({exc})")

@@ -17,6 +17,8 @@ import llm
 import memory
 import runs
 import wiki
+from vault import search as v_search
+from vault import store
 from core import llm as core_llm
 from core import trace
 from core.untrusted import DOCUMENT_RULE, untrusted
@@ -127,7 +129,7 @@ def search(subs: list) -> list:
     for i, sub in enumerate(subs):
         found = 0
         with trace.span("step", name="search") as span:
-            for h in wiki.search(sub["q"], PAGE_HITS, sub["filters"]):
+            for h in v_search.search(sub["q"], PAGE_HITS, sub["filters"]):
                 if h["path"] in seen:
                     continue
                 seen.add(h["path"])
@@ -230,7 +232,7 @@ def read(budget: Budget, hits: list) -> list:
                              "parts": _parts(h["source"], h["n"], text)})
         else:
             text = wiki.read_page(h["path"])
-            material.append({"label": h["title"], "text": wiki.parse_page(text)[1], "kind": "page",
+            material.append({"label": h["title"], "text": store.parse_page(text)[1], "kind": "page",
                              "path": h["path"], "title": h["title"]})
     return material
 

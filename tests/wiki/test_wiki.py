@@ -11,6 +11,7 @@ import pytest
 
 import memory
 import wiki
+from vault import store
 from core import llm as core_llm
 from tests.conftest import FakeClient, commits, log_ops, read, seed, write_page
 
@@ -327,7 +328,7 @@ def test_an_empty_vault_adds_no_block(vault, memory_sandbox):
 def test_the_index_block_is_trimmed_to_its_budget(vault, memory_sandbox, monkeypatch):
     wiki.apply_page_ops([a_page(f"people/p{i}", f"Person number {i}", "a colleague of the user")
                          for i in range(40)], "s")
-    monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 50)
+    monkeypatch.setattr(store, "WIKI_INDEX_TOKENS", 50)
     block = memory.load("BASE").split("<wiki_index>")[1].split("</wiki_index>")[0]
     assert memory.tokens_est(block) <= 50
 
@@ -477,7 +478,7 @@ def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
         write_page(f"people/p{i}", f"Person number {i}", "\n## Summary\na colleague of the user\n")
     write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr rollout.\n")
     wiki.rebuild_index()
-    monkeypatch.setattr(wiki, "WIKI_INDEX_TOKENS", 40)
+    monkeypatch.setattr(store, "WIKI_INDEX_TOKENS", 40)
     client = FakeClient("[]")
 
     monkeypatch.setattr(core_llm, "_client", client)

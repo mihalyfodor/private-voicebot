@@ -18,7 +18,8 @@ from core import formats
 from vault import manifest
 from ingest import pipeline
 from core import trace
-import wiki
+from vault import search
+from vault import store
 
 BATCH_LOG = "batch.log"
 _sleep = time.sleep
@@ -62,8 +63,8 @@ def _refusal(folder: str, exts: set) -> str:
         return f"not a folder: {folder}"
     if not exts or not exts <= set(pipeline.KINDS):
         return f"unknown --kinds {','.join(sorted(exts))}"
-    if os.path.isdir(os.path.join(wiki.WIKI_PATH, ".git")):
-        done = subprocess.run(["git", "status", "--porcelain"], cwd=wiki.WIKI_PATH,
+    if os.path.isdir(os.path.join(store.WIKI_PATH, ".git")):
+        done = subprocess.run(["git", "status", "--porcelain"], cwd=store.WIKI_PATH,
                               capture_output=True, text=True)
         dirty = [line for line in done.stdout.splitlines() if line.strip()]
         if dirty:
@@ -173,7 +174,7 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool) -> dict:
         res = pipeline.ingest_upload(data, os.path.basename(rel), hint=os.path.dirname(rel),
                                     source=f"batch import {memory._today_iso()}", strict=True)
         entry = manifest.manifest_find(digest) or {}
-        fm, _ = wiki.parse_page((wiki._read(res["path"] + ".md") or ""))
+        fm, _ = store.parse_page((store._read(res["path"] + ".md") or ""))
         return {"state": "filed", "sha256": digest, "page": res["path"],
                 "title": fm.get("name", ""), "pages_touched": len(entry.get("pages_touched") or [])}
     except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch
@@ -194,20 +195,20 @@ def ingest_batch(folder: str, *, kinds=("pdf", "docx"), resume: bool = False, dr
     """
     exts = {"." + k.strip().lower().lstrip(".") for k in kinds if k.strip()}
     counts = dict.fromkeys(_STATES, 0)
-    out(f"vault {wiki.WIKI_PATH}")
+    out(f"vault {store.WIKI_PATH}")
     if refuse := _refusal(folder, exts):
         out(refuse)
         return {**counts, "exit": 2, "seconds": 0}
 
     if not dry_run:
-        wiki.startup_check()               # PRD 53: the index matches the vault before anything is filed
+        search.startup_check()               # PRD 53: the index matches the vault before anything is filed
     files = _walk(folder)
     log = os.path.join(folder, BATCH_LOG)
     last = _last_states(log) if resume else {}
     started = time.time()
     out(f"{len(files)} files" + (" · dry run" if dry_run else ""))
     if not dry_run:
-        _log(log, {"run": _now(), "started": started, "vault": wiki.WIKI_PATH,
+        _log(log, {"run": _now(), "started": started, "vault": store.WIKI_PATH,
                    "args": {"folder": folder, "kinds": sorted(exts), "resume": resume,
                             "limit": limit, "sleep": sleep}})
     run_id = None if dry_run else time.strftime("batch-%Y%m%d-%H%M%S")      # its run page (PRD 51)

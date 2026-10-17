@@ -1,5 +1,6 @@
 """Wiki recall tools: the model's only way into the vault (docs/19-wiki-layer.md)."""
 import wiki
+from vault import search as v_search
 from core.untrusted import untrusted
 
 #: the vault only (docs/33-untrusted-text.md read-only policy)
@@ -82,7 +83,7 @@ def run_search(args):
     query = str((args or {}).get("query") or "").strip()
     if not query:
         return "no query given"
-    hits = wiki.search(query, k=5)
+    hits = v_search.search(query, k=5)
     chunks = wiki.search_chunks(query, k=3)
     if not hits and not chunks:
         return "no matching wiki pages"

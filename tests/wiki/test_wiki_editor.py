@@ -13,6 +13,7 @@ import pytest
 import memory
 from core import vault_lock
 import wiki
+from vault import store
 from tests.conftest import commits, read
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -347,7 +348,7 @@ def held(monkeypatch):
     lock, seen = RecordingLock(), []
     real = wiki._write
     monkeypatch.setattr(vault_lock, "LOCK", lock)
-    monkeypatch.setattr(wiki, "_write", lambda rel, text: (seen.append(lock.depth > 0), real(rel, text))[1])
+    monkeypatch.setattr(store, "_write", lambda rel, text: (seen.append(lock.depth > 0), real(rel, text))[1])
     return seen
 
 

@@ -11,9 +11,11 @@ import re
 
 import pytest
 
-import index_db
+from vault import index_db
 import sources
 import wiki
+from vault import search as v_search
+from vault import store
 from tests.conftest import ROOT, commits, file_faq, read, trace_lines
 from ingest import batch as ingest_batch
 
@@ -99,10 +101,10 @@ def test_search_and_search_chunks_match_the_recorded_golden(both):
 def test_index_text_matches_the_recorded_golden(both, monkeypatch):
     reads = []
     real_read = wiki._read
-    monkeypatch.setattr(wiki, "_read", lambda rel: reads.append(rel) or real_read(rel))
+    monkeypatch.setattr(store, "_read", lambda rel: reads.append(rel) or real_read(rel))
     got = _undated(wiki.index_text())
     assert reads == []                                      # the pages table, not the pages
-    monkeypatch.setattr(wiki, "_read", real_read)
+    monkeypatch.setattr(store, "_read", real_read)
     if UPDATE:
         with open(INDEX_GOLDEN, "w") as f:
             f.write(got)
@@ -355,7 +357,7 @@ def test_the_startup_event_logs_an_index_failure_and_carries_on(monkeypatch):
     import asyncio
 
     import chatbot
-    monkeypatch.setattr(wiki, "startup_check", lambda: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(v_search, "startup_check", lambda: (_ for _ in ()).throw(OSError("disk full")))
     asyncio.run(chatbot._on_startup())
     assert [e for e in trace_lines(kind="error") if e["where"] == "startup_check"]
 
@@ -414,17 +416,17 @@ def test_opening_the_index_leaves_a_committed_vault_clean(vault):
 def test_a_failed_startup_check_is_retried(seeded_vault, monkeypatch):
     index_db.close()
     real = wiki._check
-    monkeypatch.setattr(wiki, "_check", lambda idx, **kw: (_ for _ in ()).throw(OSError("io")))
+    monkeypatch.setattr(v_search, "_check", lambda idx, **kw: (_ for _ in ()).throw(OSError("io")))
     with pytest.raises(OSError):
         wiki.startup_check()
-    monkeypatch.setattr(wiki, "_check", real)
+    monkeypatch.setattr(v_search, "_check", real)
     assert index_db.open_index(wiki.WIKI_PATH).checked is False
 
 
 def test_backlinks_without_indexable_words_scan_every_page(seeded_vault, monkeypatch):
     wiki._write("notes/linker.md", read("projects/falcon.md") + "\n- see [[people/anna]]\n")
     real = wiki._tokenise
-    monkeypatch.setattr(wiki, "_tokenise", lambda text: [] if text == "people/anna" else real(text))
+    monkeypatch.setattr(v_search, "_tokenise", lambda text: [] if text == "people/anna" else real(text))
     assert wiki.backlinks("people/anna") == ["notes/linker"]
 
 

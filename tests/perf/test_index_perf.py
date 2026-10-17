@@ -7,8 +7,9 @@ import time
 
 import pytest
 
-import index_db
+from vault import index_db
 import wiki
+from vault import store
 from tests.conftest import fake_model
 from tests.perf.make_vault import make_vault, queries
 import sources
@@ -29,7 +30,7 @@ def timed(fn, *args) -> float:
 def test_search_stays_fast_on_5k_pages_and_1k_sources(tmp_path, monkeypatch):
     vault = tmp_path / "perf-vault"
     made = make_vault(str(vault))
-    monkeypatch.setattr(wiki, "WIKI_PATH", str(vault))
+    monkeypatch.setattr(store, "WIKI_PATH", str(vault))
     index_db.close()
     wiki.startup_check()
     size_mb = round(sum(p.stat().st_size for p in (vault / ".index").iterdir()) / 1e6, 1)

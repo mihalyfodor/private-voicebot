@@ -32,12 +32,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{os.getpid()}", "no-vault")
 
 import avatars  # noqa: E402
-import index_db  # noqa: E402
+from vault import index_db
 import llm  # noqa: E402
 import memory  # noqa: E402
 from ingest import pipeline  # noqa: E402
 from core import settings, trace  # noqa: E402
 import wiki  # noqa: E402
+from vault import store
 from splitter import strip_tag  # noqa: E402
 
 CATEGORIES = (
@@ -114,7 +115,7 @@ class Sandbox:
 
         self._saved = {
             "memory": memory.MEMORY_PATH,
-            "wiki": wiki.WIKI_PATH,
+            "wiki": store.WIKI_PATH,
             "ops": memory.OPS_LOG_PATH,
             "shortmem": memory.SHORTMEM_PATH,
             "settings": settings.SETTINGS_PATH,
@@ -127,7 +128,7 @@ class Sandbox:
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
         memory.MEMORY_PATH = self.memory_path
-        wiki.WIKI_PATH = self.wiki_path        # a live run must never touch the real ~/llm-wiki
+        store.WIKI_PATH = self.wiki_path        # a live run must never touch the real ~/llm-wiki
         index_db.close()
         memory.OPS_LOG_PATH = self.ops_path
         memory.SHORTMEM_PATH = self.shortmem_path
@@ -153,7 +154,7 @@ class Sandbox:
 
     def __exit__(self, *exc) -> bool:
         memory.MEMORY_PATH = self._saved["memory"]
-        wiki.WIKI_PATH = self._saved["wiki"]
+        store.WIKI_PATH = self._saved["wiki"]
         index_db.close()
         memory.OPS_LOG_PATH = self._saved["ops"]
         memory.SHORTMEM_PATH = self._saved["shortmem"]
