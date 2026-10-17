@@ -1,4 +1,4 @@
-Status: implementation
+Status: done
 
 # 55 — Measured hybrid retrieval (BM25 + embeddings), decide with numbers
 
@@ -59,6 +59,8 @@ None. Phase 1 is an offline script; phase 2 changes no screen, message or settin
   most one query embedding per turn (cached for the held-reply retry). Never a vector DB service.
 
 ### Decisions
+- Measured, not adopted (2026-10-17): gated hybrid paraphrase hit@2 +7 points on the dev vault (bar +15), +0 on the synthetic one; two new negatives keep a hit on the dev vault; added p95 14 ms serial / 6 ms parallel. Table and verdict: `docs/reviews/2026-10-17-hybrid-retrieval.md`. Phase 2 is not built.
+- Built as `eval/retrieval_bench.py` (run `python -m eval.retrieval_bench`) with tests in `tests/eval/`, beside the labelled set, rather than `scripts/` and `tests/sources/`; it caches the embedding matrix under a work dir in /tmp (text-hash keyed), not `raw/.index/`, which is phase 2 only.
 - Measure before building over adopting on taste: five PRDs said no; only a number set in advance can say yes.
 - RRF (k = 60) over weighted score blending: BM25 scores and cosines are not on one scale, RRF needs no tuning.
 - numpy float16 matrix over a vector DB: 6 454 × 1024 × 2 B ≈ 13 MB; a brute-force dot is a few ms on this box.

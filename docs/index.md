@@ -162,7 +162,7 @@ voicebot/
 │   ├── wiki.py          # search_wiki (pages + document passages) / read_page / read_source — the model's way into the vault
 │   ├── sources.py       # file_source(email|news|note) — voice ingestion of the last email/headline/a note
 │   └── wikipedia.py     # get_wikipedia (search + summary) / read_wikipedia (one section): en.wikipedia.org only, 5 s timeouts, 1 req/s, per-title cache, error strings never exceptions
-├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/
+├── eval/             # memory eval harness: harness.py, scripts/*.yaml (incl. aliases.yaml), fixtures/, results/; PRD 55: retrieval_bench.py (BM25 vs embeddings vs RRF hybrid, `python -m eval.retrieval_bench`), retrieval_questions.json + README-retrieval.md (the labelled set)
 ├── tests/                # one folder per module; shared fixtures live in conftest.py (see the DX note in process.md)
 │   ├── conftest.py              # sandboxes (wiki/settings/memory paths — WIKI_PATH also set to a missing tmp path before the app import, PRD 53 —, the search index closed per test, chatbot session, `core.llm._client` restored), the one fake model
 │   │                            # client `FakeClient` (`StreamClient`/`RawStreamClient` legacy spellings) + `fake_model` (patched at core.llm._client), vault helpers (vault, seeded_vault, commits, read, write_page), the generated FAQ
@@ -175,7 +175,8 @@ voicebot/
 │   ├── fixtures/tool_schemas.json  # PRD 50: golden `json.dumps(registry.schemas())`, byte-compared by tests/tools/test_registry.py; PRD 52 forget / push phrases and their negatives ("forget it", "don't forget to…")
 │   ├── fixtures/search_golden.json  # PRD 53: `search` (k=5) / `search_chunks` (k=3) for 20 FAQ queries on the `both` vault, recorded on the pre-index scorer
 │   ├── fixtures/index_text_golden.txt  # PRD 53: `wiki.index_text()` on the `both` vault, byte for byte
-│   ├── perf/                    # PRD 53 scenario 10, marker `perf` (deselected by default): make_vault.py = the shared seeded synthetic-vault generator (`make_vault(path, pages=5000, sources_n=1000, seed=0)` + `queries(n)`; PRDs 54/55 reuse it), test_index_perf.py = p95 search_chunks < 50 ms, search < 20 ms, one-source update < 200 ms (+ the live battery comparison, skipped)
+│   ├── eval/test_retrieval_bench.py  # PRD 55 phase 1: RRF golden, the precision gate, question-set quirks, embedding cache by text, the /v1/embeddings contract (local stub server), table shape on a tiny vault with a stub embedder, embed-server-down, latency
+│   ├── perf/                    # PRD 53 scenario 10 (+ PRD 55 `--prose` option for make_vault.py: `python -m tests.perf.make_vault OUT --prose`), marker `perf` (deselected by default): make_vault.py = the shared seeded synthetic-vault generator (`make_vault(path, pages=5000, sources_n=1000, seed=0)` + `queries(n)`; PRDs 54/55 reuse it), test_index_perf.py = p95 search_chunks < 50 ms, search < 20 ms, one-source update < 200 ms (+ the live battery comparison, skipped)
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
 │   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else; PRD 52 scenario 9: the `resolve`, `forget_source` and `card_update` rows
@@ -315,7 +316,7 @@ voicebot/
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (done)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (done)
     ├── 54-vault-map-research.md # PRD: two-level vault map replaces the alphabetical prompt index; typed "research X" workflow with judge, citations, budget (done)
-    └── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers (exploration)
+    └── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers; measured, not adopted (done)
 ```
 
 ## Active PRDs
