@@ -169,6 +169,16 @@ a synthetic vault and adopted only on numbers. docs/53-, 54-, 55-*.md.
 
 Open design questions for all of the above, with recommendations: docs/reviews/2026-10-16-design-questions.md.
 
+## 12. PRD 57 — Context hygiene · PRD 56 — Session boundaries
+
+From docs/reviews/2026-10-17-session-handling.md (Opus review + research, 2026-10-17). Both signed off 2026-10-17.
+PRD 57 (S+S, agent/ only) first: stub old tool results under budget pressure before dropping turns; the open page
+focuses a turn only when the question points at it. Then PRD 56 (M): the HH:MM clock leaves the system prompt
+(`get_time` returns the date too), the prompt is rebuilt after a fold that applied ops and after Memory edits, memory
+is saved after 10 min idle and on disconnect, the first turn of a new day starts a new thread quietly, "new topic"
+summarises and answers before the fold runs in the background. Fix landed first: the trim budget subtracts the tool
+schema tokens so the meter never reads over 100 % after a trim.
+
 ## Parked (needs IT)
 
 Microsoft Graph read-only mail/calendar (device-code flow, mirrors `tools/gmail.py`), Teams transcripts (admin-only

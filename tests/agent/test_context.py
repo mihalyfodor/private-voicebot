@@ -181,3 +181,20 @@ def test_model_context_len_failure_is_not_retried_within_the_window(monkeypatch)
         a_context._model_context_len_failed_at -= a_context._MODEL_CONTEXT_RETRY_S + 1
         assert a_context.model_context_len() is None
         assert len(calls) == 2
+
+
+def test_trim_then_meter_does_not_exceed_100_percent(monkeypatch):
+    """The trim budget subtracts the tool schemas, so the meter never reads over 100 % after a trim."""
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 4000)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 50)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
+    for i in range(60):
+        conversation._conversation.append({"role": "user", "content": f"question {i} " * 10})
+        conversation._conversation.append({"role": "assistant", "content": f"answer {i} " * 10})
+    conversation._conversation.append({"role": "user", "content": "the latest question"})
+    assert a_context.context_usage()["pct"] > 100
+
+    a_context.trim_history()
+
+    assert len(conversation._conversation) > 2
+    assert a_context.context_usage()["pct"] <= 100

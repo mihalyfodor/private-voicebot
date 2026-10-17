@@ -73,6 +73,12 @@ _last_trimmed = 0
 _context_warned = False
 
 
+def message_budget() -> int:
+    """Tokens left for the messages: the context budget minus the reply reserve and the tool
+    schemas. `trim_history` trims to it and `context_usage` measures against the same terms."""
+    return context_budget() - prompt._effective_max_tokens() - registry.tokens()
+
+
 def trim_history() -> int:
     """Drop the oldest turns until the conversation fits the budget; returns the user turns dropped.
 
@@ -81,7 +87,7 @@ def trim_history() -> int:
     tool result is ever left orphaned.
     """
     global _last_trimmed
-    budget = context_budget() - prompt._effective_max_tokens()
+    budget = message_budget()
     dropped = []
     while len(a_conversation._conversation) > 2 and estimate_tokens(a_conversation._conversation) > budget:
         turn = a_conversation._conversation.pop(1)

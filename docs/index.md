@@ -364,7 +364,9 @@ voicebot/
     ├── 52-approvals.md          # PRD: one pending slot; spoken "yes" and a card button resolve writes identically; stale run_id refused (done)
     ├── 53-scalable-index.md     # PRD: SQLite postings index, incremental updates, golden BM25 parity, perf gates; fixes the 200-line index lint bug (done)
     ├── 54-vault-map-research.md # PRD: two-level vault map replaces the alphabetical prompt index; typed "research X" workflow with judge, citations, budget (done)
-    └── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers; measured, not adopted (done)
+    ├── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers; measured, not adopted (done)
+    ├── 56-session-boundaries.md # PRD: no clock in the prompt + rebuild on profile change, idle (10 min) and disconnect memory saves, new thread on the first turn of a new day, "new topic" answers before it folds (exploration)
+    └── 57-context-hygiene.md    # PRD: old tool results stubbed before any turn is dropped; page focus only when the question points at the page (implementation)
 ```
 
 ## Active PRDs
