@@ -1,0 +1,821 @@
+{
+ "version": 1,
+ "vault": "~/llm-wiki-dev",
+ "questions": [
+  {
+   "id": "A1",
+   "group": "battery",
+   "text": "In Fallout 4, what is the SAFE test at Covenant really for?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 221
+    }
+   ],
+   "note": "GOAT test repurposed, part 219; Synth detection, part 221"
+  },
+  {
+   "id": "A2",
+   "group": "battery",
+   "text": "yes",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 220
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 221
+    }
+   ],
+   "note": "follow-up turn (needs prior context); Covenant neighbours, same guide, parts approximate"
+  },
+  {
+   "id": "A3",
+   "group": "battery",
+   "text": "Does Dogmeat count as a companion for the Lone Wanderer perk in Fallout 4?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 28
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 10
+    }
+   ],
+   "note": "part 28 holds 'does not count'; 10 mentions it works with Dogmeat"
+  },
+  {
+   "id": "A4",
+   "group": "battery",
+   "text": "How much does the Automatron DLC cost according to the Fallout 4 guide?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 487
+    }
+   ]
+  },
+  {
+   "id": "A5",
+   "group": "battery",
+   "text": "What is the combination for the pillars in Bleak Falls Barrow in Skyrim?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ],
+   "note": "SNAKE, SNAKE, WHALE; the guide repeats this section so 20 and 170 are duplicates"
+  },
+  {
+   "id": "A6",
+   "group": "battery",
+   "text": "yes",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 21
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 171
+    }
+   ],
+   "note": "follow-up turn (needs prior context); Golden Claw / Arvel / Draugr, duplicated sections"
+  },
+  {
+   "id": "A7",
+   "group": "battery",
+   "text": "Which Skyrim race gets +10 Lockpicking as a starting bonus?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 8
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 9
+    }
+   ],
+   "note": "Argonian header and bonus list split across 8 and 9"
+  },
+  {
+   "id": "A8",
+   "group": "battery",
+   "text": "Who trains Unarmored in Morrowind and up to what level?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 34
+    }
+   ],
+   "note": "Caius Cosades up to 70; Khargol gro-Boguk master up to 100; also 300 names Khargol"
+  },
+  {
+   "id": "A9",
+   "group": "battery",
+   "text": "Why does the Morrowind guide say not to steal from shopkeepers like Arrille?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 7
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "A10",
+   "group": "battery",
+   "text": "In The Art of Decoding Microservices, what trade-off does the author describe for a database per service?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 92
+    }
+   ],
+   "note": "Table 3-2 row: autonomy vs data consistency/replication"
+  },
+  {
+   "id": "A11",
+   "group": "battery",
+   "text": "According to Crafting Great APIs with Domain-Driven Design, what signals a bounded context at the end of an Event Storming workshop?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-craftinggreatapiswithdomain-drivendesign.epub",
+     "part": 21
+    }
+   ],
+   "note": "role or aggregate changes"
+  },
+  {
+   "id": "A12",
+   "group": "battery",
+   "text": "What does The Art of Immutable Architecture say the Command Query Responsibility Segregation pattern is for?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofimmutablearchitecture2ndedition.epub",
+     "part": 36
+    }
+   ],
+   "note": "book only mentions CQRS paired with event sourcing; no definition found, label is weak"
+  },
+  {
+   "id": "A13",
+   "group": "battery",
+   "text": "What is the recommended settlement build order in the Fallout 4 guide for Sanctuary Hills?",
+   "expected": [],
+   "note": "negative by design: guide has no settlement build order (grep found none)"
+  },
+  {
+   "id": "A14",
+   "group": "battery",
+   "text": "What does the Skyrim guide say about the Dawnguard vampire lord perk tree?",
+   "expected": [],
+   "note": "negative by design: no Dawnguard/vampire lord text in the Skyrim guide"
+  },
+  {
+   "id": "C1",
+   "group": "battery",
+   "text": "In Fallout 4, what does Swanson make you do before entering Covenant?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    }
+   ]
+  },
+  {
+   "id": "C2",
+   "group": "battery",
+   "text": "In Skyrim, what unique items are in Bleak Falls Barrow?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ],
+   "note": "Unique Items table in part 20 (170 duplicate)"
+  },
+  {
+   "id": "C3",
+   "group": "battery",
+   "text": "What does The Art of Decoding Microservices say about the saga pattern?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 49
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    }
+   ],
+   "note": "saga definition parts 49, 93"
+  },
+  {
+   "id": "C4",
+   "group": "battery",
+   "text": "Back to Fallout 4: and what about its DLC?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 487
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 507
+    }
+   ],
+   "note": "follow-up turn (needs context); Automatron 487, Far Harbor 507"
+  },
+  {
+   "id": "P1",
+   "group": "paraphrase",
+   "of": "A1",
+   "text": "Why do they make you take a test to get into Covenant in Fallout 4?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 221
+    }
+   ]
+  },
+  {
+   "id": "P2",
+   "group": "paraphrase",
+   "of": "A1",
+   "text": "What's the purpose of the Synth screening at the Covenant gate?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 221
+    }
+   ]
+  },
+  {
+   "id": "P3",
+   "group": "paraphrase",
+   "of": "A1",
+   "text": "Where did the Covenant checkpoint test originally come from?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 221
+    }
+   ]
+  },
+  {
+   "id": "P4",
+   "group": "paraphrase",
+   "of": "A3",
+   "text": "With the Lone Wanderer perk in Fallout 4, does bringing my dog along ruin the bonus?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 28
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 10
+    }
+   ]
+  },
+  {
+   "id": "P5",
+   "group": "paraphrase",
+   "of": "A3",
+   "text": "Can I keep the canine and still get the benefits of going solo in Fallout 4?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 28
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 10
+    }
+   ]
+  },
+  {
+   "id": "P6",
+   "group": "paraphrase",
+   "of": "A4",
+   "text": "What's the price of the robot expansion for Fallout 4?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 487
+    }
+   ]
+  },
+  {
+   "id": "P7",
+   "group": "paraphrase",
+   "of": "A4",
+   "text": "Is the Automatron add-on free for people who own the season pass?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 487
+    }
+   ]
+  },
+  {
+   "id": "P8",
+   "group": "paraphrase",
+   "of": "A5",
+   "text": "Which symbols do I set on the bottom-floor pillars in the Skyrim barrow near Riverwood?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P9",
+   "group": "paraphrase",
+   "of": "A5",
+   "text": "How do I open the door in Bleak Falls Barrow with the animal carvings?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P10",
+   "group": "paraphrase",
+   "of": "A5",
+   "text": "What's the animal puzzle answer for the first door in the Whiterun-area tomb?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P11",
+   "group": "paraphrase",
+   "of": "A7",
+   "text": "In Skyrim, which people start out best at picking locks?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 8
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 9
+    }
+   ]
+  },
+  {
+   "id": "P12",
+   "group": "paraphrase",
+   "of": "A7",
+   "text": "What race has a ten point head start on lockpicking at character creation?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 8
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 9
+    }
+   ]
+  },
+  {
+   "id": "P13",
+   "group": "paraphrase",
+   "of": "A8",
+   "text": "Where can I train my skill for fighting without armor in Morrowind, and what's the cap?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 34
+    }
+   ]
+  },
+  {
+   "id": "P14",
+   "group": "paraphrase",
+   "of": "A8",
+   "text": "Which trainer in Morrowind takes Unarmored all the way to 100?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 34
+    }
+   ]
+  },
+  {
+   "id": "P15",
+   "group": "paraphrase",
+   "of": "A8",
+   "text": "Morrowind: best teacher for going unarmored?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 34
+    }
+   ]
+  },
+  {
+   "id": "P16",
+   "group": "paraphrase",
+   "of": "A9",
+   "text": "What goes wrong in Morrowind if you rob the Seyda Neen merchant?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 7
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P17",
+   "group": "paraphrase",
+   "of": "A9",
+   "text": "Why shouldn't I swipe things from vendors in Morrowind?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 7
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-morrowind-game-of-the-year-edition-guide.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P18",
+   "group": "paraphrase",
+   "of": "A10",
+   "text": "What downside comes with giving every microservice its own datastore, according to the Decoding Microservices book?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 92
+    }
+   ]
+  },
+  {
+   "id": "P19",
+   "group": "paraphrase",
+   "of": "A10",
+   "text": "Per the Decoding Microservices author, what makes separate databases per service hard?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 92
+    }
+   ]
+  },
+  {
+   "id": "P20",
+   "group": "paraphrase",
+   "of": "A11",
+   "text": "How do I tell where one bounded context ends after running an Event Storming session, according to the Crafting Great APIs book?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-craftinggreatapiswithdomain-drivendesign.epub",
+     "part": 21
+    }
+   ]
+  },
+  {
+   "id": "P21",
+   "group": "paraphrase",
+   "of": "A11",
+   "text": "In the DDD API book, when does a changed role or aggregate mean a new context?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-craftinggreatapiswithdomain-drivendesign.epub",
+     "part": 21
+    }
+   ]
+  },
+  {
+   "id": "P22",
+   "group": "paraphrase",
+   "of": "A12",
+   "text": "In the Immutable Architecture book, what is CQRS used for?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofimmutablearchitecture2ndedition.epub",
+     "part": 36
+    }
+   ]
+  },
+  {
+   "id": "P23",
+   "group": "paraphrase",
+   "of": "A12",
+   "text": "What is the idea of splitting reads and writes that the Immutable Architecture book describes?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofimmutablearchitecture2ndedition.epub",
+     "part": 36
+    }
+   ]
+  },
+  {
+   "id": "P24",
+   "group": "paraphrase",
+   "of": "C1",
+   "text": "Before you can enter Covenant in Fallout 4, what does the guard Swanson want from you?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    }
+   ]
+  },
+  {
+   "id": "P25",
+   "group": "paraphrase",
+   "of": "C1",
+   "text": "What does the man outside Covenant ask you to do to be let in?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note.md",
+     "part": 219
+    }
+   ]
+  },
+  {
+   "id": "P26",
+   "group": "paraphrase",
+   "of": "C2",
+   "text": "Which special loot can you pick up inside the barrow near Riverwood in Skyrim?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P27",
+   "group": "paraphrase",
+   "of": "C2",
+   "text": "What one-of-a-kind items are found in Bleak Falls Barrow?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 20
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 170
+    }
+   ]
+  },
+  {
+   "id": "P28",
+   "group": "paraphrase",
+   "of": "C3",
+   "text": "How does the Decoding Microservices book explain handling distributed transactions with a sequence of local ones?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 49
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    }
+   ]
+  },
+  {
+   "id": "P29",
+   "group": "paraphrase",
+   "of": "C3",
+   "text": "What approach does the Art of Decoding Microservices recommend for coordinating work across services?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 49
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-artofdecodingmicroservices.epub",
+     "part": 93
+    }
+   ]
+  },
+  {
+   "id": "P30",
+   "group": "paraphrase",
+   "of": "A7",
+   "text": "Skyrim character creation: whose racial bonus makes locks easiest?",
+   "expected": [
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 8
+    },
+    {
+     "raw": "raw/inbox/2026-08-30-note-2.md",
+     "part": 9
+    }
+   ]
+  },
+  {
+   "id": "N1",
+   "group": "negative",
+   "text": "Are you listening, Uncle?",
+   "expected": []
+  },
+  {
+   "id": "N2",
+   "group": "negative",
+   "text": "Vivec is annoying",
+   "expected": []
+  },
+  {
+   "id": "N3",
+   "group": "negative",
+   "text": "How long should I steep green tea?",
+   "expected": []
+  },
+  {
+   "id": "N4",
+   "group": "negative",
+   "text": "what should we cook",
+   "expected": []
+  },
+  {
+   "id": "N5",
+   "group": "negative",
+   "text": "Ada is such a nice name",
+   "expected": []
+  },
+  {
+   "id": "N6",
+   "group": "negative",
+   "text": "Who was Ada Lovelace?",
+   "expected": []
+  },
+  {
+   "id": "N7",
+   "group": "negative",
+   "text": "I'm bored of Whiterun today",
+   "expected": []
+  },
+  {
+   "id": "N8",
+   "group": "negative",
+   "text": "Preston keeps asking me for help, ha",
+   "expected": []
+  },
+  {
+   "id": "N9",
+   "group": "negative",
+   "text": "My dog is basically Dogmeat",
+   "expected": []
+  },
+  {
+   "id": "N10",
+   "group": "negative",
+   "text": "The test at school was really hard",
+   "expected": []
+  },
+  {
+   "id": "N11",
+   "group": "negative",
+   "text": "Covenant is a cool word",
+   "expected": []
+  },
+  {
+   "id": "N12",
+   "group": "negative",
+   "text": "Let's sanctuary ourselves with a movie tonight",
+   "expected": []
+  },
+  {
+   "id": "N13",
+   "group": "negative",
+   "text": "My balcony is full of snakes and whales in the kids' drawing",
+   "expected": []
+  },
+  {
+   "id": "N14",
+   "group": "negative",
+   "text": "Don't steal my sandwich",
+   "expected": []
+  },
+  {
+   "id": "N15",
+   "group": "negative",
+   "text": "I'm trying to unlock my phone, picking the wrong code again",
+   "expected": []
+  },
+  {
+   "id": "N16",
+   "group": "negative",
+   "text": "That saga on TV never ends",
+   "expected": []
+  },
+  {
+   "id": "N17",
+   "group": "negative",
+   "text": "Draugr is a funny word, say it again",
+   "expected": []
+  },
+  {
+   "id": "N18",
+   "group": "negative",
+   "text": "The gate to my garden is stuck",
+   "expected": []
+  },
+  {
+   "id": "N19",
+   "group": "negative",
+   "text": "My uncle trains for the marathon in Balmora Street",
+   "expected": []
+  },
+  {
+   "id": "N20",
+   "group": "negative",
+   "text": "What bounds my patience is the traffic",
+   "expected": []
+  }
+ ]
+}

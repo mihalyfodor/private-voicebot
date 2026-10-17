@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 55 — Measured hybrid retrieval (BM25 + embeddings), decide with numbers
 
