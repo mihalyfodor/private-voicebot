@@ -197,7 +197,7 @@ voicebot/
 │   └── backdrops/        # gitignored, fetched
 ├── tools/              # every module declares `HOSTS` (PRD 33 read-only policy: no free URL fetch, get_news_detail only takes a URL from the last get_news); `__init__.py` re-exports from registry
 │   ├── registry.py     # the ordered `REGISTRY` of `Tool` records (PRD 50): 11 schema tools, then the trigger tools in routing order (new_topic, save_note, briefing, forget, push, write_up, open_page); `match(text)`, import-time `_validate` (unique names, one mode, needs_llm triggers last), `Ctx` + `bind`/`current` (the turn's context, used by file_source's panel refresh), `handler(name)` (the server binds trigger bodies; an unbound one raises); `schemas()`, `tokens()`, `run_tool`, and `READ_TOOLS`/`ALLOWED_HOSTS` derived from the records
-│   ├── commands.py     # the trigger regexes (OPEN_PAGE/BACK_TO_PAGE/OPEN_PAGE_ANY, NEW_TOPIC, BRIEF, SAVE_NOTE, WANTS_WRITEUP, FORGET, PUSH) and their predicates (`page_command`, `new_topic_command`, `briefing_command`, `save_note_command`, `wants_writeup`) (PRD 50); `forget_command` / `push_command` (PRD 52)
+│   ├── commands.py     # the trigger regexes (OPEN_PAGE/BACK_TO_PAGE/OPEN_PAGE_ANY, NEW_TOPIC, BRIEF, SAVE_NOTE, WANTS_WRITEUP, FORGET, PUSH) and the value extractors `page_command` (PRD 50) and `forget_command` (PRD 52)
 │   ├── time.py         # current time tool
 │   ├── weather.py       # open-meteo weather tool + one Nominatim reverse geocode per new position (PRD 35)
 │   ├── news.py          # BBC news headlines + article detail

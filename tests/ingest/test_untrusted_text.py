@@ -29,7 +29,7 @@ from vault import pages
 from vault import chunks as v_chunks
 import tools
 from tests.conftest import FakeClient, stream_chunks, tool_call_chunk, vault  # noqa: F401 — fixture
-from tools import ALLOWED_HOSTS, READ_TOOLS, TOOLS, run_tool
+from tools import ALLOWED_HOSTS, READ_TOOLS, registry, run_tool
 from tools import gmail, news, wikipedia
 from core.untrusted import DOCUMENT_RULE, documents_in, untrusted
 from core import llm as core_llm
@@ -331,7 +331,7 @@ def test_every_tool_module_declares_fixed_hosts_and_no_free_url():
         assert isinstance(module.HOSTS, tuple), module.__name__
         assert set(module.HOSTS) <= ALLOWED_HOSTS, module.__name__
     assert "nominatim.openstreetmap.org" in ALLOWED_HOSTS          # PRD 35 addendum: one reverse geocode
-    for tool in TOOLS:
+    for tool in registry.schemas():
         name = tool["function"]["name"]
         params = tool["function"]["parameters"]["properties"]
         url_params = [p for p in params if "url" in p.lower()]

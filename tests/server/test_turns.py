@@ -27,7 +27,7 @@ from server import ws as m_ws
 from server import turns as server_turns
 from server import panels
 from server import speech as s_speech
-from tools import commands, registry
+from tools import registry
 from agent import conversation
 from agent import conversation
 from agent import turn as a_turn
@@ -486,7 +486,8 @@ def spoken_text(sent: list) -> list:
     ("anything new?", True), ("please, what has changed?", True), ("What is new, please?", True),
     ("what changed", True), ("what's new with you", False), ("brief me on Falcon", False), ("new topic", False)])
 def test_briefing_command(text, expected):
-    assert commands.briefing_command(text) is expected
+    tool = registry.match(text)
+    assert (tool is not None and tool.name == "briefing") is expected
 
 
 def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():

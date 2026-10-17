@@ -134,9 +134,9 @@ def save_memory():
     sources, _sources_seen = _sources_seen, []
 
     def restore():
-        global _session_turns, _sources_seen
-        _session_turns = turns + _session_turns
-        _sources_seen = sources + [s for s in _sources_seen if s not in sources]
+        # in place: the turn worker holds this list, and the slice assignment is atomic under the GIL
+        _session_turns[:0] = turns
+        _sources_seen[:] = sources + [s for s in _sources_seen if s not in sources]
 
     try:
         applied = fold.save(turns, sources=sources)

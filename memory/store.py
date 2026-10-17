@@ -1,6 +1,7 @@
 """Profile files and schema: paths, constants, load/write, normalise, migration from the v1 shortmem (docs/15-memory-v2.md; PRD 50 step 8, from memory.py)."""
 import json
 import os
+import shutil
 from core import config, trace
 from core import vault_lock
 from memory import identity as m_identity
@@ -138,9 +139,24 @@ def load_profile() -> dict:
     try:
         with open(MEMORY_PATH) as f:
             return _normalise(json.load(f))
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         log.warning(f"warning: could not read {os.path.basename(MEMORY_PATH)} ({exc}); starting empty")
+        _back_up_corrupt(exc)
         return _empty_profile()
+
+
+def _back_up_corrupt(exc) -> None:
+    """Copy an unreadable memory.json aside once, before the next save overwrites it.
+
+    Copy, not move: a missing memory.json + shortmem.txt reads as "migrate from v1".
+    """
+    try:
+        backup = f"{MEMORY_PATH}.corrupt-{int(os.path.getmtime(MEMORY_PATH))}"
+        if not os.path.exists(backup):
+            shutil.copy2(MEMORY_PATH, backup)
+    except OSError:
+        pass
+    trace.error("memory", "load", exc, fatal_for="none")
 
 
 

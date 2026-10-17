@@ -24,7 +24,7 @@ from server import ws as m_ws
 from server import turns as server_turns
 from server import panels
 from server import speech as s_speech
-from tools import commands
+from tools import registry
 from agent import conversation
 from agent import offers
 from agent import prompt
@@ -151,7 +151,8 @@ def test_content_question(text, expected):
     ("give me the written version", True), ("/write", True), ("write a poem", False), ("yes please", False),
 ])
 def test_wants_writeup(text, expected):
-    assert commands.wants_writeup(text) is expected
+    tool = registry.match(text)
+    assert (tool is not None and tool.name == "write_up") is expected
 
 
 # --------------------------------------------------------------- 2. the card
@@ -316,12 +317,13 @@ def test_wiki_save_card_frontmatter_lists_survive_a_reparse(vault):
 
 @pytest.mark.parametrize("text", ["save that as a note", "Save this to the wiki", "save it, please", "save that"])
 def test_save_note_command(text):
-    assert commands.save_note_command(text)
+    assert registry.match(text).name == "save_note"
 
 
 @pytest.mark.parametrize("text", ["save the file", "save that as a note about Anna", "let's save money"])
 def test_not_a_save_note_command(text):
-    assert not commands.save_note_command(text)
+    tool = registry.match(text)
+    assert tool is None or tool.name != "save_note"
 
 
 def test_spoken_save_that_as_a_note_files_the_last_card(card):

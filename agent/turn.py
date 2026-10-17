@@ -103,7 +103,6 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     user, PRD 38) appended to this turn's user message only.
     """
     a_conversation._evidence, a_conversation.last_band = (None, []), None
-    turns_len = len(a_conversation._session_turns)
     # An offer lives exactly one turn: a short "yes" takes it, anything else drops it.
     offer, a_conversation._deeper_offer = a_conversation._deeper_offer, None
     yes = bool(offer) and offers.is_affirmative(user_text)
@@ -152,7 +151,8 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
     _note_documents(extra)
     user_msg = {"role": "user", "content": user_text + extra}
     a_conversation._conversation.append(user_msg)
-    a_conversation._session_turns.append({"role": "user", "content": user_text})
+    sess_user = {"role": "user", "content": user_text}
+    a_conversation._session_turns.append(sess_user)
     a_conversation._last_tool_calls = []
     a_context.trim_history()
 
@@ -255,7 +255,11 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
             if m is user_msg:
                 del a_conversation._conversation[i:]
                 break
-        del a_conversation._session_turns[turns_len:]
+        # same by identity: a periodic save may have taken the turns (and a failed one put them back in front)
+        for i, m in enumerate(a_conversation._session_turns):
+            if m is sess_user:
+                del a_conversation._session_turns[i:]
+                break
         raise
 
     # The turn is done: the block was for this completion only, the history keeps the bare

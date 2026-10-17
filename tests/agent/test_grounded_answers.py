@@ -104,13 +104,13 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
 
 def test_a_tool_free_run_gets_neither_rule(monkeypatch):
     """No tools: no grounding and no routing rules; without get_wikipedia alone only the offer goes (PRD 37)."""
-    from tools import TOOLS
+    from tools import registry
     monkeypatch.setattr(toolset, "TOOLS", [])
     prompt = a_prompt.build_system_prompt(AVATAR)
     assert "Look it up first" not in prompt and a_prompt.DEEPER_OFFERS[0] not in prompt
     assert a_prompt.WIKIPEDIA_OFFER not in prompt
     assert a_prompt.grounding_rules() == ""
-    monkeypatch.setattr(toolset, "TOOLS", [t for t in TOOLS if t["function"]["name"] != "get_wikipedia"])
+    monkeypatch.setattr(toolset, "TOOLS", [t for t in registry.schemas() if t["function"]["name"] != "get_wikipedia"])
     prompt = a_prompt.build_system_prompt(AVATAR)
     assert "Look it up first" in prompt and a_prompt.WIKIPEDIA_OFFER not in prompt
 

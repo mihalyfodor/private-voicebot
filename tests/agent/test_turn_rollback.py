@@ -56,3 +56,21 @@ def test_closing_the_generator_mid_stream_rolls_the_turn_back():
         gen.close()
     assert conversation._conversation == before
     assert conversation._session_turns == []
+
+
+def test_a_failed_periodic_save_mid_turn_does_not_lose_the_prior_turns_on_rollback():
+    prior = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"earlier {i}"} for i in range(4)]
+    conversation._session_turns[:] = prior
+
+    class _SavingClient(_Client):
+        def _create(self, **kw):
+            def gen():
+                conversation.save_memory()                      # the hook swaps the turns out; the save fails, restore puts them back
+                raise RuntimeError("model died")
+                yield
+            return gen()
+
+    with patch("agent.fold.save", return_value=None), patch.object(core_llm, "_client", _SavingClient([])):
+        with pytest.raises(RuntimeError):
+            list(a_turn.ask_events("a question that dies", origin="typed"))
+    assert conversation._session_turns == prior

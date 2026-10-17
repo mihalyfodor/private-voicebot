@@ -329,6 +329,17 @@ def test_load_ignores_a_corrupt_profile(memory_sandbox, capsys):
     assert "could not read memory.json" in capsys.readouterr().out
 
 
+def test_a_corrupt_profile_is_backed_up_once_before_the_next_save_overwrites_it(memory_sandbox):
+    raw = b"\xff{not json"                                     # not even UTF-8
+    (memory_sandbox / "memory.json").write_bytes(raw)
+    assert store.load_profile() == store._empty_profile()
+    store.load_profile()
+    store._write_profile(store._empty_profile())
+    backups = list(memory_sandbox.glob("memory.json.corrupt-*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == raw
+
+
 # --------------------------------------------------------------- 6. atomic write + audit
 
 

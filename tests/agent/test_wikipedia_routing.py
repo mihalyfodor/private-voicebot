@@ -24,7 +24,7 @@ from agent import turn as a_turn
 from agent import turn as a_turn
 from agent import prompt as a_prompt
 from agent import recall as a_recall
-from tools import TOOLS, run_tool
+from tools import registry, run_tool
 from tools import wikipedia
 from tests.conftest import FakeClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
 from tests.conftest import fallout, both  # noqa: F401  (fixtures)
@@ -331,7 +331,7 @@ def test_the_tool_talks_to_fixed_hosts_only_and_takes_no_url():
     for url in (wikipedia.API_URL, wikipedia.SUMMARY_URL):
         assert url.startswith("https://en.wikipedia.org/")
     for name in ("get_wikipedia", "read_wikipedia"):
-        params = next(t for t in TOOLS if t["function"]["name"] == name)["function"]["parameters"]["properties"]
+        params = next(t for t in registry.schemas() if t["function"]["name"] == name)["function"]["parameters"]["properties"]
         assert not any("url" in p.lower() for p in params), name
     with pytest.raises(requests.RequestException):
         wikipedia._get("https://example.org/x")

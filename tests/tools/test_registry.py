@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tools import commands, registry
+from tools import registry
 from ingest import pipeline
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -48,11 +48,6 @@ def test_invariants():
 
 # --------------------------------------------------------------- scenario 4: trigger routing
 
-PREDICATES = {"new_topic": commands.new_topic_command, "save_note": commands.save_note_command,
-              "briefing": commands.briefing_command, "write_up": commands.wants_writeup,
-              "forget": lambda t: commands.forget_command(t) is not None, "push": commands.push_command,
-              "research": lambda t: commands.research_command(t) is not None,
-              "open_page": lambda t: commands.page_command(t) is not None}
 PHRASES = [
     ("new topic", "new_topic"), ("/new", "new_topic"), ("New topic!", "new_topic"),
     ("save that as a note", "save_note"), ("save this to the wiki", "save_note"), ("save it", "save_note"),
@@ -89,14 +84,6 @@ PHRASES = [
 def test_match_routes_each_phrase_to_its_tool(text, expected):
     tool = registry.match(text)
     assert (tool.name if tool else None) == expected
-
-
-@pytest.mark.parametrize("text", [p for p, _ in PHRASES] + ["  Find   Fallout  ", "please write it out", "save"])
-def test_match_agrees_with_the_predicates(text):
-    """The first predicate (in registry order) that holds is the tool `match` picks."""
-    hits = [name for name in registry.names()[11:] if PREDICATES[name](text)]
-    tool = registry.match(text)
-    assert (tool.name if tool else None) == (hits[0] if hits else None)
 
 
 def test_handler_binds_only_trigger_tools_and_an_unbound_one_raises():

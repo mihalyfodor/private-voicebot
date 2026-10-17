@@ -10,7 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from tools import commands, registry
+from tools import registry
 
 from server import app
 from server import turns as server_turns
@@ -71,8 +71,7 @@ def test_a_completed_turn_sends_context_with_the_estimated_usage(seeded_vault):
     assert msg == {"type": "context", "used": used, "budget": a_context.context_budget(),
                    "pct": round(100 * used / a_context.context_budget()), "trimmed": 0}
     assert sent.index(msg) > sent.index({"type": "transcript", "role": "assistant", "text": "Sure."})
-    from tools import TOOLS
-    assert registry.tokens() == len(json.dumps(TOOLS)) // 4          # the tool schemas count too
+    assert registry.tokens() == len(json.dumps(registry.schemas())) // 4          # the tool schemas count too
 
 
 def test_trim_history_returns_the_user_turns_dropped(monkeypatch):
@@ -220,7 +219,7 @@ def test_spoken_new_topic_takes_the_new_topic_path(seeded_vault, recorded_memory
         sent, fake = new_topic_turn_via(server_turns.handle_utterance, np.zeros(10, dtype=np.float32))
     assert {"type": "transcript", "role": "user", "text": "new topic"} in sent
     assert {"type": "thread", "text": "Falcon and the deploy."} in sent
-    assert not commands.new_topic_command("a new topic please")
+    assert registry.match("a new topic please") is None
 
 
 def test_the_palette_sends_new_topic_and_the_divider_shows_the_summary(r):

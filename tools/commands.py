@@ -76,26 +76,6 @@ def page_command(text: str):
     return None
 
 
-def new_topic_command(text: str) -> bool:
-    """True for the exact phrase "new topic" (spoken or typed) or the typed `/new` (PRD 39)."""
-    return bool(NEW_TOPIC.match(normalise(text)))
-
-
-def briefing_command(text: str) -> bool:
-    """True for "what's new?", "brief me", "anything new", "what changed", "what did I miss", `/brief`."""
-    return bool(BRIEF.match(normalise(text)))
-
-
-def save_note_command(text: str) -> bool:
-    """True for "save that as a note" / "save this to the wiki" / "save it" (PRD 43)."""
-    return bool(SAVE_NOTE.match(normalise(text)))
-
-
-def wants_writeup(text: str) -> bool:
-    """"write it up", "yes, write that up please", "give me the written version", typed `/write`."""
-    return bool(WANTS_WRITEUP.search(normalise(text)))
-
-
 def research_command(text: str) -> str | None:
     """The question a "research X" / `/research X` turn asks (PRD 54), else None."""
     m = RESEARCH.match(normalise(text))
@@ -111,6 +91,3 @@ def forget_command(text: str) -> str | None:
     return re.sub(r"\s+source$", "", title, flags=re.I)
 
 
-def push_command(text: str) -> bool:
-    """True for "send that to my reMarkable" / "push it to the tablet" (PRD 52, the 47b command)."""
-    return bool(PUSH.match(normalise(text)))
