@@ -83,12 +83,32 @@ def set_focus(view: str, path=None) -> None:
         last_page = path
 
 
+#: words that point at the open page; a question with none and no shared page term is not about it
+DEICTIC = frozenset("this that it here page article summarise summarize summary tldr recap".split())
+
+
+def _points_at_page(question: str, path: str, title: str, text: str) -> bool:
+    """True if `question` names the open page: a deictic word, or a topic term shared with its
+    title, path stem and headings. A question of command words only ("what time is it") never does."""
+    terms = v_chunks.topic_terms(question)
+    content = v_chunks.content_terms(question)
+    if content and content <= COMMAND_WORDS:                  # "what time is it": the "it" is not the page
+        return False
+    q = question.lower()
+    if "tl;dr" in q or DEICTIC & set(re.findall(r"[a-z0-9']+", q)):
+        return True
+    headings = " ".join(re.findall(r"^#+\s*(.+)$", text, re.M))
+    page = v_chunks.content_terms(f"{title} {path.rsplit('/', 1)[-1]} {headings}")
+    return bool(terms & (page - v_chunks.GENERIC_TITLE_WORDS))
+
+
 def focus_block(question: str) -> str:
     """The `<document>` block for the page the user is looking at, or "".
 
     Wiki / Sources view with a page: its head (≤ FOCUS_HEAD_TOKENS) and the `##` section — for a
     source, the raw chunk — that best matches `question` (≤ FOCUS_SECTION_TOKENS), together within
-    FOCUS_MAX_TOKENS, wrapped as untrusted text plus FOCUS_NOTE. Any other view: "".
+    FOCUS_MAX_TOKENS, wrapped as untrusted text plus FOCUS_NOTE. Any other view, or a question
+    that does not point at the page (docs/57-context-hygiene.md): "".
     """
     view, path = focus["view"], focus["path"]
     if view not in ("wiki", "sources") or not path:
@@ -97,6 +117,8 @@ def focus_block(question: str) -> str:
     if text is None:
         return ""
     title = v_focus.page_title(path)
+    if not _points_at_page(question, path, title, text):
+        return ""
     conversation._turn_pages.append(title)
     head, sections = v_focus.split_sections(v_store.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.

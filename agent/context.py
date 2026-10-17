@@ -79,15 +79,50 @@ def message_budget() -> int:
     return context_budget() - prompt._effective_max_tokens() - registry.tokens()
 
 
+#: `trim_history` keeps the tool results of the last KEEP_TOOL_TURNS user turns; an older one longer
+#: than STUB_MIN_CHARS becomes a one-line stub before any turn is dropped (docs/57-context-hygiene.md)
+KEEP_TOOL_TURNS, STUB_MIN_CHARS = 2, 400
+STUB_TEXT = "[{tool} result removed to save room — call {tool} again if needed]"
+
+
+def _tool_name(call_id: str) -> str:
+    """The tool the assistant message with `call_id` called; "tool" if none matches."""
+    for m in a_conversation._conversation:
+        for call in m.get("tool_calls") or []:
+            if call.get("id") == call_id:
+                return call["function"]["name"]
+    return "tool"
+
+
+def stub_old_tool_results() -> int:
+    """Replace the long tool results before the second-last user message with a re-call stub;
+    returns how many. The assistant `tool_calls` stay, so no pairing is orphaned."""
+    conv = a_conversation._conversation
+    users = [i for i, m in enumerate(conv) if m.get("role") == "user"]
+    if len(users) < KEEP_TOOL_TURNS:
+        return 0
+    stubbed = 0
+    for m in conv[:users[-KEEP_TOOL_TURNS]]:
+        if m.get("role") == "tool" and len(str(m.get("content") or "")) > STUB_MIN_CHARS:
+            m["content"] = STUB_TEXT.format(tool=_tool_name(m.get("tool_call_id")))
+            stubbed += 1
+    return stubbed
+
+
 def trim_history() -> int:
     """Drop the oldest turns until the conversation fits the budget; returns the user turns dropped.
 
     Index 0 (the system message) and the final turn (normally the latest user message) are
-    never dropped. An assistant turn with tool_calls takes its tool results with it, so no
+    never dropped. Over budget, old long tool results are stubbed first (a stub is not a dropped
+    turn: `_last_trimmed` ignores it). An assistant turn with tool_calls takes its tool results with it, so no
     tool result is ever left orphaned.
     """
     global _last_trimmed
     budget = message_budget()
+    if estimate_tokens(a_conversation._conversation) > budget:
+        stubbed = stub_old_tool_results()
+        if stubbed:
+            log.info(f"stubbed {stubbed} tool results")
     dropped = []
     while len(a_conversation._conversation) > 2 and estimate_tokens(a_conversation._conversation) > budget:
         turn = a_conversation._conversation.pop(1)

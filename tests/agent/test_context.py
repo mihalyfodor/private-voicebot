@@ -198,3 +198,79 @@ def test_trim_then_meter_does_not_exceed_100_percent(monkeypatch):
 
     assert len(conversation._conversation) > 2
     assert a_context.context_usage()["pct"] <= 100
+
+
+# --- PRD 57: stub old tool results before dropping turns ---
+
+def _tool_turn(call_id: str, name: str, body: str) -> list:
+    return [
+        {"role": "assistant", "content": "", "tool_calls": [{"id": call_id, "type": "function", "function": {"name": name, "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": call_id, "content": body},
+        {"role": "assistant", "content": "ok"},
+    ]
+
+
+def _session(monkeypatch, budget: int, bodies: dict) -> None:
+    """system, then one user turn per body with its tool call (old to new), then a final user message."""
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", budget)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 10)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
+    monkeypatch.setattr(a_context, "message_budget", lambda: budget)
+    conv = [{"role": "system", "content": "sys"}]
+    for i, (name, body) in enumerate(bodies.items()):
+        conv.append({"role": "user", "content": f"question {i}"})
+        conv += _tool_turn(str(i), name, body)
+    conv.append({"role": "user", "content": "latest"})
+    conversation._conversation = conv
+
+
+def _stub(tool: str) -> str:
+    return f"[{tool} result removed to save room \u2014 call {tool} again if needed]"
+
+
+def _tool_contents() -> list:
+    return [m["content"] for m in conversation._conversation if m["role"] == "tool"]
+
+
+def test_trim_stubs_old_tool_result_before_dropping_turns(monkeypatch):
+    _session(monkeypatch, 500, {"read_page": "x" * 4000, "get_time": "12:00", "get_weather": "sunny"})
+    assert a_context.trim_history() == 0
+    assert _tool_contents()[0] == _stub("read_page")
+    assert sum(1 for m in conversation._conversation if m["role"] == "user") == 4
+    assert a_context._last_trimmed == 0
+
+
+def test_trim_keeps_tool_results_in_the_last_two_turns(monkeypatch):
+    _session(monkeypatch, 1500, {"read_page": "x" * 4000, "get_news": "y" * 2000, "get_wiki": "z" * 2000})
+    a_context.trim_history()
+    assert _tool_contents() == [_stub("read_page"), _stub("get_news"), "z" * 2000]
+
+
+def test_trim_stub_floor_is_400_chars(monkeypatch):
+    _session(monkeypatch, 285, {"a": "x" * 399, "b": "y" * 401, "c": "ok", "d": "ok"})
+    a_context.trim_history()
+    contents = _tool_contents()
+    assert "x" * 399 in contents and "y" * 401 not in contents and _stub("b") in contents
+
+
+def test_trim_stub_keeps_tool_call_pairing(monkeypatch):
+    _session(monkeypatch, 500, {"read_page": "x" * 4000, "get_time": "12:00", "get_weather": "sunny"})
+    a_context.trim_history()
+    conv = conversation._conversation
+    i = next(i for i, m in enumerate(conv) if m["role"] == "tool")
+    assert conv[i - 1]["tool_calls"][0]["id"] == conv[i]["tool_call_id"] == "0"
+    assert conv[i - 1]["tool_calls"][0]["function"]["name"] == "read_page" and "read_page" in conv[i]["content"]
+
+
+def test_trim_under_budget_leaves_tool_results(monkeypatch):
+    _session(monkeypatch, 16000, {"read_page": "x" * 4000, "get_time": "12:00", "get_weather": "sunny"})
+    a_context.trim_history()
+    assert _tool_contents()[0] == "x" * 4000
+
+
+def test_trim_drops_turns_only_if_stubs_not_enough(monkeypatch):
+    _session(monkeypatch, 120, {"read_page": "x" * 4000, "get_news": "y" * 4000, "get_time": "12:00", "get_weather": "sunny"})
+    assert a_context.trim_history() > 0
+    assert "x" * 4000 not in _tool_contents() and "y" * 4000 not in _tool_contents()
+    assert all(len(c) < 400 for c in _tool_contents())
+    assert conversation._conversation[-1]["content"] == "latest"

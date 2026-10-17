@@ -74,7 +74,7 @@ def test_a_long_page_yields_the_head_and_the_turret_section_within_the_cap(seede
 def test_a_one_section_page_yields_the_head_only(seeded_vault):
     write_page("notes/one", "One", "# One\n\nJust a head.\n\n## Notes\nthe turrets note\n")
     a_recall.set_focus("wiki", "notes/one")
-    block = a_recall.focus_block("what about turrets")
+    block = a_recall.focus_block("what does it say about turrets")
     assert "Just a head." in block and "## Notes" not in block
 
 
@@ -146,7 +146,7 @@ def test_page_commands_match_the_two_phrasings_and_nothing_else():
 
 def test_a_focused_source_gives_its_head_and_the_matching_chunk_and_feeds_the_offer(fallout):
     a_recall.set_focus("sources", fallout["path"])
-    block = a_recall.focus_block("what about Covenant turrets")
+    block = a_recall.focus_block("what does it say about Covenant turrets")
     assert block.startswith("\n\n<document source=\"Fallout 4 guide\">")
     assert "Fallout 4 guide" in block and "Part " in block and "Covenant" in block
     assert util.tokens_est(block) <= a_recall.FOCUS_MAX_TOKENS + 60
@@ -154,7 +154,7 @@ def test_a_focused_source_gives_its_head_and_the_matching_chunk_and_feeds_the_of
 
     fake = FakeClient("[thinking] Talk to Jacob Orden, says the guide. Want me to dig deeper?")
     with patch.object(core_llm, "_client", fake):
-        m_turn.ask("what about Covenant turrets")
+        m_turn.ask("what does it say about Covenant turrets")
     assert conversation._deeper_offer and conversation._deeper_offer["source"] == fallout["path"]
 
 
@@ -187,3 +187,47 @@ def test_the_client_sends_set_focus_and_follows_wiki_open_without_echo(r):
     assert r["focus_chat"] == {"sent": [{"action": "set_focus", "view": "chat"}], "placeholder": "type a message…"}
     assert r["focus_wiki_open"] == {"view": "wiki", "sent": [], "read": ["projects/atlas"],
                                     "placeholder": "ask about Atlas…"}
+
+
+# --------------------------------------------------------------- PRD 57: focus only when the question points at the page
+
+
+def test_deictic_question_gets_the_page(seeded_vault):
+    a_recall.set_focus("wiki", "people/anna")
+    _, fake = typed("summarise this")
+    assert "<document source=\"Anna\">" in last_user(fake)
+    assert conversation._turn_pages == ["Anna"]
+
+
+def test_heading_overlap_gets_the_page(seeded_vault):
+    big_page()
+    a_recall.set_focus("wiki", "notes/big")
+    _, fake = typed("what about turrets")
+    assert "## Turrets" in last_user(fake)
+
+
+def test_unrelated_question_skips_focus_and_recalls(seeded_vault, monkeypatch):
+    big_page()
+    a_recall.set_focus("wiki", "notes/big")
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: "\n\n<recall>stub</recall>")
+    for question in ("what's the weather", "who painted the Mona Lisa"):
+        _, fake = typed(question)
+        assert last_user(fake) == question + "\n\n<recall>stub</recall>"
+        assert conversation._turn_pages == []
+        assert a_recall.focus == {"view": "wiki", "path": "notes/big"}
+
+
+def test_command_words_never_focus(seeded_vault):
+    big_page()
+    a_recall.set_focus("wiki", "notes/big")
+    assert a_recall.focus_block("what time is it") == ""
+    assert conversation._turn_pages == []
+
+
+def test_focus_returns_on_the_next_page_question(seeded_vault, monkeypatch):
+    big_page()
+    a_recall.set_focus("wiki", "notes/big")
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: "")
+    typed("who painted the Mona Lisa")
+    _, fake = typed("what does it say about dragons")
+    assert "<document source=\"Big guide\">" in last_user(fake)

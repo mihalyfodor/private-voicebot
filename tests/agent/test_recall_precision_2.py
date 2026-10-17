@@ -47,13 +47,13 @@ def _parts(block: str) -> list:
 
 
 def test_title_words_pick_the_source_and_never_score(both):
-    terms = chunks.content_terms("in the Fallout 4 guide, what about Covenant turrets")
+    terms = chunks.content_terms("in the Fallout 4 guide, what does it say about Covenant turrets")
     topic, named = chunks.split_title_terms(terms)
     assert not topic & TITLE_TOKENS
     assert "covenant" in topic
     assert named == {both["fallout"]["path"]}
 
-    hits = chunks.search_chunks("in the Fallout 4 guide, what about Covenant turrets")
+    hits = chunks.search_chunks("in the Fallout 4 guide, what does it say about Covenant turrets")
     assert hits
     assert {h["source"] for h in hits} == {both["fallout"]["path"]}
     assert all(not set(h["matched"]) & TITLE_TOKENS for h in hits)
@@ -61,7 +61,7 @@ def test_title_words_pick_the_source_and_never_score(both):
 
 
 def test_a_question_naming_the_guide_quotes_a_covenant_chunk_never_the_contents_page(both):
-    block = recall.recall_for("in the Fallout 4 guide, what about Covenant turrets")
+    block = recall.recall_for("in the Fallout 4 guide, what does it say about Covenant turrets")
     assert 'From "Fallout 4 guide"' in block and "Covenant" in block
     assert "(part 1/" not in block
 
@@ -231,7 +231,7 @@ def test_summarise_this_gets_the_source_head_not_a_chunk(fallout):
 
 def test_a_topical_question_under_focus_still_gets_the_chunk(fallout):
     recall.set_focus("sources", fallout["path"])
-    assert "Part " in recall.focus_block("what about Covenant turrets")
+    assert "Part " in recall.focus_block("what does it say about Covenant turrets")
 
 
 def test_topic_terms_drop_the_generic_words():

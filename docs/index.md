@@ -234,7 +234,7 @@ voicebot/
 │   │   ├── test_vault_map.py           # PRD 54 scenarios 1, 2, 4: a 12-page / 3-folder map equals its golden (folder order, ranking by inbound then updated, tag line, "+n more", round-robin), 320 generated pages + a linked projects/zephyr: the 600-token map names it and every folder while `index_text` does not, one page write rebuilds one row and the map reads no page, a delete drops the row and the folder count; review fixes: a long one-liner cut, a schema-1 index file rebuilt once with `links`, three typed turns never build the map
 │   │   ├── test_wiki_editor.py         # PRD 28: save/etag/conflict, lock wait, create, backlinks, tags, rename, delete, client fixture assertions
 │   │   ├── test_index_db.py            # PRD 53: golden scores + golden index_text (no page reads), incremental ingest row diff, rename/delete/forget leave no rows, reindex == incremental, deleted index rebuilt, startup check repair, filters, changed sha re-indexes one source, killed update rolls back, a skipped source is retried by the next startup check
-│   │   ├── test_focus_context.py       # PRD 38: `set_focus` → the page block on typed and spoken turns, head + matching section cap, Chat drops focus / "go back", find/open + no-match notes, a focused source feeds the offer, injected page text wrapped, client fixture assertions
+│   │   ├── test_focus_context.py       # PRD 38: `set_focus` → the page block on typed and spoken turns, head + matching section cap, Chat drops focus / "go back", find/open + no-match notes, a focused source feeds the offer, injected page text wrapped, PRD 57: focus only on a deictic or heading-overlap question, command words never focus, client fixture assertions
 │   │   └── test_source_recall.py       # PRD 32: raw chunking + per-sha cache, chunk search, search_wiki snippets, read_source, recall_for + per-turn injection, calibration (two generated FAQs), threshold setting, raw renamed after the title; `live` scenario against the real guides
 │   ├── memory/               # the profile: ops, decay, editor, the eval harness
 │   │   ├── test_memory.py              # memory v2: ops, caps, render budget, reflection, identity aliases
@@ -252,7 +252,7 @@ voicebot/
 │   │   └── test_tools.py               # tool schemas/behaviour, needs live oMLX for some cases
 │   ├── agent/                # the chat agent: prompt, context, recall, written answers, research, approvals
 │   │   ├── test_llm_unit.py            # llm.py with a mocked OpenAI client: ask/ask_events, PRD 13 streamed first call, tool-call detection mid-stream
-│   │   ├── test_context.py             # PRD 11: context budget, history trimming; a failed model_context_len lookup is not retried within the window
+│   │   ├── test_context.py             # PRD 11: context budget, history trimming; PRD 57: old tool results stubbed before turns drop (400-char floor, last 2 turns kept, pairing intact); a failed model_context_len lookup is not retried within the window
 │   │   ├── test_turn_rollback.py       # review: a failed or closed turn rolls back — the user message is found by identity after a trim, GeneratorExit strips the recall block and the orphan session turn
 │   │   ├── test_verbosity.py           # PRD 11: verbosity levels, max_tokens derivation, set_verbosity action
 │   │   ├── test_llm_robustness.py      # LLM tool-trigger robustness (single phrases + variants), needs live oMLX
