@@ -13,6 +13,7 @@ import pytest
 
 from core import settings
 import llm
+from agent import recall as a_recall
 import wiki
 from vault import store
 from tests.conftest import ask_turn, deltas, fallout, last_user, trace_lines  # noqa: F401  (fixtures)
@@ -120,7 +121,7 @@ def test_a_content_question_with_a_proper_match_is_high_whatever_the_score(fallo
     text = "What does Dogmeat want?"                       # "Caius" in the dev vault
     page, hits = llm._recall_evidence(text)
     assert wiki.proper_match(hits[0], wiki.proper_terms(wiki.content_terms(text)), wiki.proper_phrases(text))
-    monkeypatch.setattr(llm, "RECALL_HIGH_SCORE", 999.0)
+    monkeypatch.setattr(a_recall, "RECALL_HIGH_SCORE", 999.0)
     assert llm.recall_band(text, page, hits) == "high"
 
 
@@ -137,7 +138,7 @@ def test_a_content_question_on_plain_words_below_the_high_score_is_medium(fallou
     events, fake = ask_turn(PLAIN_QUESTION, "[neutral] Fry some fish.")
     reply = deltas(events)
     assert "<recall>" not in last_user(fake) and reply == "[neutral] Fry some fish. " + OFFER
-    monkeypatch.setattr(llm, "RECALL_HIGH_SCORE", 0.0)       # at or above the score it answers grounded
+    monkeypatch.setattr(a_recall, "RECALL_HIGH_SCORE", 0.0)       # at or above the score it answers grounded
     assert llm.recall_band(PLAIN_QUESTION, page, hits) == "high"
 
 

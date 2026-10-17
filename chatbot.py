@@ -18,6 +18,10 @@ import webbrowser
 
 import approvals
 import llm
+from agent import context as a_context
+from agent import offers
+from agent import prompt as a_prompt
+from agent import recall
 from memory import identity
 from memory import ops as m_ops
 from memory import render as m_render
@@ -484,7 +488,7 @@ def _run_failed(run, step: str, reason: str, send_sync, card=None) -> None:
 
 
 def context_msg() -> dict:
-    return {"type": "context", **llm.context_usage()}
+    return {"type": "context", **a_context.context_usage()}
 
 
 # --- written answers (docs/43-written-answers.md) --------------------------------------
@@ -533,7 +537,7 @@ def save_card(card_id: str | None, folder: str = "") -> list:
         raise ValueError(reason)
     card["saved"] = path
     llm.refresh_context()
-    llm.set_focus("wiki", path)
+    recall.set_focus("wiki", path)
     return [{"type": "wiki_open", "path": path}, {"type": "card_saved", "id": card["id"], "path": path},
             _wiki_msg(), _sources_msg()]
 
@@ -707,7 +711,7 @@ def _settle_pending(ctx: Ctx) -> bool:
     else:
         approvals.expire(ctx.session, via)
         return False
-    llm.drop_offer()                          # the answer takes the turn, as any turn takes an open offer
+    offers.drop_offer()                          # the answer takes the turn, as any turn takes an open offer
     llm.record_user(ctx.text)
     _resolve(ctx.session, ctx.turn, ctx.send, decision, via)
     return True
@@ -776,7 +780,7 @@ def propose_turn(sess: Session, turn: int, kind: str, target: str, loop):
 def _with_context_notice(events):
     """The turn's events, then the 90 % crossing sentence as one more spoken delta (PRD 39)."""
     yield from events
-    notice = llm.context_notice()
+    notice = a_context.context_notice()
     if notice:
         yield ("delta", " " + notice)
 
@@ -820,16 +824,16 @@ def open_page(ctx: Ctx) -> str:
         return ""
     kind, query = cmd
     if kind == "back":
-        path, query = llm.last_page, "the last page"
+        path, query = recall.last_page, "the last page"
     else:
         hits = v_search.search(query, 1)
         path = hits[0]["path"] if hits else None
     if not path:
-        return llm.NO_MATCH_NOTE.format(query=query)
+        return recall.NO_MATCH_NOTE.format(query=query)
     title = v_focus.page_title(path) or path
     send_sync({"type": "wiki_open", "path": path})
-    llm.set_focus("sources" if path.startswith("sources/") else "wiki", path)
-    return llm.OPENED_NOTE.format(title=title)
+    recall.set_focus("sources" if path.startswith("sources/") else "wiki", path)
+    return recall.OPENED_NOTE.format(title=title)
 
 
 def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "user"):
@@ -848,7 +852,7 @@ def respond(sess: Session, turn: int, user_text: str, send_sync, origin: str = "
         finally:
             if trace.turn_failed():
                 end["outcome"] = "error"
-            trace.event("turn_end", ms=trace.ms_since(t0), ctx_pct=llm.context_usage()["pct"], **end)
+            trace.event("turn_end", ms=trace.ms_since(t0), ctx_pct=a_context.context_usage()["pct"], **end)
 
 
 def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, end: dict, tool=None):
@@ -1016,7 +1020,7 @@ async def api_config():
         "backdrop": current_backdrop(), "backdrops": backdrops.listing(),
         # session state the UI mirrors
         "hands_free": hands_free,
-        "verbosity": llm.current_verbosity(),
+        "verbosity": a_prompt.current_verbosity(),
         # read-only facts shown in the Settings view
         "stale_days": dict(m_store.STALE_DAYS),
         "calendar_horizon_days": formats.calendar_horizon_days(),
@@ -1200,7 +1204,7 @@ async def _action_text_turn(sess, msg, loop):
 
 async def _action_set_focus(sess, msg, loop):
     """`{view, path?}` from the client whenever the view or the open page changes (PRD 38)."""
-    llm.set_focus(msg.get("view"), msg.get("path"))
+    recall.set_focus(msg.get("view"), msg.get("path"))
 
 
 async def _action_set_hands_free(sess, msg, loop):
@@ -1243,8 +1247,8 @@ async def _action_reload_characters(sess, msg, loop):
 
 
 async def _action_set_verbosity(sess, msg, loop):
-    llm.set_verbosity(msg.get("value"))
-    await send({"type": "verbosity", "value": llm.current_verbosity()})
+    a_prompt.set_verbosity(msg.get("value"))
+    await send({"type": "verbosity", "value": a_prompt.current_verbosity()})
 
 
 #: Settings the UI may write straight to settings.json via `set_setting`, and the type each

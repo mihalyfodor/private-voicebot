@@ -14,6 +14,7 @@ import re
 import time
 
 import llm
+from agent import recall
 from memory import ops
 import runs
 from vault import chunks as v_chunks
@@ -250,7 +251,7 @@ def _section(markdown: str, heading: str) -> str:
 def write(budget: Budget, question: str, subs: list, material: list) -> tuple:
     """``(title, findings)``: one `long` completion over what was read."""
     blocks = [untrusted(m["text"], m["label"]) for m in material]
-    blocks = llm.fit(blocks, llm.CARD_CONTEXT_TOKENS, WRITE_PROMPT)
+    blocks = recall.fit(blocks, llm.CARD_CONTEXT_TOKENS, WRITE_PROMPT)
     user = (f"Question: {question}\nSub-questions: " + "; ".join(s["q"] for s in subs)
             + "\n\nMaterial:\n" + "\n\n".join(blocks))
     reply = _complete(budget, "research_write", WRITE_PROMPT, user, llm.CARD_MAX_TOKENS)

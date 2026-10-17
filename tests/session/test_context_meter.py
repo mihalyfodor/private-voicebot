@@ -14,6 +14,9 @@ from tools import commands, registry
 
 import chatbot
 import llm
+from agent import context as a_context
+from agent import prompt
+from agent import recall as a_recall
 import memory
 from agent import fold as m_fold
 from session import Session
@@ -42,10 +45,10 @@ def recorded_memory(monkeypatch):
 @pytest.fixture
 def small_budget(monkeypatch):
     """A budget the tool schemas nearly fill, so a few short turns cross 90 %; no trimming."""
-    monkeypatch.setattr(llm, "MAX_TOKENS", 1)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 1)
     llm._conversation[0]["content"] = "sys"
     budget = {"value": 1300}
-    monkeypatch.setattr(llm, "context_budget", lambda: budget["value"])
+    monkeypatch.setattr(a_context, "context_budget", lambda: budget["value"])
     return budget
 
 
@@ -64,9 +67,9 @@ def test_a_completed_turn_sends_context_with_the_estimated_usage(seeded_vault):
 
 
 def test_trim_history_returns_the_user_turns_dropped(monkeypatch):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 200)
-    monkeypatch.setattr(llm, "MAX_TOKENS", 50)
-    monkeypatch.setattr(llm, "model_context_len", lambda: None)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 200)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 50)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
     llm._conversation[0]["content"] = "sys"
     for i in range(6):
         llm._conversation.append({"role": "user", "content": f"question {i} " * 10})
@@ -117,7 +120,7 @@ def test_crossing_90_speaks_the_sentence_once_and_rearms_under_75(seeded_vault, 
 
 def test_recall_blocks_leave_the_history_once_the_turn_is_done(seeded_vault, monkeypatch):
     block = "\n\n<recall>\n" + "lorem ipsum " * 500 + "\n</recall>"             # ~1500 tokens
-    monkeypatch.setattr(llm, "recall_for", lambda text: block)
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: block)
     fake = StreamClient(*["[neutral] Per the guide, yes."] * 10)
     questions = [f"what does the guide say about chapter {i} of the story" for i in range(10)]
     with patch.object(core_llm, "_client", fake):

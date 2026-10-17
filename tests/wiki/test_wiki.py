@@ -300,10 +300,10 @@ def test_the_tool_hint_is_dropped_when_the_tools_are_not_registered(vault, memor
     Advertising search_wiki to a model that has not been offered it only teaches it to type a
     tool call at the user.
     """
-    import llm
+    from agent import prompt as a_prompt
 
     wiki.apply_page_ops([a_page()], "s")
-    monkeypatch.setattr(llm, "TOOLS", [])
+    monkeypatch.setattr(a_prompt, "TOOLS", [])
 
     prompt = memory.load("BASE")
 

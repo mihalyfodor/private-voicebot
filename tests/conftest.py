@@ -25,6 +25,7 @@ import avatars
 import chatbot
 from vault import index_db
 import llm
+from agent import recall as a_recall
 import memory
 from memory import store as m_store
 import sources
@@ -341,7 +342,7 @@ def fresh_llm():
     def reset():
         llm.reset()
         llm.set_focus("chat")
-        llm.last_page = None
+        a_recall.last_page = None
     reset()
     yield
     reset()

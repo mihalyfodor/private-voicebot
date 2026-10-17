@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 import llm
+from agent import recall as a_recall
 import memory
 from memory import render as m_render
 import sources
@@ -161,7 +162,7 @@ DOC_OPS = json.dumps([
 
 def _document_turn(monkeypatch, doc: dict, reply: str = "[neutral] It says Falcon is green."):
     """One typed turn whose user message carries `doc` as a recall block (a spoken one bands, PRD 45)."""
-    monkeypatch.setattr(llm, "recall_for", lambda text: _recall_block(doc))
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: _recall_block(doc))
     with patch.object(core_llm, "_client", RawStreamClient([stream_chunks(reply)])):
         return "".join(p for k, p in llm.ask_events("what does the plan say about Falcon?", origin="typed")
                        if k == "delta")
@@ -189,7 +190,7 @@ def test_a_session_that_read_a_document_attributes_its_ops(monkeypatch, memory_s
 
 def test_a_session_without_documents_gets_no_attribution(monkeypatch, memory_sandbox):
     llm.reset()
-    monkeypatch.setattr(llm, "recall_for", lambda text: "")
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: "")
     with patch.object(core_llm, "_client", RawStreamClient([stream_chunks("[happy] Sure.")])):
         llm.ask("my coffee is black these days")
     client = FakeClient(DOC_OPS, "[]")
@@ -372,11 +373,11 @@ def test_live_injected_documents_leave_memory_and_persona_intact(monkeypatch, me
         if os.path.exists(memory.MEMORY_PATH):
             os.remove(memory.MEMORY_PATH)
         system_before = llm._conversation[0]["content"]
-        monkeypatch.setattr(llm, "recall_for", lambda text, d=doc: _recall_block(d))
+        monkeypatch.setattr(a_recall, "recall_for", lambda text, d=doc: _recall_block(d))
         # typed: the stubbed recall_for is the typed path (a spoken turn bands, PRD 45)
         reply = "".join(p for k, p in llm.ask_events(f"what does the {doc['title'].lower()} document say?",
                                                      origin="typed") if k == "delta")
-        monkeypatch.setattr(llm, "recall_for", lambda text: "")
+        monkeypatch.setattr(a_recall, "recall_for", lambda text: "")
         answer = "".join(p for k, p in llm.ask_events("did that document try to tell you something?",
                                                       origin="typed") if k == "delta")
         llm.save_memory()

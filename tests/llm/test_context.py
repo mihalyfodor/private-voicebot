@@ -5,22 +5,24 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 import llm
+from agent import context as a_context
+from agent import prompt
 from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
 from core import llm as core_llm
 
 
 def setup_function():
     llm.reset()
-    llm._model_context_len_cache = None
-    llm._model_context_len_warned = False
+    a_context._model_context_len_cache = None
+    a_context._model_context_len_warned = False
 
 
 # --- scenario 1: trimming drops oldest first, keeps system + latest user ---
 
 def test_trim_history_drops_oldest_non_system_turns(monkeypatch):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 200)
-    monkeypatch.setattr(llm, "MAX_TOKENS", 50)
-    monkeypatch.setattr(llm, "model_context_len", lambda: None)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 200)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 50)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
 
     for i in range(30):
         llm._conversation.append({"role": "user", "content": f"turn {i}" * 5})
@@ -40,9 +42,9 @@ def test_trim_history_drops_oldest_non_system_turns(monkeypatch):
 
 
 def test_trim_history_never_orphans_tool_result(monkeypatch):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 60)
-    monkeypatch.setattr(llm, "MAX_TOKENS", 10)
-    monkeypatch.setattr(llm, "model_context_len", lambda: None)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 60)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 10)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
 
     llm._conversation = [{"role": "system", "content": "sys" * 50}]
     llm._conversation.append({
@@ -65,9 +67,9 @@ def test_trim_history_never_orphans_tool_result(monkeypatch):
 
 
 def test_trim_history_no_trim_when_under_budget(monkeypatch, capsys):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 16000)
-    monkeypatch.setattr(llm, "MAX_TOKENS", 400)
-    monkeypatch.setattr(llm, "model_context_len", lambda: None)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 16000)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 400)
+    monkeypatch.setattr(a_context, "model_context_len", lambda: None)
     llm._conversation.append({"role": "user", "content": "hi"})
     llm.trim_history()
     assert "trimmed" not in capsys.readouterr().out
@@ -76,8 +78,8 @@ def test_trim_history_no_trim_when_under_budget(monkeypatch, capsys):
 # --- scenario 3: max_tokens present on every create() call ---
 
 def test_max_tokens_passed_on_every_create_call(monkeypatch):
-    monkeypatch.setattr(llm, "MAX_TOKENS", 0)
-    monkeypatch.setattr(llm, "_verbosity", "long")
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 0)
+    monkeypatch.setattr(prompt, "_verbosity", "long")
     fake = FakeClient([
         [_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")],
         _chunks("[neutral] Noon."),
@@ -90,7 +92,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
 
 
 def test_max_tokens_env_override(monkeypatch):
-    monkeypatch.setattr(llm, "MAX_TOKENS", 123)
+    monkeypatch.setattr(prompt, "MAX_TOKENS", 123)
     fake = FakeClient([_chunks("[happy] hi")])
     with patch.object(core_llm, "_client", fake):
         llm.ask("hi")
@@ -100,7 +102,7 @@ def test_max_tokens_env_override(monkeypatch):
 # --- scenario 6: /v1/models unavailable → fallback, warning, no crash ---
 
 def test_model_context_len_failure_falls_back(monkeypatch, capsys):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 16000)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 16000)
 
     class BoomClient:
         class models:
@@ -117,7 +119,7 @@ def test_model_context_len_failure_falls_back(monkeypatch, capsys):
 
 
 def test_model_context_len_caps_budget(monkeypatch):
-    monkeypatch.setattr(llm, "CONTEXT_BUDGET", 16000)
+    monkeypatch.setattr(a_context, "CONTEXT_BUDGET", 16000)
     model = SimpleNamespace(id=core_llm.OMLX_MODEL, max_model_len=4000)
 
     class OkClient:

@@ -4,6 +4,7 @@ import pytest
 
 from core import settings
 import llm
+from agent import prompt as a_prompt
 
 
 @pytest.fixture(autouse=True)
@@ -12,7 +13,7 @@ def no_verbosity_env(monkeypatch):
     monkeypatch.delenv("VERBOSITY", raising=False)
     before = llm._verbosity, llm.SYSTEM_PROMPT
     yield
-    llm._verbosity, llm.SYSTEM_PROMPT = before
+    a_prompt._verbosity, a_prompt.SYSTEM_PROMPT = before
     llm.reset()
 
 

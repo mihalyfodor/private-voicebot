@@ -17,6 +17,8 @@ import requests
 
 import avatars
 import llm
+from agent import prompt as a_prompt
+from agent import recall as a_recall
 from tools import TOOLS, run_tool
 from tools import wikipedia
 from tests.conftest import RawStreamClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
@@ -366,13 +368,13 @@ def test_live_calibration(seeded_vault, capsys):
     question may go to Wikipedia. The first offered question also gets a real "yes"."""
     guides = _file_guides()
     core_llm._client = None
-    llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
+    a_prompt.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
     rows, lines, follow_up = [], [], None
     for q in QUESTIONS:
         llm.reset()
         expect, question = q["expect"], q["question"]
         recalls = []                                            # the recall blocks quoted (spoken: high band only)
-        with patch.object(llm, "_quote_block", lambda tag, *a, _q=llm._quote_block: recalls.append(_q(tag, *a))
+        with patch.object(a_recall, "_quote_block", lambda tag, *a, _q=llm._quote_block: recalls.append(_q(tag, *a))
                           or recalls[-1]):
             reply = llm.ask(question)
         recalled = any("<recall>" in r for r in recalls)

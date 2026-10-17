@@ -14,6 +14,7 @@ import avatars
 from core import settings
 import fillers
 import llm
+from agent import prompt as a_prompt
 import memory
 import wiki
 from tests.conftest import RawStreamClient, StreamClient, ask_turn, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
@@ -98,12 +99,12 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
 def test_a_tool_free_run_gets_neither_rule(monkeypatch):
     """No tools: no grounding and no routing rules; without get_wikipedia alone only the offer goes (PRD 37)."""
     from tools import TOOLS
-    monkeypatch.setattr(llm, "TOOLS", [])
+    monkeypatch.setattr(a_prompt, "TOOLS", [])
     prompt = llm.build_system_prompt(AVATAR)
     assert "Look it up first" not in prompt and llm.DEEPER_OFFERS[0] not in prompt
     assert llm.WIKIPEDIA_OFFER not in prompt
     assert llm.grounding_rules() == ""
-    monkeypatch.setattr(llm, "TOOLS", [t for t in TOOLS if t["function"]["name"] != "get_wikipedia"])
+    monkeypatch.setattr(a_prompt, "TOOLS", [t for t in TOOLS if t["function"]["name"] != "get_wikipedia"])
     prompt = llm.build_system_prompt(AVATAR)
     assert "Look it up first" in prompt and llm.WIKIPEDIA_OFFER not in prompt
 
@@ -267,7 +268,7 @@ def test_live_answers_cite_offer_and_dig_deeper(seeded_vault, capsys, monkeypatc
         monkeypatch.setattr(core_llm, "_client", FakeClient(summary_json(title), "[]"))
         sources.file_bytes(data, f"raw/inbox/{name}", "md")
     core_llm._client = None
-    llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
+    a_prompt.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
     pairs = []
     for question in LIVE_QUESTIONS:
         llm.reset()

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import chatbot
 from tools import commands
 import llm
+from agent import recall as a_recall
 import memory
 import wiki
 from tests.conftest import FakeClient, StreamClient, last_user, spoken, typed, write_page
@@ -75,7 +76,7 @@ def test_a_one_section_page_yields_the_head_only(seeded_vault):
 
 
 def test_memory_view_gets_the_note_beside_recall_and_settings_nothing(seeded_vault, monkeypatch):
-    monkeypatch.setattr(llm, "recall_for", lambda text: "\n\n<recall>stub</recall>")
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: "\n\n<recall>stub</recall>")
     llm.set_focus("memory")
     assert llm.focus_block("what do you know") == ""
     _, fake = typed("what do you know about Anna")
@@ -91,7 +92,7 @@ def test_memory_view_gets_the_note_beside_recall_and_settings_nothing(seeded_vau
 def test_chat_has_no_block_recall_runs_and_go_back_reopens_the_last_page(seeded_vault, monkeypatch):
     llm.set_focus("wiki", "people/anna")
     llm.set_focus("chat")
-    monkeypatch.setattr(llm, "recall_for", lambda text: "\n\n<recall>stub</recall>")
+    monkeypatch.setattr(a_recall, "recall_for", lambda text: "\n\n<recall>stub</recall>")
     _, fake = typed("what is Anna working on these days")
     assert last_user(fake) == "what is Anna working on these days\n\n<recall>stub</recall>"
 

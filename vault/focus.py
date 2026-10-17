@@ -94,9 +94,9 @@ def tools_registered() -> bool:
     (docs/19-wiki-layer.md, Results).
     """
     try:
-        import llm
+        from agent import prompt as a_prompt
 
-        names = {(t.get("function") or {}).get("name") for t in llm.TOOLS if isinstance(t, dict)}
+        names = {(t.get("function") or {}).get("name") for t in a_prompt.TOOLS if isinstance(t, dict)}
     except Exception:  # noqa: BLE001 — no llm (tests, scripts) means no tools
         return False
     return any(name in names for name in RECALL_TOOLS)

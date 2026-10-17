@@ -34,6 +34,7 @@ os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{o
 import avatars  # noqa: E402
 from vault import index_db
 import llm  # noqa: E402
+from agent import prompt as a_prompt
 from memory import ops as m_ops
 from memory import render as m_render
 from memory import store as m_store
@@ -121,10 +122,10 @@ class Sandbox:
             "ops": m_store.OPS_LOG_PATH,
             "shortmem": m_store.SHORTMEM_PATH,
             "settings": settings.SETTINGS_PATH,
-            "tools": llm.TOOLS,
+            "tools": a_prompt.TOOLS,
             "trace_dir": trace.TRACE_DIR,
             "avatar": avatars._current,
-            "system_prompt": llm.SYSTEM_PROMPT,
+            "system_prompt": a_prompt.SYSTEM_PROMPT,
             "today": m_render._today,
         }
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
@@ -137,10 +138,10 @@ class Sandbox:
         settings.SETTINGS_PATH = self.settings_path
         avatars._current = None
         if not self.tools:
-            llm.TOOLS = []
+            a_prompt.TOOLS = []
         trace.reset()
         trace.TRACE_DIR = self.trace_dir      # the run's events land in the throwaway dir (PRD 49)
-        llm.SYSTEM_PROMPT = llm.build_system_prompt(avatars.current())
+        a_prompt.SYSTEM_PROMPT = a_prompt.build_system_prompt(avatars.current())
         return self
 
     def read_memory(self) -> str:
@@ -161,11 +162,11 @@ class Sandbox:
         m_store.OPS_LOG_PATH = self._saved["ops"]
         m_store.SHORTMEM_PATH = self._saved["shortmem"]
         settings.SETTINGS_PATH = self._saved["settings"]
-        llm.TOOLS = self._saved["tools"]
+        a_prompt.TOOLS = self._saved["tools"]
         trace.reset()
         trace.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
-        llm.SYSTEM_PROMPT = self._saved["system_prompt"]
+        a_prompt.SYSTEM_PROMPT = self._saved["system_prompt"]
         m_render._today = self._saved["today"]
         _CLOCK["offset"] = timedelta(0)
         if self._tmpdir:
