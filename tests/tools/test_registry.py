@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-import sources
 from tools import commands, registry
+from ingest import pipeline
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -120,7 +120,7 @@ def test_file_source_refreshes_the_panel_through_the_bound_ctx():
     pushed = []
     ctx = registry.Ctx(text="", origin="user", session=None, turn=None, send=lambda m: None,
                        push_panel=lambda: pushed.append(1))
-    with patch.object(sources, "ingest_note", return_value={"path": "sources/x", "raw": "raw/x"}):
+    with patch.object(pipeline, "ingest_note", return_value={"path": "sources/x", "raw": "raw/x"}):
         with registry.bind(ctx):
             assert registry.current() is ctx
             assert registry.run_tool("file_source", {"kind": "note", "ref": "hi"}) == "filed as sources/x (raw: raw/x)."

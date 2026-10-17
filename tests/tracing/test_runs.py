@@ -23,6 +23,7 @@ from core import trace
 from session import Session
 from tests.conftest import (ROOT, RUN_TITLE, SENTINEL, FakeClient, briefing_run, fake_tts, pdf_bytes, run_turn, trace_lines,
                             trace_text)
+from ingest import batch as ingest_batch
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -144,7 +145,7 @@ def test_a_batch_import_is_one_run_with_a_needs_ocr_did_not_row(vault, monkeypat
     folder.mkdir()
     (folder / "notes.pdf").write_bytes(pdf_bytes([["Falcon status note, amber, load test 940 ms p99"]]))
     (folder / "scan.pdf").write_bytes(pdf_bytes([["ignored"]], with_text=False))
-    monkeypatch.setattr(batch_import, "running_app", lambda: "")
+    monkeypatch.setattr(ingest_batch, "running_app", lambda: "")
     summary = '{"title": "Falcon notes", "summary": "Falcon.", "entities": [], "topic": "work", "unreadable": false}'
     with patch.object(core_llm, "_client", FakeClient(summary, "[]")):
         res = batch_import.ingest_batch(str(folder), out=lambda line: None)
@@ -183,7 +184,7 @@ def test_a_batch_that_raises_mid_run_still_ends_its_run_failed(vault, monkeypatc
     folder.mkdir()
     for name in ("a.pdf", "b.pdf"):
         (folder / name).write_bytes(pdf_bytes([["x"]], with_text=False))
-    monkeypatch.setattr(batch_import, "running_app", lambda: "")
+    monkeypatch.setattr(ingest_batch, "running_app", lambda: "")
     for exc in (RuntimeError("disk gone"), KeyboardInterrupt()):
         calls = []
 
@@ -193,7 +194,7 @@ def test_a_batch_that_raises_mid_run_still_ends_its_run_failed(vault, monkeypatc
                 raise exc
             return {"state": "needs-ocr", "reason": "0 chars/page"}
 
-        monkeypatch.setattr(batch_import, "_one", boom)
+        monkeypatch.setattr(ingest_batch, "_one", boom)
         before = len(trace_lines(kind="run"))
         with pytest.raises(type(exc)):
             batch_import.ingest_batch(str(folder), out=lambda line: None)
@@ -208,7 +209,7 @@ def test_a_dry_run_writes_no_step_spans(vault, monkeypatch, tmp_path):
     folder = tmp_path / "export"
     folder.mkdir()
     (folder / "a.pdf").write_bytes(pdf_bytes([["Falcon status note, amber, load test 940 ms p99"]]))
-    monkeypatch.setattr(batch_import, "running_app", lambda: "")
+    monkeypatch.setattr(ingest_batch, "running_app", lambda: "")
     batch_import.ingest_batch(str(folder), dry_run=True, out=lambda line: None)
     assert trace_lines(kind="step") == [] and trace_lines(kind="run") == []
 

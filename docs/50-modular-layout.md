@@ -105,6 +105,7 @@ moved lines except the pure `git mv`-and-split steps (1, 5, 6-7, 8, 9-10, 11), w
 - Step 4: `core/llm.py` owns the client and the three call shapes (`stream`, raw `completion`, text `complete`); memory's `save/reflect/propose_ops` no longer take a client and model, so one conftest fake patched at `core.llm._client` serves every test. `StreamClient`/`RawStreamClient` stay as two spellings of the one `FakeClient` until step 12.
 - Step 3 side effect: `file_source` now really refreshes the Wiki panel in the running app. The old `_push_panel` did `import chatbot` while the app ran as `__main__`, so it loaded a second module copy whose session was None and the push never fired. Accepted as the one observable improvement of steps 1–4.
 - Steps 1–4 landed overnight 2026-10-16/17 (commits d837ca7, d1f799a, 40d245b, 9139454, Impl 0c0b0f6); steps 5–12 wait for the user's review before any further move, per the overnight plan.
+- Step 5 landed 2026-10-17: `core/formats.py` (pure extractors), `vault/manifest.py`, `ingest/{pipeline,notebooks,batch}.py`; `raw_text` and `extract` stay in `ingest/pipeline.py` because they read the vault path (`wiki._path`), which `core/` may not import; `ics_events` defaults `today` to `date.today()` and `extract` passes the clock `memory._today_iso()` as before. ALLOWED gained the pairs for modules that still import root `memory`/`wiki`/`remarkable` (each leaves with its target's step).
 
 ## Data model
 - Layer graph: `core < vault < memory < ingest < tools < agent < server`; `scripts/` and `chatbot.py` on top. A

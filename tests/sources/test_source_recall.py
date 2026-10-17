@@ -20,6 +20,7 @@ from tests.conftest import (FALLOUT_SECTIONS, SKYRIM_SECTIONS, FakeClient, Strea
                             fallout, file_faq, seeded_vault, send_setting, summary_json, vault)
 from tools import run_tool
 from core import llm as core_llm
+from ingest import pipeline
 
 
 def cache_files() -> list:
@@ -91,8 +92,8 @@ def test_an_existing_vault_gets_the_cache_dir_ignored(wiki_sandbox):
 
 
 def test_images_and_calendars_have_no_chunks(seeded_vault, monkeypatch):
-    monkeypatch.setattr(sources, "_downscale", lambda full: None)
-    monkeypatch.setattr(sources, "_image_part", lambda full: {"type": "image_url"})
+    monkeypatch.setattr(pipeline, "_downscale", lambda full: None)
+    monkeypatch.setattr(pipeline, "_image_part", lambda full: {"type": "image_url"})
     client = FakeClient(summary_json("A screenshot"), "[]")
     monkeypatch.setattr(core_llm, "_client", client)
     filed = sources.ingest_upload(b"\x89PNG", "shot.png")

@@ -619,7 +619,7 @@ def test_a_file_source_tool_round_refreshes_the_wiki_panel(vault, monkeypatch):
     monkeypatch.setattr(chatbot, "make_sender", lambda lp, turn=None: sent.append)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
-    monkeypatch.setattr("sources.ingest_note", lambda text, hint="": {"path": "sources/x", "raw": "raw/x"})
+    monkeypatch.setattr("ingest.pipeline.ingest_note", lambda text, hint="": {"path": "sources/x", "raw": "raw/x"})
     args = '{"kind": "note", "ref": "buy milk"}'
     with fake_model([tool_call_chunk(id="c1", name="file_source", arguments=args)],
                     stream_chunks("[neutral] Filed.")):

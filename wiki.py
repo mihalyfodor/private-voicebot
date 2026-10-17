@@ -1300,9 +1300,9 @@ def raw_chunks(raw_rel: str) -> dict:
     Cached in `raw/.index/<sha>.json`; a cache hit reads no raw bytes. `raw_rel` may be the
     raw path or the source page path; a file that is not in the manifest raises KeyError.
     """
-    import sources
+    from vault import manifest
 
-    entry = next((e for e in sources.manifest_entries()
+    entry = next((e for e in manifest.manifest_entries()
                   if raw_rel in (e.get("path"), e.get("page"))), None)
     if entry is None:
         raise KeyError(f"no such source: {raw_rel}")
@@ -1311,7 +1311,7 @@ def raw_chunks(raw_rel: str) -> dict:
 
 def _raw_chunks_for(entry: dict) -> dict:
     """:func:`raw_chunks` for a manifest entry already in hand (a rebuild parses the manifest once)."""
-    import sources
+    from ingest import pipeline
 
     sha, raw_rel, source = entry["sha256"], entry["path"], entry.get("page", "")
     cached = _read(_cache_rel(sha))
@@ -1322,7 +1322,7 @@ def _raw_chunks_for(entry: dict) -> dict:
                 return record
         except ValueError:
             pass
-    text = sources.raw_text(raw_rel, _read_bytes(raw_rel)) if _chunkable(entry) else ""
+    text = pipeline.raw_text(raw_rel, _read_bytes(raw_rel)) if _chunkable(entry) else ""
     record = {"sha": sha, "raw": raw_rel, "source": source,
               "title": _source_title(source, raw_rel),
               "chunks": chunk_text(text, CHUNK_TOKENS, CHUNK_OVERLAP)}
@@ -1395,12 +1395,12 @@ def _drop_source(idx: index_db.Index, sha: str) -> None:
 def _sync_sources(idx: index_db.Index) -> int:
     """Bring the chunk index in line with the manifest; returns the sources changed. Skipped when the
     manifest bytes hash to what the last sync saw."""
-    import sources
+    from vault import manifest
 
-    digest = _sha(_read(sources.MANIFEST))
+    digest = _sha(_read(manifest.MANIFEST))
     if idx.get_meta("manifest") == digest:
         return 0
-    entries = {e["sha256"]: e for e in sources.manifest_entries() if e.get("sha256") and _chunkable(e)}
+    entries = {e["sha256"]: e for e in manifest.manifest_entries() if e.get("sha256") and _chunkable(e)}
     have = idx.source_shas()
     changed, skipped = 0, False
     for sha, raw in have.items():
@@ -1428,13 +1428,13 @@ def _sync_sources(idx: index_db.Index) -> int:
 def _chunk_index() -> index_db.Index | None:
     """The index, with its sources in line with the manifest: one stat per call, a re-read and a
     sync only when the manifest file changed (a batch import in another process, a hand edit)."""
-    import sources
+    from vault import manifest
 
     if not exists():
         return None
     idx = _db()
     try:
-        st = os.stat(_path(sources.MANIFEST))
+        st = os.stat(_path(manifest.MANIFEST))
         mark = (st.st_mtime_ns, st.st_size)
     except OSError:
         mark = None
@@ -1556,7 +1556,7 @@ def proper_phrases(query: str) -> list:
 def _chunk_subset(meta: dict, named: set, filters: dict | None):
     """The chunk ids scored: the named sources' (all when none is named or they hold none),
     narrowed by `filters` ``{source, kind}``; None means every chunk."""
-    import sources
+    from vault import manifest
 
     subset = {i for i, m in meta.items() if m[0] in named} or None if named else None
     if not filters:
@@ -1569,7 +1569,7 @@ def _chunk_subset(meta: dict, named: set, filters: dict | None):
     kind = filters.get("kind")
     if kind:
         kinds = {kind} if isinstance(kind, str) else set(kind)
-        shas = {e.get("sha256") for e in sources.manifest_entries() if e.get("kind") in kinds}
+        shas = {e.get("sha256") for e in manifest.manifest_entries() if e.get("kind") in kinds}
         keep = {i for i in keep if meta[i][5] in shas}
     return keep
 
@@ -1844,12 +1844,13 @@ def _page_changes(ts: str) -> tuple:
 
 
 def _source_changes(ts: str) -> list:
-    import sources
+    from vault import manifest
+    from ingest import pipeline
     out = []
-    for entry in sources.manifest_entries():
+    for entry in manifest.manifest_entries():
         at = str(entry.get("ingested_at") or "")
         if "T" not in at:                                # an old line: the date lives on the page
-            at = sources._source_meta(entry)["when"].replace(" ", "T")
+            at = pipeline._source_meta(entry)["when"].replace(" ", "T")
         if len(at) < 19 or at <= ts:
             continue
         out.append({"page": entry.get("page", ""), "path": entry.get("path", ""),
@@ -1996,7 +1997,7 @@ def lint() -> list:
 
     A finding names its page the way the rest of the layer does, `people/anna`, or its raw file.
     """
-    import sources
+    from vault import manifest
 
     if not exists():
         return []
@@ -2026,13 +2027,13 @@ def lint() -> list:
         labels.append((name, " ".join(str(fm.get("name") or "").split())))
     findings += [f"{wikilink(rel)}: in the search index but not on disk{REINDEX_HINT}"
                  for rel in sorted(indexed - set(paths))]
-    cited |= {e.get("path") for e in sources.manifest_entries()}
-    cited |= {rel for e in sources.manifest_entries() for rel in e.get("pages") or []}   # PRD 47 PNGs
+    cited |= {e.get("path") for e in manifest.manifest_entries()}
+    cited |= {rel for e in manifest.manifest_entries() for rel in e.get("pages") or []}   # PRD 47 PNGs
     for root, dirs, files in os.walk(_path(RAW_DIR)):
         dirs[:] = sorted(d for d in dirs if not d.startswith("."))
         for fname in sorted(files):
             rel = os.path.relpath(os.path.join(root, fname), WIKI_PATH).replace(os.sep, "/")
-            if not fname.startswith(".") and rel != sources.MANIFEST and rel not in cited:
+            if not fname.startswith(".") and rel != manifest.MANIFEST and rel not in cited:
                 findings.append(f"{rel}: not in the manifest and cited by no page")
     first = {}
     for name, label in sorted(labels):
@@ -2233,12 +2234,12 @@ def main(argv) -> int:
     because swapping the file under a running app would orphan its open handle."""
     import sys
 
-    import batch_import
+    from ingest import batch
 
     if list(argv) != ["reindex"]:
         print("usage: python -m wiki reindex", file=sys.stderr)
         return 2
-    running = batch_import.running_app()
+    running = batch.running_app()
     if running:
         print(f"refusing to reindex: {running}", file=sys.stderr)
         return 2

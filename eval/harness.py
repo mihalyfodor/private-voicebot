@@ -7,7 +7,7 @@ memory.json, memory_ops.jsonl and settings.json redirected to a sandbox, then sc
 A turn is one of: ``{user: "..."}``, ``{probe: "...", expect: [...], expect_not: [...]}``,
 ``{edit: {op, path, value}}`` (a hand edit through the memory editor's own write path; a list
 of ops is applied as one atomic batch), ``{ingest: {path: "eval/fixtures/falcon.md", hint: "..."}}``
-(file a real document through sources.ingest_path, the same code path the drop popup uses)
+(file a real document through pipeline.ingest_path, the same code path the drop popup uses)
 or ``{clock: "+200d"}`` (fast-forward memory's idea of
 today for the rest of the run — that is how decay is tested).
 
@@ -35,7 +35,7 @@ import avatars  # noqa: E402
 import index_db  # noqa: E402
 import llm  # noqa: E402
 import memory  # noqa: E402
-import sources  # noqa: E402
+from ingest import pipeline  # noqa: E402
 from core import settings, trace  # noqa: E402
 import wiki  # noqa: E402
 from splitter import strip_tag  # noqa: E402
@@ -439,12 +439,12 @@ def _run_ingest(spec, verbose: bool = True) -> dict:
         spec = {"path": spec}
     spec = spec or {}
     try:
-        filed = sources.ingest_path(str(spec.get("path") or ""),
+        filed = pipeline.ingest_path(str(spec.get("path") or ""),
                                     title=str(spec.get("title") or ""),
                                     hint=str(spec.get("hint") or ""),
                                     page=str(spec.get("page") or ""))
         error = ""
-    except sources.IngestError as exc:
+    except pipeline.IngestError as exc:
         filed, error = {}, exc.message
     if verbose:
         print(f"  ingest: {spec.get('path')} -> {error or filed}")

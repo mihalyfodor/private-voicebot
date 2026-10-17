@@ -18,9 +18,9 @@ import time
 from typing import Callable, NamedTuple
 
 import llm
-import notebooks
+from ingest import notebooks
 import runs
-import sources
+from ingest import pipeline
 import wiki
 from core import trace
 from tools import commands
@@ -145,9 +145,9 @@ def _committed(write) -> str:
 
 
 def _forget_apply(proposal: dict) -> dict:
-    """`sources.forget` re-checks the approved plan under the vault lock (no window after the hash check)."""
+    """`pipeline.forget` re-checks the approved plan under the vault lock (no window after the hash check)."""
     out = {}
-    out["commit"] = _committed(lambda: out.update(sources.forget(proposal["sha"], expected=proposal)))
+    out["commit"] = _committed(lambda: out.update(pipeline.forget(proposal["sha"], expected=proposal)))
     return out
 
 
@@ -187,7 +187,7 @@ def _forget_facts(p: dict, cleaned: str, removed: str) -> str:
 
 
 FORGET = Kind(
-    plan=lambda sha: sources.forget_plan(sha), apply=_forget_apply, spoken=_forget_spoken, key="sha",
+    plan=lambda sha: pipeline.forget_plan(sha), apply=_forget_apply, spoken=_forget_spoken, key="sha",
     title=lambda p: f"Forget {p['title']}", body=_forget_body,
     rows=lambda p: ([{"path": p["page"], "title": p["title"]}, {"path": p["raw"]}]
                     + [{"path": i} for i in p.get("images") or []] + [{"path": c} for c in p["cleaned"]]),
@@ -239,7 +239,7 @@ def _end(pending: dict, decision: str, via: str, status: str, reason: str) -> No
 
 
 def propose(sess, kind: str, target: str) -> dict:
-    """Plan `kind` for `target` (raises ValueError / `sources.IngestError` before anything is opened),
+    """Plan `kind` for `target` (raises ValueError / `pipeline.IngestError` before anything is opened),
     then open its run, issue the awaiting card (`llm`'s card store, so a reconnect replays it) and set
     `sess.pending` — an older pending is expired first. Returns the pending dict."""
     spec = KINDS[kind]
@@ -304,7 +304,7 @@ def resolve_pending(sess, decision: str, via: str, run_id: str | None = None) ->
         return Outcome("reject", pending, line=REJECTED_LINE)
     try:
         fresh = spec.plan(pending["proposal"][spec.key])
-    except (ValueError, sources.IngestError):
+    except (ValueError, pipeline.IngestError):
         fresh = None
     if fresh is None or digest(fresh) != pending["hash"]:
         _end(pending, "changed", via, "failed", "changed")
@@ -316,8 +316,8 @@ def resolve_pending(sess, decision: str, via: str, run_id: str | None = None) ->
                 if result.get("commit"):
                     step.update(commit=result["commit"],
                                 pages=[{**row, "commit": result["commit"]} for row in spec.rows(fresh) if row.get("path")])
-        except sources.IngestError as e:
-            if e.status != sources.CHANGED_STATUS:
+        except pipeline.IngestError as e:
+            if e.status != pipeline.CHANGED_STATUS:
                 _end(pending, "approve", via, "failed", runs.failure_reason(e))
                 raise
             _end(pending, "changed", via, "failed", "changed")          # changed under the lock: nothing written
@@ -350,7 +350,7 @@ def forget_target(title: str) -> tuple:
     """``(sha, None)`` for the one source whose title the spoken `title` names, else ``(None, line)``:
     "Which one: A or B?" for several, "I have no source called <title>." for none. An exact title
     wins over the titles that merely contain every word."""
-    rows = [s for s in sources.list_sources() if s.get("sha")]
+    rows = [s for s in pipeline.list_sources() if s.get("sha")]
     hits = []
     for query in _queries(title):
         exact = [s for s in rows if _norm(s["title"]) == query]

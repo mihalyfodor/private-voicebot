@@ -15,6 +15,7 @@ import index_db
 import sources
 import wiki
 from tests.conftest import ROOT, commits, file_faq, read, trace_lines
+from ingest import batch as ingest_batch
 
 FIXTURES = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fixtures")
 SEARCH_GOLDEN = os.path.join(FIXTURES, "search_golden.json")
@@ -375,8 +376,7 @@ def test_a_swapped_index_file_is_picked_up_by_an_open_handle(seeded_vault, tmp_p
 
 
 def test_the_reindex_cli_refuses_while_the_app_runs(seeded_vault, monkeypatch, capsys):
-    import batch_import
-    monkeypatch.setattr(batch_import, "running_app", lambda: "app is running — scripts/voicebot stop (port 8011)")
+    monkeypatch.setattr(ingest_batch, "running_app", lambda: "app is running — scripts/voicebot stop (port 8011)")
     before = wiki._db().dump()
     assert wiki.main(["reindex"]) == 2
     assert "app is running" in capsys.readouterr().err

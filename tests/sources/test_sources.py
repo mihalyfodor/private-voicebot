@@ -19,6 +19,9 @@ import wiki
 from tests.conftest import (SENTINEL, FakeClient, commits, notebook_pages, pdf_bytes, png_bytes, read, trace_lines,  # noqa: F401 — fixture
                             trace_text, vault, write_page)
 from core import llm as core_llm
+from core import formats
+from ingest import batch as ingest_batch
+from ingest import pipeline
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
@@ -576,7 +579,7 @@ def test_downscale_shrinks_a_large_png_with_pillow(tmp_path, monkeypatch):
 
     def no_sips(*a, **k):
         raise AssertionError("sips must not be called")
-    monkeypatch.setattr(sources.subprocess, "run", no_sips)
+    monkeypatch.setattr(formats.subprocess, "run", no_sips)
 
     sources._downscale(path)
     with Image.open(path) as im:
@@ -593,7 +596,7 @@ def test_downscale_leaves_small_images_alone(tmp_path, monkeypatch):
 
     def no_sips(*a, **k):
         raise AssertionError("sips must not be called")
-    monkeypatch.setattr(sources.subprocess, "run", no_sips)
+    monkeypatch.setattr(formats.subprocess, "run", no_sips)
 
     before = open(path, "rb").read()
     sources._downscale(path)
@@ -800,7 +803,7 @@ def test_limit_sleep_unsupported_and_a_large_pdf(vault, idle_port, export, monke
     put(export, "scan.png", b"x")
 
     naps = []
-    monkeypatch.setattr(batch_import, "_sleep", naps.append)
+    monkeypatch.setattr(ingest_batch, "_sleep", naps.append)
     res, _ = run_batch(export, FakeClient(*[SUMMARY, OPS] * 3), sleep=2)
     assert res["filed"] == 2 and res["already"] == 1 and res["unsupported"] == 2
     assert naps == [2, 2]                    # none after the already-filed n0
@@ -869,7 +872,7 @@ def test_a_strict_failure_removes_only_the_stored_original(vault, idle_port, mon
     def boom(*a, **kw):
         raise RuntimeError("model fell over")
 
-    monkeypatch.setattr(sources, "summarise", boom)
+    monkeypatch.setattr(pipeline, "summarise", boom)
     with pytest.raises(RuntimeError):
         monkeypatch.setattr(core_llm, "_client", FakeClient())
         sources.ingest_upload(text_pdf(1), "a.pdf", strict=True)
@@ -1069,7 +1072,7 @@ def test_a_failed_replace_is_retried_when_the_same_pages_come_again(vault, monke
             raise RuntimeError("git fell over")
         return real_forget(digest)
 
-    monkeypatch.setattr(sources, "forget", flaky)
+    monkeypatch.setattr(pipeline, "forget", flaky)
     v2_pages = notebook_pages(3)
     with pytest.raises(RuntimeError):
         file_notebook(v2_pages, notebook_client(3),

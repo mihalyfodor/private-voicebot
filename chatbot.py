@@ -19,13 +19,15 @@ import webbrowser
 import approvals
 import llm
 import memory
-import notebooks
+from ingest import notebooks
 import remarkable
 import research
 import runs
 import wiki
 import splitter
-import sources
+from core import formats
+from vault import manifest
+from ingest import pipeline
 import fillers
 import avatars
 from core import settings
@@ -637,7 +639,7 @@ def _propose(ctx: Ctx, kind: str, target: str) -> None:
         send_sync(card_msg(llm.get_card(pending["card_id"])))
         llm.record_assistant(say_canned(approvals.KINDS[kind].spoken(pending["proposal"]), send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
-    except (ValueError, sources.IngestError) as e:
+    except (ValueError, pipeline.IngestError) as e:
         send_sync({"type": "error", "scope": "turn", "text": getattr(e, "message", None) or str(e)})
         send_sync({"type": "state", "value": "idle"})
     except Exception as e:
@@ -1008,7 +1010,7 @@ async def api_config():
         "verbosity": llm.current_verbosity(),
         # read-only facts shown in the Settings view
         "stale_days": dict(memory.STALE_DAYS),
-        "calendar_horizon_days": sources.calendar_horizon_days(),
+        "calendar_horizon_days": formats.calendar_horizon_days(),
         "recall_min_score": wiki.recall_min_score(),
         "location": weather_tool.location(),
         "vault": wiki.WIKI_PATH,
@@ -1037,9 +1039,9 @@ def _file_one(item: dict, on_stage=None) -> dict:
                                          replaces=item["replaces"], device_id=item["device_id"],
                                          on_stage=on_stage)
     if item["kind"] == "paste_text":
-        return sources.ingest_note(item["text"], title=item["title"], hint=item["hint"],
+        return pipeline.ingest_note(item["text"], title=item["title"], hint=item["hint"],
                                    page=item["page"], on_stage=on_stage)
-    return sources.ingest_upload(item["data"], item["filename"], kind_hint=item["kind"],
+    return pipeline.ingest_upload(item["data"], item["filename"], kind_hint=item["kind"],
                                  title=item["title"], hint=item["hint"], page=item["page"],
                                  on_stage=on_stage)
 
@@ -1072,7 +1074,7 @@ def _ingest_items(items: list) -> dict:
         try:
             filed.append(_file_one(
                 item, lambda stage, name=name, i=i: _push_ingest_progress(name, stage, i, len(items))))
-        except sources.IngestError as exc:
+        except pipeline.IngestError as exc:
             errors.append(exc.message)
         except Exception:  # noqa: BLE001 — one bad drop must not 500 the popup
             # the ingest span already traced it (type + code); only the log gets the traceback
@@ -1084,7 +1086,7 @@ def _ingest_items(items: list) -> dict:
 #: a host script's optional `run_id` form field (PRD 49): short, no spaces
 RUN_ID = re.compile(r"[\w.:-]{1,64}")
 #: pasted text travels as a plain form field; Starlette caps those at 1 MB unless told otherwise
-INGEST_MAX_PART = sources.MAX_TEXT_BYTES + 64 * 1024
+INGEST_MAX_PART = pipeline.MAX_TEXT_BYTES + 64 * 1024
 
 
 @app.post("/ingest")
@@ -1126,13 +1128,13 @@ async def ingest(request: Request):
         for upload in file or []:
             data = await upload.read()
             # refuse type/size here as well as in sources, so a bad drop costs no worker thread
-            sources.check_upload(upload.filename or "", len(data), kind)
+            pipeline.check_upload(upload.filename or "", len(data), kind)
             items.append({**fields, "data": data, "filename": upload.filename or "drop",
                           "text": ""})
         if not items and kind == "paste_text":
             items.append({**fields, "data": b"", "filename": "",
-                          "text": sources.check_note(text)})
-    except sources.IngestError as exc:
+                          "text": pipeline.check_note(text)})
+    except pipeline.IngestError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     if not items:
         raise HTTPException(status_code=400, detail="nothing to file")
@@ -1377,7 +1379,7 @@ async def _send_memory_error(path, reason) -> None:
 
 def _sources_msg() -> dict:
     """The `sources` message the Sources view (and its rail badge) re-renders from (PRD 25)."""
-    return {"type": "sources", "sources": sources.list_sources()}
+    return {"type": "sources", "sources": pipeline.list_sources()}
 
 
 async def _send_wiki() -> None:
@@ -1400,7 +1402,7 @@ async def _source_op(fn, *args):
     """One inbox action: run it off the loop, then refresh the list — or report the refusal."""
     try:
         await asyncio.to_thread(fn, *args)
-    except sources.IngestError as exc:
+    except pipeline.IngestError as exc:
         await _error("sources", exc.message)
         return
     await _send_wiki()
@@ -1408,14 +1410,14 @@ async def _source_op(fn, *args):
 
 async def _action_reingest_source(sess, msg, loop):
     """`{sha}` → the source page rewritten from its raw file; the open page is re-read via `wiki`."""
-    await _source_op(sources.reingest, str(msg.get("sha") or ""))
+    await _source_op(pipeline.reingest, str(msg.get("sha") or ""))
 
 
 async def _action_forget_source(sess, msg, loop):
     """`{sha}` → the forget proposal turn (PRD 52): the awaiting card in the transcript, one spoken
     question, nothing deleted until it is approved. An unknown sha is `error` (sources)."""
     sha = str(msg.get("sha") or "")
-    if sources.manifest_find(sha) is None:
+    if manifest.manifest_find(sha) is None:
         await _error("sources", f"no filed source with sha {sha[:12]}")
         return
     submit_turn(propose_turn, "forget", sha, loop)

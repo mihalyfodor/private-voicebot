@@ -35,12 +35,12 @@ def main(argv=None) -> int:
     except SystemExit as exc:
         return 0 if exc.code == 0 else 2
     if args.vault:
-        os.environ["WIKI_PATH"] = args.vault        # before wiki / sources are imported
+        os.environ["WIKI_PATH"] = args.vault        # before wiki / ingest are imported
     from core import trace
     trace.configure(out=sys.stderr)                # PRD 49: the app's profile rule
-    import batch_import
+    from ingest import batch
 
-    res = batch_import.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),
+    res = batch.ingest_batch(os.path.expanduser(args.folder), kinds=args.kinds.split(","),
                                     resume=args.resume, dry_run=args.dry_run, limit=args.limit,
                                     sleep=args.sleep)
     return res["exit"]

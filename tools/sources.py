@@ -2,9 +2,9 @@
 
 "file that email from Anna", "save that article", "remember this: …". The tool resolves the
 reference against what the assistant last read out (gmail / news), or takes the note verbatim,
-and hands the bytes to sources.py, which stores them under `raw/` and files a source page.
+and hands the bytes to ingest/pipeline.py, which stores them under `raw/` and files a source page.
 """
-import sources
+from ingest import pipeline
 from core import trace
 log = trace.logger("Sources")
 
@@ -43,9 +43,9 @@ def _file_email(ref: str, hint: str) -> dict:
 
     msg_id = gmail.resolve_ref(ref)
     if not msg_id:
-        raise sources.IngestError(404, f"I couldn't tell which email {ref!r} is — "
+        raise pipeline.IngestError(404, f"I couldn't tell which email {ref!r} is — "
                                        "read the inbox first, then say which one.")
-    return sources.ingest_email(msg_id, gmail.fetch_message(msg_id), hint=hint)
+    return pipeline.ingest_email(msg_id, gmail.fetch_message(msg_id), hint=hint)
 
 
 def _file_news(ref: str, hint: str) -> dict:
@@ -53,10 +53,10 @@ def _file_news(ref: str, hint: str) -> dict:
 
     title, url = news.resolve_ref(ref)
     if not url:
-        raise sources.IngestError(404, f"I couldn't tell which story {ref!r} is — "
+        raise pipeline.IngestError(404, f"I couldn't tell which story {ref!r} is — "
                                        "read the headlines first, then say which one.")
     body = f"{title}\n{url}\n\n{news.article_text(url)}"
-    return sources.ingest_news(title, body, hint=hint)
+    return pipeline.ingest_news(title, body, hint=hint)
 
 
 def file_source(kind: str, ref: str, hint: str = "") -> str:
@@ -71,10 +71,10 @@ def file_source(kind: str, ref: str, hint: str = "") -> str:
         elif kind == "news":
             filed = _file_news(ref, hint)
         elif kind == "note":
-            filed = sources.ingest_note(ref, hint=hint)
+            filed = pipeline.ingest_note(ref, hint=hint)
         else:
             return f"I can file an email, a news story or a note — not {kind!r}."
-    except sources.IngestError as exc:
+    except pipeline.IngestError as exc:
         return exc.message
     except Exception as exc:  # noqa: BLE001 — a filing failure is spoken, never a crashed turn
         log.info(f"file_source failed: {exc}")

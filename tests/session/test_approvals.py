@@ -17,6 +17,8 @@ import wiki
 from session import Session
 from tests.conftest import (MORROWIND, SENTINEL, button_turn, commits, fake_tts, read, seed, session_turn,
                             spoken_lines, trace_lines, trace_text)
+from ingest import notebooks as ingest_notebooks
+from ingest import pipeline
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
@@ -84,7 +86,7 @@ def test_no_match_or_two_matches_is_one_line_and_nothing_pending(morrowind):
     sent = session_turn(sess, 1, "forget the Daggerfall guide")
     assert spoken_lines(sent) == ["I have no source called Daggerfall guide."]
     assert not _of(sent, "card") and sess.pending is None
-    with patch.object(sources, "list_sources", lambda: [{"sha": "a", "title": "Morrowind guide"},
+    with patch.object(pipeline, "list_sources", lambda: [{"sha": "a", "title": "Morrowind guide"},
                                                         {"sha": "b", "title": "Skyrim guide"}]):
         sent = session_turn(sess, 2, "forget the guide")
     assert spoken_lines(sent) == ["Which one: Morrowind guide or Skyrim guide?"] and sess.pending is None
@@ -356,8 +358,8 @@ def _with_card() -> dict:
 def test_send_that_to_my_remarkable_proposes_then_pushes_once(vault):
     card = _with_card()
     sess = Session()
-    with patch.object(notebooks, "push_available", return_value=True), \
-            patch.object(notebooks, "push", return_value={"ok": True, "pages": 2}) as push:
+    with patch.object(ingest_notebooks, "push_available", return_value=True), \
+            patch.object(ingest_notebooks, "push", return_value={"ok": True, "pages": 2}) as push:
         sent = session_turn(sess, 1, "send that to my reMarkable")
         (proposal,) = _of(sent, "card")
         assert proposal["status"] == "awaiting" and proposal["workflow"] == "push"
@@ -373,7 +375,7 @@ def test_send_that_to_my_remarkable_proposes_then_pushes_once(vault):
 
 def test_send_without_a_card_is_nothing_to_send(vault):
     sess = Session()
-    with patch.object(notebooks, "push_available", return_value=True), patch.object(notebooks, "push") as push:
+    with patch.object(ingest_notebooks, "push_available", return_value=True), patch.object(ingest_notebooks, "push") as push:
         sent = session_turn(sess, 1, "send that to my reMarkable")
     assert _of(sent, "error") == [{"type": "error", "scope": "turn", "text": "nothing to send"}]
     assert sess.pending is None and not _of(sent, "card")
@@ -464,8 +466,8 @@ def test_a_write_that_fails_still_writes_its_decision_and_run_end(vault):
     """MAJOR 3: the approved push raises → `decision approve` + `run end failed` before the error."""
     _with_card()
     sess = Session()
-    with patch.object(notebooks, "push_available", return_value=True), \
-            patch.object(notebooks, "push", side_effect=RuntimeError("tablet gone")):
+    with patch.object(ingest_notebooks, "push_available", return_value=True), \
+            patch.object(ingest_notebooks, "push", side_effect=RuntimeError("tablet gone")):
         session_turn(sess, 1, "send that to my reMarkable")
         run_id = sess.pending["run_id"]
         sent = session_turn(sess, 2, "yes")
@@ -490,7 +492,7 @@ def test_a_change_between_the_check_and_the_write_is_refused_under_the_lock(morr
             seed(people=[{"name": "Vivec", "source": MORROWIND}, {"name": "Almalexia", "source": MORROWIND}])
         return plan
     before = len(commits())
-    with patch.object(sources, "forget_plan", plan_then_change):
+    with patch.object(pipeline, "forget_plan", plan_then_change):
         sent = button_turn(chatbot.resolve_turn, sess, 2, card["run_id"], "approve")
     assert _of(sent, "error") == [{"type": "error", "scope": "turn", "text": approvals.CHANGED}]
     assert _still_there(morrowind) and len(commits()) == before
