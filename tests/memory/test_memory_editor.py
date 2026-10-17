@@ -13,6 +13,7 @@ import pytest
 
 import chatbot
 import llm
+from agent import conversation
 import memory
 from memory import render as m_render
 from core import llm as core_llm
@@ -308,9 +309,9 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact(monkeyp
 
 
 def test_has_unsaved_turns_tracks_the_session_buffer(monkeypatch):
-    monkeypatch.setattr(llm, "_session_turns", [])
+    monkeypatch.setattr(conversation, "_session_turns", [])
     assert llm.has_unsaved_turns() is False
-    monkeypatch.setattr(llm, "_session_turns", [{"role": "user", "content": "hi"}])
+    monkeypatch.setattr(conversation, "_session_turns", [{"role": "user", "content": "hi"}])
     assert llm.has_unsaved_turns() is True
 
 
@@ -323,8 +324,8 @@ def test_opening_the_memory_tab_saves_the_session_and_sends_two_snapshots(panel,
         calls.append(1)
         memory.edit({"op": "ADD", "path": "preferences.coffee", "value": "black"})
 
-    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: True)
-    monkeypatch.setattr(llm, "save_memory", fake_save)
+    monkeypatch.setattr(conversation, "has_unsaved_turns", lambda: True)
+    monkeypatch.setattr(conversation, "save_memory", fake_save)
 
     first, second = panel.send_many({"action": "get_memory"}, 2)
     assert calls == [1]
@@ -336,8 +337,8 @@ def test_opening_the_memory_tab_saves_the_session_and_sends_two_snapshots(panel,
 def test_opening_the_memory_tab_with_nothing_pending_does_not_save(panel, monkeypatch):
     seed(identity={"name": "Misi"})
     calls = []
-    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: False)
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "has_unsaved_turns", lambda: False)
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
 
     reply = panel.send({"action": "get_memory"})
     assert reply["type"] == "memory"
@@ -348,8 +349,8 @@ def test_opening_the_memory_tab_during_a_turn_does_not_save(panel, monkeypatch):
     """A turn owns the LLM; the tab still gets its snapshot and the periodic save catches up."""
     seed(identity={"name": "Misi"})
     calls = []
-    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: True)
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "has_unsaved_turns", lambda: True)
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
 
     blocker = Blocker()
     blocker.hold(chatbot.controller)
@@ -364,8 +365,8 @@ def test_opening_the_memory_tab_during_a_turn_does_not_save(panel, monkeypatch):
 def test_save_now_saves_even_with_nothing_pending(panel, monkeypatch):
     seed(identity={"name": "Misi"})
     calls = []
-    monkeypatch.setattr(llm, "has_unsaved_turns", lambda: False)
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "has_unsaved_turns", lambda: False)
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
 
     first, second = panel.send_many({"action": "save_memory"}, 2)
     assert calls == [1]
@@ -374,7 +375,7 @@ def test_save_now_saves_even_with_nothing_pending(panel, monkeypatch):
 
 def test_save_now_refuses_while_a_turn_is_running(panel, monkeypatch):
     calls = []
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
     blocker = Blocker()
     blocker.hold(chatbot.controller)
     try:

@@ -17,7 +17,7 @@ import threading
 import time
 from typing import Callable, NamedTuple
 
-import llm
+from agent import written as a_written
 from ingest import notebooks
 import runs
 from ingest import pipeline
@@ -200,7 +200,7 @@ FORGET = Kind(
 
 
 def _card(card_id: str) -> dict:
-    card = llm.get_card(card_id)
+    card = a_written.get_card(card_id)
     if not card or not card.get("markdown"):
         raise ValueError(NOTHING_TO_SEND)
     return card
@@ -250,7 +250,7 @@ def propose(sess, kind: str, target: str) -> dict:
                     count=len(spec.rows(proposal))):
         pass
     run.step("proposed", "ok", spec.detail(proposal))
-    card = llm.issue_card({"id": llm.next_card_id(), "markdown": spec.body(proposal), "sources": [],
+    card = a_written.issue_card({"id": a_written.next_card_id(), "markdown": spec.body(proposal), "sources": [],
                            "title": spec.title(proposal), **run.card([APPROVE, REJECT, runs.OPEN]),
                            "status": "awaiting"})
     pending = {"run_id": run.run_id, "kind": kind, "proposal": proposal, "hash": digest(proposal),
@@ -275,7 +275,7 @@ def expire(sess, via: str) -> dict | None:
 def _expired(pending: dict, via: str) -> None:
     """End an emptied slot's run as expired and fold its card (a replay shows it folded)."""
     _end(pending, "expired", via, "expired", "expired")
-    card = llm.get_card(pending.get("card_id"))
+    card = a_written.get_card(pending.get("card_id"))
     if card is not None and card.get("status") == "awaiting":
         card.update(status="expired", actions=[runs.OPEN])
 

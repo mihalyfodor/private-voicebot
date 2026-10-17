@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 import batch_import
 import chatbot
 import llm
+from agent import conversation
+from agent import written
 import runs
 from core import llm as core_llm
 from core import trace
@@ -97,7 +99,7 @@ def test_an_empty_digest_ends_the_run_nothing_without_a_model_step(vault, monkey
 
 def _grounded_context():
     """The last answer's context, as `ask_events` leaves it: the sentinel sits in the question and reply."""
-    llm._last_context = {"question": f"what did {SENTINEL} say?", "extra": f"<recall>{SENTINEL} said so</recall>",
+    conversation._last_context = {"question": f"what did {SENTINEL} say?", "extra": f"<recall>{SENTINEL} said so</recall>",
                          "tools": [], "reply": f"[neutral] {SENTINEL} said so.", "sources": [], "pages": []}
 
 
@@ -247,7 +249,7 @@ def test_a_reconnect_while_the_write_up_runs_replays_the_running_card(vault, mon
         seen.extend(chatbot.replay_messages())          # a reconnect in the middle of the write-up
         return real(ctx)
 
-    monkeypatch.setattr(llm, "_card_completion", completion)
+    monkeypatch.setattr(written, "_card_completion", completion)
     sent = _write_up(FakeClient(_card_reply()))
     card = next(m for m in sent if m["type"] == "card")
     mid = [m for m in seen if m["type"] == "card"]

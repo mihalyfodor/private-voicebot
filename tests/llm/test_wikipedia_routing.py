@@ -17,6 +17,7 @@ import requests
 
 import avatars
 import llm
+from agent import turn as a_turn
 from agent import prompt as a_prompt
 from agent import recall as a_recall
 from tools import TOOLS, run_tool
@@ -216,7 +217,7 @@ TOPIC_CALL = [tool_call_chunk(id="c1", name="get_wikipedia", arguments=json.dump
 
 def test_yes_calls_the_tool_with_the_topic_at_long_and_clears_the_offer():
     _turn(PRECISE, stream_chunks(OFFER_REPLY))
-    with patch.object(llm, "run_tool", return_value="Wikipedia article ...") as rt:
+    with patch.object(a_turn, "run_tool", return_value="Wikipedia article ...") as rt:
         events, fake = _turn("yes", TOPIC_CALL, stream_chunks("[happy] Per Wikipedia, 1843."))
     rt.assert_called_once_with("get_wikipedia", {"query": "Ada Lovelace"})
     assert events == [("tool_calls", ["get_wikipedia"]), ("delta", "[happy] Per Wikipedia, 1843.")]
@@ -237,7 +238,7 @@ def test_yes_without_a_tool_call_from_the_model_looks_up_the_question_itself():
     """The model answered in text instead of naming the topic: that text is never spoken, the tool
     runs with the question and the answer comes from the second pass."""
     _turn(PRECISE, stream_chunks(OFFER_REPLY))
-    with patch.object(llm, "run_tool", return_value="Wikipedia article ...") as rt:
+    with patch.object(a_turn, "run_tool", return_value="Wikipedia article ...") as rt:
         events, _ = _turn("yes please", stream_chunks("[neutral] It was 1843."), stream_chunks("[happy] Per Wikipedia, 1843."))
     rt.assert_called_once_with("get_wikipedia", {"query": PRECISE})
     assert events == [("tool_calls", ["get_wikipedia"]), ("delta", "[happy] Per Wikipedia, 1843.")]
@@ -247,7 +248,7 @@ def test_yes_without_a_tool_call_from_the_model_looks_up_the_question_itself():
 
 def test_no_clears_the_offer_without_a_call():
     _turn(PRECISE, stream_chunks(OFFER_REPLY))
-    with patch.object(llm, "run_tool") as rt:
+    with patch.object(a_turn, "run_tool") as rt:
         _, fake = _turn("no thanks", stream_chunks("[neutral] Alright."))
     rt.assert_not_called()
     assert fake.calls[0]["max_tokens"] == 400 and llm.WIKIPEDIA_NOTE not in str(fake.calls[0]["messages"])
@@ -308,7 +309,7 @@ def test_calibration_mocked(both):
         else:
             replies = [stream_chunks("[happy] Here is the answer.")]
         fake = RawStreamClient(replies)
-        with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="Wikipedia article ..."):
+        with patch.object(core_llm, "_client", fake), patch.object(a_turn, "run_tool", return_value="Wikipedia article ..."):
             reply = llm.ask(question)
         recalled = "<recall>" in fake.calls[0]["messages"][1]["content"]
         observed = observed_route(reply, llm.get_last_tool_calls(), recalled)

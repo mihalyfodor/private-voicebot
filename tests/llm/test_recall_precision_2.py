@@ -16,6 +16,7 @@ import pytest
 from core import settings
 from tools import commands
 import llm
+from agent import turn as a_turn
 import memory
 import sources
 import wiki
@@ -133,7 +134,7 @@ def test_a_tool_call_turn_never_retries(fallout, file_sandbox):
         [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
         stream_chunks(NOT_COVERED_REPLY),
     ])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
+    with patch.object(core_llm, "_client", fake), patch.object(a_turn, "run_tool", return_value="21C sunny"):
         events = list(llm.ask_events(COVENANT_QUESTION))
     assert len(fake.calls) == 2
     assert events[0] == ("tool_calls", ["get_weather"])

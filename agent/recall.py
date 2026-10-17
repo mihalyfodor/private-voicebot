@@ -6,7 +6,8 @@ from vault import focus as v_focus
 from vault import search as v_search
 from vault import store as v_store
 from core.untrusted import untrusted
-import llm
+from agent import conversation
+from agent import written
 from agent import prompt
 
 
@@ -96,7 +97,7 @@ def focus_block(question: str) -> str:
     if text is None:
         return ""
     title = v_focus.page_title(path)
-    llm._turn_pages.append(title)
+    conversation._turn_pages.append(title)
     head, sections = v_focus.split_sections(v_store.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
     summary = next((s for s in sections if s.startswith("## Summary")), None)
@@ -107,7 +108,7 @@ def focus_block(question: str) -> str:
     topical = bool(v_chunks.topic_terms(question))
     chunk = v_focus.best_chunk(path, question) if view == "sources" and topical else None
     if chunk:
-        llm._turn_sources.append((path, chunk["title"], chunk["n"]))
+        conversation._turn_sources.append((path, chunk["title"], chunk["n"]))
         section = f'Part {chunk["n"]}/{chunk["total"]}: {chunk["text"]}'
     else:
         section = v_focus.best_section(sections, question) if topical else None
@@ -160,8 +161,8 @@ def _recall_evidence(user_text: str) -> tuple:
         return None, []
 
     page = _page_recall(user_text, terms)
-    llm._evidence = (page, _recall_hits(user_text, proper, v_chunks.recall_min_score(), RECALL_CANDIDATES))
-    return llm._evidence
+    conversation._evidence = (page, _recall_hits(user_text, proper, v_chunks.recall_min_score(), RECALL_CANDIDATES))
+    return conversation._evidence
 
 
 
@@ -171,7 +172,7 @@ def recall_band(user_text: str, page: dict | None, hits: list) -> str:
     top = hits[0] if hits else None
     proper = v_chunks.proper_terms(v_chunks.content_terms(user_text))
     matched = v_chunks.proper_match(top, proper, v_chunks.proper_phrases(user_text)) if top else set()
-    content = llm.content_question(user_text)
+    content = written.content_question(user_text)
     # low: nothing kept, or the gate fails (chat carried by plain words)
     if not (page or hits) or not (content or matched):
         return "low"
@@ -179,7 +180,7 @@ def recall_band(user_text: str, page: dict | None, hits: list) -> str:
     if page or top.get("named"):
         return "high"
     strong_question = content and (matched or top["score"] >= RECALL_HIGH_SCORE)
-    name_question = bool(llm.ASK_WORDS.search(user_text)) and bool(matched)
+    name_question = bool(written.ASK_WORDS.search(user_text)) and bool(matched)
     whole_name = not content and (top.get("phrases") or len(matched) >= 2)
     if strong_question or name_question or whole_name:
         return "high"
@@ -235,7 +236,7 @@ def _page_recall(question: str, terms: set) -> dict | None:
     body = "\n\n".join(p for p in (head, summary, section) if p)
     kept = fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
     if kept:
-        llm._turn_pages.append(title)
+        conversation._turn_pages.append(title)
     return {"line": kept[0], "path": path, "title": title} if kept else None
 
 
@@ -250,7 +251,7 @@ def _quote_block(tag: str, page: dict | None, hits: list, budget: int, note_text
         return ""
     titles = titles[:len(quotes)]
     hits = hits[:len(quotes) - (1 if page else 0)]
-    llm._turn_sources.extend((h["source"], h["title"], h["n"]) for h in hits)
+    conversation._turn_sources.extend((h["source"], h["title"], h["n"]) for h in hits)
     note = note_text.format(titles=" or ".join(f'"{t}"' for t in dict.fromkeys(titles)))
     blocks = [untrusted(q, t) for q, t in zip(quotes, titles)]
     return f"\n\n<{tag}>\n" + "\n\n".join(blocks) + f"\n{note}\n</{tag}>"
@@ -272,7 +273,7 @@ def fallback_block(question: str, reply_start: str) -> str:
     if not lookup_worthy(question):
         return ""
     terms = v_chunks.content_terms(question)
-    used = {(s, n) for s, _, n in llm._turn_sources}
+    used = {(s, n) for s, _, n in conversation._turn_sources}
     page = _page_recall(question, terms)
     hits = _recall_hits(question, v_chunks.proper_terms(terms), 0.0, RECALL_CANDIDATES, used)
     return _quote_block("lookup", page, hits, FALLBACK_MAX_TOKENS, FALLBACK_NOTE)

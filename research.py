@@ -13,7 +13,8 @@ A root module until PRD 50 step 9 creates the `agent/` layer; it moves to `agent
 import re
 import time
 
-import llm
+from splitter import strip_tag
+from agent import written as a_written
 from agent import recall
 from memory import ops
 import runs
@@ -89,7 +90,7 @@ def _flat(text) -> str:
 
 def _complete(budget: Budget, purpose: str, system: str, user: str, max_tokens: int) -> str:
     budget.calls += 1
-    return llm.strip_tag(core_llm.complete(system, user, max_tokens, purpose=purpose)).strip()
+    return strip_tag(core_llm.complete(system, user, max_tokens, purpose=purpose)).strip()
 
 
 # ------------------------------------------------------------------ plan
@@ -251,16 +252,16 @@ def _section(markdown: str, heading: str) -> str:
 def write(budget: Budget, question: str, subs: list, material: list) -> tuple:
     """``(title, findings)``: one `long` completion over what was read."""
     blocks = [untrusted(m["text"], m["label"]) for m in material]
-    blocks = recall.fit(blocks, llm.CARD_CONTEXT_TOKENS, WRITE_PROMPT)
+    blocks = recall.fit(blocks, a_written.CARD_CONTEXT_TOKENS, WRITE_PROMPT)
     user = (f"Question: {question}\nSub-questions: " + "; ".join(s["q"] for s in subs)
             + "\n\nMaterial:\n" + "\n\n".join(blocks))
-    reply = _complete(budget, "research_write", WRITE_PROMPT, user, llm.CARD_MAX_TOKENS)
+    reply = _complete(budget, "research_write", WRITE_PROMPT, user, a_written.CARD_MAX_TOKENS)
     if not reply:
         raise ValueError("the model wrote nothing")
     findings = _section(reply, "Findings")
     if not findings:                          # no heading: the reply minus its title and any other section
         findings = re.split(r"^##\s", re.sub(r"^#\s.*$", "", reply, count=1, flags=re.M), flags=re.M)[0].strip()
-    return llm.card_title(reply, question), findings
+    return a_written.card_title(reply, question), findings
 
 
 _QUOTES = str.maketrans({"“": '"', "”": '"', "„": '"', "«": '"', "»": '"', "‘": "'", "’": "'", "‚": "'"})
@@ -424,7 +425,7 @@ def _sources(material: list, findings: str = "") -> list:
     page titles."""
     chunks = [(m["source"], m["title"], m["n"]) for m in material if m["kind"] == "chunk"]
     chunks += [c for c in _cited_chunks(findings, material) if c not in chunks]
-    return llm.card_sources(chunks, [m["title"] for m in material if m["kind"] == "page"])
+    return a_written.card_sources(chunks, [m["title"] for m in material if m["kind"] == "page"])
 
 
 def _label(text: str) -> str:
@@ -443,7 +444,7 @@ def run(question: str, origin: str = "typed", notify=None, request: str = "") ->
     flow = runs.Run("research")
     rec = {"run_id": flow.run_id, "question": question, "origin": origin, "status": "running", "reason": "",
            "steps": [], "subquestions": [], "hits": [], "reads": [], "calls": 0, "card_id": ""}
-    card = llm.issue_card({"id": llm.next_card_id(), "markdown": "", "sources": [],
+    card = a_written.issue_card({"id": a_written.next_card_id(), "markdown": "", "sources": [],
                            "title": runs.WORKFLOWS["research"], "reason": "", "dropped": [], "research": rec,
                            **flow.card([runs.OPEN], [{"label": "Plan", "status": "running"}], fold=False)})
     rec["card_id"] = card["id"]
@@ -520,9 +521,9 @@ def run(question: str, origin: str = "typed", notify=None, request: str = "") ->
         markdown = _markdown(title, findings, sources, dropped)
         rec.update(status=status, reason=reason, calls=budget.calls)
         flow.end(status, reason.replace(": ", "-"))
-        card.update(markdown=markdown, sources=sources, title=llm.card_title(markdown, question), reason=reason,
+        card.update(markdown=markdown, sources=sources, title=a_written.card_title(markdown, question), reason=reason,
                     dropped=dropped, **flow.card([runs.OPEN, runs.COPY], fold=False))
-        llm.file_research(card, request or f"research {question}")
+        a_written.file_research(card, request or f"research {question}")
         return card
     except Exception as e:
         flow.fail(stage, runs.failure_reason(e) if not isinstance(e, ValueError) else "failed-model")

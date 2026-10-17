@@ -22,6 +22,8 @@ from core import settings
 import chatbot
 from tools import commands, registry
 import llm
+from agent import conversation
+from agent import turn as a_turn
 import memory
 from memory import render
 import services
@@ -95,7 +97,7 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
         yield ("delta", reply)
         llm._conversation.append({"role": "assistant", "content": reply})
 
-    monkeypatch.setattr(llm, "ask_events", fake_ask_events)
+    monkeypatch.setattr(a_turn, "ask_events", fake_ask_events)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(chatbot, "asr", fake_asr(lambda a: f"q{int(a[0])}"))
     monkeypatch.setattr(chatbot, "make_sender",
@@ -315,7 +317,7 @@ def test_scenario_10_memory_saved_every_n_turns(monkeypatch):
     """The periodic save fires on every multiple of MEMORY_SAVE_EVERY (default 5), never before."""
     assert session_mod.MEMORY_SAVE_EVERY == 5
     calls = []
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
     every = session_mod.MEMORY_SAVE_EVERY
     c = TurnController(on_turn_complete=chatbot._periodic_memory)
     for _ in range(every - 1):
@@ -364,7 +366,7 @@ def test_next_turn_starts_while_the_memory_save_is_still_running(monkeypatch):
         release.wait(timeout=5)
         order.append("save-done")
 
-    monkeypatch.setattr(llm, "save_memory", slow_save)
+    monkeypatch.setattr(conversation, "save_memory", slow_save)
     c = TurnController(on_turn_complete=chatbot._periodic_memory)
     for _ in range(session_mod.MEMORY_SAVE_EVERY):
         c.submit(lambda: None)
@@ -382,7 +384,7 @@ def test_periodic_memory_tells_the_ui_while_it_saves(monkeypatch):
     monkeypatch.setattr(chatbot, "session", Session(websocket=object()))
     monkeypatch.setattr(chatbot, "_loop", SimpleNamespace(is_running=lambda: True))
     monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)
-    monkeypatch.setattr(llm, "save_memory", lambda: sent.append("saved"))
+    monkeypatch.setattr(conversation, "save_memory", lambda: sent.append("saved"))
     chatbot._periodic_memory(5)
     seen = [m for m in sent if m == "saved" or m.get("type") == "memory_saving"]
     assert seen == [{"type": "memory_saving", "value": True}, "saved",
@@ -409,7 +411,7 @@ def test_periodic_memory_error_does_not_kill_the_worker(monkeypatch):
     def boom():
         raise RuntimeError("oMLX down")
 
-    monkeypatch.setattr(llm, "save_memory", boom)
+    monkeypatch.setattr(conversation, "save_memory", boom)
     done = []
     c = TurnController(on_turn_complete=chatbot._periodic_memory)
     for _ in range(session_mod.MEMORY_SAVE_EVERY):
@@ -483,7 +485,7 @@ def test_briefing_command(text, expected):
 def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():
     started, asked = [], []
     with patch.dict(registry._HANDLERS, {"briefing": lambda ctx: started.append(ctx.text)}), \
-            patch.object(llm, "ask_events", lambda text, **kw: asked.append(text) or iter([("delta", "Fine.")])), \
+            patch.object(a_turn, "ask_events", lambda text, **kw: asked.append(text) or iter([("delta", "Fine.")])), \
             patch.object(chatbot, "synthesize", fake_tts):
         for text in ("what's new?", "Brief me.", "what did I miss", "/brief", "what's new with you"):
             chatbot.respond(Session(), 1, text, lambda msg: None)
@@ -500,7 +502,7 @@ def test_with_the_llm_offline_only_the_offline_safe_commands_run(vault, fresh_ll
     offline = [{"type": "error", "scope": "turn", "text": chatbot.llm_offline_text()},
                {"type": "state", "value": "idle"}]
     with patch.dict(registry._HANDLERS, stubs), patch.object(services, "llm_ok", lambda: False), \
-            patch.object(llm, "ask_events", lambda *a, **kw: ran.append("model") or iter(())):
+            patch.object(a_turn, "ask_events", lambda *a, **kw: ran.append("model") or iter(())):
         for text in ("new topic", "save that as a note", "what's new?"):
             sent = []
             chatbot.respond(Session(), 1, text, sent.append)
@@ -575,7 +577,7 @@ def test_a_later_cutoff_is_never_moved_back(vault, fresh_llm):
 def test_a_briefing_clears_the_offer_skips_recall_and_files_one_stand_in(vault, fresh_llm):
     settings.save_setting("briefing_at", f"{days_ago(1)}T00:00:00")
     changes()
-    llm._deeper_offer = {"recall": "who is Anna?", "title": "notes"}
+    conversation._deeper_offer = {"recall": "who is Anna?", "title": "notes"}
     sent, fake = brief("what's new?", RECAP)
     assert llm._deeper_offer is None
     assert all("<recall>" not in m["content"] for m in fake.calls[0]["messages"])

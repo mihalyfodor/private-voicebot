@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 import asr
 import chatbot
-import llm
+from agent import turn as a_turn
 import services
 from tests.conftest import spoken, typed
 from core import llm as core_llm
@@ -186,7 +186,7 @@ def test_after_the_probe_flips_back_the_next_turn_proceeds():
 
 
 def test_a_failed_completion_asks_for_an_immediate_reprobe():
-    with patch.object(llm, "ask_events", side_effect=RuntimeError("connection refused")):
+    with patch.object(a_turn, "ask_events", side_effect=RuntimeError("connection refused")):
         sent, _ = typed("hello")
     assert sent[-1] == {"type": "state", "value": "idle"}
     assert services._wake.is_set()

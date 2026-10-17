@@ -33,7 +33,8 @@ os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{o
 
 import avatars  # noqa: E402
 from vault import index_db
-import llm  # noqa: E402
+from agent import conversation as a_conversation
+from agent import turn as a_turn
 from agent import prompt as a_prompt
 from memory import ops as m_ops
 from memory import render as m_render
@@ -187,12 +188,12 @@ class Session:
         self.last_ops: list = []
 
     def start(self) -> "Session":
-        llm.reset()
+        a_conversation.reset()
         self.turns = []
         return self
 
     def say(self, text: str) -> str:
-        reply = strip_tag(llm.ask(text) or "").strip()
+        reply = strip_tag(a_turn.ask(text) or "").strip()
         self.turns.append({"user": text, "reply": reply})
         return reply
 
@@ -203,7 +204,7 @@ class Session:
         """
         before_ops = _read(m_store.OPS_LOG_PATH)
         before_text = _read(m_store.SHORTMEM_PATH)
-        llm.save_memory()
+        a_conversation.save_memory()
         self.last_ops = _read_ops(_appended(before_ops, _read(m_store.OPS_LOG_PATH)))
         if self.last_ops:
             return "\n".join(format_op(op) for op in self.last_ops)

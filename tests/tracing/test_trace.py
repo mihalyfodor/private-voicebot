@@ -11,6 +11,9 @@ import pytest
 
 import chatbot
 import llm
+from agent import conversation
+from agent import turn as a_turn
+from agent import written
 from core import llm as core_llm
 from core import trace
 from session import Session
@@ -61,7 +64,7 @@ def test_typed_and_spoken_turns_share_ids_and_hold_no_text(vault):
 
 
 def test_a_tool_call_records_its_size_not_its_result(vault, capsys, monkeypatch):
-    monkeypatch.setattr(llm, "run_tool", lambda name, args: f"RESULT {SENTINEL} body of the page")
+    monkeypatch.setattr(a_turn, "run_tool", lambda name, args: f"RESULT {SENTINEL} body of the page")
     client = RawStreamClient([
         [tool_call_chunk(id="c1", name="search_wiki", arguments='{"query": "falcon"}')],
         stream_chunks("[neutral] Done."),
@@ -191,7 +194,7 @@ def _turn_raising(turn: int):
 
 
 def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch, prod_profile):
-    monkeypatch.setattr(llm, "run_tool", _raising_tool)
+    monkeypatch.setattr(a_turn, "run_tool", _raising_tool)
     _tool_turn(1)
     _turn_raising(2)
     errors = trace_lines(kind="error")
@@ -202,7 +205,7 @@ def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch, prod_pr
 
 
 def test_an_exception_text_goes_to_dev_verbose_only(vault, monkeypatch):
-    monkeypatch.setattr(llm, "run_tool", _raising_tool)
+    monkeypatch.setattr(a_turn, "run_tool", _raising_tool)
     _tool_turn(1)
     _turn_raising(2)
     assert SENTINEL not in trace_text()
@@ -252,7 +255,7 @@ def test_a_briefing_whose_completion_raises_ends_the_turn_in_error(vault, monkey
     monkeypatch.setattr(digest, "changes_since", lambda since: {"pages": [1]})
     monkeypatch.setattr(digest, "digest_empty", lambda d: False)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
-    monkeypatch.setattr(llm, "briefing", boom)
+    monkeypatch.setattr(written, "briefing", boom)
     sent = _typed(9, "what's new?", StreamClient())
     (end,) = trace_lines(kind="turn_end")
     assert end["outcome"] == "error"
@@ -281,7 +284,7 @@ def test_a_failed_background_memory_save_is_a_non_fatal_error_event(vault, prod_
     def broken():
         raise RuntimeError(f"model down {SENTINEL}")
 
-    monkeypatch.setattr(llm, "save_memory", broken)
+    monkeypatch.setattr(conversation, "save_memory", broken)
     monkeypatch.setattr(chatbot, "_push_saving", lambda on: None)
     monkeypatch.setattr(chatbot, "push_memory", lambda **k: None)
     chatbot._periodic_memory(3)

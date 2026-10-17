@@ -17,7 +17,9 @@ import threading
 import webbrowser
 
 import approvals
-import llm
+from agent import conversation as a_conversation
+from agent import turn as a_turn
+from agent import written as a_written
 from agent import context as a_context
 from agent import offers
 from agent import prompt as a_prompt
@@ -78,7 +80,7 @@ def apply_avatar(key: str) -> dict:
     AVATAR = avatars.set_current(key)
     KOKORO_VOICE = os.getenv("KOKORO_VOICE", AVATAR["voice"])
     KOKORO_SPEED = float(os.getenv("KOKORO_SPEED", AVATAR["speed"]))
-    llm.set_avatar()
+    a_conversation.set_avatar()
     _filler_wavs.clear()
     return AVATAR
 PORT = int(os.getenv("PORT", "8010"))
@@ -249,7 +251,7 @@ def _periodic_memory(count: int) -> None:
     filed = v_pages.applied_count()
     _push_saving(True)
     try:
-        llm.save_memory()
+        a_conversation.save_memory()
     except Exception as e:
         _memory_failed(e)
     finally:
@@ -423,7 +425,7 @@ def briefing(ctx: Ctx):
         else:
             t0 = time.monotonic()
             with trace.span("step", name="phrase"):
-                reply, _ = llm.briefing(digest, user_text, origin)
+                reply, _ = a_written.briefing(digest, user_text, origin)
             run.step("phrased", "ok", f"{time.monotonic() - t0:.1f} s")
             log.debug(f"Bot: {reply}")
             trace.verbose("turn_text", user=user_text, reply=reply)
@@ -524,7 +526,7 @@ def card_path(card: dict, folder: str = "") -> str:
 def save_card(card_id: str | None, folder: str = "") -> list:
     """File a card as a note and return the messages to send (`wiki_open`, `card_saved`, the
     refreshed `wiki` + `sources`); raises ValueError with the refusal reason (scope wiki)."""
-    card = llm.get_card(card_id) if card_id else llm.last_card
+    card = a_written.get_card(card_id) if card_id else a_conversation.last_card
     if not card or not card.get("markdown"):            # a running / failed run card has no body (PRD 51)
         raise ValueError(NOTHING_TO_SAVE)
     if card.get("saved"):
@@ -536,7 +538,7 @@ def save_card(card_id: str | None, folder: str = "") -> list:
     if reason:
         raise ValueError(reason)
     card["saved"] = path
-    llm.refresh_context()
+    a_conversation.refresh_context()
     recall.set_focus("wiki", path)
     return [{"type": "wiki_open", "path": path}, {"type": "card_saved", "id": card["id"], "path": path},
             _wiki_msg(), _sources_msg()]
@@ -552,32 +554,32 @@ def write_up(ctx: Ctx):
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        researched = llm.research_card()
+        researched = a_written.research_card()
         if researched is not None:                  # PRD 54: the research card is the write-up; no second card
-            llm.reuse_card(researched, user_text)
+            a_written.reuse_card(researched, user_text)
             send_sync(card_update(researched, markdown=researched["markdown"], title=researched["title"],
                                   sources=researched["sources"]))
-            llm.record_assistant(say_canned(llm.WRITTEN_LINE, send_sync))
+            a_conversation.record_assistant(say_canned(a_written.WRITTEN_LINE, send_sync))
             send_sync(context_msg())
             _wait_for_playback_then_idle(sess, send_sync)
             return
-        if not llm.can_write_up():
-            raise ValueError(llm.NOTHING_TO_WRITE)
+        if not a_written.can_write_up():
+            raise ValueError(a_written.NOTHING_TO_WRITE)
         run = runs.Run("write-up")
-        card = llm.issue_card({"id": llm.next_card_id(), "markdown": "", "sources": [],
+        card = a_written.issue_card({"id": a_written.next_card_id(), "markdown": "", "sources": [],
                                "title": runs.WORKFLOWS["write-up"],
                                **run.card([runs.OPEN], [{"label": "context", "status": "running"},
                                                         {"label": "write", "status": "pending"}])})
         send_sync(card_msg(card))
-        parts = llm.context_parts()
+        parts = a_written.context_parts()
         with trace.span("step", name="context", count=len(parts), sources=parts):
             pass
         run.step("context", "ok", _n(len(parts), "source part"))
         t0 = time.monotonic()
         with trace.span("step", name="write"):
-            llm.write_up(user_text, card["id"])               # fills `card` in place
+            a_written.write_up(user_text, card["id"])               # fills `card` in place
         run.step("write", "ok", f"{time.monotonic() - t0:.1f} s")
-        say_canned(llm.WRITTEN_LINE, send_sync)
+        say_canned(a_written.WRITTEN_LINE, send_sync)
         run.end("done", "ok")
         card.update(run.card([runs.OPEN, runs.COPY]))          # a reconnect replays the last status
         send_sync(card_update(card, markdown=card["markdown"], title=card["title"], sources=card["sources"]))
@@ -624,7 +626,7 @@ def save_note(ctx: Ctx):
         _arm_playback(sess, turn)
         for msg in save_card(None):
             send_sync(msg)
-        say_canned(f"[happy] Saved as {llm.last_card['saved']}.", send_sync)
+        say_canned(f"[happy] Saved as {a_conversation.last_card['saved']}.", send_sync)
         _wait_for_playback_then_idle(sess, send_sync)
     except ValueError as e:
         send_sync({"type": "error", "scope": "wiki", "text": str(e)})
@@ -647,10 +649,10 @@ def _propose(ctx: Ctx, kind: str, target: str) -> None:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
         if ctx.text:
-            llm.record_user(ctx.text)
+            a_conversation.record_user(ctx.text)
         pending = approvals.propose(sess, kind, target)
-        send_sync(card_msg(llm.get_card(pending["card_id"])))
-        llm.record_assistant(say_canned(approvals.KINDS[kind].spoken(pending["proposal"]), send_sync))
+        send_sync(card_msg(a_written.get_card(pending["card_id"])))
+        a_conversation.record_assistant(say_canned(approvals.KINDS[kind].spoken(pending["proposal"]), send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except (ValueError, pipeline.IngestError) as e:
         send_sync({"type": "error", "scope": "turn", "text": getattr(e, "message", None) or str(e)})
@@ -663,7 +665,7 @@ def _say_line(sess: Session, turn, send_sync, line: str) -> None:
     """One spoken (canned) line as the whole reply, recorded in the conversation, then idle."""
     send_sync({"type": "state", "value": "thinking"})
     _arm_playback(sess, turn)
-    llm.record_assistant(say_canned(line, send_sync))
+    a_conversation.record_assistant(say_canned(line, send_sync))
     _wait_for_playback_then_idle(sess, send_sync)
 
 
@@ -673,7 +675,7 @@ def forget(ctx: Ctx):
     try:
         sha, line = approvals.forget_target(commands.forget_command(ctx.text) or "")
         if sha is None:
-            llm.record_user(ctx.text)
+            a_conversation.record_user(ctx.text)
             _say_line(ctx.session, ctx.turn, ctx.send, line)
             return
     except Exception as e:
@@ -687,12 +689,12 @@ def push(ctx: Ctx):
     """"send that to my reMarkable": the last card's push proposal; no card → "nothing to send"."""
     if not notebooks.push_available():          # PRD 47b not there: nothing to approve, no run
         try:
-            llm.record_user(ctx.text)
+            a_conversation.record_user(ctx.text)
             _say_line(ctx.session, ctx.turn, ctx.send, approvals.NOT_AVAILABLE)
         except Exception as e:
             _turn_failed(ctx.send, "approval", e, "I could not say that.")
         return
-    card = llm.last_card
+    card = a_conversation.last_card
     if not card or not card.get("markdown"):
         ctx.send({"type": "error", "scope": "turn", "text": approvals.NOTHING_TO_SEND})
         ctx.send({"type": "state", "value": "idle"})
@@ -712,7 +714,7 @@ def _settle_pending(ctx: Ctx) -> bool:
         approvals.expire(ctx.session, via)
         return False
     offers.drop_offer()                          # the answer takes the turn, as any turn takes an open offer
-    llm.record_user(ctx.text)
+    a_conversation.record_user(ctx.text)
     _resolve(ctx.session, ctx.turn, ctx.send, decision, via)
     return True
 
@@ -731,9 +733,9 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
     taken = sess.pending
     try:
         out = approvals.resolve_pending(sess, decision, via, run_id)
-        card = llm.get_card(out.pending["card_id"]) if out.pending else None
+        card = a_written.get_card(out.pending["card_id"]) if out.pending else None
         if out.error and out.pending is None and run_id:     # a stale click: that card stops asking too
-            stale = next((c for c in llm.cards_for_run(run_id) if c.get("actions")
+            stale = next((c for c in a_written.cards_for_run(run_id) if c.get("actions")
                           and any(a.get("kind") in approvals.DECISIONS for a in c["actions"])
                           or c.get("status") == "expired"), None)
             if stale is not None:
@@ -751,7 +753,7 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
             step = {"label": "applied", "status": "ok", "detail": f"{facts} · commit {commit}" if commit else facts}
             _fold_card(send_sync, card, "done", out.pending["steps"] + [step], commit)
             if out.pending["kind"] == "forget":
-                llm.refresh_context()
+                a_conversation.refresh_context()
                 send_sync(_wiki_msg())
                 send_sync(_sources_msg())
         else:
@@ -759,7 +761,7 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
         _say_line(sess, turn, send_sync, out.line)
     except Exception as e:
         one_line = isinstance(e, remarkable.RemarkableError)      # its message is already fit to show
-        card = llm.get_card(taken["card_id"]) if taken is not None and sess.pending is None else None
+        card = a_written.get_card(taken["card_id"]) if taken is not None and sess.pending is None else None
         if card is not None and card.get("status") == "awaiting":      # the write itself failed
             _fold_card(send_sync, card, "failed", taken["steps"] + [
                 {"label": "applied", "status": "error",
@@ -792,9 +794,9 @@ def new_topic(ctx: Ctx):
     try:
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        summary = llm.new_thread()
+        summary = a_conversation.new_thread()
         send_sync({"type": "thread", "text": summary})
-        say_canned(llm.NEW_TOPIC_ACK, send_sync)
+        say_canned(a_conversation.NEW_TOPIC_ACK, send_sync)
         send_sync(context_msg())
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
@@ -885,9 +887,9 @@ def _respond(sess: Session, turn: int, user_text: str, send_sync, origin: str, e
         _arm_playback(sess, turn)
         note = tool.run(ctx) if tool is not None else ""
         with registry.bind(ctx):     # a tool round's file_source refreshes the panel through it
-            events = _with_context_notice(llm.ask_events(user_text, origin=origin, note=note))
+            events = _with_context_notice(a_turn.ask_events(user_text, origin=origin, note=note))
             reply = speak_stream(events, send_sync)
-        end.update(reply_len=len(reply), tools=[tc["name"] for tc in llm.get_last_tool_calls()], band=llm.last_band)
+        end.update(reply_len=len(reply), tools=[tc["name"] for tc in a_conversation.get_last_tool_calls()], band=a_conversation.last_band)
         log.debug(f"Bot: {reply}")
         trace.verbose("turn_text", user=user_text, reply=reply)
         send_sync({"type": "transcript", "role": "assistant", "text": reply})
@@ -949,7 +951,7 @@ def canned_turn(sess: Session, turn: int, loop, text: str, thinking: bool):
         if thinking:
             send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
-        llm.record_assistant(say_canned(text, send_sync))
+        a_conversation.record_assistant(say_canned(text, send_sync))
         _wait_for_playback_then_idle(sess, send_sync)
     except Exception as e:
         with trace.turn(turn):
@@ -985,7 +987,7 @@ async def _on_startup():
 async def _on_shutdown():
     """Runs on graceful shutdown (SIGTERM/SIGINT/UI shutdown) — the place session memory is saved."""
     try:
-        llm.save_memory()
+        a_conversation.save_memory()
     except Exception as e:
         _memory_failed(e)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -1281,7 +1283,7 @@ async def _action_set_location(sess, msg, loop):
         name = saved["name"]
     value = {"lat": round(lat, 3), "lon": round(lon, 3), "tz": tz, "source": "browser", "name": name}
     settings.save_setting("location", value)
-    await asyncio.to_thread(llm.refresh_context)   # the next turn knows the place
+    await asyncio.to_thread(a_conversation.refresh_context)   # the next turn knows the place
     await send({"type": "setting", "key": "location", "value": weather_tool.location()})
 
 
@@ -1345,7 +1347,7 @@ async def _model_op(op: str) -> None:
 def _ingest_now() -> None:
     """Re-ingest the session on the worker/executor: the same save path a turn would take."""
     try:
-        llm.save_memory()
+        a_conversation.save_memory()
     except Exception as e:
         _memory_failed(e)
 
@@ -1372,7 +1374,7 @@ async def _action_get_memory(sess, msg, loop):
     flight nothing is saved here; the periodic save catches up.
     """
     await send(_memory_msg(await asyncio.to_thread(m_store.load_profile)))
-    if llm.has_unsaved_turns() and not controller.busy:
+    if a_conversation.has_unsaved_turns() and not controller.busy:
         await _save_session_memory()
 
 
@@ -1401,7 +1403,7 @@ async def _send_wiki() -> None:
     A `sources` message follows: every path that changes the wiki may have filed a source, and
     the rail badge counts what arrived while the user was elsewhere.
     """
-    await asyncio.to_thread(llm.refresh_context)   # the next turn sees the new/changed pages
+    await asyncio.to_thread(a_conversation.refresh_context)   # the next turn sees the new/changed pages
     await send(await asyncio.to_thread(_wiki_msg))
     await send(await asyncio.to_thread(_sources_msg))
 
@@ -1657,12 +1659,12 @@ def replay_messages(sess: Session | None = None) -> list:
     user and assistant turns of `_conversation` (bare text), an `<earlier>` summary as `thread`, each
     card with its last status — a write-up still running or failed, an approval card (PRD 52), where
     it was issued (PRD 51)."""
-    out, loose = [], llm.loose_cards()
-    for i, m in enumerate(llm.dialogue()):
+    out, loose = [], a_written.loose_cards()
+    for i, m in enumerate(a_conversation.dialogue()):
         while loose and loose[0][0] <= i:                   # a write-up / approval card (PRD 51/52)
             out.append({**_replayed(loose.pop(0)[1], sess), "saved": None})
         earlier = _EARLIER.match(m["content"]) if m["role"] == "user" else None
-        card = llm.card_in(m["content"]) if m["role"] == "assistant" else None
+        card = a_written.card_in(m["content"]) if m["role"] == "assistant" else None
         if earlier:
             out.append({"type": "thread", "text": earlier.group(1)})
         elif card:

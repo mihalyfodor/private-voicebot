@@ -8,6 +8,8 @@ import pytest
 
 from core import settings
 import llm
+from agent import conversation
+from agent import turn
 import memory
 from core import trace
 from eval import harness
@@ -165,7 +167,7 @@ def test_session_end_falls_back_to_the_v1_shortmem_delta():
         with open(memory.SHORTMEM_PATH, "a") as f:
             f.write("The user is named Mihaly.\n")
 
-    with harness.Sandbox(), patch.object(llm, "save_memory", side_effect=fake_save):
+    with harness.Sandbox(), patch.object(conversation, "save_memory", side_effect=fake_save):
         sess = harness.Session().start()
         assert sess.end() == "The user is named Mihaly.\n"
         assert sess.last_ops == []
@@ -238,8 +240,8 @@ def test_run_script_wiring_with_stub_ask():
         asked.append(text)
         return replies[text]
 
-    with patch.object(llm, "ask", side_effect=fake_ask), \
-         patch.object(llm, "save_memory") as save:
+    with patch.object(turn, "ask", side_effect=fake_ask), \
+         patch.object(conversation, "save_memory") as save:
         results = harness.run_script(SCRIPT, verbose=False)
 
     assert asked == list(replies)
@@ -271,8 +273,8 @@ def test_run_script_rounds_persist_memory(tmp_path):
         core_llm._client = client
         memory.save([{"role": "user", "content": "hi"}])
 
-    with patch.object(llm, "ask", side_effect=fake_ask), \
-         patch.object(llm, "save_memory", side_effect=fake_save):
+    with patch.object(turn, "ask", side_effect=fake_ask), \
+         patch.object(conversation, "save_memory", side_effect=fake_save):
         results = harness.run_script(SCRIPT, rounds=2, verbose=False)
 
     assert len(results["rounds"]) == 2
@@ -298,8 +300,8 @@ def test_run_script_reads_yaml_file():
 
 
 def test_format_report_mentions_failures():
-    with patch.object(llm, "ask", side_effect=lambda t: "[neutral] October."), \
-         patch.object(llm, "save_memory"):
+    with patch.object(turn, "ask", side_effect=lambda t: "[neutral] October."), \
+         patch.object(conversation, "save_memory"):
         results = harness.run_script(SCRIPT, verbose=False)
     report = harness.format_report(results)
     assert "round 1" in report and "FAIL" in report and "stale october" in report
@@ -309,8 +311,8 @@ def test_cli_writes_out_json(tmp_path):
     out = tmp_path / "r.json"
     script = tmp_path / "s.json"
     script.write_text('[[{"probe": "my name?", "expect": ["mihaly"], "category": "single-hop"}]]')
-    with patch.object(llm, "ask", side_effect=lambda t: "[neutral] Mihaly."), \
-         patch.object(llm, "save_memory"):
+    with patch.object(turn, "ask", side_effect=lambda t: "[neutral] Mihaly."), \
+         patch.object(conversation, "save_memory"):
         assert harness.main([str(script), "--out", str(out), "--quiet"]) == 0
     import json
     data = json.loads(out.read_text())

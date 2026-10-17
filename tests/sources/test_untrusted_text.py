@@ -13,6 +13,8 @@ from unittest.mock import patch
 import pytest
 
 import llm
+from agent import conversation as a_conversation
+from agent import turn as a_turn
 from agent import recall as a_recall
 import memory
 from memory import render as m_render
@@ -134,7 +136,7 @@ def test_every_read_tool_wraps_its_text(vault, monkeypatch):  # noqa: F811
         assert out.count("</document>") == out.count("<document source="), name
 
     # the deeper-offer bookkeeping still parses the wrapped search_wiki / read_source results
-    llm._turn_sources = []
+    a_conversation._turn_sources = []
     llm._note_tool_sources("search_wiki", calls["search_wiki"], run_tool("search_wiki", calls["search_wiki"]))
     llm._note_tool_sources("read_source", calls["read_source"], run_tool("read_source", calls["read_source"]))
     assert llm._turn_sources == [("sources/guide", "Guide", 2), ("raw/inbox/g.md", "Guide", 2)]
@@ -142,7 +144,7 @@ def test_every_read_tool_wraps_its_text(vault, monkeypatch):  # noqa: F811
     # the recall block and the deeper block wrap each quoted passage
     monkeypatch.setattr(v_chunks, "recall_min_score", lambda: 0.0)
     monkeypatch.setattr(v_chunks, "content_terms", lambda q: {"covenant", "turrets", "shoot"})
-    llm._turn_sources = []
+    a_conversation._turn_sources = []
     block = llm.recall_for("I'm at Covenant and the turrets shoot me")
     assert block.count('<document source="Guide">') == 1 and "‹/document>" in block
     deeper = llm.deeper_block({"source": "raw/inbox/g.md", "title": "Guide", "parts": [2]})
@@ -292,7 +294,7 @@ def test_injected_documents_reach_every_prompt_as_tagged_data(doc, vault, monkey
         stream_chunks("[neutral] It is a list of notes."),
     ])
     wrapped = untrusted(f"{doc['title']} · part 1/1\n{doc['text']}", doc["title"])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value=wrapped):
+    with patch.object(core_llm, "_client", fake), patch.object(a_turn, "run_tool", return_value=wrapped):
         reply = llm.ask("what is in that document?")
     assert reply == "[neutral] It is a list of notes."
     assert llm._conversation[0]["content"] == system_before

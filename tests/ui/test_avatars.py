@@ -71,8 +71,9 @@ def test_api_config_and_prompt(monkeypatch):
 
 def test_llm_set_avatar_keeps_history():
     import llm
+    from agent import conversation
     llm.reset()
-    llm._conversation += [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "[happy] Hello."}]
+    conversation._conversation += [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "[happy] Hello."}]
     avatars.set_current("wanko")
     llm.set_avatar()
     assert "Wanko" in llm._conversation[0]["content"]

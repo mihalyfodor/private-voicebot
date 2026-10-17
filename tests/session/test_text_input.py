@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import chatbot
 import llm
+from agent import turn as a_turn
 from session import Session
 from tests.conftest import StreamClient, drain_initial, fake_asr, fake_tts, run_turn, trace_lines
 from tests.conftest import spoken as spoken_turn, typed as typed_turn
@@ -30,7 +31,7 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
         origins.append((user_text, origin))
         yield ("delta", "[happy] Answer.")
 
-    monkeypatch.setattr(llm, "ask_events", fake_ask_events)
+    monkeypatch.setattr(a_turn, "ask_events", fake_ask_events)
     monkeypatch.setattr(chatbot, "synthesize", fake_tts)
     monkeypatch.setattr(chatbot, "asr", fake_asr("hello there"))
 

@@ -14,6 +14,7 @@ from tools import commands, registry
 
 import chatbot
 import llm
+from agent import conversation
 from agent import context as a_context
 from agent import prompt
 from agent import recall as a_recall
@@ -154,8 +155,8 @@ def three_turns():
 def test_new_thread_folds_first_then_restarts_on_a_short_summary(seeded_vault, recorded_memory):
     three_turns()
     llm.set_focus("wiki", "people/anna")
-    llm._deeper_offer = {"source": "s", "title": "t", "parts": [1]}
-    llm._turn_sources = [("s", "t", 1)]
+    conversation._deeper_offer = {"source": "s", "title": "t", "parts": [1]}
+    conversation._turn_sources = [("s", "t", 1)]
     summary_client = FakeClient("[neutral] We checked Falcon (amber) and agreed Anna runs Friday's deploy.")
     with patch.object(core_llm, "_client", summary_client):
         summary = llm.new_thread()

@@ -10,7 +10,6 @@ from splitter import EMOTIONS
 from tools import registry
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE
-import llm
 
 log = trace.logger("llm")
 
@@ -54,7 +53,9 @@ def set_verbosity(value: str) -> None:
         raise ValueError(f"Unknown verbosity {value!r}; valid: {', '.join(VERBOSITY_RULES)}")
     _verbosity = value
     settings.save_setting("verbosity", value)
-    llm._rebuild_system_prompt()
+    from agent import conversation      # function-local: conversation imports this module at load, then resets
+
+    conversation._rebuild_system_prompt()
 
 
 def _effective_max_tokens() -> int:

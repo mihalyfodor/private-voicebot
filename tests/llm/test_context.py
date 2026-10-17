@@ -5,6 +5,8 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 import llm
+from agent import conversation
+from agent import turn as a_turn
 from agent import context as a_context
 from agent import prompt
 from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
@@ -46,7 +48,7 @@ def test_trim_history_never_orphans_tool_result(monkeypatch):
     monkeypatch.setattr(prompt, "MAX_TOKENS", 10)
     monkeypatch.setattr(a_context, "model_context_len", lambda: None)
 
-    llm._conversation = [{"role": "system", "content": "sys" * 50}]
+    conversation._conversation = [{"role": "system", "content": "sys" * 50}]
     llm._conversation.append({
         "role": "assistant", "content": "",
         "tool_calls": [{"id": "1", "type": "function", "function": {"name": "get_time", "arguments": "{}"}}],
@@ -84,7 +86,7 @@ def test_max_tokens_passed_on_every_create_call(monkeypatch):
         [_tc_chunk(id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls")],
         _chunks("[neutral] Noon."),
     ])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+    with patch.object(core_llm, "_client", fake), patch.object(a_turn, "run_tool", return_value="12:00:00"):
         list(llm.ask_events("what time is it?"))
     assert len(fake.calls) == 2
     for call in fake.calls:

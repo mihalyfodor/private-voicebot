@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 import approvals
 import chatbot
 import llm
+from agent import conversation
 import memory
 import notebooks
 import runs
@@ -351,7 +352,7 @@ def test_forget_source_proposes_instead_of_deleting(morrowind):
 def _with_card() -> dict:
     card = {"id": llm.next_card_id(), "markdown": "# Plan\n\n" + "line\n" * 70, "sources": [], "title": "Plan"}
     llm._cards[card["id"]] = card
-    llm.last_card = card
+    conversation.last_card = card
     return card
 
 
@@ -504,7 +505,7 @@ def test_an_answer_to_the_approval_takes_the_deeper_offer_too(morrowind, answer)
     """Backlog 2: the resolving turn consumes a pending offer like any other turn."""
     sess = Session()
     _ask(sess)
-    llm._deeper_offer = {"question": "Shall I dig deeper?"}
+    conversation._deeper_offer = {"question": "Shall I dig deeper?"}
     session_turn(sess, 2, answer)
     assert llm._deeper_offer is None
 

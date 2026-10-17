@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 import llm
+from agent import turn
 from tests.conftest import RawStreamClient as FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
 from core import llm as core_llm
 
@@ -25,7 +26,7 @@ def test_ask_stream_yields_only_deltas_and_ask_joins_them():
         _chunks("[neutral] Noon."),
         _chunks("[happy] Hello ", "there."),
     ])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+    with patch.object(core_llm, "_client", fake), patch.object(turn, "run_tool", return_value="12:00:00"):
         assert list(llm.ask_stream("time?")) == ["[neutral] Noon."]
         assert llm.get_last_tool_calls() == [{"name": "get_time", "args": {}}]
         reply = llm.ask("hi")
@@ -39,7 +40,7 @@ def test_ask_stream_yields_only_deltas_and_ask_joins_them():
 
 def test_text_only_stream_yields_deltas_in_order_with_one_call():
     fake = FakeClient([_chunks("[happy] Hi ", "there", "!")])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool") as rt:
+    with patch.object(core_llm, "_client", fake), patch.object(turn, "run_tool") as rt:
         events = list(llm.ask_events("hi"))
 
     assert events == [("delta", "[happy] Hi "), ("delta", "there"), ("delta", "!")]
@@ -81,7 +82,7 @@ def test_tool_call_fragments_reassembled_across_chunks():
     ]
     fake = FakeClient([first, _chunks("[neutral] It is ", "noon.")])
 
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00") as rt:
+    with patch.object(core_llm, "_client", fake), patch.object(turn, "run_tool", return_value="12:00:00") as rt:
         events = list(llm.ask_events("what time is it?"))
 
     rt.assert_called_once_with("get_time", {"tz": "UTC"})
@@ -112,7 +113,7 @@ def test_text_before_tool_call_is_warned_and_dropped_from_reply(capsys):
         _tc_chunk(index=0, id="call_1", name="get_time", arguments="{}", finish_reason="tool_calls"),
     ]
     fake = FakeClient([first, _chunks("[neutral] Noon.")])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="12:00:00"):
+    with patch.object(core_llm, "_client", fake), patch.object(turn, "run_tool", return_value="12:00:00"):
         events = list(llm.ask_events("time?"))
 
     assert events[0] == ("delta", "[neutral] Let me check. ")

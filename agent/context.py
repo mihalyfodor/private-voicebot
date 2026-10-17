@@ -4,7 +4,7 @@ import os
 from core import trace
 from core import llm as core_llm
 from tools import registry
-import llm
+from agent import conversation as a_conversation
 from agent import prompt
 
 log = trace.logger("llm")
@@ -76,12 +76,12 @@ def trim_history() -> int:
     global _last_trimmed
     budget = context_budget() - prompt._effective_max_tokens()
     dropped = []
-    while len(llm._conversation) > 2 and estimate_tokens(llm._conversation) > budget:
-        turn = llm._conversation.pop(1)
+    while len(a_conversation._conversation) > 2 and estimate_tokens(a_conversation._conversation) > budget:
+        turn = a_conversation._conversation.pop(1)
         dropped.append(turn)
         if turn.get("tool_calls"):
-            while len(llm._conversation) > 2 and llm._conversation[1].get("role") == "tool":
-                del llm._conversation[1]
+            while len(a_conversation._conversation) > 2 and a_conversation._conversation[1].get("role") == "tool":
+                del a_conversation._conversation[1]
     users = sum(1 for t in dropped if t.get("role") == "user")
     _last_trimmed = users or int(bool(dropped))                  # a lone assistant turn still counts
     if dropped:
@@ -92,7 +92,7 @@ def trim_history() -> int:
 def context_usage() -> dict:
     """`{used, budget, pct, trimmed}`: what the model holds, the budget, and the user turns the
     last trim forgot (docs/39-context-meter.md)."""
-    used = estimate_tokens(llm._conversation) + registry.tokens()
+    used = estimate_tokens(a_conversation._conversation) + registry.tokens()
     budget = context_budget()
     return {"used": used, "budget": budget, "pct": round(100 * used / budget), "trimmed": _last_trimmed}
 

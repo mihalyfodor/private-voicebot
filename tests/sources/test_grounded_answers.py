@@ -14,6 +14,7 @@ import avatars
 from core import settings
 import fillers
 import llm
+from agent import turn as a_turn
 from agent import prompt as a_prompt
 import memory
 import wiki
@@ -88,7 +89,7 @@ def test_a_weather_question_goes_through_the_tool_never_memory():
         [tool_call_chunk(id="call_1", name="get_weather", arguments="{}", finish_reason="tool_calls")],
         stream_chunks("[neutral] Sunny, 21 degrees."),
     ])
-    with patch.object(core_llm, "_client", fake), patch.object(llm, "run_tool", return_value="21C sunny"):
+    with patch.object(core_llm, "_client", fake), patch.object(a_turn, "run_tool", return_value="21C sunny"):
         events = list(llm.ask_events("how is the weather today?"))
     assert events[0] == ("tool_calls", ["get_weather"])
     assert [tc["name"] for tc in llm.get_last_tool_calls()] == ["get_weather"]

@@ -22,14 +22,13 @@ ALLOWED = {
     ("vault/ingest.py", "memory"),
     ("vault/bridge.py", "memory"),
     ("vault/focus.py", "agent"),     # step 12: `tools_registered` reads the live agent.prompt.TOOLS list (the eval harness empties it)
-    # step 9: agent/ modules still import the root llm.py (its remaining half moves in step 10), avatars (root, no step
-    # moves it: the prompt reads the current avatar) and splitter (step 11 moves it to server/, so EMOTIONS must go down first)
-    ("agent/prompt.py", "llm"),
-    ("agent/context.py", "llm"),
-    ("agent/offers.py", "llm"),
-    ("agent/recall.py", "llm"),
+    # steps 9-10: agent/ still imports avatars (root, no step moves it: the prompt and the persona swap read the current
+    # avatar) and splitter (step 11 moves it to server/, so `EMOTIONS` / `strip_tag` must go down first)
     ("agent/prompt.py", "avatars"),
     ("agent/prompt.py", "splitter"),
+    ("agent/conversation.py", "avatars"),
+    ("agent/conversation.py", "splitter"),
+    ("agent/written.py", "splitter"),
     # step 7: vault code reading ingest's source pages / the batch guard (the PRD's expected vault -> ingest pairs)
     ("vault/chunks.py", "ingest"),
     ("vault/digest.py", "ingest"),

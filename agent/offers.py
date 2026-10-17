@@ -2,7 +2,7 @@
 import re
 from vault import chunks as v_chunks
 from core.untrusted import untrusted
-import llm
+from agent import conversation
 from agent import prompt
 from agent import recall as a_recall
 
@@ -12,17 +12,17 @@ def _offer_kind(recall_offer: bool) -> str:
     """What the turn ended offering: none / deeper / wikipedia / writeup, or recall (the medium band's check)."""
     if recall_offer:
         return "recall"
-    if not llm._deeper_offer:
+    if not conversation._deeper_offer:
         return "none"
-    if llm._deeper_offer.get("wikipedia"):
+    if conversation._deeper_offer.get("wikipedia"):
         return "wikipedia"
-    return "writeup" if (llm._conversation[-1].get("content") or "").rstrip().endswith(prompt.DEEPER_OFFERS[0]) else "deeper"
+    return "writeup" if (conversation._conversation[-1].get("content") or "").rstrip().endswith(prompt.DEEPER_OFFERS[0]) else "deeper"
 
 
 def drop_offer() -> None:
     """Forget the pending deeper / write-up offer: the turn answered something else (PRD 52)."""
 
-    llm._deeper_offer = None
+    conversation._deeper_offer = None
 
 DEEPER_MAX_CHUNKS = 3
 DEEPER_MAX_TOKENS = 2500
@@ -79,12 +79,12 @@ def _note_tool_sources(name: str, args: dict, result: str) -> None:
         except (TypeError, ValueError):
             return
         title = next((line.split(" · part ")[0] for line in result.splitlines() if " · part " in line), "")
-        llm._turn_sources.append((str(args.get("path") or ""), title, part))
+        conversation._turn_sources.append((str(args.get("path") or ""), title, part))
     elif name == "search_wiki":
         for m in _SNIPPET_PART.finditer(result):
-            llm._turn_sources.append((m.group(3), m.group(1), int(m.group(2))))
+            conversation._turn_sources.append((m.group(3), m.group(1), int(m.group(2))))
     elif name == "get_wikipedia" and args.get("query"):
-        llm._turn_pages.append(f"Wikipedia: {args['query']}")
+        conversation._turn_pages.append(f"Wikipedia: {args['query']}")
 
 
 def _offer_from_turn(reply: str, question: str = "") -> dict | None:
@@ -92,10 +92,10 @@ def _offer_from_turn(reply: str, question: str = "") -> dict | None:
     Wikipedia offer, else the first source used, all its parts."""
     if ends_with_wikipedia_offer(reply):
         return {"wikipedia": question}
-    if not llm._turn_sources or not ends_with_offer(reply):
+    if not conversation._turn_sources or not ends_with_offer(reply):
         return None
-    source, title, _ = llm._turn_sources[0]
-    parts = sorted({p for s, _, p in llm._turn_sources if s == source})
+    source, title, _ = conversation._turn_sources[0]
+    parts = sorted({p for s, _, p in conversation._turn_sources if s == source})
     return {"source": source, "title": title, "parts": parts}
 
 

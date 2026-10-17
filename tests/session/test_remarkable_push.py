@@ -8,6 +8,7 @@ import pytest
 
 import chatbot
 import llm
+from agent import conversation
 import remarkable
 from session import Session
 from tests.conftest import _serve, button_turn, free_port, session_turn, spoken_lines, trace_lines
@@ -23,7 +24,7 @@ def _of(sent, kind):
 def _card() -> dict:
     card = {"id": llm.next_card_id(), "markdown": "# Plan\n\n" + "line\n" * 70, "sources": [], "title": "Plan"}
     llm._cards[card["id"]] = card
-    llm.last_card = card
+    conversation.last_card = card
     return card
 
 

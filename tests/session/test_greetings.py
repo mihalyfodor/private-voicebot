@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 import chatbot
 import llm
+from agent import conversation
 from session import Session
 from tests.conftest import drain_initial, fake_tts, run_turn
 from core import llm as core_llm
@@ -87,7 +88,7 @@ def test_reload_characters_ws_action(monkeypatch):
 
     monkeypatch.setattr(avatars, "reload", lambda: fake_profile)
     monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
-    monkeypatch.setattr(llm, "set_avatar", lambda: None)
+    monkeypatch.setattr(conversation, "set_avatar", lambda: None)
     monkeypatch.setattr(chatbot, "_filler_wavs", {})
 
     client = TestClient(chatbot.app)
@@ -100,7 +101,7 @@ def test_reload_characters_ws_action(monkeypatch):
 
 def test_reconnect_replays_transcript():
     llm.reset()
-    llm._conversation += [{"role": "assistant", "content": "[happy] Hi there."},
+    conversation._conversation += [{"role": "assistant", "content": "[happy] Hi there."},
                           {"role": "user", "content": "hello"}]                 # what the model holds (PRD 39)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:

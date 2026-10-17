@@ -424,9 +424,10 @@ def test_propose_ops_skips_the_call_for_an_empty_transcript(monkeypatch):
 
 def test_shutdown_hook_saves_memory(monkeypatch):
     from fastapi.testclient import TestClient
-    import chatbot, llm
+    import chatbot
+    from agent import conversation
     calls = []
-    monkeypatch.setattr(llm, "save_memory", lambda: calls.append(1))
+    monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
     with TestClient(chatbot.app):
         pass  # exiting the context runs the shutdown event
     assert calls == [1]
