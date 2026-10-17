@@ -17,8 +17,8 @@ checkout (`.venv`, `PORT=8011`, vault `~/llm-wiki-dev`, which is also the code d
 ~/models/kokoro                mounted read-only at /models/kokoro (not backed up; re-downloadable)
 ```
 
-Inside the container everything is under `/data`; `llm-wiki/raw/.index/` (chunk cache) is excluded from
-backups. The container is read-only, non-root (uid 1000), loopback-only on `:8010`, and reaches the host
+Inside the container everything is under `/data`; `llm-wiki/raw/.index/` (chunk cache) and `llm-wiki/.index/` (the live search index, PRD 53: `search.sqlite` + `-wal`/`-shm`) are
+excluded from backups (both are rebuilt from the vault). The container is read-only, non-root (uid 1000), loopback-only on `:8010`, and reaches the host
 through `host.docker.internal` (oMLX `:8000`, ASR `:8020`).
 
 ## First-time setup
@@ -38,9 +38,20 @@ curl -s localhost:8020/health                                        # {"ok":tru
 scripts/prod.sh migrate            # moves ~/llm-wiki, memory files, settings.json, secrets, session.log
 
 # 3. build and start
-scripts/prod.sh build              # tags voicebot:<git describe> and voicebot:latest
+scripts/prod.sh build              # tags voicebot:<git describe> and voicebot:latest; the image bakes the tag in as VOICEBOT_VERSION (the trace's start event)
 scripts/prod.sh up                 # http://localhost:8010 (healthcheck: `docker compose ps`)
 ```
+
+## Before a prod deploy
+
+1. On `main`, `git status` clean, `scripts/check.sh` green in this session (quote the counts); `git push origin main` (the user pushes; the AI never pushes).
+2. `scripts/prod.sh backup` (`FORCE=1` if the vault head is unchanged); confirm a new `.tgz` and `.bundle` in `BACKUP_DIR`.
+3. `launchctl list | grep voicebot` shows asr and backup (and remarkable if used).
+4. `scripts/prod.sh build`: the printed tag is the commit, not `-dirty`.
+5. Let the app finish saving memory (idle, no turn in flight), then `scripts/prod.sh down` (`stop_grace_period` 90 s covers the shutdown save).
+6. `scripts/prod.sh up && scripts/prod.sh status`: healthy, and the first `start` event in `$DATA/logs/events.jsonl` names the commit.
+7. `scripts/trace_report.py $DATA/logs/events.jsonl --since 1h --errors` exits 0 after one typed turn.
+8. Update `docs/roadmap.md` with the deployed commit.
 
 ## Daily
 
@@ -62,7 +73,7 @@ user to run when a service is down.
 
 | command | what it does |
 |---|---|
-| `scripts/prod.sh up` / `down` | start / stop the container (`restart: unless-stopped` survives reboots) |
+| `scripts/prod.sh up` / `down` | start / stop the container (`restart: unless-stopped` survives reboots; `down` waits up to 90 s, `stop_grace_period`, so the shutdown memory save can finish) |
 | `scripts/prod.sh logs` | follow the container log |
 | `scripts/trace_report.py $DATA/logs/events.jsonl --since 24h` | turns, ingests and errors from the event trace (PRD 49; `--errors` exits 1 when any) |
 | `scripts/prod.sh status` | `compose ps` + `/api/config` |

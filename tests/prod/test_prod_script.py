@@ -235,3 +235,28 @@ def test_backup_removes_stale_tmp_from_a_killed_run(tmp_path):
     out = _backup(env)
     assert out.returncode == 0, out.stderr
     assert not list(backups.glob("*.tmp"))
+
+
+# --- prod knows its commit; shutdown gets time; the live search index stays out of backups ---
+
+def test_build_bakes_the_tag_in_and_compose_does_not_override_it():
+    script = open(PROD_SH).read()
+    assert '--build-arg VOICEBOT_VERSION="$tag"' in script
+    dockerfile = open(os.path.join(ROOT, "Dockerfile")).read()
+    assert "ARG VOICEBOT_VERSION" in dockerfile and "ENV VOICEBOT_VERSION=$VOICEBOT_VERSION" in dockerfile
+    compose = open(os.path.join(ROOT, "docker-compose.yml")).read()
+    assert "VOICEBOT_VERSION" not in compose
+    assert "stop_grace_period: 90s" in compose
+
+
+@needs_git
+def test_backup_excludes_both_search_indexes(tmp_path):
+    env, data, backups, vault = _seed(tmp_path)
+    for rel in ("raw/.index", ".index"):
+        (vault / rel).mkdir(parents=True)
+        (vault / rel / "cache").write_text("x")
+    assert _backup(env).returncode == 0
+    names = subprocess.run(["tar", "tzf", _files(backups, "voicebot-data-*.tgz")[0]],
+                           capture_output=True, text=True).stdout
+    assert "settings.json" in names
+    assert ".index" not in names

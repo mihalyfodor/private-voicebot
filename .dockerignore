@@ -3,8 +3,11 @@
 .claude
 .env
 .pytest_cache
-__pycache__
-*.pyc
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+.ruff_cache
+logs
 docs
 eval
 tests
@@ -22,3 +25,5 @@ shortmem.txt
 session.log
 credentials.json
 token.json
+memory.json.corrupt-*
+*.tmp

@@ -17,7 +17,6 @@ services:
       GMAIL_DIR: /data/secrets
       TRACE_PROFILE: prod        # PRD 49: events.jsonl only, never text; a dev profile refuses to start here
       TRACE_DIR: /data/logs
-      VOICEBOT_VERSION: ${TAG:-latest}
       KOKORO_MODEL: /models/kokoro/kokoro-v1.0.onnx
       KOKORO_VOICES: /models/kokoro/voices-v1.0.bin
       OMLX_BASE_URL: http://host.docker.internal:8000/v1
@@ -53,3 +52,4 @@ services:
         max-size: "10m"
         max-file: "5"
     restart: unless-stopped
+    stop_grace_period: 90s       # the shutdown hook saves memory (model calls, 10-60 s); Docker kills at 10 s by default

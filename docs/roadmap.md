@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-10-16 (evening). Ordered; each item is one PRD unless marked chore. Sources: the ERNI workflow review (process
+Updated 2026-10-17. Ordered; each item is one PRD unless marked chore. Sources: the ERNI workflow review (process
 lessons, merged into `feature/process-lessons`) and the llm-wiki survey (ideas 1–3 below). Dropped ideas are listed at
 the end so they are not re-proposed.
 
@@ -73,8 +73,8 @@ Done 2026-10-16 (9f098e3). Card is built from the digest, no model call; own edi
 Spoken 2–3 sentence recap of what changed since the last briefing, ending with the PRD 43 offer; "write it up" yields a
 card with Pages / Sources / Memory sections. Tight version only.
 
-- Routing: deterministic whole-turn regex in `chatbot.respond` next to `new_topic_command` / `save_note_command`
-  (`chatbot.py:514-526`), modelled on `write_up` (`chatbot.py:419`). Typed `/brief` works via the same path.
+- Routing: deterministic whole-turn regex in `chatbot.respond` as the other registry triggers
+  (`tools.registry.match`; at the time `new_topic_command` / `save_note_command`, `chatbot.py:514-526`), modelled on `write_up` (`chatbot.py:419`). Typed `/brief` works via the same path.
 - Gathering `wiki.changes_since(ts)` under `vault_lock.LOCK`: pages from `git log --since --name-only` via `wiki._git`
   (`wiki.py:133`; `log.md` has dates only, so it cannot cut at a time of day); sources from `sources.manifest_entries()`
   on `ingested_at`; memory as counts + two examples from `memory_ops.jsonl`. Skip `wiki: lint` commits, `index.md`,
@@ -89,8 +89,8 @@ card with Pages / Sources / Memory sections. Tight version only.
   `tests/server/test_turns.py` (one completion + cutoff moves; nothing-new → 0 calls; LLM offline → cutoff unchanged;
   digest inside `<document>`), `tests/agent/test_written_answers.py` (card contains the page titles).
 - Effort M (≈150 lines + prompt tuning). Risks: recap quality on the 4-bit model (keep the digest structured and capped);
-  self-noise from memory-driven page ops; one clock seam for tests (`memory._stamp` mixes `_today` with `datetime.now()`,
-  `memory.py:197-199`).
+  self-noise from memory-driven page ops; one clock seam for tests (`core.util.stamp` mixes `today` with `datetime.now()`;
+  at the time `memory._stamp`, `memory.py:197-199`).
 
 ## 4. PRD 47 — reMarkable 2 over USB: pull handwriting in, push pages out
 
@@ -122,7 +122,9 @@ with head/middle/tail sampling. Hundreds of pages ≈ 1–3 h on the local model
 keeps entity duplication down. If IT ever grants `Notes.Read`, swap the export step for Graph HTML; nothing else changes.
 Effort S–M once the exports exist. Probe first: export one section and check `pdftotext` returns real text, not images.
 
-## 6. PRD 49 — Event trace (in implementation)
+## 6. PRD 49 — Event trace
+
+Done 2026-10-16.
 
 `events.jsonl` via `trace.py`, two profiles: **prod** = actionable events only, never text (titles, paths, scores,
 lengths, timings, ids); **dev** = the same plus a separate `verbose.jsonl` with prompts, turn text and tool results.
@@ -133,13 +135,15 @@ session.log retires in favour of `turn_end`.
 
 ## 7. Chore — exception sweep (after PRD 49)
 
+Done (branch merged).
+
 The silent turn-level handlers in chatbot.py (briefing, write-up, new topic, respond, ASR, canned turn, save note) emit
 an `error` event and a `scope: turn` status line instead of going quietly to idle; degraded ingests say "filed raw
 only". File:line list is in PRD 49 §Out of scope. Effort S–M.
 
 ## 8. First prod setup (the user's)
 
-`~/docker-data` does not exist yet; everything so far runs as the dev process on :8011. Steps in docs/deploy.md:
+Done 2026-10-17 (image voicebot:d7b9c73); the backup launchd job is not yet loaded. Before: `~/docker-data` did not exist and everything ran as the dev process on :8011. Steps in docs/deploy.md:
 ASR plist → `scripts/prod.sh migrate` (moves the real vault) → build → up; then the backup plist. Do this after PRD 49
 so prod starts with the prod trace profile from day one.
 
@@ -175,11 +179,22 @@ scopes; drop the .vtt in by hand instead), OneNote via Graph. Ask whether low-pr
 
 - Remaining battery misses (A11 bounded-context chunk, stray offers)
 - `static/app.js` ES-module split; split candidates: `ingest/pipeline.py` (~950 lines) is the largest module left
-- README refresh
-- Tests import fixtures from other test files despite `docs/process.md` forbidding it (ruff F811 silenced for `tests/**`)
 - More calibration corpora (spreadsheet, real Teams transcript); Kiwix offline Wikipedia; native Kokoro via host service
 - Notes-via-chat editing; `hands_free` / verbosity state triplication
 - Vector search (Qwen3 embeddings on `:8082`, RRF) — only if remaining battery misses prove to be paraphrase failures
+
+Housekeeping backlog (audit 2026-10-17):
+
+- README stale: memory section, no vault / Docker / `check.sh` / layout
+- FastAPI lifespan migration: two `on_event` sites (`server/app.py:40`, `:54`); run the shutdown save via `asyncio.to_thread`
+- Pin docker requirements: `requirements-docker.lock` from a known-good build (dev is py3.14, the image py3.12)
+- Host launchd plists hardcode the dev checkout path: keep the checkout on `main`, or use a separate clone
+- Backup only triggers on a new vault HEAD: memory / settings changes alone are skipped
+- Five cross-test fixture imports to move into `conftest.py` (`tests/prod/test_prod_script.py:11`, `tests/ingest/test_office_formats.py:28`,
+  `tests/ingest/test_sources_inbox.py:22`, `tests/server/test_remarkable_push.py:16`, `tests/e2e/test_sources.py:150`), so the F811 ignore
+  in `ruff.toml` can go (`docs/process.md` forbids them)
+- `.env.example` is missing `REMARKABLE_PUSH_URL`, `START_HINT`, `OMLX_ADMIN_PASSWORD`, `WIKI_RELATED_TOKENS`, `DEV_PORT`, `PROD_PORT`
+- `docs/reviews/2026-08-29-architecture.md` needs a status line per finding (#9, #10, #11 still open)
 
 ## Dropped
 

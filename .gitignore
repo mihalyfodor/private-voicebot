@@ -1,6 +1,8 @@
 shortmem.txt
 memory.json
 memory_ops.jsonl
+memory.json.corrupt-*
+*.tmp
 .venv/
 .env
 credentials.json

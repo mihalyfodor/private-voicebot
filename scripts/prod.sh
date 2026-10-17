@@ -30,7 +30,7 @@ wait_for() {  # wait_for <url> <seconds>
 
 cmd_build() {
   local tag=${TAG_ARG:-$(git -C "$ROOT" describe --always --dirty)}
-  docker build -t "voicebot:$tag" "$ROOT"
+  docker build --build-arg VOICEBOT_VERSION="$tag" -t "voicebot:$tag" "$ROOT"
   [ -n "$TAG_ARG" ] || docker tag "voicebot:$tag" voicebot:latest
   echo "built voicebot:$tag"
 }
@@ -97,7 +97,7 @@ cmd_backup() {
   [ $((total + est)) -le "$MAX_TOTAL_MB" ] || backup_fail "total ${total}+${est} MB would exceed MAX_TOTAL_MB=$MAX_TOTAL_MB"
   local tgz="$BACKUP_DIR/voicebot-data-$stamp.tgz" bundle="$BACKUP_DIR/llm-wiki-$stamp.bundle"
   git -C "$DATA/llm-wiki" bundle create "$bundle.tmp" --all
-  tar czf "$tgz.tmp" -C "$DATA" --exclude='./llm-wiki/raw/.index' .
+  tar czf "$tgz.tmp" -C "$DATA" --exclude='./llm-wiki/raw/.index' --exclude='./llm-wiki/.index' .
   mv "$bundle.tmp" "$bundle"; mv "$tgz.tmp" "$tgz"
   echo "$head" > "$BACKUP_DIR/.last-head"
   echo "$tgz"; echo "$bundle"

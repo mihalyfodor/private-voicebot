@@ -8,6 +8,9 @@ RUN apt-get update \
  && git config --system safe.directory '*' \
  && useradd --uid 1000 --create-home app
 
+# prod.sh build passes the image tag; the trace's start event reports it.
+ARG VOICEBOT_VERSION=dev
+ENV VOICEBOT_VERSION=$VOICEBOT_VERSION
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HOME=/tmp
 WORKDIR /app
 
