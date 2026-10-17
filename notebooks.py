@@ -13,6 +13,7 @@ import os
 import tempfile
 
 import memory
+import remarkable
 import sources
 from core import llm as core_llm
 from core import trace
@@ -153,7 +154,7 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
         return {**res, "sha256": digest}
 
 
-# --- push (PRD 47b): the approval side lands here first (docs/52-approvals.md) ----------------
+# --- push (PRD 47b, docs/52-approvals.md) ----------------
 #: the local page estimate of a pushed card: lines / PUSH_LINES_PER_PAGE, at least one
 PUSH_LINES_PER_PAGE = 60
 
@@ -167,11 +168,10 @@ def push_plan(card: dict) -> dict:
 
 
 def push_available() -> bool:
-    """Is the push service there? False until PRD 47b lands: the command is not offered."""
-    return False
+    """Is the push service configured (`$REMARKABLE_PUSH_URL`)? Unset: the command is not offered."""
+    return bool(remarkable.URL)
 
 
 def push(card: dict) -> dict:
-    """Upload `card` to the tablet — PRD 47b's host service; until it lands this is the hook the
-    approval calls (tests patch it)."""
-    raise NotImplementedError("reMarkable push is PRD 47b")
+    """Upload `card` to the tablet through the host push service: its `{ok, pages, name}`."""
+    return remarkable.push(str(card.get("title") or "Card"), str(card["markdown"]))

@@ -20,6 +20,7 @@ import approvals
 import llm
 import memory
 import notebooks
+import remarkable
 import research
 import runs
 import wiki
@@ -732,6 +733,8 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
         commit = (out.result or {}).get("commit") or ""
         if out.decision == "approve":
             facts = approvals.KINDS[out.pending["kind"]].applied(out.pending["proposal"])
+            if out.pending["kind"] == "push" and (out.result or {}).get("pages"):    # the exact count, from the service
+                facts = f"uploaded '{out.pending['proposal']['title']}', {approvals._n(out.result['pages'], 'page')}"
             step = {"label": "applied", "status": "ok", "detail": f"{facts} · commit {commit}" if commit else facts}
             _fold_card(send_sync, card, "done", out.pending["steps"] + [step], commit)
             if out.pending["kind"] == "forget":
@@ -745,8 +748,9 @@ def _resolve(sess: Session, turn, send_sync, decision: str, via: str, run_id: st
         card = llm.get_card(taken["card_id"]) if taken is not None and sess.pending is None else None
         if card is not None and card.get("status") == "awaiting":      # the write itself failed
             _fold_card(send_sync, card, "failed", taken["steps"] + [
-                {"label": "applied", "status": "error", "detail": runs.reason_sentence(runs.failure_reason(e))}])
-        _turn_failed(send_sync, "approval", e, "That did not work.")
+                {"label": "applied", "status": "error", "detail": str(e) if isinstance(e, remarkable.RemarkableError)
+                 else runs.reason_sentence(runs.failure_reason(e))}])
+        _turn_failed(send_sync, "approval", e, str(e) if isinstance(e, remarkable.RemarkableError) else "That did not work.")
 
 
 def resolve_turn(sess: Session, turn: int, run_id: str, decision: str, loop):

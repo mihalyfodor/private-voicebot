@@ -652,11 +652,12 @@ def fake_remarkable():
     """The tablet's USB web interface as documented: `/documents/` (root), `/documents/<id>`
     (a folder) and `/download/<id>/pdf` (two pages, pixels derived from `ModifiedClient`).
     `fake.docs` is ``{id: item}`` with a `parent` key ("" = root); edit it (e.g. bump
-    `ModifiedClient`) between pulls. `fake.downloads` logs ids."""
+    `ModifiedClient`) between pulls. `fake.downloads` logs ids. `POST /upload` (PRD 47b) records
+    `{filename, content_type, bytes}` into `fake.uploads`."""
     import zlib
     from http.server import BaseHTTPRequestHandler
 
-    fake = SimpleNamespace(downloads=[], url="", docs={
+    fake = SimpleNamespace(downloads=[], uploads=[], url="", docs={
         "f1": {"ID": "f1", "VissibleName": "wiki-inbox", "Type": "CollectionType", "parent": ""},
         "n1": {"ID": "n1", "VissibleName": "Standup", "Type": "DocumentType", "fileType": "notebook",
                "ModifiedClient": "2026-10-14T09:00:00.000Z", "parent": "f1"},
@@ -691,6 +692,19 @@ def fake_remarkable():
                 shade = zlib.crc32((doc["ID"] + doc.get("ModifiedClient", "")).encode())
                 return self._send(200, notebook_pdf(2, shade), "application/pdf")
             self._send(404, b"not found", "text/plain")
+
+        def do_POST(self):
+            from email import policy
+            from email.parser import BytesParser
+
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            head = f"Content-Type: {self.headers['Content-Type']}\r\n\r\n".encode()
+            for part in BytesParser(policy=policy.default).parsebytes(head + body).iter_parts():
+                if self.path == "/upload" and part.get_filename():
+                    fake.uploads.append({"filename": part.get_filename(), "content_type": part.get_content_type(),
+                                         "bytes": part.get_payload(decode=True)})
+                    return self._send(200, b"{}", "application/json")
+            self._send(400, b"bad upload", "text/plain")
 
     server, fake.url = _serve(Handler)
     yield fake

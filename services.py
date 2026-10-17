@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import requests
 
 import asr
+import remarkable
 from core import settings
 from core import llm as core_llm
 from core import trace
@@ -81,8 +82,19 @@ def probe_asr() -> dict:
     return _result(True, label, "answering")
 
 
+def probe_remarkable() -> dict:
+    """GET /health on the host push service (PRD 47b)."""
+    label = _port_label(remarkable.URL, "reMarkable push")
+    try:
+        requests.get(f"{remarkable.URL}/health", timeout=TIMEOUT_S).raise_for_status()
+    except requests.RequestException as exc:
+        return _result(False, label, f"not answering ({exc.__class__.__name__})")
+    return _result(True, label, "answering")
+
+
 def probe() -> dict:
-    return {"llm": probe_llm(), "asr": probe_asr()}
+    """Each service once; the push service only when `REMARKABLE_PUSH_URL` is set."""
+    return {"llm": probe_llm(), "asr": probe_asr(), **({"remarkable": probe_remarkable()} if remarkable.URL else {})}
 
 
 def snapshot() -> dict:

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Host reMarkable push service (docs/47b-remarkable-push.md, docs/deploy.md).
+     Install: cp scripts/launchd/com.voicebot.remarkable.plist ~/Library/LaunchAgents/
+              launchctl load ~/Library/LaunchAgents/com.voicebot.remarkable.plist
+     Edit the two /Users/fomi/... paths if the checkout lives elsewhere.
+     Binds 127.0.0.1:8021 only; the container reaches it through host.docker.internal
+     (REMARKABLE_PUSH_URL). The tablet's USB web interface is $REMARKABLE_URL (default http://10.11.99.1). -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.voicebot.remarkable</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/fomi/projects/personal/private-voicebot/.venv/bin/python</string>
+    <string>scripts/remarkable_server.py</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/fomi/projects/personal/private-voicebot</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>REMARKABLE_PORT</key><string>8021</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/tmp/voicebot-remarkable.log</string>
+  <key>StandardErrorPath</key><string>/tmp/voicebot-remarkable.log</string>
+</dict>
+</plist>

@@ -98,14 +98,19 @@ def record(state_path: str, state: dict, doc: dict, name: str, pages: int, sha: 
 # --------------------------------------------------------------------------- list, download
 
 
-def list_changed(device: str, state: dict) -> list:
-    """The notebooks in `$REMARKABLE_FOLDER` whose `ModifiedClient` differs from `state`; `Idle`
-    when the tablet does not answer, the folder is missing or nothing changed."""
-    folder_name = os.getenv("REMARKABLE_FOLDER", "wiki-inbox")
+def ensure_device(device: str) -> None:
+    """`Idle` ("reMarkable not connected (host)") when the tablet does not answer."""
     try:
         _get(f"{device}/documents/", 1)
     except (OSError, ValueError) as exc:
         raise Idle(LINES["offline"].format(host=urllib.parse.urlparse(device).hostname or device)) from exc
+
+
+def list_changed(device: str, state: dict) -> list:
+    """The notebooks in `$REMARKABLE_FOLDER` whose `ModifiedClient` differs from `state`; `Idle`
+    when the tablet does not answer, the folder is missing or nothing changed."""
+    folder_name = os.getenv("REMARKABLE_FOLDER", "wiki-inbox")
+    ensure_device(device)
     folder = next((d for d in _listing(device) if d.get("Type") == "CollectionType"
                    and d.get("VissibleName") == folder_name), None)
     if folder is None:
@@ -182,9 +187,9 @@ def _multipart(fields: dict, files: list) -> tuple:
     for name, value in fields.items():
         out += [f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n".encode(),
                 str(value).encode(), b"\r\n"]
-    for filename, data in files:
+    for filename, data, *ctype in files:
         out += [f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{filename}\"\r\n"
-                "Content-Type: image/png\r\n\r\n".encode(), data, b"\r\n"]
+                f"Content-Type: {ctype[0] if ctype else 'image/png'}\r\n\r\n".encode(), data, b"\r\n"]
     out.append(f"--{boundary}--\r\n".encode())
     return b"".join(out), f"multipart/form-data; boundary={boundary}"
 

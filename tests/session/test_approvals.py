@@ -380,11 +380,6 @@ def test_send_without_a_card_is_nothing_to_send(vault):
     push.assert_not_called()
 
 
-def test_the_push_hook_is_a_stub_until_47b(vault):
-    with pytest.raises(NotImplementedError):
-        notebooks.push(_with_card())
-
-
 # --------------------------------------------------------------- fix round 1 (review findings)
 
 
@@ -456,8 +451,8 @@ def test_an_empty_or_failed_utterance_clears_the_pending(morrowind, asr_text, as
     assert sess.pending is None and _decisions()[-1]["decision"] == "expired" and _still_there(morrowind)
 
 
-def test_push_is_not_offered_until_47b(vault):
-    """MAJOR 3: without the push service the command is one spoken line, no pending, no run."""
+def test_push_is_not_offered_without_the_service(vault):
+    """MAJOR 3: without REMARKABLE_PUSH_URL the command is one spoken line, no pending, no run."""
     _with_card()
     sess = Session()
     sent = session_turn(sess, 1, "send that to my reMarkable")

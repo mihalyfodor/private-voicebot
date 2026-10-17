@@ -95,8 +95,9 @@ const serviceBanner = document.getElementById('service-banner');
 const serviceBannerText = document.getElementById('service-banner-text');
 const serviceCopyBtn = document.getElementById('service-copy');
 const settingsServicesEl = document.getElementById('settings-services');
-const SERVICE_NAMES = { llm: 'LLM', asr: 'voice input' };
-const SERVICE_ROWS = { llm: ['LLM', 'oMLX answers the turns'], asr: ['Voice input', 'the speech service the mic goes to'] };
+const SERVICE_NAMES = { llm: 'LLM', asr: 'voice input' };       // the banner's services; the optional push service is a Settings row only
+const SERVICE_ROWS = { llm: ['LLM', 'oMLX answers the turns'], asr: ['Voice input', 'the speech service the mic goes to'],
+  remarkable: ['reMarkable push', 'sends a card to the tablet over USB'] };
 let services = {};              // the last `services` message: { llm, asr, hint }
 let backendDown = false;        // the websocket closed for a reason other than a takeover / refusal
 
@@ -137,7 +138,7 @@ function renderServices() {
     serviceBanner.hidden = true;
   }
   // Settings › Services: one row per service, a dot, what was seen and when, the copy chip when down
-  const rows = Object.keys(SERVICE_ROWS).map(k => {
+  const rows = Object.keys(SERVICE_ROWS).filter(k => k !== 'remarkable' || services[k]).map(k => {
     const svc = services[k];
     const [name, desc] = SERVICE_ROWS[k];
     const label = el('span', 'set-label');

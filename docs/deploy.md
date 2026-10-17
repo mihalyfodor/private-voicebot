@@ -29,6 +29,8 @@ cp scripts/launchd/com.voicebot.asr.plist ~/Library/LaunchAgents/   # edit the p
 launchctl load ~/Library/LaunchAgents/com.voicebot.asr.plist
 cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/   # daily 03:30 backup
 launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist
+cp scripts/launchd/com.voicebot.remarkable.plist ~/Library/LaunchAgents/   # optional: push cards to the reMarkable (:8021)
+launchctl load ~/Library/LaunchAgents/com.voicebot.remarkable.plist
 curl -s localhost:8020/health                                        # {"ok":true,...}
 
 # 2. move the state into the data folder (refuses if anything is already there; .env is copied)

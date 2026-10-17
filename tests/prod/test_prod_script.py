@@ -182,10 +182,17 @@ def test_backup_skips_unchanged_head_then_runs_after_new_commit(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("plutil") is None, reason="plutil is not installed")
-@pytest.mark.parametrize("name", ["com.voicebot.asr.plist", "com.voicebot.backup.plist"])
+@pytest.mark.parametrize("name", ["com.voicebot.asr.plist", "com.voicebot.backup.plist",
+                                  "com.voicebot.remarkable.plist"])
 def test_launchd_plists_lint(name):
     path = os.path.join(ROOT, "scripts", "launchd", name)
     assert subprocess.run(["plutil", "-lint", path], capture_output=True).returncode == 0
+
+
+def test_remarkable_plist_runs_the_push_service_on_loopback():
+    text = open(os.path.join(ROOT, "scripts", "launchd", "com.voicebot.remarkable.plist")).read()
+    assert "scripts/remarkable_server.py" in text and "8021" in text and "127.0.0.1" in text
+    assert "<key>KeepAlive</key><true/>" in text
 
 
 @needs_git

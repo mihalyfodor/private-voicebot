@@ -81,6 +81,21 @@ def test_probe_sends_the_key_to_the_models_list_only():
     assert "headers" not in by_url["health"] and by_url["models"]["headers"]["Authorization"] == "Bearer secret"
 
 
+# ---------------------------------------------------------------- PRD 47b scenario 6: the push service row
+
+
+def test_remarkable_row_ok_down_and_absent():
+    import remarkable
+    with patch.object(remarkable, "URL", "http://127.0.0.1:8021"):
+        got = probe_with({":8021/health": None, "/health": None, "/v1/models": {"data": [{"id": "g"}]}})
+        assert got["remarkable"]["ok"] and got["remarkable"]["label"] == "reMarkable push :8021"
+        assert got["remarkable"]["detail"] == "answering"
+        got = probe_with({":8021/health": requests.ConnectionError("refused")})
+        assert not got["remarkable"]["ok"] and ":8021" in got["remarkable"]["label"]
+    with patch.object(remarkable, "URL", ""):
+        assert "remarkable" not in probe_with({"/health": None, "/v1/models": {"data": [{"id": "g"}]}})
+
+
 # ---------------------------------------------------------------- scenario 2: the push
 
 
