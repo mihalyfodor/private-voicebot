@@ -159,11 +159,15 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
 PUSH_LINES_PER_PAGE = 60
 
 
+def _card_title(card: dict) -> str:
+    return str(card.get("title") or "Card")
+
+
 def push_plan(card: dict) -> dict:
     """What "send that to my reMarkable" would upload, read-only: `{card_id, title, pages}`
     (`pages` is the local estimate, docs/47b-remarkable-push.md)."""
     lines = len(str(card.get("markdown") or "").splitlines())
-    return {"card_id": str(card["id"]), "title": str(card.get("title") or ""),
+    return {"card_id": str(card["id"]), "title": _card_title(card),
             "pages": max(1, -(-lines // PUSH_LINES_PER_PAGE))}
 
 
@@ -174,4 +178,4 @@ def push_available() -> bool:
 
 def push(card: dict) -> dict:
     """Upload `card` to the tablet through the host push service: its `{ok, pages, name}`."""
-    return remarkable.push(str(card.get("title") or "Card"), str(card["markdown"]))
+    return remarkable.push(_card_title(card), str(card["markdown"]))

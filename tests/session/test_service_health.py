@@ -92,6 +92,7 @@ def test_remarkable_row_ok_down_and_absent():
         assert got["remarkable"]["detail"] == "answering"
         got = probe_with({":8021/health": requests.ConnectionError("refused")})
         assert not got["remarkable"]["ok"] and ":8021" in got["remarkable"]["label"]
+        assert got["remarkable"]["hint"] == ".venv/bin/python scripts/remarkable_server.py"
     with patch.object(remarkable, "URL", ""):
         assert "remarkable" not in probe_with({"/health": None, "/v1/models": {"data": [{"id": "g"}]}})
 

@@ -456,7 +456,7 @@ def test_push_is_not_offered_without_the_service(vault):
     _with_card()
     sess = Session()
     sent = session_turn(sess, 1, "send that to my reMarkable")
-    assert spoken_lines(sent) == ["Sending to the reMarkable isn't available yet."]
+    assert spoken_lines(sent) == ["The reMarkable push service is not configured."]
     assert sess.pending is None and not _of(sent, "card") and trace_lines(kind="run") == []
 
 

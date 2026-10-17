@@ -146,7 +146,7 @@ function renderServices() {
     const ctl = el('span', 'set-ctl');
     ctl.append(el('span', 'svc-dot' + (svc && svc.ok ? ' ok' : '')),
                el('span', 'set-value', svc ? `${svc.detail} · checked ${(svc.checked || '').slice(11, 19)}` : 'not checked yet'));
-    if (svc && svc.ok === false) ctl.append(copyChip(hint));
+    if (svc && svc.ok === false) ctl.append(copyChip(svc.hint || hint));
     const row = el('div', 'set-row svc-row');
     row.append(label, ctl);
     return row;

@@ -1,10 +1,10 @@
-Status: implementation
+Status: done
 
 # 47b — reMarkable push: send a card or page to the tablet
 
 ## Overview
 PRD 47 pulls handwritten notebooks into the vault; this adds the other direction. "Send that to my reMarkable"
-renders the last written card (PRD 43) or the open wiki page to a PDF and uploads it to the tablet over USB. The
+renders the last written card (PRD 43) to a PDF and uploads it to the tablet over USB. The
 container cannot reach USB (docs/deploy.md), so the push runs in a tiny host service on :8021, the same pattern as
 ASR on :8020, with one launchd plist. The Swift Vision OCR helper and the daily-pull plist that PRD 47 deferred
 stay deferred (cut 2026-10-17: pull already transcribes through the multimodal model; OCR is a cross-check nobody
@@ -13,20 +13,19 @@ Depends on PRD 52 (approvals: a push is a write, using its pending slot, `resolv
 PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to PRD 52's kind registry.
 
 ## User stories
-- As a user with a card or wiki page in front of me, I say or type "send this to my reMarkable"; I see a proposal,
+- As a user with a card in front of me, I say or type "send this to my reMarkable"; I see a proposal,
   approve it, and the PDF appears on the tablet.
 - As a user with the tablet unplugged, I get "reMarkable not connected" and nothing is left pending.
-- As a user, I enable the push service with one `launchctl load` command.
+- As a user, I enable the push service with one `launchctl load` command and one `.env` line.
 
 ## UI/UX
 - Command (typed or spoken, whole-turn regex like `_SAVE_NOTE`, chatbot.py:429): "send (this|that|it|the page) to
-  my remarkable", "push … to the tablet". Target = last card (`llm.last_card`, chatbot.py:456) if newer than the open
-  wiki page, else the open page (newest wins; the proposal names the target, e.g. "card" or "page"); neither -> "nothing to send" (nothing spoken beyond that, nothing pending).
+  my remarkable", "push … to the tablet". Target = the last card (`llm.last_card`, chatbot.py:456); none -> "nothing to send" (nothing spoken beyond that, nothing pending).
 - Proposal card (PRD 52 pending slot): "Send the card 'Compound Key at Covenant' (~3 pages) to reMarkable?" with Approve /
   Reject; a spoken or typed "yes" resolves it via PRD 52's `is_approval`.
 - On approval a run card (PRD 51) shows running -> done ("uploaded 'Title', 3 pages") and Wanko says one line:
   "Sent to your reMarkable." Failure turns the run card to failed with the service's one-line reason.
-- Status row "reMarkable push :8021" joins the services table (red = start command copy button, as for ASR).
+- Status row "reMarkable push :8021" joins the services table (red = copy button with its own start command, `.venv/bin/python scripts/remarkable_server.py`; the row only exists when `REMARKABLE_PUSH_URL` is set).
 
 ## Technical approach
 - `scripts/remarkable_server.py`: stdlib `ThreadingHTTPServer` bound to `127.0.0.1:$REMARKABLE_PORT` (8021),
@@ -42,7 +41,7 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
   as `list_changed` (scripts/remarkable_sync.py:97-104) -> `reMarkable not connected ({host})`.
 - Chat side: `chatbot.py` command `push_command(text)` -> builds a PRD 52 proposal (kind `push`, proposal `{card_id, title, pages}`; the markdown is read from the
   card at apply time, and PRD 52's hash binds the proposal to what was shown); on approve, `remarkable.push(...)` (new small module, `requests` to
-  `$REMARKABLE_PUSH_URL`, default `http://host.docker.internal:8021` in compose, `127.0.0.1` locally). The pages
+  `$REMARKABLE_PUSH_URL`, unset = off; `http://127.0.0.1:8021` locally, `http://host.docker.internal:8021` via `$DATA/.env` in prod). The pages
   estimate in the proposal is computed locally (lines / 60), exact count comes back in the run result.
 - `services.py`: `probe_remarkable()` modelled on `probe_asr` (services.py:73): GET `/health`, label via
   `_port_label`; included in `probe()`; "not installed" is not an error when `REMARKABLE_PUSH_URL` is unset.
@@ -53,7 +52,8 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
 - Host service over a container-side upload: USB is invisible to Colima; ASR already proves the pattern.
 - `cupsfilter` text->PDF over HTML->PDF: HTML did not render in the probe; plain monospaced is enough for reading.
 - Approval + run card over fire-and-forget: a push puts a file on a device, so it follows PRD 52/51 like any write.
-- Chose newest-wins for the card-vs-open-page target, named in the proposal title, over asking which: Reject is cheap.
+- Card-only target (no open-page), 2026-10-17: simplify; the open wiki page is out of scope.
+- URL unset = off, prod opts in via .env (2026-10-17): compose carries no default; add `REMARKABLE_PUSH_URL=http://host.docker.internal:8021` to `$DATA/.env`. Unset = no command, no row, one "not configured" line.
 - Chose a local page estimate shown with "~" in the proposal, exact count only in the run card, over rendering twice.
 - Cut (2026-10-17) the Vision OCR helper and the daily-pull plist: simplify over completeness; `ocr_bin()` keeps
   returning "" when no binary is installed, which the pull path already handles.

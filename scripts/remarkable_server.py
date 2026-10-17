@@ -18,12 +18,15 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import remarkable_sync as sync
+
+HOST = "127.0.0.1"     # loopback only: Docker reaches it through host.docker.internal, the LAN does not
 
 
 class PushError(Exception):
@@ -71,11 +74,11 @@ def upload(device: str, name: str, pdf: bytes) -> None:
     except urllib.error.HTTPError as exc:
         raise PushError(502, f"the tablet refused the upload (HTTP {exc.code})") from exc
     except OSError as exc:
-        raise PushError(503, sync.LINES["offline"].format(host=device)) from exc
+        raise PushError(503, sync.LINES["offline"].format(host=urllib.parse.urlparse(device).hostname or device)) from exc
 
 
 def push(payload: dict, device: str) -> dict:
-    title = re.sub(r'[\x00-\x1f/\\]+', " ", str(payload.get("title") or "")).strip()
+    title = re.sub(r'[\x00-\x1f/\\"]+', " ", str(payload.get("title") or "")).strip()
     if not title:
         raise PushError(400, "a title is required")
     if payload.get("pdf"):
@@ -128,4 +131,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", int(os.getenv("REMARKABLE_PORT", "8021"))), Handler).serve_forever()
+    ThreadingHTTPServer((HOST, int(os.getenv("REMARKABLE_PORT", "8021"))), Handler).serve_forever()

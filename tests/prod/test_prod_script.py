@@ -2,11 +2,13 @@
 import os
 import glob
 import shutil
+import socket
 import subprocess
 
 import pytest
 
 from tests.conftest import ROOT
+from tests.prod.test_remarkable_server import push_service  # noqa: F401  (the fixture)
 
 PROD_SH = os.path.join(ROOT, "scripts", "prod.sh")
 GIT_ID = ["-c", "user.name=t", "-c", "user.email=t@t"]
@@ -191,8 +193,28 @@ def test_launchd_plists_lint(name):
 
 def test_remarkable_plist_runs_the_push_service_on_loopback():
     text = open(os.path.join(ROOT, "scripts", "launchd", "com.voicebot.remarkable.plist")).read()
-    assert "scripts/remarkable_server.py" in text and "8021" in text and "127.0.0.1" in text
+    assert "scripts/remarkable_server.py" in text and "8021" in text
     assert "<key>KeepAlive</key><true/>" in text
+
+
+def _lan_address():
+    """The machine's first non-loopback IPv4 address, or None."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 9))          # no packet is sent; picks the outgoing interface
+            return None if s.getsockname()[0].startswith("127.") else s.getsockname()[0]
+    except OSError:
+        return None
+
+
+def test_remarkable_service_refuses_non_loopback_connections(push_service):
+    lan = _lan_address()
+    if lan is None:
+        pytest.skip("no non-loopback IPv4 address")
+    port = int(push_service.rsplit(":", 1)[1])
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(2)
+        assert s.connect_ex((lan, port)) != 0
 
 
 @needs_git

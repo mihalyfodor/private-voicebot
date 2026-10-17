@@ -154,7 +154,7 @@ pure-move refactor commits with shims and per-step test retargeting. See docs/50
 
 Trust surface: a card with steps, actions and a run link; a server-rendered `/runs/<id>` page built from the PRD 49
 events; one pending slot where a spoken "yes" and a card button resolve a write identically; push to the tablet as the
-second approved write after forget. docs/51-run-cards.md, docs/52-approvals.md, docs/47b-remarkable-push.md.
+second approved write after forget (PRD 47b done 2026-10-17, card-only). docs/51-run-cards.md, docs/52-approvals.md, docs/47b-remarkable-push.md.
 
 ## 11. PRD 53 — Scalable index · PRD 54 — Vault map + research mode · PRD 55 — Hybrid measurement
 

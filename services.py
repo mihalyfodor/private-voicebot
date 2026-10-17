@@ -5,7 +5,7 @@ re-probes on a daemon thread every PROBE_INTERVAL_S (and right away after `reche
 turn path calls when an LLM / ASR call fails). A change of state goes to `on_change` — chatbot
 pushes it to the page as `services`. `snapshot()` is what `/api/config` carries.
 
-Each service is `{ok, label, detail, checked}`: `label` names the host piece and its port
+Each service is `{ok, label, detail, checked}` (the optional push service, PRD 47b, adds its own start `hint` when down): `label` names the host piece and its port
 ("oMLX :8000", "ASR :8020"), `detail` says what was seen, `checked` is the probe time (ISO,
 seconds). Before the first probe every service counts as ok, so nothing is refused on a cold start.
 """
@@ -27,6 +27,9 @@ PROBE_INTERVAL_S = 30
 TIMEOUT_S = 3
 #: The command the banner tells the user to run; the container says the same by default.
 START_HINT = os.getenv("START_HINT", "scripts/voicebot start")
+
+#: The push service is not started by `scripts/voicebot start`; its row carries its own command.
+REMARKABLE_HINT = ".venv/bin/python scripts/remarkable_server.py"
 
 _lock = threading.Lock()
 _state: dict = {}            # the last probe, {} before the first
@@ -88,7 +91,7 @@ def probe_remarkable() -> dict:
     try:
         requests.get(f"{remarkable.URL}/health", timeout=TIMEOUT_S).raise_for_status()
     except requests.RequestException as exc:
-        return _result(False, label, f"not answering ({exc.__class__.__name__})")
+        return {**_result(False, label, f"not answering ({exc.__class__.__name__})"), "hint": REMARKABLE_HINT}
     return _result(True, label, "answering")
 
 

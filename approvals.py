@@ -129,7 +129,7 @@ class Kind(NamedTuple):
     body: Callable          # proposal -> the card's markdown
     rows: Callable          # proposal -> the run page's Proposal rows ({path?, title?}; no text beyond that)
     detail: Callable        # proposal -> a short fact line (counts) while it waits
-    applied: Callable       # proposal -> the same facts once written
+    applied: Callable       # (proposal, apply result) -> the same facts once written
     done: str               # the spoken line after the write
 
 
@@ -192,7 +192,7 @@ FORGET = Kind(
     rows=lambda p: ([{"path": p["page"], "title": p["title"]}, {"path": p["raw"]}]
                     + [{"path": i} for i in p.get("images") or []] + [{"path": c} for c in p["cleaned"]]),
     detail=lambda p: _forget_facts(p, "to clean", ""),
-    applied=lambda p: _forget_facts(p, "cleaned", " removed"),
+    applied=lambda p, r: _forget_facts(p, "cleaned", " removed"),
     done="Forgotten.")
 
 
@@ -206,7 +206,7 @@ def _card(card_id: str) -> dict:
     return card
 
 
-NOT_AVAILABLE = "Sending to the reMarkable isn't available yet."
+NOT_AVAILABLE = "The reMarkable push service is not configured."
 
 
 def _push_apply(proposal: dict) -> dict:
@@ -220,7 +220,8 @@ PUSH = Kind(
     key="card_id", title=lambda p: f"Send {p['title']}",
     body=lambda p: f"Send the card **{p['title']}** (~{_n(p['pages'], 'page')}) to your reMarkable?",
     rows=lambda p: [{"title": p["title"]}], detail=lambda p: f"~{_n(p['pages'], 'page')}",
-    applied=lambda p: f"sent, ~{_n(p['pages'], 'page')}", done="Sent to your reMarkable.")
+    applied=lambda p, r: (f"uploaded '{p['title']}', {_n(r['pages'], 'page')}" if r.get("pages")
+                          else f"sent, ~{_n(p['pages'], 'page')}"), done="Sent to your reMarkable.")
 
 #: kind -> its plan / apply / spoken (+ the card and run-page shapes); PRD 47b's push is one entry
 KINDS: dict = {"forget": FORGET, "push": PUSH}

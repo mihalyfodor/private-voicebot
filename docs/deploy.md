@@ -31,6 +31,7 @@ cp scripts/launchd/com.voicebot.backup.plist ~/Library/LaunchAgents/   # daily 0
 launchctl load ~/Library/LaunchAgents/com.voicebot.backup.plist
 cp scripts/launchd/com.voicebot.remarkable.plist ~/Library/LaunchAgents/   # optional: push cards to the reMarkable (:8021)
 launchctl load ~/Library/LaunchAgents/com.voicebot.remarkable.plist
+# then add REMARKABLE_PUSH_URL=http://host.docker.internal:8021 to $DATA/.env (unset = the push feature is off)
 curl -s localhost:8020/health                                        # {"ok":true,...}
 
 # 2. move the state into the data folder (refuses if anything is already there; .env is copied)
@@ -87,7 +88,7 @@ banner and keeps retrying the socket.
 - `DATA` must live under your home directory: colima only maps bind-mount ownership there, so the
   container's uid 1000 can write to it.
 - If `host.docker.internal` does not resolve, use the colima VM gateway `192.168.5.2` in `docker-compose.yml`
-  (`OMLX_BASE_URL`, `ASR_URL`).
+  (`OMLX_BASE_URL`, `ASR_URL`, and `REMARKABLE_PUSH_URL` in `$DATA/.env`).
 - Gmail: run the first OAuth on the host (`credentials.json` in `DATA/secrets`, then any `get_emails` from
   the checkout with `GMAIL_DIR=~/docker-data/voicebot/secrets`); the container only refreshes the token.
 - The compose file pins `PORT=8010` inside the container and publishes it on `127.0.0.1:$PROD_PORT`;

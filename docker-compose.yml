@@ -15,7 +15,6 @@ services:
       MEMORY_DIR: /data/memory
       SETTINGS_PATH: /data/settings.json
       GMAIL_DIR: /data/secrets
-      REMARKABLE_PUSH_URL: http://host.docker.internal:8021
       TRACE_PROFILE: prod        # PRD 49: events.jsonl only, never text; a dev profile refuses to start here
       TRACE_DIR: /data/logs
       VOICEBOT_VERSION: ${TAG:-latest}
