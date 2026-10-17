@@ -28,7 +28,7 @@ import numpy as np          # noqa: E402
 import requests             # noqa: E402
 
 from vault import index_db
-import wiki                 # noqa: E402
+from vault import chunks as v_chunks
 from vault import search
 from vault import store
 
@@ -123,11 +123,11 @@ class Corpus:
         self.name, self.path = name, path
         store.WIKI_PATH = path
         index_db.close()
-        idx = wiki._chunk_index()
+        idx = v_chunks._chunk_index()
         meta = idx.chunk_meta() if idx else {}
         self.rows = []
         for source, raw, _title, n, _total, sha in sorted(meta.values(), key=lambda m: (m[1], m[3])):
-            record = wiki._record(sha) or wiki._raw_chunks_for({"sha256": sha, "path": raw, "page": source})
+            record = v_chunks._record(sha) or v_chunks._raw_chunks_for({"sha256": sha, "path": raw, "page": source})
             self.rows.append((raw, n, record["chunks"][n - 1]["text"]))
         self.at = {(raw, n): i for i, (raw, n, _t) in enumerate(self.rows)}
         self.matrix = None
@@ -152,7 +152,7 @@ def rrf(*rankings: list, k: int = RRF_K) -> list:
 def passes(cand: dict, proper: set, pairs: list, bonus: int = 0) -> bool:
     """The PRD 34 precision rule: two matched topic words (`bonus` extra for the relaxed hybrid) or a proper
     term whose bigram the chunk holds whole."""
-    return len(cand["matched"]) + bonus >= 2 or bool(wiki.proper_match(cand, proper, pairs))
+    return len(cand["matched"]) + bonus >= 2 or bool(v_chunks.proper_match(cand, proper, pairs))
 
 
 def gate(cands: list, proper: set, pairs: list, floor: float, tau: float | None = None) -> list:
@@ -178,11 +178,11 @@ class Query:
 
     def __init__(self, corpus: Corpus, text: str):
         self.text = text
-        terms = wiki.content_terms(text)
-        self.proper = wiki.proper_terms(terms)
-        self.pairs = wiki.proper_phrases(text)
-        topic, _named = wiki.split_title_terms(terms)
-        self.topic = (topic - wiki.GENERIC_WORDS) or topic
+        terms = v_chunks.content_terms(text)
+        self.proper = v_chunks.proper_terms(terms)
+        self.pairs = v_chunks.proper_phrases(text)
+        topic, _named = v_chunks.split_title_terms(terms)
+        self.topic = (topic - v_chunks.GENERIC_WORDS) or topic
         self.corpus = corpus
         self.bm25: list = []
         self.cos = None
@@ -252,7 +252,7 @@ def _timed_ms(fn, *args):
 def run_corpus(corpus: Corpus, questions: list, embedder: Embedder, cache_dir: str, log=lambda s: None) -> dict:
     """Run every question the five ways on `corpus`; returns ``{corpus, rows, latency, available}``."""
     corpus.activate()
-    floor = wiki.RECALL_MIN_SCORE
+    floor = v_chunks.RECALL_MIN_SCORE
     available = True
     try:
         corpus.matrix = embed_chunks([t for _r, _n, t in corpus.rows], embedder,
@@ -263,8 +263,8 @@ def run_corpus(corpus: Corpus, questions: list, embedder: Embedder, cache_dir: s
     pool = ThreadPoolExecutor(max_workers=1)
     for spec in questions:
         q = Query(corpus, spec["text"])
-        wiki.search_chunks(spec["text"], k=TOP)                 # warm, then the timed call
-        q.bm25, solo = _timed_ms(wiki.search_chunks, spec["text"], TOP)
+        v_chunks.search_chunks(spec["text"], k=TOP)                 # warm, then the timed call
+        q.bm25, solo = _timed_ms(v_chunks.search_chunks, spec["text"], TOP)
         bm25_ms.append(solo)
         if available:
             try:
@@ -275,7 +275,7 @@ def run_corpus(corpus: Corpus, questions: list, embedder: Embedder, cache_dir: s
                 dots.append(dot_ms + fuse_ms)
                 t = time.perf_counter()                         # parallel: the embed runs alongside BM25
                 fut = pool.submit(embedder.query, spec["text"])
-                wiki.search_chunks(spec["text"], k=TOP)
+                v_chunks.search_chunks(spec["text"], k=TOP)
                 fut.result()
                 parallel.append(max(0.0, (time.perf_counter() - t) * 1000 + dot_ms + fuse_ms - solo))
             except EmbedDown:

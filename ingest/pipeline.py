@@ -35,7 +35,9 @@ from core import trace
 from core.untrusted import DOCUMENT_RULE, untrusted
 from core import vault_lock
 from vault.manifest import _manifest_append, _manifest_write, manifest_entries, manifest_find, sha256
-import wiki
+from vault import chunks
+from vault import digest as v_digest
+from vault import ingest as v_ingest
 from vault import index as v_index
 from vault import pages as v_pages
 from vault import search as v_search
@@ -411,7 +413,7 @@ def restrict_ops(ops, raw_rel: str, user_names=(), kind: str = "", people=None) 
     session ingest uses: a document mentioning their own (possibly misspelled) name must not
     grow a `people/` page about them.
     """
-    candidates, rejected = wiki.reject_user_pages(ops, user_names)
+    candidates, rejected = v_ingest.reject_user_pages(ops, user_names)
     if kind in PUBLISHED_KINDS and people is None:
         people = memory.people_names()
     kept = []
@@ -732,15 +734,15 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
                           "ingested_at": memory._stamp("%H:%M:%S"),
                           "page": v_store.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
-        wiki.index_source(wiki.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
+        chunks.index_source(chunks.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
         v_index.rebuild_index()
         v_index._log([f"filed [[{v_store.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
-        head = wiki.head_sha()
+        head = v_digest.head_sha()
         v_store._commit(f"wiki: filed {raw_rel}")
         trace.mark(path=v_store.wikilink(source_rel), title=page_title)
-        if wiki.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
-            trace.mark(commit=wiki.head_sha())
+        if v_digest.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
+            trace.mark(commit=v_digest.head_sha())
         return {"path": v_store.wikilink(source_rel), "raw": raw_rel, "already": False,
                 "degraded": trace.marked("_degraded")}
 
@@ -901,8 +903,8 @@ def forget(digest: str, expected: dict | None = None) -> dict:
             if os.path.isdir(v_store._path(folder)) and not os.listdir(v_store._path(folder)):
                 os.rmdir(v_store._path(folder))
         _manifest_write([e for e in manifest_entries() if e.get("sha256") != digest])
-        wiki.unindex_source(digest)
-        wiki.drop_raw_chunks(digest)
+        chunks.unindex_source(digest)
+        chunks.drop_raw_chunks(digest)
         v_index.rebuild_index()
         v_index._log([f"forgot [[{page}]] and {raw_rel}"
                    + (f" (notes removed from {', '.join(cleaned)})" if cleaned else "")])

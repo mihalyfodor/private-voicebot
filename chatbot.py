@@ -23,7 +23,10 @@ from ingest import notebooks
 import remarkable
 import research
 import runs
-import wiki
+from vault import chunks
+from vault import digest as v_digest
+from vault import focus as v_focus
+from vault import lint as v_lint
 from vault import pages as v_pages
 from vault import search as v_search
 from vault import store as v_store
@@ -161,16 +164,16 @@ def _memory_msg(profile: dict) -> dict:
 def _wiki_msg() -> dict:
     """The `wiki` message the Wiki tab re-renders itself from: page list + lint + vault path."""
     v_store.ensure_vault()   # opening the tab is the first use that may create the vault
-    return {"type": "wiki", "pages": wiki.pages(), "lint": wiki.lint(), "vault": v_store.WIKI_PATH}
+    return {"type": "wiki", "pages": v_lint.pages(), "lint": v_lint.lint(), "vault": v_store.WIKI_PATH}
 
 
 def _wiki_page_msg(path: str) -> dict:
     """One whole page for the pane/editor, with its etag (PRD 28) and backlinks."""
-    text = wiki.page_text(path)
+    text = chunks.page_text(path)
     if text is None:
         return {"type": "wiki_page", "path": path, "text": f"no such page: {path}",
                 "links": [], "etag": "", "backlinks": []}
-    return {"type": "wiki_page", "path": path, "text": text, "links": wiki.links_in(text),
+    return {"type": "wiki_page", "path": path, "text": text, "links": v_focus.links_in(text),
             "etag": v_store.etag(text), "backlinks": v_search.backlinks(path)}
 
 
@@ -399,7 +402,7 @@ def briefing(ctx: Ctx):
         run = runs.Run("briefing")
         digest = _gather(run, since)
         stage = "phrased"
-        empty = wiki.digest_empty(digest)
+        empty = v_digest.digest_empty(digest)
         if not empty and not services.llm_ok():
             _run_failed(run, "phrased", "failed-offline", send_sync)
             send_sync({"type": "error", "scope": "turn", "text": llm_offline_text()})
@@ -408,7 +411,7 @@ def briefing(ctx: Ctx):
         send_sync({"type": "state", "value": "thinking"})
         _arm_playback(sess, turn)
         if empty:
-            say_canned(f"Nothing new since {wiki.briefing_when(since)}.", send_sync)
+            say_canned(f"Nothing new since {v_digest.briefing_when(since)}.", send_sync)
             run.end("nothing", "nothing-to-do")
         else:
             t0 = time.monotonic()
@@ -432,7 +435,7 @@ def _gather(run, since: str) -> dict:
     """The briefing's `gather` step (+ a `skip` step for the housekeeping commits it left out):
     the digest, with its counts and the pages' commits on the event — never a title's text beyond that."""
     with trace.span("step", name="gather", detail=f"since {since[11:16]}") as step:
-        digest = wiki.changes_since(since)
+        digest = v_digest.changes_since(since)
         pages = len(digest.get("pages") or []) + len(digest.get("chat_pages") or [])
         n_sources = len(digest.get("sources") or [])
         mem = digest.get("memory") or {}
@@ -442,7 +445,7 @@ def _gather(run, since: str) -> dict:
                            for p in digest.get("pages") or []
                            if isinstance(p, dict)],
                     memory={k: int(mem.get(k) or 0) for k in ("added", "updated", "removed")})
-    run.step("gathered", "ok", f"since {wiki.briefing_when(since)} — {_n(pages, 'page')}, {_n(n_sources, 'source')}, "
+    run.step("gathered", "ok", f"since {v_digest.briefing_when(since)} — {_n(pages, 'page')}, {_n(n_sources, 'source')}, "
                                f"{_n(n_memory, 'memory change')}")
     skipped = int(digest.get("skipped") or 0)
     if skipped:
@@ -820,7 +823,7 @@ def open_page(ctx: Ctx) -> str:
         path = hits[0]["path"] if hits else None
     if not path:
         return llm.NO_MATCH_NOTE.format(query=query)
-    title = wiki.page_title(path) or path
+    title = v_focus.page_title(path) or path
     send_sync({"type": "wiki_open", "path": path})
     llm.set_focus("sources" if path.startswith("sources/") else "wiki", path)
     return llm.OPENED_NOTE.format(title=title)
@@ -1014,7 +1017,7 @@ async def api_config():
         # read-only facts shown in the Settings view
         "stale_days": dict(memory.STALE_DAYS),
         "calendar_horizon_days": formats.calendar_horizon_days(),
-        "recall_min_score": wiki.recall_min_score(),
+        "recall_min_score": chunks.recall_min_score(),
         "location": weather_tool.location(),
         "vault": v_store.WIKI_PATH,
         "screenshot_cmd": SCREENSHOT_CMD,

@@ -16,7 +16,8 @@ import time
 import llm
 import memory
 import runs
-import wiki
+from vault import chunks as v_chunks
+from vault import focus
 from vault import search as v_search
 from vault import store
 from core import llm as core_llm
@@ -117,7 +118,7 @@ def _window(text: str, query: str) -> str:
     """SNIPPET_CHARS of `text` around the first content word of `query` (whitespace collapsed)."""
     flat = _flat(text)
     lower = flat.lower()
-    found = [lower.find(t) for t in wiki.content_terms(query) if lower.find(t) >= 0]
+    found = [lower.find(t) for t in v_chunks.content_terms(query) if lower.find(t) >= 0]
     start = max(0, min(found) - 60) if found else 0
     return flat[start:start + SNIPPET_CHARS]
 
@@ -134,10 +135,10 @@ def search(subs: list) -> list:
                     continue
                 seen.add(h["path"])
                 hits.append({"q": i, "ref": h["path"], "kind": "page", "path": h["path"],
-                             "title": wiki.page_title(h["path"]) or h["path"], "score": h["score"],
+                             "title": focus.page_title(h["path"]) or h["path"], "score": h["score"],
                              "snippet": _flat(h["snippet"])[:SNIPPET_CHARS]})
                 found += 1
-            for h in wiki.search_chunks(sub["q"], CHUNK_HITS):
+            for h in v_chunks.search_chunks(sub["q"], CHUNK_HITS):
                 ref = f"{h['title']} · part {h['n']}/{h['total']}"
                 if ref in seen:
                     continue
@@ -206,7 +207,7 @@ def _parts(source: str, n: int, text: str) -> dict:
     """part number -> its chunk text, for part n and the neighbours `read_source` returned with it (the
     verifier re-cites a quote found in a neighbour)."""
     try:
-        chunks = wiki.raw_chunks(source)["chunks"]
+        chunks = v_chunks.raw_chunks(source)["chunks"]
     except KeyError:
         return {n: text}
     return {k: chunks[k - 1]["text"] for k in (n - 1, n, n + 1) if 1 <= k <= len(chunks)}
@@ -225,13 +226,13 @@ def read(budget: Budget, hits: list) -> list:
             break
         budget.reads += 1
         if h["kind"] == "chunk":
-            text = wiki.read_source(h["source"], h["n"])
+            text = v_chunks.read_source(h["source"], h["n"])
             text = text.split("\n", 1)[1] if "\n" in text else text
             material.append({"label": h["ref"], "text": text, "kind": "chunk", "source": h["source"],
                              "title": h["title"], "n": h["n"], "total": h["total"],
                              "parts": _parts(h["source"], h["n"], text)})
         else:
-            text = wiki.read_page(h["path"])
+            text = v_chunks.read_page(h["path"])
             material.append({"label": h["title"], "text": store.parse_page(text)[1], "kind": "page",
                              "path": h["path"], "title": h["title"]})
     return material

@@ -21,7 +21,7 @@ import llm
 from ingest import notebooks
 import runs
 from ingest import pipeline
-import wiki
+from vault import digest as v_digest
 from core import trace
 from tools import commands
 
@@ -135,9 +135,9 @@ class Kind(NamedTuple):
 
 def _committed(write) -> str:
     """Run `write()`; the vault's new short HEAD sha when it moved, else ""."""
-    before = wiki.head_sha()
+    before = v_digest.head_sha()
     write()
-    after = wiki.head_sha()
+    after = v_digest.head_sha()
     return after if after != before else ""
 
 

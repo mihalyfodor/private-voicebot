@@ -16,6 +16,7 @@ import llm
 import memory
 import sources
 import wiki
+from vault import chunks as v_chunks
 from tests.conftest import (FALLOUT_SECTIONS, SKYRIM_SECTIONS, FakeClient, StreamClient, both, faq_text,  # noqa: F401
                             fallout, file_faq, seeded_vault, send_setting, summary_json, vault)
 from tools import run_tool
@@ -77,7 +78,7 @@ def test_raw_chunks_are_cached_per_sha_and_reused(fallout, monkeypatch):
     def no_read(rel):
         raise AssertionError(f"raw bytes read again: {rel}")
 
-    monkeypatch.setattr(wiki, "_read_bytes", no_read)
+    monkeypatch.setattr(v_chunks, "_read_bytes", no_read)
     assert wiki.raw_chunks(fallout["raw"]) == first
     assert wiki.raw_chunks(fallout["path"]) == first             # the page path works too
     assert wiki.search_chunks("covenant compound")               # the corpus reads the cache
@@ -294,7 +295,7 @@ def test_refiling_the_same_bytes_builds_nothing_and_forget_drops_the_cache(fallo
     def no_read(rel):
         raise AssertionError(f"raw bytes read again: {rel}")
 
-    monkeypatch.setattr(wiki, "_read_bytes", no_read)
+    monkeypatch.setattr(v_chunks, "_read_bytes", no_read)
     again = file_faq(faq_text("Fallout 4", FALLOUT_SECTIONS, seed=4), "Fallout 4 guide")
     assert again["already"] and again["raw"] == fallout["raw"]
     assert cache_files() == before

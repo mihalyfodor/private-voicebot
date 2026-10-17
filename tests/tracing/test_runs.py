@@ -215,12 +215,12 @@ def test_a_dry_run_writes_no_step_spans(vault, monkeypatch, tmp_path):
 
 
 def test_a_briefing_that_fails_while_gathering_labels_the_gather_step(vault, monkeypatch):
-    import wiki
+    from vault import digest
 
     def boom(since):
         raise RuntimeError("git gone")
 
-    monkeypatch.setattr(wiki, "changes_since", boom)
+    monkeypatch.setattr(digest, "changes_since", boom)
     with patch.object(core_llm, "_client", FakeClient()), patch.object(chatbot, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "what's new?")
     (card,) = [m for m in sent if m["type"] == "card"]

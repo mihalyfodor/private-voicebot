@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 import wiki
+from vault import chunks as v_chunks
 from eval import retrieval_bench as rb
 from tests.conftest import file_faq, vault  # noqa: F401
 
@@ -22,7 +23,7 @@ from tests.conftest import file_faq, vault  # noqa: F401
 @pytest.fixture(autouse=True)
 def small_vault_floor(monkeypatch):
     """Eight chunks give every word a tiny IDF: the BM25 floor is lowered so the verbatim question passes it."""
-    monkeypatch.setattr(wiki, "RECALL_MIN_SCORE", 0.5)
+    monkeypatch.setattr(v_chunks, "RECALL_MIN_SCORE", 0.5)
 
 
 SYNONYMS = {"lamp": "lantern", "brought": "carried", "stew": "cook"}

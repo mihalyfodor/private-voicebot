@@ -4,25 +4,30 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAYERS = ("core", "vault", "memory", "ingest", "tools", "agent", "server")   # bottom -> top; "root" sits above all
-SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db"}    # root modules that only re-export a new home; app code may not import them
+SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db", "wiki"}    # root modules that only re-export a new home; app code may not import them
 SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "__pycache__", "logs", "characters"}
 
 # (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
 # new upward import in the same file fails. May only shrink (docs/50-modular-layout.md).
 ALLOWED = {
-    ("tools/wiki.py", "wiki"),
-    # step 5: the moved modules still import root modules; each pair goes when its target moves (wiki 6-7, memory 8, remarkable 11)
+    # step 5: the moved modules still import root modules; each pair goes when its target moves (memory 8, remarkable 11)
     ("ingest/pipeline.py", "memory"),
-    ("ingest/pipeline.py", "wiki"),
     ("ingest/notebooks.py", "memory"),
     ("ingest/notebooks.py", "remarkable"),
     ("ingest/batch.py", "memory"),
-    # step 6: vault/ modules still import root memory (step 8) and the half of wiki.py that moves in step 7
+    # steps 6-7: vault/ modules still import root memory (step 8) and llm (steps 9-10)
     ("vault/store.py", "memory"),
     ("vault/index.py", "memory"),
     ("vault/pages.py", "memory"),
     ("vault/search.py", "memory"),
-    ("vault/search.py", "wiki"),
+    ("vault/digest.py", "memory"),
+    ("vault/ingest.py", "memory"),
+    ("vault/bridge.py", "memory"),
+    ("vault/focus.py", "llm"),
+    # step 7: vault code reading ingest's source pages / the batch guard (the PRD's expected vault -> ingest pairs)
+    ("vault/chunks.py", "ingest"),
+    ("vault/digest.py", "ingest"),
+    ("vault/bridge.py", "ingest"),
 }
 
 

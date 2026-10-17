@@ -14,6 +14,7 @@ import pytest
 from vault import index_db
 import sources
 import wiki
+from vault import chunks as v_chunks
 from vault import search as v_search
 from vault import store
 from tests.conftest import ROOT, commits, file_faq, read, trace_lines
@@ -282,7 +283,7 @@ def test_a_changed_sha_reindexes_that_source_alone(seeded_vault, monkeypatch):
                              for e in sources.manifest_entries()])
     built = []
     real = wiki._raw_chunks_for
-    monkeypatch.setattr(wiki, "_raw_chunks_for", lambda entry: built.append(entry["path"]) or real(entry))
+    monkeypatch.setattr(v_chunks, "_raw_chunks_for", lambda entry: built.append(entry["path"]) or real(entry))
 
     assert wiki.search_chunks("vexillum")[0]["raw"] == second["raw"]
     assert built == [second["raw"]]                                   # that source alone

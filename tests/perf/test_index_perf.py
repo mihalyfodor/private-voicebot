@@ -9,6 +9,7 @@ import pytest
 
 from vault import index_db
 import wiki
+from vault import chunks as v_chunks
 from vault import store
 from tests.conftest import fake_model
 from tests.perf.make_vault import make_vault, queries
@@ -43,7 +44,7 @@ def test_search_stays_fast_on_5k_pages_and_1k_sources(tmp_path, monkeypatch):
 
     spent = []
     real = wiki.index_source
-    monkeypatch.setattr(wiki, "index_source", lambda record: spent.append(timed(real, record)))
+    monkeypatch.setattr(v_chunks, "index_source", lambda record: spent.append(timed(real, record)))
     text = "Extra handbook\n\n" + " ".join(queries(400, seed=7))
     with fake_model('{"title": "Extra handbook", "summary": "x", "entities": [], "topic": "t", "unreadable": false}', "[]"):
         sources.ingest_upload(text.encode(), "extra.md")

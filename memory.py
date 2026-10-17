@@ -611,12 +611,12 @@ def _wiki_block() -> str:
     broken vault must not be able to stop a conversation from starting.
     """
     try:
-        import wiki
+        from vault import focus
         from vault import index as v_index
         from vault import store as v_store
 
         index = v_index.vault_map(v_store.WIKI_INDEX_TOKENS)
-        note = f"\n{WIKI_NOTE}" if wiki.tools_registered() else ""
+        note = f"\n{WIKI_NOTE}" if focus.tools_registered() else ""
     except Exception as exc:  # noqa: BLE001
         log.warning(f"warning: wiki index unavailable ({exc})")
         return ""
@@ -1351,9 +1351,9 @@ def archive(section: str, index) -> tuple:
             return profile, {"path": f"{section}[{index}]", "reason": f"{section}[{index}] does not exist"}
         entry = entries[index]
         try:
-            import wiki
+            from vault import bridge as v_bridge
 
-            page, reason = wiki.archive_entry(section, entry)
+            page, reason = v_bridge.archive_entry(section, entry)
         except Exception as exc:  # noqa: BLE001
             page, reason = None, str(exc)
         if reason:
@@ -1373,9 +1373,9 @@ def pull(path: str, section: str) -> tuple:
         return load_profile(), {"path": path, "reason": f"cannot pull into {section}"}
     with _LOCK:
         try:
-            import wiki
+            from vault import bridge as v_bridge
 
-            entry, reason = wiki.entry_from_page(path, section)
+            entry, reason = v_bridge.entry_from_page(path, section)
         except Exception as exc:  # noqa: BLE001
             entry, reason = None, str(exc)
         if reason:
@@ -1574,9 +1574,9 @@ def _ingest_wiki(turns: list) -> list:
     if stand_ins_only(turns):                 # no self-feeding (docs/46-briefing.md)
         return []
     try:
-        import wiki
+        from vault import ingest as v_ingest
 
-        return wiki.ingest(turns)
+        return v_ingest.ingest(turns)
     except Exception as exc:  # noqa: BLE001
         wiki_log.info(f"ingest error: {exc}")
         return []
@@ -1585,9 +1585,9 @@ def _ingest_wiki(turns: list) -> list:
 def _lint_wiki() -> list:
     """Lint the vault on the reflection cadence; findings (only) earn a `log.md` line."""
     try:
-        import wiki
+        from vault import lint as v_lint
 
-        findings = wiki.lint_and_log()
+        findings = v_lint.lint_and_log()
     except Exception as exc:  # noqa: BLE001
         wiki_log.info(f"lint error: {exc}")
         return []

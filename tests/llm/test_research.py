@@ -6,6 +6,7 @@ import pytest
 
 import research
 import wiki
+from vault import chunks as v_chunks
 from tests.conftest import judge_reply, research_run
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
@@ -33,8 +34,8 @@ def reads(monkeypatch) -> list:
     """Every `read_source` / `read_page` call the run makes, as its ref."""
     got = []
     real_source, real_page = wiki.read_source, wiki.read_page
-    monkeypatch.setattr(wiki, "read_source", lambda s, n: (got.append((s, n)), real_source(s, n))[1])
-    monkeypatch.setattr(wiki, "read_page", lambda p: (got.append(p), real_page(p))[1])
+    monkeypatch.setattr(v_chunks, "read_source", lambda s, n: (got.append((s, n)), real_source(s, n))[1])
+    monkeypatch.setattr(v_chunks, "read_page", lambda p: (got.append(p), real_page(p))[1])
     return got
 
 

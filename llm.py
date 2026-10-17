@@ -10,7 +10,9 @@ import avatars
 from core import settings
 from core import trace
 from core import llm as core_llm
-import wiki
+from vault import chunks as v_chunks
+from vault import digest as v_digest
+from vault import focus as v_focus
 from vault import search as v_search
 from vault import store as v_store
 from splitter import EMOTIONS, strip_tag
@@ -223,7 +225,7 @@ ROUTING_RULES = (
 def grounding_rules() -> str:
     """The look-up-first block plus the routing rules, or "" when the recall tools are not
     registered (eval harness); the routing rules only while get_wikipedia is registered too."""
-    if not wiki.tools_registered():
+    if not v_focus.tools_registered():
         return ""
     return GROUNDING_RULES + (ROUTING_RULES if wikipedia_registered() else "")
 
@@ -474,7 +476,7 @@ RECALL_NOTE = ("If this answers the question, answer from it " + SHORT_PHRASE + 
                "and " + NOTE_OFFER + " Otherwise ignore it "
                "completely: answer as you normally would and never mention the document or what it lacks.")
 # --- ask before lookup (docs/45-ask-before-lookup.md): the recall band on spoken turns
-RECALL_HIGH_SCORE = wiki.RECALL_HIGH_SCORE
+RECALL_HIGH_SCORE = v_chunks.RECALL_HIGH_SCORE
 #: the one sentence a medium spoken turn ends with, and the note that keeps the model from asking too
 RECALL_OFFER = "Want me to check your {title}?"
 RECALL_ASK_NOTE = "Answer briefly as you normally would, do not end with a question."
@@ -561,25 +563,25 @@ def focus_block(question: str) -> str:
     view, path = focus["view"], focus["path"]
     if view not in ("wiki", "sources") or not path:
         return ""
-    text = wiki.page_text(path)
+    text = v_chunks.page_text(path)
     if text is None:
         return ""
-    title = wiki.page_title(path)
+    title = v_focus.page_title(path)
     _turn_pages.append(title)
-    head, sections = wiki.split_sections(v_store.parse_page(text)[1])
+    head, sections = v_focus.split_sections(v_store.parse_page(text)[1])
     # The schema keeps a page's gist in `## Summary`; that is the head, not a candidate section.
     summary = next((s for s in sections if s.startswith("## Summary")), None)
     if summary:
         head, sections = head + "\n\n" + summary, [s for s in sections if s is not summary]
     parts = fit([head], FOCUS_HEAD_TOKENS, "")
     # "summarise this" names no topic: the head + Summary is the answer, not a random chunk (PRD 42)
-    topical = bool(wiki.topic_terms(question))
-    chunk = wiki.best_chunk(path, question) if view == "sources" and topical else None
+    topical = bool(v_chunks.topic_terms(question))
+    chunk = v_focus.best_chunk(path, question) if view == "sources" and topical else None
     if chunk:
         _turn_sources.append((path, chunk["title"], chunk["n"]))
         section = f'Part {chunk["n"]}/{chunk["total"]}: {chunk["text"]}'
     else:
-        section = wiki.best_section(sections, question) if topical else None
+        section = v_focus.best_section(sections, question) if topical else None
     if section:
         parts += fit([section], FOCUS_SECTION_TOKENS, "")
     note = FOCUS_NOTE.format(title=title)
@@ -669,7 +671,7 @@ def deeper_parts(parts: list, total: int) -> list:
 def deeper_block(offer: dict) -> str:
     """The `<source>` block for a "yes" turn: the offered chunks and their neighbours, capped."""
     try:
-        record = wiki.raw_chunks(offer["source"])
+        record = v_chunks.raw_chunks(offer["source"])
     except KeyError:
         return ""
     chunks, title = record["chunks"], record["title"]
@@ -732,7 +734,7 @@ def source_parts(sources: list) -> list:
     out = []
     for source, title, part in sources:
         try:
-            row = {"title": title, "part": f"{part}/{len(wiki.raw_chunks(source)['chunks'])}"}
+            row = {"title": title, "part": f"{part}/{len(v_chunks.raw_chunks(source)['chunks'])}"}
         except (KeyError, TypeError):
             row = {"title": title, "part": str(part)}
         if row not in out:
@@ -898,20 +900,20 @@ def _digest_text(digest: dict) -> str:
     """The digest as plain lines for the recap prompt, capped like the card."""
     lines = []
     for change in ("new", "edited", "deleted"):
-        titles, extra = wiki.capped([p["title"] for p in digest["pages"] if p["change"] == change])
+        titles, extra = v_digest.capped([p["title"] for p in digest["pages"] if p["change"] == change])
         if titles:
             more = f" (+{extra} more)" if extra else ""
             lines.append(f"Pages {change}: " + ", ".join(titles) + more)
     if digest["chat_pages"]:
         lines.append(f"Pages noted from our chats: {len(digest['chat_pages'])} ("
-                     + ", ".join(wiki.page_title(p) or p for p in wiki.capped(digest["chat_pages"])[0]) + ")")
+                     + ", ".join(v_focus.page_title(p) or p for p in v_digest.capped(digest["chat_pages"])[0]) + ")")
     if digest["sources"]:
         lines.append("New sources: " + ", ".join(
-            f"{wiki.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in wiki.capped(digest["sources"])[0]))
+            f"{v_focus.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in v_digest.capped(digest["sources"])[0]))
     mem = digest["memory"]
-    if wiki.memory_total(digest):
+    if v_digest.memory_total(digest):
         lines.append(f"Memory: {mem['added']} added, {mem['updated']} updated, {mem['removed']} removed"
-                     + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {wiki.memory_value(e['value'])}"
+                     + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {v_digest.memory_value(e['value'])}"
                                for e in mem["examples"]))
     return "\n".join(lines)
 
@@ -924,7 +926,7 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
     global _deeper_offer, _last_context
     _deeper_offer = None
     block = untrusted(_digest_text(digest), "briefing")
-    prompt = BRIEFING_PROMPT.format(when=wiki.briefing_when(digest["since"]))
+    prompt = BRIEFING_PROMPT.format(when=v_digest.briefing_when(digest["since"]))
     items = len(digest["pages"]) + len(digest["chat_pages"])
     with trace.span("briefing", items=items, sources=len(digest["sources"])):
         resp = core_llm.completion(
@@ -936,13 +938,13 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
         raise ValueError("the model wrote nothing")
     if not ends_with_offer(reply):
         reply += " " + DEEPER_OFFERS[0]
-    card_md = wiki.briefing_card(digest)
+    card_md = v_digest.briefing_card(digest)
     titles = [p["title"] for p in digest["pages"]]
     _conversation.append({"role": "user", "content": user_text})
     _conversation.append({"role": "assistant", "content": reply})
     _session_turns.append({"role": "assistant", "content":
                            f"{memory.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
-                           f"{len(digest['sources'])} sources, {wiki.memory_total(digest)} memory changes"})
+                           f"{len(digest['sources'])} sources, {v_digest.memory_total(digest)} memory changes"})
     _last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
                      "pages": titles, "card": card_md}
     return reply, card_md
@@ -971,16 +973,16 @@ def _recall_block(page: dict | None, hits: list) -> str:
 
 def _recall_evidence(user_text: str) -> tuple:
     """``(page, hits)`` recall would quote for this turn; ``(None, [])`` when the turn never searches."""
-    terms = wiki.content_terms(user_text)
+    terms = v_chunks.content_terms(user_text)
     if terms <= COMMAND_WORDS:
         return None, []
-    proper = wiki.proper_terms(terms)
+    proper = v_chunks.proper_terms(terms)
     words = len(user_text.split())
     if words < RECALL_MIN_WORDS and not (words >= RECALL_MIN_PROPER_WORDS and proper):
         return None, []
     global _evidence
     page = _page_recall(user_text, terms)
-    _evidence = (page, _recall_hits(user_text, proper, wiki.recall_min_score(), RECALL_CANDIDATES))
+    _evidence = (page, _recall_hits(user_text, proper, v_chunks.recall_min_score(), RECALL_CANDIDATES))
     return _evidence
 
 
@@ -989,8 +991,8 @@ def recall_band(user_text: str, page: dict | None, hits: list) -> str:
     """"high" (answer grounded), "medium" (answer plainly, offer to check) or "low" (no recall)
     from the evidence recall found: score per topic word plus the kind of match (PRD 45)."""
     top = hits[0] if hits else None
-    proper = wiki.proper_terms(wiki.content_terms(user_text))
-    matched = wiki.proper_match(top, proper, wiki.proper_phrases(user_text)) if top else set()
+    proper = v_chunks.proper_terms(v_chunks.content_terms(user_text))
+    matched = v_chunks.proper_match(top, proper, v_chunks.proper_phrases(user_text)) if top else set()
     content = content_question(user_text)
     # low: nothing kept, or the gate fails (chat carried by plain words)
     if not (page or hits) or not (content or matched):
@@ -1018,16 +1020,16 @@ def _recall_hits(question: str, proper: set, floor: float, k: int, exclude: set 
     whole (PRD 34 / 42); never a neighbour of a kept chunk, never a (source, part) in `exclude`.
     A source the question names by title is quoted regardless of `floor` (naming it settles
     relevance, which is all the threshold decides)."""
-    pairs = wiki.proper_phrases(question)
+    pairs = v_chunks.proper_phrases(question)
     kept = []
-    for hit in wiki.search_chunks(question, k=k + len(exclude)):
+    for hit in v_chunks.search_chunks(question, k=k + len(exclude)):
         if len(kept) >= RECALL_MAX_CHUNKS or (hit["score"] < floor and not hit.get("named")):
             break                                               # a named source has no threshold
         if (hit["source"], hit["n"]) in exclude:
             continue
         if any(h["source"] == hit["source"] and abs(h["n"] - hit["n"]) == 1 for h in kept):
             continue                                            # overlaps a kept chunk
-        if len(hit["matched"]) >= 2 or wiki.proper_match(hit, proper, pairs):
+        if len(hit["matched"]) >= 2 or v_chunks.proper_match(hit, proper, pairs):
             kept.append(hit)                                    # one common word is no match
     return kept
 
@@ -1042,16 +1044,16 @@ def _page_recall(question: str, terms: set) -> dict | None:
     if not hits:
         return None
     path = hits[0]["path"]
-    text = wiki.page_text(path)
+    text = v_chunks.page_text(path)
     if text is None:
         return None
-    title = wiki.page_title(path)
-    name_terms = wiki.content_terms(title) or wiki.content_terms(path.rsplit("/", 1)[-1])
+    title = v_focus.page_title(path)
+    name_terms = v_chunks.content_terms(title) or v_chunks.content_terms(path.rsplit("/", 1)[-1])
     if not name_terms or not name_terms <= terms:
         return None
-    head, sections = wiki.split_sections(v_store.parse_page(text)[1])
+    head, sections = v_focus.split_sections(v_store.parse_page(text)[1])
     summary = next((s for s in sections if s.startswith("## Summary")), None)
-    section = wiki.best_section([s for s in sections if s is not summary], question)
+    section = v_focus.best_section([s for s in sections if s is not summary], question)
     body = "\n\n".join(p for p in (head, summary, section) if p)
     kept = fit([f'From page "{title}" ({path}): {body}'], RECALL_PAGE_TOKENS, "")
     if kept:
@@ -1079,7 +1081,7 @@ def _quote_block(tag: str, page: dict | None, hits: list, budget: int, note_text
 def lookup_worthy(question: str) -> bool:
     """A question the filed documents could answer: at least RECALL_MIN_PROPER_WORDS words with a
     content word that is not a tool command ("hi" and "time?" stream untouched)."""
-    terms = wiki.content_terms(question)
+    terms = v_chunks.content_terms(question)
     return len(question.split()) >= RECALL_MIN_PROPER_WORDS and bool(terms) and not terms <= COMMAND_WORDS
 
 
@@ -1091,10 +1093,10 @@ def fallback_block(question: str, reply_start: str) -> str:
         return ""
     if not lookup_worthy(question):
         return ""
-    terms = wiki.content_terms(question)
+    terms = v_chunks.content_terms(question)
     used = {(s, n) for s, _, n in _turn_sources}
     page = _page_recall(question, terms)
-    hits = _recall_hits(question, wiki.proper_terms(terms), 0.0, RECALL_CANDIDATES, used)
+    hits = _recall_hits(question, v_chunks.proper_terms(terms), 0.0, RECALL_CANDIDATES, used)
     return _quote_block("lookup", page, hits, FALLBACK_MAX_TOKENS, FALLBACK_NOTE)
 
 

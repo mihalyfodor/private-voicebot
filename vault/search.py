@@ -10,7 +10,8 @@ import memory
 from core import trace
 from vault import index as v_index
 from vault import store
-import wiki
+from vault import chunks
+from vault import focus
 
 log = trace.logger("Wiki")
 
@@ -70,7 +71,7 @@ def _put_page(idx: index_db.Index, rel: str, text: str, mtime: int) -> None:
     fm, body = store.parse_page(text)
     fields = {"type": str(fm.get("type") or ""), "name": str(fm.get("name") or ""),
               "tags": json.dumps(tags(text)), "updated": str(fm.get("updated") or ""),
-              "one_liner": v_index._one_liner(fm, body), "links": json.dumps(wiki.links_in(body))}
+              "one_liner": v_index._one_liner(fm, body), "links": json.dumps(focus.links_in(body))}
     idx.put_page(rel, mtime, _sha(text), fields, _tokenise(text))
 
 
@@ -114,7 +115,7 @@ def _check(idx: index_db.Index, *, batch: bool | None = None) -> int:
         for rel in stored:
             idx.drop_page(rel)
             changed += 1
-        changed += wiki._sync_sources(idx)
+        changed += chunks._sync_sources(idx)
     idx.fresh = False
     return changed
 
@@ -168,7 +169,7 @@ def backlinks(path: str) -> list:
     candidates = idx.docs_with_all(index_db.PAGE, words) if words else idx.page_paths()
     found = []
     for other in sorted(candidates):
-        if other != rel and target in wiki.links_in(store._read(other)):
+        if other != rel and target in focus.links_in(store._read(other)):
             found.append(store.wikilink(other))
     return found
 

@@ -11,6 +11,7 @@ import pytest
 
 import memory
 import wiki
+from vault import ingest as v_ingest
 from vault import store
 from core import llm as core_llm
 from tests.conftest import FakeClient, commits, log_ops, read, seed, write_page
@@ -580,7 +581,7 @@ def test_save_ingests_after_the_profile_ops(memory_sandbox, wiki_sandbox, monkey
 
 
 def test_a_wiki_failure_never_loses_the_profile_save(memory_sandbox, wiki_sandbox, monkeypatch):
-    monkeypatch.setattr(wiki, "ingest", lambda *a: (_ for _ in ()).throw(RuntimeError("disk on fire")))
+    monkeypatch.setattr(v_ingest, "ingest", lambda *a: (_ for _ in ()).throw(RuntimeError("disk on fire")))
     ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}])
 
     monkeypatch.setattr(core_llm, "_client", FakeClient(ops))

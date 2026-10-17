@@ -1,5 +1,5 @@
 """Wiki recall tools: the model's only way into the vault (docs/19-wiki-layer.md)."""
-import wiki
+from vault import chunks as v_chunks
 from vault import search as v_search
 from core.untrusted import untrusted
 
@@ -73,8 +73,8 @@ def snippet_lines(chunks: list) -> list:
     lines = []
     for c in chunks:
         text = " ".join(c["text"].split())
-        if len(text) > wiki.SNIPPET_CHARS:
-            text = text[:wiki.SNIPPET_CHARS].rstrip() + "…"
+        if len(text) > v_chunks.SNIPPET_CHARS:
+            text = text[:v_chunks.SNIPPET_CHARS].rstrip() + "…"
         lines.append(untrusted(f"{c['title']} · part {c['n']}/{c['total']} ({c['source']}): {text}", c["title"]))
     return lines
 
@@ -84,7 +84,7 @@ def run_search(args):
     if not query:
         return "no query given"
     hits = v_search.search(query, k=5)
-    chunks = wiki.search_chunks(query, k=3)
+    chunks = v_chunks.search_chunks(query, k=3)
     if not hits and not chunks:
         return "no matching wiki pages"
     pages = [untrusted("\n".join(f"{h['path']}: {h['snippet']}" for h in hits), "wiki pages")] if hits else []
@@ -93,13 +93,13 @@ def run_search(args):
 
 def run_read(args):
     path = str((args or {}).get("path") or "")
-    text = wiki.read_page(path)
+    text = v_chunks.read_page(path)
     return text if text.startswith("no such page") else untrusted(text, path)
 
 
 def run_read_source(args):
     args = args or {}
-    text = wiki.read_source(str(args.get("path") or ""), args.get("part"))
+    text = v_chunks.read_source(str(args.get("path") or ""), args.get("part"))
     if text.startswith(("no such source", "no part ")):
         return text
     return untrusted(text, text.split(" · part ", 1)[0])

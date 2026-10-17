@@ -244,13 +244,13 @@ def test_run_and_step_events_carry_no_text_in_prod(vault, prod_profile):
 
 def test_a_briefing_whose_completion_raises_ends_the_turn_in_error(vault, monkeypatch):
     import services
-    import wiki
+    from vault import digest
 
     def boom(*a, **k):
         raise RuntimeError("model down")
 
-    monkeypatch.setattr(wiki, "changes_since", lambda since: {"pages": [1]})
-    monkeypatch.setattr(wiki, "digest_empty", lambda d: False)
+    monkeypatch.setattr(digest, "changes_since", lambda since: {"pages": [1]})
+    monkeypatch.setattr(digest, "digest_empty", lambda d: False)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
     monkeypatch.setattr(llm, "briefing", boom)
     sent = _typed(9, "what's new?", StreamClient())

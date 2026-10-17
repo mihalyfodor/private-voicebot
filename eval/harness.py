@@ -37,7 +37,7 @@ import llm  # noqa: E402
 import memory  # noqa: E402
 from ingest import pipeline  # noqa: E402
 from core import settings, trace  # noqa: E402
-import wiki  # noqa: E402
+from vault import lint
 from vault import store
 from splitter import strip_tag  # noqa: E402
 
@@ -150,7 +150,7 @@ class Sandbox:
 
     def wiki_pages(self) -> list:
         """The pages the run filed — "pages created per session" is a PRD 19 budget."""
-        return wiki.pages()
+        return lint.pages()
 
     def __exit__(self, *exc) -> bool:
         memory.MEMORY_PATH = self._saved["memory"]
