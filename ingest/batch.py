@@ -13,13 +13,13 @@ import os
 import subprocess
 import time
 
-from memory import render
 from core import formats
 from vault import manifest
 from ingest import pipeline
 from core import trace
 from vault import search
 from vault import store
+from core import util
 
 BATCH_LOG = "batch.log"
 _sleep = time.sleep
@@ -70,25 +70,7 @@ def _refusal(folder: str, exts: set) -> str:
         if dirty:
             return ("the vault has uncommitted changes (a half-filed crash leftover?) — clean them "
                     "first:\n" + "\n".join("  " + line for line in dirty))
-    return running_app()
-
-
-def running_app() -> str:
-    """"app is running — …" when the app answers on prod (8010), dev (8011) or `PORT`; "" otherwise.
-    Also the guard of `python -m wiki reindex` (PRD 53)."""
-    import urllib.error
-    import urllib.request
-
-    ports = {os.getenv("PROD_PORT") or "8010", os.getenv("DEV_PORT") or "8011", os.getenv("PORT") or ""} - {""}
-    for port in sorted(ports):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2).close()
-        except urllib.error.HTTPError:
-            pass                                # an error page is still an app answering
-        except (OSError, ValueError):
-            continue
-        return f"app is running — scripts/voicebot stop (port {port})"
-    return ""
+    return util.running_app()
 
 
 def _walk(folder: str) -> list:
@@ -120,7 +102,7 @@ def _log(log: str, row: dict) -> None:
 
 
 def _now() -> str:
-    return render._stamp("%Y-%m-%dT%H:%M:%S")
+    return util._stamp("%Y-%m-%dT%H:%M:%S")
 
 
 def _clock(seconds: float) -> str:
@@ -172,7 +154,7 @@ def _one(path: str, rel: str, kinds: set, dry_run: bool) -> dict:
             return {"state": "would file", "sha256": digest, "reason": note}
         reached = True
         res = pipeline.ingest_upload(data, os.path.basename(rel), hint=os.path.dirname(rel),
-                                    source=f"batch import {render._today_iso()}", strict=True)
+                                    source=f"batch import {util._today_iso()}", strict=True)
         entry = manifest.manifest_find(digest) or {}
         fm, _ = store.parse_page((store._read(res["path"] + ".md") or ""))
         return {"state": "filed", "sha256": digest, "page": res["path"],

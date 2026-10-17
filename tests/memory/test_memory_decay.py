@@ -10,12 +10,17 @@ from datetime import date, timedelta
 
 import pytest
 
-import llm
-import memory
+from agent import conversation
+from agent import fold
+from core import util as c_util
+from memory import ops as m_ops
+from memory import render as m_render
+from memory import store
 from memory import render as m_render
 from eval import harness
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 from core import llm as core_llm
+from core import util as c_util
 
 TODAY = date.today().isoformat()
 
@@ -28,7 +33,7 @@ def clock(monkeypatch):
     """`clock(200)` makes memory believe 200 days have passed."""
     def travel(days: int) -> date:
         when = date.today() + timedelta(days=days)
-        monkeypatch.setattr(m_render, "_today", lambda: when)
+        monkeypatch.setattr(c_util, "_today", lambda: when)
         return when
     return travel
 
@@ -46,19 +51,19 @@ def test_normalise_backfills_seen_from_the_profile_updated_date():
         "recurring": [{"what": "gym", "when": "Tue/Thu"}],
         "episodic": [{"date": "2026-01-10", "text": "ran 10k"}],
     }
-    with open(memory.MEMORY_PATH, "w") as f:
+    with open(store.MEMORY_PATH, "w") as f:
         json.dump(raw, f)
-    before = open(memory.MEMORY_PATH).read()
+    before = open(store.MEMORY_PATH).read()
 
-    profile = memory.load_profile()
+    profile = store.load_profile()
     for section in ("people", "projects", "recurring", "episodic"):
         assert profile[section][0]["seen"] == "2026-01-15"
         assert not profile[section][0].get("stale")   # absent means live
-    assert open(memory.MEMORY_PATH).read() == before   # reading never writes
+    assert open(store.MEMORY_PATH).read() == before   # reading never writes
 
 
 def test_normalise_falls_back_to_today_and_keeps_an_existing_seen():
-    profile = memory._normalise({"people": [{"name": "Anna"}, {"name": "Bob", "seen": "2020-02-02"}]})
+    profile = store._normalise({"people": [{"name": "Anna"}, {"name": "Bob", "seen": "2020-02-02"}]})
     assert profile["people"][0]["seen"] == TODAY
     assert profile["people"][1]["seen"] == "2020-02-02"
 
@@ -68,8 +73,8 @@ def test_normalise_falls_back_to_today_and_keeps_an_existing_seen():
 
 @pytest.mark.parametrize("path", ["people[]", "people", "people[0]"])
 def test_add_sets_seen_to_today_whatever_the_path_form(path):
-    profile, _ = memory.apply_ops(
-        memory._empty_profile(), [{"op": "ADD", "path": path, "value": {"name": "Anna"}}])
+    profile, _ = m_ops.apply_ops(
+        store._empty_profile(), [{"op": "ADD", "path": path, "value": {"name": "Anna"}}])
     assert profile["people"][0]["seen"] == TODAY
 
 
@@ -78,7 +83,7 @@ def test_update_refreshes_seen_on_every_entry_path_form():
         people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(100)}],
         projects=[{"name": "half marathon", "note": "October", "seen": days_ago(100)}],
     )
-    profile, _ = memory.apply_ops(profile, [
+    profile, _ = m_ops.apply_ops(profile, [
         {"op": "UPDATE", "path": "people[]", "value": {"name": "Anna", "note": "moved teams"}},
         {"op": "UPDATE", "path": "projects[0].note", "value": "November"},
     ])
@@ -87,8 +92,8 @@ def test_update_refreshes_seen_on_every_entry_path_form():
 
 
 def test_episodic_add_carries_seen():
-    profile, _ = memory.apply_ops(
-        memory._empty_profile(), [{"op": "ADD", "path": "episodic[]", "value": {"text": "ran a 10k"}}])
+    profile, _ = m_ops.apply_ops(
+        store._empty_profile(), [{"op": "ADD", "path": "episodic[]", "value": {"text": "ran a 10k"}}])
     assert profile["episodic"][0]["seen"] == TODAY
 
 
@@ -97,7 +102,7 @@ def test_confirm_refreshes_seen_and_clears_stale():
         {"name": "Bob", "seen": days_ago(10)},
         {"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True},
     ])
-    profile, applied = memory.apply_ops(
+    profile, applied = m_ops.apply_ops(
         profile, [{"op": "CONFIRM", "path": "people[1]", "reason": "mentioned at lunch"}])
     anna = profile["people"][1]
     assert anna["seen"] == TODAY and "stale" not in anna
@@ -109,7 +114,7 @@ def test_confirm_refreshes_seen_and_clears_stale():
 
 def test_confirm_by_identifying_key_works_and_defaults_its_reason():
     profile = empty_profile(recurring=[{"what": "gym", "seen": days_ago(120), "stale": True}])
-    profile, applied = memory.apply_ops(
+    profile, applied = m_ops.apply_ops(
         profile, [{"op": "CONFIRM", "path": "recurring[]", "value": {"what": "Gym"}}])   # matched case-insensitively
     assert profile["recurring"][0] == {"what": "gym", "seen": TODAY}
     assert (applied[0]["path"], applied[0]["reason"]) == ("recurring[]", "confirm")
@@ -122,7 +127,7 @@ def test_confirm_by_identifying_key_works_and_defaults_its_reason():
 ])
 def test_confirm_on_something_that_is_not_there_is_rejected(op, expected, capsys):
     profile = empty_profile(people=[{"name": "Anna", "seen": days_ago(5)}])
-    profile, applied = memory.apply_ops(profile, [op])
+    profile, applied = m_ops.apply_ops(profile, [op])
     assert applied == [] and expected in capsys.readouterr().out
     assert profile["people"][0]["seen"] == days_ago(5)
 
@@ -130,7 +135,7 @@ def test_confirm_on_something_that_is_not_there_is_rejected(op, expected, capsys
 def test_confirm_is_logged_with_the_confirm_reason(monkeypatch):
     seed(people=[{"name": "Anna", "seen": days_ago(200), "stale": True}])
     monkeypatch.setattr(core_llm, "_client", FakeClient('[{"op":"CONFIRM","path":"people[0]"}]'))
-    memory.save([{"role": "user", "content": "had lunch with Anna"}])
+    fold.save([{"role": "user", "content": "had lunch with Anna"}])
     logged = audit_log()
     assert [(o["op"], o["path"], o["reason"]) for o in logged] == [("CONFIRM", "people[0]", "confirm")]
     assert on_disk()["people"][0] == {"name": "Anna", "seen": TODAY}
@@ -151,7 +156,7 @@ def test_mark_stale_retires_entries_past_their_window_only(clock):
     profile["people"][1]["seen"] = (date.today() + timedelta(days=100)).isoformat()  # seen later
 
     clock(200)
-    marked = memory._mark_stale(profile)
+    marked = m_render._mark_stale(profile)
 
     assert profile["people"][0]["stale"] is True          # 200 d > 180
     assert "stale" not in profile["people"][1]            # 100 d < 180
@@ -165,8 +170,8 @@ def test_mark_stale_is_idempotent_and_windows_are_per_section(clock):
     profile = empty_profile(people=[{"name": "Anna", "seen": days_ago(0)}],
                             recurring=[{"what": "gym", "seen": days_ago(0)}])
     clock(100)
-    assert len(memory._mark_stale(profile)) == 1          # recurring (90) only
-    assert memory._mark_stale(profile) == []              # nothing new to say
+    assert len(m_render._mark_stale(profile)) == 1          # recurring (90) only
+    assert m_render._mark_stale(profile) == []              # nothing new to say
     assert "stale" not in profile["people"][0]
 
 
@@ -175,14 +180,14 @@ def test_stale_windows_default_and_are_env_overridable(monkeypatch):
     live, sandboxed `memory` is left alone."""
     import importlib
     import importlib.util
-    assert memory.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
+    assert store.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
     monkeypatch.setenv("MEMORY_STALE_PEOPLE", "30")
     monkeypatch.setenv("MEMORY_STALE_RECURRING", "7")
     spec = importlib.util.spec_from_file_location("memory_under_env", importlib.import_module("memory.store").__file__)
     fresh = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(fresh)
     assert fresh.STALE_DAYS == {"people": 30, "projects": 120, "recurring": 7}
-    assert memory.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
+    assert store.STALE_DAYS == {"people": 180, "projects": 120, "recurring": 90}
 
 
 # --------------------------------------------------------------- 4. render / count / snapshot
@@ -199,7 +204,7 @@ def test_render_omits_stale_entries_but_they_stay_counted_andon_disk():
     rendered = m_render.render(profile)
     assert "Anna" not in rendered and "gym" not in rendered and "10k" not in rendered
     assert "Bob" in rendered
-    assert memory.fact_count(profile) == 5                # stale facts still count
+    assert m_ops.fact_count(profile) == 5                # stale facts still count
     assert len(on_disk()["people"]) == 2                 # nothing was deleted
 
 
@@ -210,7 +215,7 @@ def test_snapshot_carries_seen_stale_and_the_section_window():
         recurring=[{"what": "gym", "seen": TODAY}],
         episodic=[{"date": "2020-01-01", "text": "old news", "ttl_days": 5}],
     )
-    snap = memory.snapshot(memory.load_profile())
+    snap = m_ops.snapshot(store.load_profile())
     people = snap["profile"]["people"]
     assert (people[0]["stale"], people[0]["seen"], people[0]["stale_after"]) == \
            (True, days_ago(200), 180)
@@ -232,12 +237,12 @@ def test_caps_evict_stale_entries_first_then_the_oldest_seen():
     people[3]["stale"] = True
     people[4]["stale"] = True
     profile = empty_profile(people=people)
-    profile, _ = memory.apply_ops(profile, [
+    profile, _ = m_ops.apply_ops(profile, [
         {"op": "ADD", "path": "people[]", "value": {"name": "New1"}},
         {"op": "ADD", "path": "people[]", "value": {"name": "New2"}},
     ])
     names = [p["name"] for p in profile["people"]]
-    assert len(names) == memory.CAPS["people"] == 30
+    assert len(names) == store.CAPS["people"] == 30
     assert "P3" not in names and "P4" not in names      # the stale ones went first
     assert "P29" in names and "P28" in names            # oldest `seen` only goes after them
     assert names[:3] == ["P0", "P1", "P2"]              # order is otherwise preserved
@@ -246,7 +251,7 @@ def test_caps_evict_stale_entries_first_then_the_oldest_seen():
 def test_caps_fall_back_to_oldest_seen_when_nothing_is_stale():
     people = [{"name": f"P{i}", "seen": days_ago(30 - i)} for i in range(31)]  # P0 is the oldest
     profile = empty_profile(people=people)
-    memory._enforce_caps(profile)
+    m_ops._enforce_caps(profile)
     assert [p["name"] for p in profile["people"]][0] == "P1"
 
 
@@ -271,7 +276,7 @@ def test_validate_reflection_keeps_seen_and_stale_even_when_the_model_drops_them
         recurring=[{"what": "gym", "when": "Tue", "seen": days_ago(3)}],
         episodic=[{"date": days_ago(2), "text": "gym again", "ttl_days": 30, "importance": 2}],
     )
-    result = memory._validate_reflection(original, json.loads(MERGED_REFLECTION))
+    result = fold._validate_reflection(original, json.loads(MERGED_REFLECTION))
     assert result["people"][0]["seen"] == days_ago(200)
     assert result["people"][0]["stale"] is True
     assert result["recurring"][0] == {"what": "gym", "when": "Tue/Thu", "seen": days_ago(3)}
@@ -283,17 +288,17 @@ def test_reflection_dates_a_freshly_promoted_recurring_entry_today():
         for i in (1, 4, 8)
     ])
     cleaned = {"recurring": [{"what": "went to the gym", "when": "most days"}]}
-    result = memory._validate_reflection(original, cleaned)
+    result = fold._validate_reflection(original, cleaned)
     assert result["recurring"][0]["seen"] == TODAY
     assert "stale" not in result["recurring"][0]
 
 
 def test_a_stale_entry_survives_a_reflection_pass_through_save(monkeypatch):
     seed(people=[{"name": "Anna", "rel": "colleague", "seen": days_ago(200), "stale": True}],
-          meta={"saves": memory.REFLECT_EVERY - 1})
+          meta={"saves": fold.REFLECT_EVERY - 1})
     client = FakeClient('[{"op":"ADD","path":"identity.name","value":"Mihaly"}]', MERGED_REFLECTION)
     monkeypatch.setattr(core_llm, "_client", client)
-    memory.save([{"role": "user", "content": "I'm Mihaly"}])
+    fold.save([{"role": "user", "content": "I'm Mihaly"}])
     anna = on_disk()["people"][0]
     assert anna["stale"] is True and anna["seen"] == days_ago(200)
 
@@ -331,18 +336,18 @@ def test_one_bad_op_rejects_the_whole_batch_and_writes_nothing(panel):
 
 def test_edit_many_reports_the_path_of_the_op_that_failed():
     seed(people=[{"name": "Anna", "seen": TODAY}])
-    profile, error = memory.edit_many([
+    profile, error = m_ops.edit_many([
         {"op": "UPDATE", "path": "identity.name", "value": "Mihaly"},
         {"op": "UPDATE", "path": "identity.name", "value": "Mihaly"},   # nothing changed
     ])
     assert error == {"path": "identity.name", "reason": "nothing changed"}
     assert "name" not in on_disk()["identity"]                          # first op rolled back
-    assert memory.edit_many([])[1]["reason"] == "no ops"
+    assert m_ops.edit_many([])[1]["reason"] == "no ops"
 
 
 def test_edit_is_still_the_single_op_wrapper():
     seed(people=[{"name": "Anna", "seen": days_ago(9)}])
-    profile, reason = memory.edit({"op": "UPDATE", "path": "people[0]",
+    profile, reason = m_ops.edit({"op": "UPDATE", "path": "people[0]",
                                    "value": {"rel": "colleague"}})
     assert reason is None and profile["people"][0]["rel"] == "colleague"
     assert profile["people"][0]["seen"] == TODAY
@@ -378,8 +383,8 @@ def test_a_non_boolean_stale_value_is_refused(panel):
 
 
 def test_booleans_are_not_accepted_as_ordinary_field_values(capsys):
-    profile, applied = memory.apply_ops(
-        memory._empty_profile(), [{"op": "ADD", "path": "people[]",
+    profile, applied = m_ops.apply_ops(
+        store._empty_profile(), [{"op": "ADD", "path": "people[]",
                                    "value": {"name": "Anna", "rel": True}}])
     assert profile["people"][0] == {"name": "Anna", "seen": TODAY}      # the bool was dropped
     assert applied
@@ -392,23 +397,23 @@ def test_a_person_goes_quiet_then_comes_back_on_a_confirm(clock, monkeypatch):
     """PRD scenario 8 at unit level: introduced, forgotten after 200 days, revived by CONFIRM."""
     intro = '[{"op":"ADD","path":"people[]","value":{"name":"Anna","rel":"colleague"}}]'
     monkeypatch.setattr(core_llm, "_client", FakeClient(intro))
-    memory.save([{"role": "user", "content": "Anna joined my team"}])
-    assert "Anna" in m_render.render(memory.load_profile())
+    fold.save([{"role": "user", "content": "Anna joined my team"}])
+    assert "Anna" in m_render.render(store.load_profile())
 
     clock(200)
     monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
-    memory.save([{"role": "user", "content": "quiet week, nothing new"}])
+    fold.save([{"role": "user", "content": "quiet week, nothing new"}])
 
-    profile = memory.load_profile()
+    profile = store.load_profile()
     assert profile["people"][0]["stale"] is True
     assert "Anna" not in m_render.render(profile)          # out of the prompt, still on disk
-    assert memory.fact_count(profile) == 1
+    assert m_ops.fact_count(profile) == 1
 
     monkeypatch.setattr(core_llm, "_client", FakeClient('[{"op":"CONFIRM","path":"people[]","value":{"name":"Anna"}}]'))
-    memory.save([{"role": "user", "content": "had lunch with Anna today"}])
-    profile = memory.load_profile()
+    fold.save([{"role": "user", "content": "had lunch with Anna today"}])
+    profile = store.load_profile()
     assert "stale" not in profile["people"][0]
-    assert profile["people"][0]["seen"] == memory._today().isoformat()
+    assert profile["people"][0]["seen"] == c_util._today().isoformat()
     assert "Anna (colleague)" in m_render.render(profile)
 
 
@@ -416,7 +421,7 @@ def test_a_save_that_learns_nothing_still_writes_the_retirement(clock, capsys, m
     seed(people=[{"name": "Anna", "seen": days_ago(0)}])
     clock(200)
     monkeypatch.setattr(core_llm, "_client", FakeClient("[]"))
-    applied = memory.save([{"role": "user", "content": "hi"}])
+    applied = fold.save([{"role": "user", "content": "hi"}])
     assert applied == []
     assert on_disk()["people"][0]["stale"] is True
     assert "[Memory] stale — people: Anna" in capsys.readouterr().out
@@ -436,12 +441,12 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     session_one = FakeClient('[{"op":"ADD","path":"people[]","value":{"name":"Bolt","rel":"dog"}},'
                              '{"op":"ADD","path":"identity.occupation","value":"software engineer"}]')
     monkeypatch.setattr(core_llm, "_client", session_one)
-    llm._session_turns[:] = [{"role": "user", "content": "I've got a dog called Bolt"}]
-    llm.save_memory()
+    conversation._session_turns[:] = [{"role": "user", "content": "I've got a dog called Bolt"}]
+    conversation.save_memory()
     assert [p["name"] for p in on_disk()["people"]] == ["Bolt"]
 
     # the user fixes the profile by hand between the two sessions
-    memory.edit_many([
+    m_ops.edit_many([
         {"op": "DELETE", "path": "people[]", "value": {"name": "Bolt"}},
         {"op": "UPDATE", "path": "identity.occupation", "value": "engineering manager"},
     ])
@@ -450,29 +455,29 @@ def test_a_hand_deleted_fact_is_not_resurrected_by_the_next_save(monkeypatch):
     session_two = FakeClient('[{"op":"ADD","path":"episodic[]",'
                              '"value":{"text":"presentation next Thursday","importance":2}}]')
     monkeypatch.setattr(core_llm, "_client", session_two)
-    llm._session_turns[:] = [{"role": "user", "content": "big presentation next Thursday"}]
-    llm.save_memory()
+    conversation._session_turns[:] = [{"role": "user", "content": "big presentation next Thursday"}]
+    conversation.save_memory()
 
     stored = on_disk()
     assert stored["people"] == []
     assert stored["identity"]["occupation"] == "engineering manager"
     transcript = session_two.calls[0]["messages"][1]["content"]
     assert "Bolt" not in transcript          # the old turns are gone, not just ignored
-    assert llm._session_turns == []
+    assert conversation._session_turns == []
 
 
 # --------------------------------------------------------------- harness: edit / clock turns
 
 
 def test_harness_clock_turn_shifts_memorys_today():
-    original = memory._today
+    original = c_util._today
     try:
         assert harness.shift_clock("+200d") == (date.today() + timedelta(days=200)).isoformat()
-        assert memory._today() == date.today() + timedelta(days=200)
+        assert c_util._today() == date.today() + timedelta(days=200)
         harness.shift_clock("+1w")           # offsets accumulate for the rest of the run
-        assert memory._today() == date.today() + timedelta(days=207)
+        assert c_util._today() == date.today() + timedelta(days=207)
     finally:
-        m_render._today = original
+        c_util._today = original
         harness._CLOCK["offset"] = timedelta(0)
     with pytest.raises(ValueError):
         harness._parse_offset("soon")

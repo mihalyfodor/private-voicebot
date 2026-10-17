@@ -1,6 +1,6 @@
 """PRD 49 scenarios 1, 2, 3, 5, 6, 8: the event trace of a turn (docs/49-event-trace.md).
 
-Scenario 4 is in tests/sources/test_sources.py, 7 in test_trace_profile.py, 9 in test_trace_report.py.
+Scenario 4 is in tests/ingest/test_sources.py, 7 in test_trace_profile.py, 9 in test_trace_report.py.
 """
 import os
 from types import SimpleNamespace
@@ -9,18 +9,19 @@ from unittest.mock import patch
 import numpy as np
 import pytest
 
-import chatbot
+from server import panels
+from server import turns as server_turns
 from server import turns as server_turns
 from server import panels
 from server import speech
-import llm
+from agent import turn as a_turn
 from agent import conversation
 from agent import turn as a_turn
 from agent import written
 from core import llm as core_llm
 from core import trace
-from session import Session
-from tests.conftest import (SENTINEL, RawStreamClient, StreamClient, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
+from server.session import Session
+from tests.conftest import (FakeClient, SENTINEL, ask_turn, fake_asr, fake_tts, run_turn, stream_chunks,
                             tool_call_chunk, trace_lines, trace_text)
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
@@ -31,21 +32,21 @@ REPLY = f"[neutral] The {SENTINEL} plans look fine to me."
 
 def _typed(turn: int, text: str, client):
     with patch.object(core_llm, "_client", client), patch.object(speech, "synthesize", fake_tts):
-        return run_turn(chatbot.handle_text, Session(), turn, text)
+        return run_turn(server_turns.handle_text, Session(), turn, text)
 
 
 def _spoken(turn: int, text: str, client):
     with patch.object(core_llm, "_client", client), patch.object(speech, "synthesize", fake_tts), \
             patch.object(server_turns, "asr", fake_asr(text)):
-        return run_turn(chatbot.handle_utterance, Session(), turn, np.zeros(10, dtype=np.float32))
+        return run_turn(server_turns.handle_utterance, Session(), turn, np.zeros(10, dtype=np.float32))
 
 
 # --------------------------------------------------------------- 1. a turn's events share its ids
 
 
 def test_typed_and_spoken_turns_share_ids_and_hold_no_text(vault):
-    _typed(1, QUESTION, StreamClient(REPLY))
-    _spoken(1, QUESTION, StreamClient(REPLY))        # a new Session: a reconnect restarts the turn ids
+    _typed(1, QUESTION, FakeClient(REPLY))
+    _spoken(1, QUESTION, FakeClient(REPLY))        # a new Session: a reconnect restarts the turn ids
     starts = trace_lines(kind="turn_start")
     assert [s["origin"] for s in starts] == ["typed", "spoken"] and {s["turn_id"] for s in starts} == {1}
     runs = [s["run_id"] for s in starts]
@@ -68,13 +69,13 @@ def test_typed_and_spoken_turns_share_ids_and_hold_no_text(vault):
 
 def test_a_tool_call_records_its_size_not_its_result(vault, capsys, monkeypatch):
     monkeypatch.setattr(a_turn, "run_tool", lambda name, args: f"RESULT {SENTINEL} body of the page")
-    client = RawStreamClient([
+    client = FakeClient(*[
         [tool_call_chunk(id="c1", name="search_wiki", arguments='{"query": "falcon"}')],
         stream_chunks("[neutral] Done."),
     ])
     with trace.turn(7):
         with patch.object(core_llm, "_client", client):
-            list(llm.ask_events("search the wiki for falcon", origin="typed"))
+            list(a_turn.ask_events("search the wiki for falcon", origin="typed"))
     calls = trace_lines(kind="tool_call")
     assert len(calls) == 1
     call = calls[0]
@@ -92,9 +93,9 @@ def _usage_chunk(prompt: int, completion: int):
 
 
 def test_llm_call_reads_usage_from_the_last_chunk(vault):
-    client = RawStreamClient([stream_chunks("[neutral] ", "Hi there.") + [_usage_chunk(12, 3)]])
+    client = FakeClient(*[stream_chunks("[neutral] ", "Hi there.") + [_usage_chunk(12, 3)]])
     with trace.turn(3) as root, patch.object(core_llm, "_client", client):
-        list(llm.ask_events("hello", origin="typed"))
+        list(a_turn.ask_events("hello", origin="typed"))
     assert client.calls[0]["stream_options"] == {"include_usage": True}
     (call,) = trace_lines(kind="llm_call")
     assert call["purpose"] == "reply" and call["model"] == core_llm.OMLX_MODEL
@@ -120,7 +121,7 @@ def test_a_turn_raising_mid_stream_is_an_error_event_and_an_error_message(vault)
         yield from stream_chunks("[neutral] Half a ")
         raise RuntimeError("stream dropped")
 
-    sent = _typed(5, "hello there friend", RawStreamClient([broken()]))
+    sent = _typed(5, "hello there friend", FakeClient(*[broken()]))
     errors = trace_lines(kind="error")
     assert len(errors) == 1 and errors[0]["scope"] == "turn" and errors[0]["turn_id"] == 5
     assert errors[0]["exc_type"] == "RuntimeError" and errors[0]["traceback"]
@@ -166,7 +167,7 @@ def test_a_free_text_field_never_reaches_events(vault):
 
 def test_dev_turn_writes_prompt_and_turn_text_to_verbose_only(vault):
     assert trace.profile() == "dev"
-    _typed(8, QUESTION, StreamClient(REPLY))
+    _typed(8, QUESTION, FakeClient(REPLY))
     rows = trace_lines("verbose")
     kinds = {r["kind"] for r in rows}
     assert {"prompt", "turn_text"} <= kinds
@@ -184,7 +185,7 @@ def _raising_tool(name, args):
 
 
 def _tool_turn(turn: int):
-    client = RawStreamClient([[tool_call_chunk(id="c1", name="search_wiki", arguments='{"query": "x"}')],
+    client = FakeClient(*[[tool_call_chunk(id="c1", name="search_wiki", arguments='{"query": "x"}')],
                               stream_chunks("[neutral] Done.")])
     return _typed(turn, "search the wiki for x please", client)
 
@@ -193,7 +194,7 @@ def _turn_raising(turn: int):
     def broken():
         yield from stream_chunks("[neutral] Half ")
         raise ValueError(f"user said {SENTINEL}")
-    return _typed(turn, "hello there friend", RawStreamClient([broken()]))
+    return _typed(turn, "hello there friend", FakeClient(*[broken()]))
 
 
 def test_an_exception_text_never_reaches_prod_events(vault, monkeypatch, prod_profile):
@@ -249,8 +250,8 @@ def test_run_and_step_events_carry_no_text_in_prod(vault, prod_profile):
 
 
 def test_a_briefing_whose_completion_raises_ends_the_turn_in_error(vault, monkeypatch):
-    import services
-    from vault import digest
+    from server import services
+    from agent import digest
 
     def boom(*a, **k):
         raise RuntimeError("model down")
@@ -259,7 +260,7 @@ def test_a_briefing_whose_completion_raises_ends_the_turn_in_error(vault, monkey
     monkeypatch.setattr(digest, "digest_empty", lambda d: False)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
     monkeypatch.setattr(written, "briefing", boom)
-    sent = _typed(9, "what's new?", StreamClient())
+    sent = _typed(9, "what's new?", FakeClient())
     (end,) = trace_lines(kind="turn_end")
     assert end["outcome"] == "error"
     (err,) = trace_lines(kind="error")
@@ -275,7 +276,7 @@ def test_an_asr_failure_is_an_error_event_and_an_error_message(vault, prod_profi
         raise RuntimeError(f"asr down {SENTINEL}")
 
     with patch.object(server_turns, "asr", SimpleNamespace(transcribe=broken)):
-        sent = run_turn(chatbot.handle_utterance, Session(), 6, np.zeros(10, dtype=np.float32))
+        sent = run_turn(server_turns.handle_utterance, Session(), 6, np.zeros(10, dtype=np.float32))
     (err,) = trace_lines(kind="error")
     assert err["scope"] == "turn" and err["where"] == "asr" and err["exc_type"] == "RuntimeError"
     assert any(m["type"] == "error" and m["scope"] == "turn" and SENTINEL not in m["text"] for m in sent)
@@ -290,7 +291,7 @@ def test_a_failed_background_memory_save_is_a_non_fatal_error_event(vault, prod_
     monkeypatch.setattr(conversation, "save_memory", broken)
     monkeypatch.setattr(panels, "_push_saving", lambda on: None)
     monkeypatch.setattr(panels, "push_memory", lambda **k: None)
-    chatbot._periodic_memory(3)
+    panels._periodic_memory(3)
     (err,) = trace_lines(kind="error")
     assert err["where"] == "memory_save" and err["fatal_for"] == "none" and err["exc_type"] == "RuntimeError"
     assert SENTINEL not in trace_text()
@@ -313,7 +314,7 @@ def test_stdout_tracebacks_carry_the_exception_text_only_in_dev(vault, monkeypat
     try:
         raise RuntimeError(SENTINEL)
     except RuntimeError as exc:
-        chatbot._turn_failed(lambda msg: None, "respond", exc, "The reply failed.")
+        panels._turn_failed(lambda msg: None, "respond", exc, "The reply failed.")
     out = capsys.readouterr().out
     assert "RuntimeError" in out and (SENTINEL in out) is shown
 

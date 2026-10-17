@@ -12,7 +12,6 @@ import json
 import os
 import tempfile
 
-from memory import render
 from ingest import remarkable
 from core import formats
 from vault import manifest
@@ -21,6 +20,7 @@ from core import llm as core_llm
 from core import trace
 from ingest.pipeline import IngestError
 from core.untrusted import DOCUMENT_RULE
+from core import util
 
 #: PNG pages, each under `pipeline.MAX_IMAGE_BYTES`
 MAX_NOTEBOOK_PAGES = 50
@@ -149,7 +149,7 @@ def ingest_notebook(pages: list, *, title: str, ocr=None, replaces: str = "", de
         raw_rel = f"raw/remarkable/{pipeline._dated(title or 'notebook')}.md"
         res = pipeline.file_bytes(_transcript(texts, list(ocr or [])).encode(), raw_rel, "notebook",
                                  title=title, on_stage=on_stage,
-                                 source=f"remarkable {render._today_iso()}", digest=digest, pages=pages,
+                                 source=f"remarkable {util._today_iso()}", digest=digest, pages=pages,
                                  unreadable=unreadable, extra={"device_id": device_id} if device_id else None)
         if replaces and manifest.manifest_find(replaces):
             pipeline.forget(replaces)

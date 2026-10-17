@@ -14,7 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import numpy as np
 import pytest
 
-import wiki
+from vault import store
 from vault import chunks as v_chunks
 from eval import retrieval_bench as rb
 from tests.conftest import file_faq, vault  # noqa: F401
@@ -207,4 +207,4 @@ def test_latency_includes_the_embed_call_and_times_the_dot_separately(vault):
     lat = res["latency"]
     assert lat["serial_p50"] >= 10 and lat["serial_p95"] >= lat["serial_p50"]
     assert lat["dot_p50"] < 10 and lat["parallel_p95"] >= lat["parallel_p50"] >= 0
-    assert wiki.WIKI_PATH == corpus.path
+    assert store.WIKI_PATH == corpus.path

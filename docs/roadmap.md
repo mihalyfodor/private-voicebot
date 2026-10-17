@@ -43,8 +43,8 @@ pages. Adds "Existing related pages (update these rather than duplicating)" to b
 (`sources.propose_page_ops` `sources.py:1083`, session `wiki.ingest` `wiki.py:1495`). Fixes near-duplicates once the vault
 outgrows the 600-token index cap (`WIKI_INDEX_TOKENS`).
 
-- Tests: `tests/wiki/test_wiki.py` (`wiki_sandbox`): forget → finding appears; seeded duplicate name; uncited raw file.
-  `tests/sources/test_sources.py` + `tests/wiki/test_wiki.py`: capture the `FakeClient` user message, assert the related
+- Tests: `tests/vault/test_wiki.py` (`wiki_sandbox`): forget → finding appears; seeded duplicate name; uncited raw file.
+  `tests/ingest/test_sources.py` + `tests/vault/test_wiki.py`: capture the `FakeClient` user message, assert the related
   path is present even when the index is cut.
 - Effort S. Risk low (prompt content and lint output only).
 
@@ -60,7 +60,7 @@ llm-wiki — shipping a hedge on its own would speak weak hits *more* often, the
   high → answer grounded as today; medium → ask first ("Want me to check your Morrowind guide?") reusing the deeper-offer
   and `is_affirmative` machinery (`llm.py:552`); low → no recall.
 - Gate recall on `content_question()` (`llm.py:673`), which exists but is never called by `recall_for`.
-- Re-tune bands against `eval/` and `tests/llm/test_recall_precision_2.py`; battery must not regress (37/43 today).
+- Re-tune bands against `eval/` and `tests/agent/test_recall_precision_2.py`; battery must not regress (37/43 today).
 - Tests: `tests/llm/` with `FakeClient`, one scenario per band asserting block and note; the four-word mis-transcription
   case as the hostile row.
 - Effort M. Risk high: changes wording and length on every grounded turn. Do after PRD 44 (independent, but 44 is cheap
@@ -85,9 +85,9 @@ card with Pages / Sources / Memory sections. Tight version only.
   default 24 h when unset; never moves backwards.
 - Cut: recent questions (session.log holds only user text), explicit windows ("this week"), palette entry, LLM editorial
   over page contents. Out of scope: PDF/reMarkable, scheduled auto-briefing, rail badge, Gmail/news.
-- Tests: `tests/wiki/test_wiki.py` (changes_since with commits before/after cutoff; manifest filter),
-  `tests/session/test_turns.py` (one completion + cutoff moves; nothing-new → 0 calls; LLM offline → cutoff unchanged;
-  digest inside `<document>`), `tests/llm/test_written_answers.py` (card contains the page titles).
+- Tests: `tests/vault/test_wiki.py` (changes_since with commits before/after cutoff; manifest filter),
+  `tests/server/test_turns.py` (one completion + cutoff moves; nothing-new → 0 calls; LLM offline → cutoff unchanged;
+  digest inside `<document>`), `tests/agent/test_written_answers.py` (card contains the page titles).
 - Effort M (≈150 lines + prompt tuning). Risks: recap quality on the 4-bit model (keep the digest structured and capped);
   self-noise from memory-driven page ops; one clock seam for tests (`memory._stamp` mixes `_today` with `datetime.now()`,
   `memory.py:197-199`).
@@ -143,12 +143,12 @@ only". File:line list is in PRD 49 §Out of scope. Effort S–M.
 ASR plist → `scripts/prod.sh migrate` (moves the real vault) → build → up; then the backup plist. Do this after PRD 49
 so prod starts with the prod trace profile from day one.
 
-## 9. PRD 50 — Modular layout (after PRD 49 merges)
+## 9. PRD 50 — Modular layout (done 2026-10-17)
 
 Seven layers importing only downward (core, vault, memory, ingest, tools, agent, server), enforced by a ratchet layer
 test; one tool registry with two entry modes (trigger regex = deterministic workflow, schema = model-pickable); twelve
 pure-move refactor commits with shims and per-step test retargeting. See docs/50-modular-layout.md. Can interleave with
-51–55; no PRD waits for it.
+51–55; no PRD waited for it. Done: twelve `Refactor:` commits on `feature/modular-layout-2`, `scripts/check.sh` green at every step, `ALLOWED` empty.
 
 ## 10. PRD 51 — Run cards and run pages · PRD 52 — Approvals · PRD 47b — reMarkable push
 
@@ -174,7 +174,7 @@ scopes; drop the .vtt in by hand instead), OneNote via Graph. Ask whether low-pr
 ## Backlog (unordered, from the 2026-08-30 handoff)
 
 - Remaining battery misses (A11 bounded-context chunk, stray offers)
-- `static/app.js` ES-module split; split candidates among `memory.py` / `wiki.py` / `sources.py` / `chatbot.py` (>1000 lines)
+- `static/app.js` ES-module split; split candidates: `ingest/pipeline.py` (~950 lines) is the largest module left
 - README refresh
 - Tests import fixtures from other test files despite `docs/process.md` forbidding it (ruff F811 silenced for `tests/**`)
 - More calibration corpora (spreadsheet, real Teams transcript); Kiwix offline Wikipedia; native Kokoro via host service

@@ -44,6 +44,8 @@ from core import settings, trace  # noqa: E402
 from vault import lint
 from vault import store
 from core.emotions import strip_tag  # noqa: E402
+from core import util
+from core import toolset
 
 CATEGORIES = (
     "single-hop",
@@ -80,8 +82,8 @@ def shift_clock(spec) -> str:
     """
     _CLOCK["offset"] += _parse_offset(spec)
     offset = _CLOCK["offset"]
-    m_render._today = lambda: date.today() + offset
-    return m_render._today().isoformat()
+    util._today = lambda: date.today() + offset
+    return util._today().isoformat()
 
 
 # --------------------------------------------------------------------------- sandbox
@@ -92,7 +94,7 @@ class Sandbox:
 
     ``memory_path`` (optional) is the ``memory.json`` to persist across runs; the ops log and
     the v1 ``shortmem.txt`` are placed beside it. Otherwise everything lives in a temp dir and
-    is discarded on exit. Tools are disabled by default (``llm.TOOLS = []``) so probes never
+    is discarded on exit. Tools are disabled by default (``toolset.TOOLS = []``) so probes never
     trigger weather/news calls.
     """
 
@@ -123,11 +125,11 @@ class Sandbox:
             "ops": m_store.OPS_LOG_PATH,
             "shortmem": m_store.SHORTMEM_PATH,
             "settings": settings.SETTINGS_PATH,
-            "tools": a_prompt.TOOLS,
+            "tools": toolset.TOOLS,
             "trace_dir": trace.TRACE_DIR,
             "avatar": avatars._current,
             "system_prompt": a_prompt.SYSTEM_PROMPT,
-            "today": m_render._today,
+            "today": util._today,
         }
         _CLOCK["offset"] = timedelta(0)   # every run starts on the real today
 
@@ -139,7 +141,7 @@ class Sandbox:
         settings.SETTINGS_PATH = self.settings_path
         avatars._current = None
         if not self.tools:
-            a_prompt.TOOLS = []
+            toolset.TOOLS = []
         trace.reset()
         trace.TRACE_DIR = self.trace_dir      # the run's events land in the throwaway dir (PRD 49)
         a_prompt.SYSTEM_PROMPT = a_prompt.build_system_prompt(avatars.current())
@@ -163,12 +165,12 @@ class Sandbox:
         m_store.OPS_LOG_PATH = self._saved["ops"]
         m_store.SHORTMEM_PATH = self._saved["shortmem"]
         settings.SETTINGS_PATH = self._saved["settings"]
-        a_prompt.TOOLS = self._saved["tools"]
+        toolset.TOOLS = self._saved["tools"]
         trace.reset()
         trace.TRACE_DIR = self._saved["trace_dir"]
         avatars._current = self._saved["avatar"]
         a_prompt.SYSTEM_PROMPT = self._saved["system_prompt"]
-        m_render._today = self._saved["today"]
+        util._today = self._saved["today"]
         _CLOCK["offset"] = timedelta(0)
         if self._tmpdir:
             shutil.rmtree(self._tmpdir, ignore_errors=True)
@@ -378,7 +380,7 @@ def profile_stats(profile: dict) -> dict:
         "episodic_live": len(m_render.live_episodics(profile)),
         "lines": len(rendered.splitlines()),
         "fact_lines": sum(sections.values()),
-        "tokens_est": m_render.tokens_est(rendered),
+        "tokens_est": util.tokens_est(rendered),
         "duplicates": len(dups),
         "duplicate_pairs": dups,
     }

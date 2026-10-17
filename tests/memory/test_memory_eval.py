@@ -7,14 +7,15 @@ from unittest.mock import patch
 import pytest
 
 from core import settings
-import llm
 from agent import conversation
 from agent import turn
-import memory
+from agent import fold
+from memory import store
 from core import trace
 from eval import harness
-from tests.conftest import RawStreamClient, stream_chunks as _chunks, seed as _write_profile
+from tests.conftest import stream_chunks as _chunks, seed as _write_profile, FakeClient
 from core import llm as core_llm
+from core import toolset
 
 
 # --------------------------------------------------------------------------- fakes
@@ -112,17 +113,17 @@ def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
     The "current" paths are the test sandbox's; a marker written there first proves that a
     save inside harness.Sandbox never reaches the outer file, and that it is untouched after exit.
     """
-    outer_mem = memory.MEMORY_PATH
+    outer_mem = store.MEMORY_PATH
     outer_settings = settings.SETTINGS_PATH
     outer_trace = trace.TRACE_DIR
     _write_profile(identity={"name": "outer marker"})
     marker = open(outer_mem).read()
 
     with harness.Sandbox() as box:
-        assert memory.MEMORY_PATH != outer_mem
-        assert "memeval-" in memory.MEMORY_PATH
-        assert "memeval-" in memory.OPS_LOG_PATH
-        assert "memeval-" in memory.SHORTMEM_PATH
+        assert store.MEMORY_PATH != outer_mem
+        assert "memeval-" in store.MEMORY_PATH
+        assert "memeval-" in store.OPS_LOG_PATH
+        assert "memeval-" in store.SHORTMEM_PATH
         assert settings.SETTINGS_PATH != outer_settings
         assert trace.TRACE_DIR != outer_trace
         assert "outer marker" not in box.read_memory()
@@ -133,7 +134,7 @@ def test_sandbox_repoints_every_path_and_restores_them(tmp_path):
         assert os.path.exists(os.path.join(box.trace_dir, "events.jsonl"))
         sandbox_mem = box.memory_path
 
-    assert memory.MEMORY_PATH == outer_mem
+    assert store.MEMORY_PATH == outer_mem
     assert settings.SETTINGS_PATH == outer_settings
     assert trace.TRACE_DIR == outer_trace
     assert not os.path.exists(sandbox_mem)
@@ -153,7 +154,7 @@ def test_sandbox_keeps_given_memory_path(tmp_path):
 
 def test_sandbox_reads_v1_shortmem_when_there_is_no_profile():
     with harness.Sandbox() as box:
-        with open(memory.SHORTMEM_PATH, "w") as f:
+        with open(store.SHORTMEM_PATH, "w") as f:
             f.write("The user is named Mihaly.\n")
         assert box.read_memory() == "The user is named Mihaly.\n"
         assert harness.memory_stats(box.read_memory())["version"] == 1
@@ -164,7 +165,7 @@ def test_sandbox_reads_v1_shortmem_when_there_is_no_profile():
 def test_session_end_falls_back_to_the_v1_shortmem_delta():
     """A v1 save (no ops logged) still reports what landed in shortmem.txt."""
     def fake_save():
-        with open(memory.SHORTMEM_PATH, "a") as f:
+        with open(store.SHORTMEM_PATH, "a") as f:
             f.write("The user is named Mihaly.\n")
 
     with harness.Sandbox(), patch.object(conversation, "save_memory", side_effect=fake_save):
@@ -174,21 +175,21 @@ def test_session_end_falls_back_to_the_v1_shortmem_delta():
 
 
 def test_sandbox_disables_tools_by_default_and_keeps_them_on_request():
-    real_tools = llm.TOOLS
-    assert real_tools, "llm.TOOLS is expected to be non-empty outside a sandbox"
+    real_tools = toolset.TOOLS
+    assert real_tools, "toolset.TOOLS is expected to be non-empty outside a sandbox"
     with harness.Sandbox():
-        assert llm.TOOLS == []
-    assert llm.TOOLS == real_tools
+        assert toolset.TOOLS == []
+    assert toolset.TOOLS == real_tools
     with harness.Sandbox(tools=True):
-        assert llm.TOOLS == real_tools
-    assert llm.TOOLS == real_tools
+        assert toolset.TOOLS == real_tools
+    assert toolset.TOOLS == real_tools
 
 
 # --------------------------------------------------------------------------- session
 
 
 def test_session_say_strips_tag_and_end_returns_applied_ops():
-    fake = RawStreamClient([_chunks("[happy] Hi ", "Mihaly."),
+    fake = FakeClient(*[_chunks("[happy] Hi ", "Mihaly."),
                        _ops({"op": "ADD", "path": "identity.name", "value": "Mihaly",
                              "reason": "said so"})])
     with harness.Sandbox() as box, patch.object(core_llm, "_client", fake):
@@ -204,7 +205,7 @@ def test_session_say_strips_tag_and_end_returns_applied_ops():
 
 
 def test_session_end_with_nothing_new():
-    fake = RawStreamClient([_chunks("[neutral] Sure."), _ops()])
+    fake = FakeClient(*[_chunks("[neutral] Sure."), _ops()])
     with harness.Sandbox(), patch.object(core_llm, "_client", fake):
         sess = harness.Session().start()
         sess.say("hello")
@@ -266,12 +267,12 @@ def test_run_script_rounds_persist_memory(tmp_path):
     def fake_save():
         """Upsert the same name every time, plus one new person per save."""
         saves.append(1)
-        client = RawStreamClient([_ops(
+        client = FakeClient(*[_ops(
             {"op": "ADD", "path": "identity.name", "value": "Mihaly"},
             {"op": "ADD", "path": "people[]", "value": {"name": "Anna %d" % len(saves)}},
         )])
         core_llm._client = client
-        memory.save([{"role": "user", "content": "hi"}])
+        fold.save([{"role": "user", "content": "hi"}])
 
     with patch.object(turn, "ask", side_effect=fake_ask), \
          patch.object(conversation, "save_memory", side_effect=fake_save):

@@ -5,6 +5,7 @@ from core import trace
 from memory import ops as m_ops
 from memory import render as m_render
 from memory import store as m_store
+from core import util
 
 log = trace.logger("Memory")
 
@@ -212,7 +213,7 @@ def _asr_prompt_text(profile: dict) -> str:
     """`Names: …` — the user's names plus the people they talk about, capped at ~40 tokens."""
     people = [entry.get("name") or "" for entry in m_render._live(profile.get("people", []))]
     names = alias_list(user_names(profile) + people)
-    while names and m_render.tokens_est("Names: " + ", ".join(names) + ".") > ASR_PROMPT_TOKENS:
+    while names and util.tokens_est("Names: " + ", ".join(names) + ".") > ASR_PROMPT_TOKENS:
         names.pop()
     return "Names: " + ", ".join(names) + "." if names else ""
 

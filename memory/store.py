@@ -5,6 +5,7 @@ from core import config, trace
 from core import vault_lock
 from memory import identity as m_identity
 from memory import render
+from core import util
 
 log = trace.logger("Memory")
 
@@ -122,7 +123,7 @@ def _normalise(data: dict) -> dict:
 
 def _seen_default(updated) -> str:
     """The `seen` date for an entry that predates the field: the profile's own `updated` day."""
-    return (render._parse_date(updated) or render._today()).isoformat()
+    return (render._parse_date(updated) or util._today()).isoformat()
 
 
 
@@ -146,7 +147,7 @@ def load_profile() -> dict:
 def _write_profile(profile: dict) -> None:
     """Atomic write: full file to `.tmp`, fsync, then os.replace."""
     profile["version"] = VERSION
-    profile["updated"] = render._stamp("%H:%M")
+    profile["updated"] = util._stamp("%H:%M")
     tmp = MEMORY_PATH + ".tmp"
     with open(tmp, "w") as f:
         json.dump(profile, f, indent=1, ensure_ascii=False)

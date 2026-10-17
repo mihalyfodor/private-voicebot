@@ -65,22 +65,23 @@ def seed(vault: pathlib.Path) -> None:
     os.environ.update(vault_env(vault))
     (vault.parent / "memory").mkdir(parents=True, exist_ok=True)
     sys.path.insert(0, str(ROOT))
-    import sources
-    import wiki
-    wiki.ensure_vault()
+    from ingest import pipeline
+    from vault import index
+    from vault import store
+    store.ensure_vault()
     for rel, text in PAGES.items():
         path = vault / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
-    wiki.rebuild_index()
-    wiki._commit("qa: seed pages")
+    index.rebuild_index()
+    store._commit("qa: seed pages")
     for name in GUIDES + BOOKS:
         src = INBOX / name
         if not src.exists():
             print(f"[seed] missing {src}")
             continue
         t0 = time.time()
-        res = sources.ingest_upload(src.read_bytes(), name, on_stage=lambda s, n=name: print(f"[seed] {n}: {s}"))
+        res = pipeline.ingest_upload(src.read_bytes(), name, on_stage=lambda s, n=name: print(f"[seed] {n}: {s}"))
         print(f"[seed] {name} -> {res} ({time.time() - t0:.0f}s)")
 
 
@@ -498,14 +499,14 @@ def recall_predictor(vault: pathlib.Path):
     os.environ.update(vault_env(vault))
     sys.path.insert(0, str(ROOT))
     try:
-        import llm
+        from agent import recall as m_recall
     except Exception as exc:  # noqa: BLE001
         print(f"[qa] no recall predictor: {exc}")
         return lambda q: None
 
     def predict(q: str):
         try:
-            block = llm.recall_for(q)
+            block = m_recall.recall_for(q)
         except Exception as exc:  # noqa: BLE001
             return f"error: {exc}"
         return re.findall(r'From "([^"]+)" \(part (\d+/\d+)\)', block) or None

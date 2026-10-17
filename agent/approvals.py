@@ -21,9 +21,9 @@ from agent import written as a_written
 from ingest import notebooks
 from agent import runs
 from ingest import pipeline
-from vault import digest as v_digest
 from core import trace
 from tools import commands
+from vault import store as c_store
 
 #: guards every pop / replace of `sess.pending`: the turn worker (propose, resolve) and the event loop
 #: (expire on reconnect / disconnect) both write it
@@ -135,9 +135,9 @@ class Kind(NamedTuple):
 
 def _committed(write) -> str:
     """Run `write()`; the vault's new short HEAD sha when it moved, else ""."""
-    before = v_digest.head_sha()
+    before = c_store.head_sha()
     write()
-    after = v_digest.head_sha()
+    after = c_store.head_sha()
     return after if after != before else ""
 
 

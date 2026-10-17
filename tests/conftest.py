@@ -21,20 +21,28 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-import avatars
-import chatbot
+from core import avatars
+from server import app
+from server import panels
+from server import turns as server_turns
 from server import turns as server_turns
 from server import panels
 from server import speech as s_speech
 from vault import index_db
-import llm
+from agent import conversation
 from agent import recall as a_recall
-import memory
+from agent import turn as m_turn
+from agent import recall as a_recall
 from memory import store as m_store
-import sources
+from memory import store as m_store
+from ingest import pipeline
+from vault import manifest
 from core import llm as core_llm
 from core import settings, trace
-import wiki
+from vault import index as m_index
+from vault import pages as m_pages
+from vault import search
+from vault import store
 from vault import store
 from tools import gmail as gmail_tool
 
@@ -122,9 +130,9 @@ def reset_chatbot_session():
     panels.greeted = True  # tests that want the greeting turn set this back to False
     # The turn counter drives the periodic memory save; zero it so one test's turns cannot
     # push an unexpected `memory` snapshot into the next test's socket.
-    chatbot.controller.completed = 0
+    panels.controller.completed = 0
     yield
-    chatbot.controller.join_idle(timeout=5)
+    panels.controller.join_idle(timeout=5)
     panels.session = None
 
 
@@ -217,15 +225,6 @@ class FakeClient:
         return reply
 
 
-#: legacy spellings of the one fake (docs/50-modular-layout.md, step 4)
-StreamClient = FakeClient
-
-
-def RawStreamClient(responses) -> FakeClient:
-    """`FakeClient` over a list of scripted responses (chunk lists, built completions)."""
-    return FakeClient(*responses)
-
-
 @contextlib.contextmanager
 def fake_model(*replies, **kw):
     """A `FakeClient(*replies, **kw)` patched in at `core.llm._client` for the block; yields it."""
@@ -242,7 +241,7 @@ def memory_sandbox(file_sandbox):
 
 def empty_profile(**sections) -> dict:
     """A v2 profile with the given sections filled in (not written to disk)."""
-    profile = memory._empty_profile()
+    profile = m_store._empty_profile()
     profile.update(sections)
     return profile
 
@@ -255,32 +254,32 @@ def days_ago(n: int) -> str:
 def seed(**sections) -> dict:
     """Write a profile with `sections` filled in — the starting point of an editor scenario."""
     profile = empty_profile(**sections)
-    memory._write_profile(profile)
+    m_store._write_profile(profile)
     return profile
 
 
 def log_ops(*ops: dict) -> None:
     """Append `ops` to the memory ops log, as `memory` writes them (one JSON line each)."""
-    with open(memory.OPS_LOG_PATH, "a") as f:
+    with open(m_store.OPS_LOG_PATH, "a") as f:
         f.writelines(json.dumps(o) + "\n" for o in ops)
 
 
 def audit_log() -> list:
     """Every line of the sandboxed memory_ops.jsonl, parsed."""
-    if not os.path.exists(memory.OPS_LOG_PATH):
+    if not os.path.exists(m_store.OPS_LOG_PATH):
         return []
-    return [json.loads(line) for line in open(memory.OPS_LOG_PATH) if line.strip()]
+    return [json.loads(line) for line in open(m_store.OPS_LOG_PATH) if line.strip()]
 
 
 def on_disk() -> dict:
     """The sandboxed memory.json as written (no normalisation)."""
-    return json.load(open(memory.MEMORY_PATH))
+    return json.load(open(m_store.MEMORY_PATH))
 
 
 class Panel:
     """A websocket client that only cares about the memory / wiki replies.
 
-    Shared by tests/memory/test_memory_editor.py, tests/memory/test_memory_decay.py and tests/wiki/test_wiki.py:
+    Shared by tests/memory/test_memory_editor.py, tests/memory/test_memory_decay.py and tests/vault/test_wiki.py:
     `send` waits for one reply, `send_many` for the `n` an action answers with.
     """
 
@@ -298,8 +297,8 @@ class Panel:
         while len(got) < count:
             reply = self.ws.receive_json()
             if reply.get("type") == "error":
-                # every refusal names the slot it belongs to (tests/session/test_error_scopes.py)
-                assert reply.get("scope") in chatbot.ERROR_SCOPES, reply
+                # every refusal names the slot it belongs to (tests/server/test_error_scopes.py)
+                assert reply.get("scope") in panels.ERROR_SCOPES, reply
             if reply.get("type") in self.WANTED:
                 got.append(reply)
         return got
@@ -309,7 +308,7 @@ class Panel:
 def panel():
     """A connected memory panel — the websocket the editor tests drive."""
     panels.greeted = True
-    client = TestClient(chatbot.app)
+    client = TestClient(app.app)
     with client.websocket_connect("/ws") as ws:
         yield Panel(ws)
 
@@ -343,8 +342,8 @@ def fresh_llm():
     Modules whose every test needs this say `pytestmark = pytest.mark.usefixtures("fresh_llm")`.
     """
     def reset():
-        llm.reset()
-        llm.set_focus("chat")
+        conversation.reset()
+        a_recall.set_focus("chat")
         a_recall.last_page = None
     reset()
     yield
@@ -361,14 +360,14 @@ def vault(wiki_sandbox, memory_sandbox):
     `memory_sandbox` comes along so an ingest reading the profile (for the user's names, PRD 26)
     can never see the real memory.json.
     """
-    wiki.ensure_vault()
+    store.ensure_vault()
     return wiki_sandbox
 
 
 @pytest.fixture
 def seeded_vault(vault):
     """`vault` with the two pages the recall / focus / routing scenarios talk about."""
-    wiki.apply_page_ops([
+    m_pages.apply_page_ops([
         {"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
          "summary": "Colleague on the platform team; runs the Friday deploy."},
         {"op": "new_page", "path": "projects/falcon", "type": "project", "name": "Falcon",
@@ -381,13 +380,13 @@ def commits(path: str = None) -> list:
     """`git log --oneline` of the sandboxed vault (optionally for one path), newest first."""
     import subprocess
     args = ["git", "log", "--oneline"] + (["--", path] if path else [])
-    out = subprocess.run(args, cwd=wiki.WIKI_PATH, capture_output=True, text=True)
+    out = subprocess.run(args, cwd=store.WIKI_PATH, capture_output=True, text=True)
     return [line for line in out.stdout.splitlines() if line.strip()]
 
 
 def read(rel: str) -> str:
     """A vault file's text (`wiki._read`)."""
-    return wiki._read(rel)
+    return store._read(rel)
 
 
 def write_page(rel: str, name: str, body: str, source: str = "seed", extra: str = "") -> None:
@@ -397,11 +396,11 @@ def write_page(rel: str, name: str, body: str, source: str = "seed", extra: str 
     """
     text = (f"---\ntype: note\nname: {name}\ntags: []\nsource: {source}\n"
             f"updated: 2026-08-30\nseen: 2026-08-30\n{extra}---\n{body}")
-    full = os.path.join(wiki.WIKI_PATH, rel + ".md")
+    full = os.path.join(store.WIKI_PATH, rel + ".md")
     os.makedirs(os.path.dirname(full), exist_ok=True)
     with open(full, "w") as f:
         f.write(text)
-    wiki.index_page(rel + ".md")       # the app's write paths index what they write (PRD 53); so does this one
+    search.index_page(rel + ".md")       # the app's write paths index what they write (PRD 53); so does this one
 
 
 # --------------------------------------------------------------------------- FAQ source fixtures
@@ -481,7 +480,7 @@ def summary_json(title: str) -> str:
 
 def file_faq(text: str, title: str, name: str = "guide.md") -> dict:
     with fake_model(summary_json(title), "[]"):
-        return sources.ingest_upload(text.encode(), name)
+        return pipeline.ingest_upload(text.encode(), name)
 
 
 @pytest.fixture
@@ -545,10 +544,10 @@ def run_turn(fn, *args, via: str = "make_sender") -> list:
 def typed(text: str, reply: str = "[neutral] Sure.") -> tuple:
     """A typed turn through `handle_text` against a mocked model: (sent messages, fake)."""
     from unittest.mock import patch
-    from session import Session
-    fake = StreamClient(reply)
+    from server.session import Session
+    fake = FakeClient(reply)
     with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts):
-        sent = run_turn(chatbot.handle_text, Session(), 1, text)
+        sent = run_turn(server_turns.handle_text, Session(), 1, text)
     return sent, fake
 
 
@@ -556,20 +555,20 @@ def spoken(text: str, reply: str = "[neutral] Sure.") -> tuple:
     """The same through the hands-free path (`handle_utterance` with a fake ASR)."""
     from unittest.mock import patch
     import numpy as np
-    from session import Session
-    fake = StreamClient(reply)
+    from server.session import Session
+    fake = FakeClient(reply)
     with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts), \
             patch.object(server_turns, "asr", fake_asr(text)):
-        sent = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
+        sent = run_turn(server_turns.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
     return sent, fake
 
 
 def ask_turn(text: str, *replies, origin: str = "user") -> tuple:
     """One turn through `llm.ask_events` against scripted streamed replies: (events, fake)."""
     from unittest.mock import patch
-    fake = StreamClient(*replies)
+    fake = FakeClient(*replies)
     with patch.object(core_llm, "_client", fake):
-        events = list(llm.ask_events(text, origin=origin))
+        events = list(m_turn.ask_events(text, origin=origin))
     return events, fake
 
 
@@ -593,7 +592,7 @@ def drain_initial(ws) -> list:
 
 def send_setting(key, value, client=None) -> dict:
     """Send one set_setting on a (fresh) socket and return the first `setting`/`error` reply."""
-    client = client or TestClient(chatbot.app)
+    client = client or TestClient(app.app)
     with client.websocket_connect("/ws") as ws:
         ws.send_json({"action": "set_setting", "key": key, "value": value})
         while True:
@@ -748,7 +747,7 @@ def fake_ingest():
             if fields.get("title") in fake.fail:
                 status, reply = 500, {"detail": "boom"}
             else:
-                slug = wiki.slugify(fields.get("title", ""))
+                slug = store.slugify(fields.get("title", ""))
                 sha = hashlib.sha256(b"".join(data for _name, data in files)).hexdigest()
                 status, reply = 200, {"filed": [{"path": f"sources/{slug}", "raw": "", "already": False,
                                                  "sha256": sha}], "errors": []}
@@ -824,10 +823,10 @@ def briefing_run(monkeypatch, reply: str = "[happy] One new page, the bold plan.
     `commits_after`, one page and two `wiki: lint` housekeeping commits land after the cutoff
     (dated 2030, the cutoff is `RUN_SINCE`); without, the digest is empty.
     Returns ``{sent, run_id, card, sha}``: the messages, the turn's run id, the run card, the page's short sha."""
-    import services
-    from session import Session
+    from server import services
+    from server.session import Session
 
-    wiki.ensure_vault()
+    store.ensure_vault()
     settings.save_setting("briefing_at", RUN_SINCE)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
     sha = ""
@@ -835,13 +834,13 @@ def briefing_run(monkeypatch, reply: str = "[happy] One new page, the bold plan.
         monkeypatch.setenv("GIT_COMMITTER_DATE", "2030-06-01T09:00:00")
         monkeypatch.setenv("GIT_AUTHOR_DATE", "2030-06-01T09:00:00")
         write_page("notes/plan", RUN_TITLE, RUN_BODY)
-        wiki._commit("wiki: created notes/plan")
-        sha = wiki.head_sha()
+        store._commit("wiki: created notes/plan")
+        sha = store.head_sha()
         for n in (1, 2):
-            wiki._log([f"lint: {n} finding"])
-            wiki._commit("wiki: lint")
+            m_index._log([f"lint: {n} finding"])
+            store._commit("wiki: lint")
     with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(s_speech, "synthesize", fake_tts):
-        sent = run_turn(chatbot.handle_text, Session(), 1, "what's new?")
+        sent = run_turn(server_turns.handle_text, Session(), 1, "what's new?")
     (start,) = trace_lines(kind="turn_start")
     cards = [m for m in sent if m["type"] == "card"]
     return {"sent": sent, "run_id": start["run_id"], "card": cards[-1] if cards else None, "sha": sha}
@@ -859,9 +858,9 @@ def morrowind(seeded_vault):
                           "unreadable": False})
     ops = json.dumps([{"op": "append_note", "path": "projects/falcon", "text": "Vivec is in the south."}])
     with fake_model(summary, ops):
-        filed = sources.ingest_upload(b"# Morrowind\nVivec city lies in the south.", "morrowind.md")
+        filed = pipeline.ingest_upload(b"# Morrowind\nVivec city lies in the south.", "morrowind.md")
     seed(people=[{"name": "Vivec", "source": MORROWIND}])
-    sha = next(e["sha256"] for e in sources.manifest_entries() if e["path"] == filed["raw"])
+    sha = next(e["sha256"] for e in manifest.manifest_entries() if e["path"] == filed["raw"])
     return {"sha": sha, "page": filed["path"], "raw": filed["raw"]}
 
 
@@ -869,12 +868,12 @@ def session_turn(sess, turn: int, text: str, origin: str = "typed", reply: str =
     """One typed (or `origin="spoken"`, through a fake ASR) turn on a session that outlives it — an
     approval's question and its answer are two turns of one session. The model is up and answers `reply`."""
     import numpy as np
-    import services
+    from server import services
     with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(s_speech, "synthesize", fake_tts), \
             patch.object(services, "llm_ok", lambda: True), patch.object(server_turns, "asr", fake_asr(text)):
         if origin == "typed":
-            return run_turn(chatbot.handle_text, sess, turn, text)
-        return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32))
+            return run_turn(server_turns.handle_text, sess, turn, text)
+        return run_turn(server_turns.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32))
 
 
 def button_turn(fn, sess, turn: int, *args) -> list:
@@ -914,7 +913,7 @@ def notebook_pages(n: int) -> list:
 
 def research_run(question: str, *replies, notify=None) -> tuple:
     """One `research.run` inside a turn against scripted plan / judge / write replies: (card, fake)."""
-    import research
+    from agent import research
     with fake_model(*replies) as fake, trace.turn(1):
         card = research.run(question, "typed", notify)
     return card, fake
@@ -930,11 +929,11 @@ def research_turn(text: str, *replies, origin: str = "typed", sess=None, turn: i
     """A "research X" turn through the server (typed, or `origin="spoken"` through a fake ASR) against
     scripted plan / judge / write replies, the model up: (sent messages, fake)."""
     import numpy as np
-    import services
-    from session import Session
+    from server import services
+    from server.session import Session
     sess = sess or Session()
     with fake_model(*replies) as fake, patch.object(s_speech, "synthesize", fake_tts), \
             patch.object(services, "llm_ok", lambda: True), patch.object(server_turns, "asr", fake_asr(text)):
         if origin == "typed":
-            return run_turn(chatbot.handle_text, sess, turn, text), fake
-        return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32)), fake
+            return run_turn(server_turns.handle_text, sess, turn, text), fake
+        return run_turn(server_turns.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32)), fake

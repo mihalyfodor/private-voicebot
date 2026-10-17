@@ -16,8 +16,10 @@ import random
 import time
 from unittest.mock import patch
 
-import sources
-import wiki
+from ingest import pipeline
+from vault import index
+from vault import search
+from vault import store
 from vault import store
 from tests.conftest import fake_model
 
@@ -123,7 +125,7 @@ def _names(rng: random.Random, vocab: list, k: int) -> list:
 
 @contextlib.contextmanager
 def _vault(path: str):
-    saved = wiki.WIKI_PATH
+    saved = store.WIKI_PATH
     store.WIKI_PATH = str(path)
     try:
         with patch.object(store, "_git", lambda *a, **kw: None):
@@ -147,7 +149,7 @@ def make_vault(path, pages: int = 5000, sources_n: int = 1000, seed: int = 0, ch
     planted = _facts(rng, vocab, facts) if prose else []
     plant_at = {(f * sources_n) // len(planted): f for f in range(len(planted))}
     with _vault(path):
-        wiki.ensure_vault()
+        store.ensure_vault()
         today = "2026-10-16"
         for i in range(pages):
             folder = FOLDERS[i % len(FOLDERS)]
@@ -156,7 +158,7 @@ def make_vault(path, pages: int = 5000, sources_n: int = 1000, seed: int = 0, ch
                   "source": "generated", "updated": today, "seen": today}
             body = (f"# {names[0]} {i}\n\n## Summary\n{_text(rng, vocab, cum, names, 120).strip()}\n\n"
                     f"## Notes\n{_text(rng, vocab, cum, names, rng.randint(400, 1600))}\n## Related\n\n## History\n")
-            wiki._write(f"{folder}/p{i:05d}.md", wiki._page_text(fm, body))
+            store._write(f"{folder}/p{i:05d}.md", store._page_text(fm, body))
         for i in range(sources_n):
             names = _names(rng, vocab, 6)
             title = f"{names[0]} {names[1]} handbook {i}"
@@ -170,9 +172,9 @@ def make_vault(path, pages: int = 5000, sources_n: int = 1000, seed: int = 0, ch
             summary = json.dumps({"title": title, "summary": f"{title}: generated.", "entities": [],
                                   "topic": "generated", "unreadable": False})
             with fake_model(summary, "[]"):
-                sources.ingest_upload(text.encode(), f"src-{i:05d}.md")
-        wiki.rebuild_index()
-        idx = wiki._db()
+                pipeline.ingest_upload(text.encode(), f"src-{i:05d}.md")
+        index.rebuild_index()
+        idx = search._db()
         counts = {"pages": len(idx.page_lengths()), "sources": len(idx.source_shas()),
                   "chunks": len(idx.chunk_lengths())}
     return {**counts, "seconds": round(time.time() - started, 1), **({"facts": planted} if prose else {})}

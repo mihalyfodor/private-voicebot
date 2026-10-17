@@ -32,13 +32,13 @@ def pages() -> list:
     return listing
 
 
-REINDEX_HINT = " — run `python -m wiki reindex`"
+REINDEX_HINT = " — run `python -m vault reindex`"
 
 
 def lint() -> list:
     """Findings, worst first: per page broken links, missing from the search index, bad frontmatter,
     size, a `source: raw/…` whose file is gone; then index rows whose page is gone (both mean
-    `python -m wiki reindex`), raw files nothing cites, then duplicate names. `index.md` is a capped
+    `python -m vault reindex`), raw files nothing cites, then duplicate names. `index.md` is a capped
     human view (200 lines), so it is not what a page is checked against (docs/53-scalable-index.md).
 
     A finding names its page the way the rest of the layer does, `people/anna`, or its raw file.

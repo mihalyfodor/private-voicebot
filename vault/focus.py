@@ -5,6 +5,7 @@ from core import trace
 from vault import search as v_search
 from vault import store
 from vault import chunks as v_chunks
+from core import toolset
 
 log = trace.logger("Wiki")
 
@@ -89,14 +90,12 @@ RECALL_TOOLS = ("search_wiki", "read_page", "read_source")
 def tools_registered() -> bool:
     """True when `search_wiki`/`read_page` are on the tool list the model is being given.
 
-    `llm.TOOLS` is the live list: the eval harness empties it to run tool-free, and a prompt
+    `core.toolset.TOOLS` is the live list: the eval harness empties it to run tool-free, and a prompt
     that tells a tool-less model to "use search_wiki" only teaches it to fake a tool call
     (docs/19-wiki-layer.md, Results).
     """
     try:
-        from agent import prompt as a_prompt
-
-        names = {(t.get("function") or {}).get("name") for t in a_prompt.TOOLS if isinstance(t, dict)}
+        names = {(t.get("function") or {}).get("name") for t in toolset.TOOLS if isinstance(t, dict)}
     except Exception:  # noqa: BLE001 — no llm (tests, scripts) means no tools
         return False
     return any(name in names for name in RECALL_TOOLS)

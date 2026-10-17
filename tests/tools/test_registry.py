@@ -110,7 +110,6 @@ def test_handler_binds_only_trigger_tools_and_an_unbound_one_raises():
 
 
 def test_the_server_binds_every_trigger_tool():
-    import chatbot  # noqa: F401  (binding happens at import)
     assert set(registry._HANDLERS) == set(registry.names()[11:])
 
 

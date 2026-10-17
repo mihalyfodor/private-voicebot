@@ -538,3 +538,6 @@ def epub_text(data: bytes) -> str:
     except Exception:  # noqa: BLE001 — a broken file is "unreadable", not a crash
         log.warning("epub extraction failed")
         return ""
+
+
+IMAGE_EXTS = {".png": "screenshot", ".jpg": "screenshot", ".jpeg": "screenshot"}

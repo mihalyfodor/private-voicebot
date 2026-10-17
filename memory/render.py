@@ -3,6 +3,7 @@ import os
 from datetime import date, datetime
 from memory import identity as m_identity
 from memory import store
+from core import util
 
 
 
@@ -11,28 +12,6 @@ BUDGET_TOKENS = int(os.getenv("MEMORY_BUDGET_TOKENS", "700"))     # render() cei
 EPISODIC_SHOWN = 5                                                # episodic lines in the prompt
 
 EPISODIC_MIN_IMPORTANCE = 2  # importance-1 entries stay on disk until TTL, but are not rendered
-
-
-
-# --------------------------------------------------------------------------- render
-
-
-def _today() -> date:
-    """Today. The single source of "now" for every date in this module — the eval harness
-    monkeypatches it to run a scripted conversation against a shifted clock."""
-    return date.today()
-
-
-
-def _today_iso() -> str:
-    """Today as ``YYYY-MM-DD`` — the form every date stored in the profile takes."""
-    return _today().isoformat()
-
-
-
-def _stamp(time_format: str) -> str:
-    """An ISO timestamp whose date part comes from :func:`_today` (so a mocked clock shows)."""
-    return f"{_today_iso()}T{datetime.now().strftime(time_format)}"
 
 
 
@@ -46,7 +25,7 @@ def _parse_date(value) -> date | None:
 
 def _age_days(entry: dict) -> int:
     when = _parse_date(entry.get("date"))
-    return 0 if when is None else max(0, (_today() - when).days)
+    return 0 if when is None else max(0, (util._today() - when).days)
 
 
 
@@ -84,7 +63,7 @@ def _mark_stale(profile: dict) -> list:
     it just stops being rendered. Episodic entries have a TTL instead and are left alone.
     """
     marked = []
-    today = _today()
+    today = util._today()
     for section, window in store.STALE_DAYS.items():
         for entry in profile.get(section, []):
             if is_stale(entry):
@@ -121,11 +100,6 @@ def live_episodics(profile: dict, min_importance: int = 1) -> list:
     live = [e for e in profile.get("episodic", [])
             if not is_expired(e) and not is_stale(e) and _importance(e) >= min_importance]
     return sorted(live, key=_episodic_score, reverse=True)
-
-
-
-def tokens_est(text: str) -> int:
-    return len(text) // 4
 
 
 
@@ -226,7 +200,7 @@ def render(profile: dict, budget_tokens: int | None = None) -> str:
     """
     budget = BUDGET_TOKENS if budget_tokens is None else budget_tokens
     blocks = _blocks(profile)
-    while blocks and tokens_est(_text(blocks)) > budget:
+    while blocks and util.tokens_est(_text(blocks)) > budget:
         blocks[-1][1].pop()          # drop the least important item of the last section
         if not blocks[-1][1]:
             blocks.pop()

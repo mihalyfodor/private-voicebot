@@ -1,30 +1,19 @@
-"""PRD 50 scenario 1: the layer ratchet. App code imports only downward; `ALLOWED` (importer, imported module) may only shrink."""
+"""PRD 50 scenarios 1 and 10: the layer ratchet. App code imports only downward and never a deleted root module; `ALLOWED` is empty."""
 import ast
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAYERS = ("core", "vault", "memory", "ingest", "tools", "agent", "server")   # bottom -> top; "root" sits above all
-SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db", "wiki", "llm", "chatbot", "runs", "approvals", "research", "remarkable", "avatars", "characters", "session", "services", "asr", "vad", "backdrops", "splitter", "fillers"}    # root modules that only re-export a new home; app code may not import them
+SHIMS: set = set()     # root modules that only re-export a new home (none left after step 12); app code may not import them
+# The root modules PRD 50 moved or deleted: importing one of these names (any layer) fails, whether or not a file is left.
+DELETED = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db", "wiki", "llm", "chatbot",
+           "runs", "approvals", "research", "remarkable", "avatars", "characters", "session", "services", "asr", "vad",
+           "backdrops", "splitter", "fillers"}
 SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "__pycache__", "logs", "characters"}
 
 # (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
-# new upward import in the same file fails. May only shrink (docs/50-modular-layout.md).
-ALLOWED = {
-    # vault/ modules still import memory (a layer above them: tokens_est, _today_iso, user-page guards); step 12 moves
-    # those helpers down
-    ("vault/store.py", "memory"),
-    ("vault/index.py", "memory"),
-    ("vault/pages.py", "memory"),
-    ("vault/search.py", "memory"),
-    ("vault/digest.py", "memory"),
-    ("vault/ingest.py", "memory"),
-    ("vault/bridge.py", "memory"),
-    ("vault/focus.py", "agent"),     # step 12: `tools_registered` reads the live agent.prompt.TOOLS list (the eval harness empties it)
-    # step 7: vault code reading ingest's source pages / the batch guard (the PRD's expected vault -> ingest pairs)
-    ("vault/chunks.py", "ingest"),
-    ("vault/digest.py", "ingest"),
-    ("vault/bridge.py", "ingest"),
-}
+# new upward import in the same file fails. Empty since PRD 50 step 12; a new entry needs a reason in the PRD.
+ALLOWED: set = set()
 
 
 def _rank(layer: str) -> int:
@@ -47,7 +36,7 @@ def _modules(root: str, shims) -> list:
     return found
 
 
-def check(root: str, allowed: set, shims=SHIMS) -> list:
+def check(root: str, allowed: set, shims=SHIMS, deleted=DELETED) -> list:
     problems, observed = [], set()
     for rel, layer in _modules(root, shims):
         with open(os.path.join(root, rel)) as f:
@@ -63,6 +52,9 @@ def check(root: str, allowed: set, shims=SHIMS) -> list:
                 top = name.split(".")[0]
                 if top in shims:
                     problems.append(f"{rel}:{node.lineno}: imports shim {top}")
+                    continue
+                if top in deleted:
+                    problems.append(f"{rel}:{node.lineno}: imports deleted module {top}")
                     continue
                 if top in LAYERS and os.path.isdir(os.path.join(root, top)):
                     target = top
@@ -105,5 +97,19 @@ def test_stale_allow_list_entry_fails():
 
 def test_shim_import_fails(tmp_path):
     root = _tree(tmp_path, {"tracing.py": "", "foo.py": "import tracing\n"})
-    found = check(root, set())
+    found = check(root, set(), shims={"tracing"}, deleted=set())
     assert len(found) == 1 and "shim tracing" in found[0]
+
+
+def test_allow_list_and_shims_are_empty():
+    assert ALLOWED == set() and SHIMS == set()
+
+
+def test_importing_a_deleted_root_module_fails(tmp_path):
+    """PRD 50 scenario 10: llm / wiki / sources / chatbot (and the rest) are gone; importing one names the line."""
+    root = _tree(tmp_path, {"server/__init__.py": "", "server/app.py": "import llm\nfrom wiki import search\n\ndef f():\n    import sources\n",
+                            "agent/__init__.py": "", "agent/x.py": "import chatbot\n"})
+    found = check(root, set())
+    assert [p.split(": ", 1)[1] for p in found] == ["imports deleted module chatbot", "imports deleted module llm",
+                                                      "imports deleted module wiki", "imports deleted module sources"]
+    assert found[1].startswith("server/app.py:1:") and found[3].startswith("server/app.py:5:")

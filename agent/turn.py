@@ -11,6 +11,7 @@ from agent import prompt as a_prompt
 from agent import recall as a_recall
 from agent import conversation as a_conversation
 from agent import written as a_written
+from core import toolset
 
 log = trace.logger("llm")
 tool_log = trace.logger("Tool")
@@ -167,7 +168,7 @@ def ask_events(user_text: str, origin: str = "user", note: str = "") -> Iterator
         # Streamed first pass: text deltas go out immediately, tool-call fragments accumulate.
         # After a "yes" to the Wikipedia offer the text is held back instead: the pass is there
         # for the model to name the topic, and get_wikipedia runs either way.
-        first = core_llm.stream("reply", model=core_llm.OMLX_MODEL, messages=_messages(long, written), tools=a_prompt.TOOLS,
+        first = core_llm.stream("reply", model=core_llm.OMLX_MODEL, messages=_messages(long, written), tools=toolset.TOOLS,
                         max_tokens=a_prompt._budget(long))
         parts: list[str] = []
         pending: dict = {}

@@ -5,15 +5,15 @@ import html
 import pytest
 from fastapi.testclient import TestClient
 
-import chatbot
-import runs
+from server import app
+from agent import runs
 from tests.conftest import RUN_BODY, RUN_TITLE, SENTINEL, briefing_run, trace_text
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 
 
 def _get(path: str, **headers):
-    return TestClient(chatbot.app).get(path, headers=headers)
+    return TestClient(app.app).get(path, headers=headers)
 
 
 # --------------------------------------------------------------- 3. the page of a briefing run

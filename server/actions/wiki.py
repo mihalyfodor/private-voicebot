@@ -1,13 +1,13 @@
 """WebSocket actions of the wiki panel: pages, notes, the editor writes, search and ingest (PRD 50 step 11, from chatbot.py)."""
 import asyncio
 from agent import conversation as a_conversation
-from memory import render as m_render
 from memory import store as m_store
 from vault import pages as v_pages
 from vault import search as v_search
 from server.actions import memory as s_memory
 from server import panels
 from server.actions import sources as s_sources
+from core import util
 
 
 
@@ -36,7 +36,7 @@ async def _action_wiki_note(sess, msg, loop):
     """The "add note" box: append one dated bullet under `## Notes`, then refresh both panes."""
     path = str(msg.get("path") or "")
     op = {"op": "append_note", "path": path, "text": msg.get("text"),
-          "source": f"user note {m_render._today_iso()}"}
+          "source": f"user note {util._today_iso()}"}
     applied, rejected = await asyncio.to_thread(v_pages.apply_page_ops, [op], op["source"])
     if not applied:
         reason = rejected[0]["reason"] if rejected else "nothing to add"

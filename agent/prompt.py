@@ -10,11 +10,12 @@ from core.emotions import EMOTIONS
 from tools import registry
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE
+from core import toolset
 
 log = trace.logger("llm")
 
 
-TOOLS = registry.schemas()
+toolset.TOOLS = registry.schemas()
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "0"))  # 0 = derive from verbosity
 
 VERBOSITY_RULES = {
@@ -125,7 +126,7 @@ def grounding_rules() -> str:
 
 
 def wikipedia_registered() -> bool:
-    return any((t.get("function") or {}).get("name") == "get_wikipedia" for t in TOOLS if isinstance(t, dict))
+    return any((t.get("function") or {}).get("name") == "get_wikipedia" for t in toolset.TOOLS if isinstance(t, dict))
 
 
 def location_line() -> str:

@@ -6,12 +6,12 @@ import os
 import re
 from collections import Counter
 from vault import index_db
-from memory import render
 from core import trace
 from vault import index as v_index
 from vault import store
 from vault import chunks
 from vault import focus
+from core import util
 
 log = trace.logger("Wiki")
 
@@ -128,7 +128,7 @@ def startup_check() -> int:
     idx = index_db.open_index(store.WIKI_PATH)
     changed = _check(idx)
     idx.checked = True                  # only after it ran: a failed check is retried on the next open
-    idx.set_meta("checked_at", render._stamp("%H:%M:%S"))
+    idx.set_meta("checked_at", util._stamp("%H:%M:%S"))
     return changed
 
 
@@ -136,7 +136,7 @@ def reindex(path: str | None = None) -> str:
     """Rebuild the search index from scratch (pages on disk + the manifest); returns the file.
 
     `path` builds into another file and leaves the live one alone (the rebuild-equals-incremental
-    test); otherwise the new file replaces the live index. `python -m wiki reindex` runs this.
+    test); otherwise the new file replaces the live index. `python -m vault reindex` runs this.
     """
     if not store.exists():
         raise FileNotFoundError(f"no vault at {store.WIKI_PATH}")

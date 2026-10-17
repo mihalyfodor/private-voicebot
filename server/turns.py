@@ -10,12 +10,11 @@ from agent import context as a_context
 from agent import offers
 from agent import recall
 from memory import identity
-from memory import render as m_render
 from ingest import notebooks
 from ingest import remarkable
 from agent import research
 from agent import runs
-from vault import digest as v_digest
+from agent import digest as v_digest
 from vault import focus as v_focus
 from vault import pages as v_pages
 from vault import search as v_search
@@ -30,6 +29,7 @@ from server.session import Session
 from server import panels
 from server.actions import sources as s_sources
 from server import speech as s_speech
+from core import util
 
 log = trace.logger("App")
 
@@ -70,7 +70,7 @@ def briefing(ctx: Ctx):
     sess, turn, user_text, send_sync, origin = ctx.session, ctx.turn, ctx.text, ctx.send, ctx.origin
     run, stage = None, "gathered"
     try:
-        now = m_render._stamp("%H:%M:%S")
+        now = util._stamp("%H:%M:%S")
         since = settings.load_settings().get("briefing_at") or \
             (datetime.fromisoformat(now) - timedelta(hours=BRIEFING_HOURS)).isoformat(timespec="seconds")
         run = runs.Run("briefing")
@@ -185,7 +185,7 @@ def card_update(card: dict, **extra) -> dict:
 def card_path(card: dict, folder: str = "") -> str:
     """`notes/<date>-<slug(title)>` (or the folder given): the page a saved card becomes."""
     folder = str(folder or "").strip().strip("/") or DEFAULT_CARD_FOLDER
-    return f"{folder}/{m_render._today_iso()}-{v_store.slugify(card['title'])[:60]}"
+    return f"{folder}/{util._today_iso()}-{v_store.slugify(card['title'])[:60]}"
 
 
 def save_card(card_id: str | None, folder: str = "") -> list:

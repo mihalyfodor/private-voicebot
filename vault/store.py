@@ -4,8 +4,7 @@ import os
 import re
 import subprocess
 from vault import index_db
-from memory import render
-from core import config, trace
+from core import config, util, trace
 
 log = trace.logger("Wiki")
 
@@ -192,7 +191,7 @@ def ensure_vault() -> str:
     if not os.path.exists(_path(DECISIONS_FILE)):
         _write(DECISIONS_FILE, _page_text(
             {"type": "decisions", "name": "Decisions", "tags": [], "source": "bootstrap",
-             "updated": render._today_iso(), "seen": render._today_iso()},
+             "updated": util._today_iso(), "seen": util._today_iso()},
             "# Decisions\n",
         ))
     ignore = _read(".gitignore")     # `.index/` (PRD 53) carries its own `*` .gitignore: no tracked edit here
@@ -272,7 +271,7 @@ def _edit_page(rel: str, body_fn=None, defaults: dict | None = None, **fields) -
     "never rewrite, only append" is enforced in one place.
     """
     fm, body = parse_page(_read(rel))
-    fm["updated"] = render._today_iso()
+    fm["updated"] = util._today_iso()
     for key, value in (defaults or {}).items():
         fm.setdefault(key, value)
     fm.update(fields)
@@ -349,3 +348,9 @@ def page_paths() -> list:
 # Imported last: index and search read store's constants at import time, store reaches them only inside functions.
 from vault import index as v_index  # noqa: E402
 from vault import search as v_search  # noqa: E402
+
+
+def head_sha() -> str:
+    """The vault's HEAD as a short sha ("" without a repo or a commit)."""
+    result = _git("rev-parse", "--short", "HEAD", quiet=True)
+    return result.stdout.strip() if result is not None and result.returncode == 0 else ""

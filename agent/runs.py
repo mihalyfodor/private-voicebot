@@ -172,7 +172,7 @@ def commit_line(sha: str) -> tuple:
 
 def origin(subject: str) -> str:
     """Who made a commit, from its subject: the user's editor, an ingest, else Wanko's page ops."""
-    from vault import digest
+    from agent import digest
 
     if digest._USER_COMMIT.match(subject):
         return "user"

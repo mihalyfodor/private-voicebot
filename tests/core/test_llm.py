@@ -1,12 +1,12 @@
 """PRD 50 scenario 7: one model-call chokepoint (`core/llm.py`), one fake patched at `core.llm._client`."""
 from unittest.mock import patch
 
-import chatbot
+from server import turns
 from server import speech
-import memory
-import sources
+from agent import fold
+from ingest import pipeline
 from core import llm as core_llm
-from session import Session
+from server.session import Session
 from tests.conftest import fake_model, fake_tts, run_turn, summary_json, trace_lines, vault  # noqa: F401 — fixture
 
 
@@ -32,9 +32,9 @@ def test_an_ingest_a_memory_save_and_a_typed_turn_share_one_fake(vault):
                     "[]", "[]",                              # memory save: profile ops, wiki page ops
                     "[neutral] Sure.") as fake, \
             patch.object(speech, "synthesize", fake_tts):   # the typed turn's streamed reply
-        filed = sources.ingest_note("Falcon is amber.")
-        assert memory.save([{"role": "user", "content": "Anna is a colleague"}]) == []
-        sent = run_turn(chatbot.handle_text, Session(), 1, "hi")
+        filed = pipeline.ingest_note("Falcon is amber.")
+        assert fold.save([{"role": "user", "content": "Anna is a colleague"}]) == []
+        sent = run_turn(turns.handle_text, Session(), 1, "hi")
 
     assert filed["path"] == "sources/falcon"
     assert len(fake.calls) == 5 and fake._replies == []

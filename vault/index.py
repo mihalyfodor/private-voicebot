@@ -2,10 +2,10 @@
 import json
 from collections import Counter
 from datetime import date
-from memory import render
 from core import trace
 from vault import search as v_search
 from vault import store
+from core import util
 
 log = trace.logger("Wiki")
 
@@ -64,7 +64,7 @@ def index_text(max_tokens: int = store.WIKI_INDEX_TOKENS) -> str:
     if not lines:
         return ""
     lines = ["# Index", ""] + lines
-    while lines and render.tokens_est("\n".join(lines)) > max_tokens:
+    while lines and util.tokens_est("\n".join(lines)) > max_tokens:
         lines.pop()
     return "\n".join(lines).strip()
 
@@ -94,7 +94,7 @@ def map_folders(today: date | None = None) -> list:
     """
     if not store.exists():
         return []
-    today = today or render._today()
+    today = today or util._today()
     rows = v_search._db().map_rows()
     inbound = Counter()
     for rel, *_rest, links in rows:
@@ -143,7 +143,7 @@ def vault_map(max_tokens: int = store.WIKI_INDEX_TOKENS, today: date | None = No
         return ""
 
     def fits(shown):
-        return render.tokens_est(_render_map(folders, shown)) <= max_tokens
+        return util.tokens_est(_render_map(folders, shown)) <= max_tokens
 
     shown = {}
     for f in folders:                                       # headers first, in folder order
@@ -177,7 +177,7 @@ def related_context(text: str, k: int = 5) -> str:
         summary = _summary_line(body)[:120]
         lines.append(line + (f" — {summary}" if summary else ""))
     head = "Existing related pages (update these rather than duplicating):"
-    while lines and render.tokens_est("\n".join([head] + lines)) > store.RELATED_TOKENS:
+    while lines and util.tokens_est("\n".join([head] + lines)) > store.RELATED_TOKENS:
         lines.pop()
     return "\n".join([head] + lines) if lines else ""
 
@@ -185,7 +185,7 @@ def related_context(text: str, k: int = 5) -> str:
 def _log(entries: list) -> None:
     if not entries:
         return
-    today = render._today_iso()
+    today = util._today_iso()
     with open(store._path(store.LOG_FILE), "a") as f:
         for entry in entries:
             f.write(f"- {today} {entry}\n")

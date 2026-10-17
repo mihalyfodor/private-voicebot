@@ -1,6 +1,5 @@
 """Per-turn recall: source / page recall blocks, the band on spoken turns, the precision rule, fallback and focus context (docs/32, 38, 42, 45; PRD 50 step 9, from llm.py)."""
 import re
-from memory import render
 from vault import chunks as v_chunks
 from vault import focus as v_focus
 from vault import search as v_search
@@ -9,6 +8,7 @@ from core.untrusted import untrusted
 from agent import conversation
 from agent import written
 from agent import prompt
+from core import util
 
 
 
@@ -124,14 +124,14 @@ def focus_block(question: str) -> str:
 def fit(lines: list, budget: int, note: str) -> list:
     """`lines` cut to fit `budget` tokens together with `note` and the tags: whole lines while
     they fit, the first one that does not is truncated, the rest dropped."""
-    used = render.tokens_est(note) + 40
+    used = util.tokens_est(note) + 40
     kept = []
     for line in lines:
         room = (budget - used) * 4
         if room <= 0:
             break
         kept.append(line[:room])
-        used += render.tokens_est(kept[-1])
+        used += util.tokens_est(kept[-1])
     return kept
 
 

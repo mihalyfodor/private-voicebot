@@ -4,6 +4,7 @@ import os
 import re
 from collections import Counter
 from vault import index_db
+from core.formats import IMAGE_EXTS, _decode, docx_text, eml_text, epub_text, msg_text, pdf_text, pptx_text, vtt_text, xlsx_text
 from core import settings, trace
 from vault import search as v_search
 from vault import store
@@ -136,8 +137,6 @@ def raw_chunks(raw_rel: str) -> dict:
 
 def _raw_chunks_for(entry: dict) -> dict:
     """:func:`raw_chunks` for a manifest entry already in hand (a rebuild parses the manifest once)."""
-    from ingest import pipeline
-
     sha, raw_rel, source = entry["sha256"], entry["path"], entry.get("page", "")
     cached = store._read(_cache_rel(sha))
     if cached:
@@ -147,7 +146,7 @@ def _raw_chunks_for(entry: dict) -> dict:
                 return record
         except ValueError:
             pass
-    text = pipeline.raw_text(raw_rel, _read_bytes(raw_rel)) if _chunkable(entry) else ""
+    text = raw_text(raw_rel, _read_bytes(raw_rel)) if _chunkable(entry) else ""
     record = {"sha": sha, "raw": raw_rel, "source": source,
               "title": _source_title(source, raw_rel),
               "chunks": chunk_text(text, CHUNK_TOKENS, CHUNK_OVERLAP)}
@@ -501,3 +500,31 @@ def page_text(path: str) -> str | None:
     if rel is None or not store.page_exists(rel):
         return None
     return store._read(rel)
+
+
+def raw_text(raw_rel: str, data: bytes) -> str:
+    """The whole extracted text of a stored text-kind raw file — nothing sampled out.
+
+    What the chunk index (PRD 32) reads; :func:`extract` samples it for the model. Images and
+    calendars have no text here ("").
+    """
+    ext = os.path.splitext(raw_rel)[1].lower()
+    if ext in IMAGE_EXTS or ext == ".ics":
+        return ""
+    if ext == ".pdf":
+        return pdf_text(data)
+    if ext == ".eml":
+        return eml_text(data)
+    if ext == ".msg":
+        return msg_text(store._path(raw_rel))
+    if ext == ".docx":
+        return docx_text(data)[0]
+    if ext == ".pptx":
+        return pptx_text(data)
+    if ext == ".xlsx":
+        return xlsx_text(data)
+    if ext == ".vtt":
+        return vtt_text(data)
+    if ext == ".epub":
+        return epub_text(data)
+    return _decode(data)

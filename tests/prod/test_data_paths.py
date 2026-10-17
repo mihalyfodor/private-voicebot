@@ -6,20 +6,23 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-import chatbot
+from server import app
 from server import speech
-import llm
-import memory
+from agent import conversation
+from agent import fold
 from core import llm as core_llm
-import wiki
-from tests.conftest import ROOT, FakeClient, StreamClient, commits, drain_initial, fake_tts
+from vault import pages
+from vault import store
+from tests.conftest import ROOT, FakeClient, commits, drain_initial, fake_tts
 
 MODULE_PATHS = """
-import json, memory, wiki
+import json
 from core import settings, trace
+from memory import store as m_store
 from tools import gmail
-print(json.dumps([settings.SETTINGS_PATH, trace.TRACE_DIR, memory.MEMORY_PATH, memory.OPS_LOG_PATH,
-                  memory.SHORTMEM_PATH, wiki.WIKI_PATH, gmail.GMAIL_CREDENTIALS_PATH, gmail.GMAIL_TOKEN_PATH]))
+from vault import store
+print(json.dumps([settings.SETTINGS_PATH, trace.TRACE_DIR, m_store.MEMORY_PATH, m_store.OPS_LOG_PATH,
+                  m_store.SHORTMEM_PATH, store.WIKI_PATH, gmail.GMAIL_CREDENTIALS_PATH, gmail.GMAIL_TOKEN_PATH]))
 """
 
 
@@ -42,11 +45,11 @@ def test_every_state_path_follows_its_env_knob(tmp_path):
 
 def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_path, monkeypatch):
     root_before = set(os.listdir(ROOT))
-    llm.reset()
+    conversation.reset()
     monkeypatch.setattr(speech, "synthesize", fake_tts)
-    fake = StreamClient("[happy] Sure thing.")
+    fake = FakeClient("[happy] Sure thing.")
 
-    client = TestClient(chatbot.app)
+    client = TestClient(app.app)
     with patch.object(core_llm, "_client", fake), client.websocket_connect("/ws") as ws:
         drain_initial(ws)
         ws.send_json({"action": "text_turn", "text": "remind me to call Anna"})
@@ -59,11 +62,11 @@ def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_pat
 
     monkeypatch.setattr(core_llm, "_client",
                         FakeClient(json.dumps([{"op": "ADD", "path": "people[]", "value": {"name": "Anna"}}])))
-    memory.save([{"role": "user", "content": "remind me to call Anna"},
+    fold.save([{"role": "user", "content": "remind me to call Anna"},
                  {"role": "assistant", "content": "Sure thing."}])
 
-    wiki.ensure_vault()
-    wiki.apply_page_ops([{"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
+    store.ensure_vault()
+    pages.apply_page_ops([{"op": "new_page", "path": "people/anna", "type": "person", "name": "Anna",
                           "summary": "Colleague."}], "test")
 
     assert os.path.exists(tmp_path / "events.jsonl")
@@ -76,9 +79,11 @@ def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_pat
 
 
 DEFAULT_PATHS = """
-import json, wiki
+import json
 from core import config
-print(json.dumps([config.WIKI_PATH, wiki.WIKI_PATH, wiki.cli_vault("/nonexistent/.env")]))
+from vault import store
+from vault.__main__ import cli_vault
+print(json.dumps([config.WIKI_PATH, store.WIKI_PATH, cli_vault("/nonexistent/.env")]))
 """
 
 

@@ -11,10 +11,13 @@ import threading
 
 import pytest
 
-import chatbot
-import llm
+from server import panels
 from agent import conversation
-import memory
+from agent import conversation
+from agent import fold
+from core import util
+from memory import ops as m_ops
+from memory import store
 from memory import render as m_render
 from core import llm as core_llm
 from tests.conftest import Blocker, FakeClient, audit_log, on_disk, seed
@@ -84,13 +87,13 @@ def test_delete_out_of_range_is_refused_and_leaves_the_file_alone(panel):
 
 
 def test_add_beyond_the_cap_is_refused_with_the_cap_in_the_reason(panel):
-    seed(people=[{"name": f"p{i}"} for i in range(memory.CAPS["people"])])
+    seed(people=[{"name": f"p{i}"} for i in range(store.CAPS["people"])])
     before = on_disk()
     reply = panel.send({"action": "memory_op", "op": "ADD", "path": "people[]",
                         "value": {"name": "one too many"}})
 
     assert reply["type"] == "memory_error"
-    assert str(memory.CAPS["people"]) in reply["reason"] and "cap" in reply["reason"]
+    assert str(store.CAPS["people"]) in reply["reason"] and "cap" in reply["reason"]
     assert on_disk() == before
     assert audit_log() == []
 
@@ -107,15 +110,15 @@ def test_add_beyond_the_cap_is_refused_with_the_cap_in_the_reason(panel):
 ])
 def test_malformed_op_is_refused_without_writing_or_logging(panel, op):
     seed(identity={"name": "Misi"})
-    before, before_mtime = on_disk(), os.stat(memory.MEMORY_PATH).st_mtime_ns
+    before, before_mtime = on_disk(), os.stat(store.MEMORY_PATH).st_mtime_ns
 
     reply = panel.send({"action": "memory_op", **op})
 
     assert reply["type"] == "memory_error" and reply["reason"]
     assert reply["path"] == op["path"]
     assert on_disk() == before
-    assert os.stat(memory.MEMORY_PATH).st_mtime_ns == before_mtime
-    assert not os.path.exists(memory.OPS_LOG_PATH)
+    assert os.stat(store.MEMORY_PATH).st_mtime_ns == before_mtime
+    assert not os.path.exists(store.OPS_LOG_PATH)
 
 
 # --------------------------------------------------------------- 5. get_memory
@@ -133,19 +136,19 @@ def test_get_memory_returns_the_rendered_block_and_the_visible_fact_count(panel)
     reply = panel.send({"action": "get_memory"})
 
     assert reply["type"] == "memory"
-    assert reply["rendered"] == m_render.render(memory.load_profile())
+    assert reply["rendered"] == m_render.render(store.load_profile())
     assert reply["count"] == 7            # 2 scalars + 2 people + 1 project + 1 recurring + 1 episodic
     assert reply["profile"]["identity"]["superseded"] == {"name": ["Misi"]}
     assert "meta" not in reply["profile"] and "version" not in reply["profile"]
-    assert memory.fact_count(profile) == 7
+    assert m_ops.fact_count(profile) == 7
 
 
 def test_snapshot_flags_expired_episodics_without_touching_the_file():
     profile = seed(episodic=[
         {"date": "2020-01-01", "text": "old news", "ttl_days": 5, "importance": 2},
-        {"date": memory._today().isoformat(), "text": "today", "ttl_days": 30, "importance": 2},
+        {"date": util._today().isoformat(), "text": "today", "ttl_days": 30, "importance": 2},
     ])
-    snap = memory.snapshot(profile)
+    snap = m_ops.snapshot(profile)
     assert [e["expired"] for e in snap["profile"]["episodic"]] == [True, False]
     assert snap["count"] == 2
     assert all("expired" not in e for e in on_disk()["episodic"])
@@ -163,7 +166,7 @@ def test_memory_reset_empties_the_file_and_logs_one_delete_all(panel):
     assert reply["rendered"] == ""
     stored = on_disk()
     assert {k: v for k, v in stored.items() if k != "updated"} == \
-           {k: v for k, v in memory._empty_profile().items() if k != "updated"}
+           {k: v for k, v in store._empty_profile().items() if k != "updated"}
     logged = audit_log()
     assert len(logged) == 1
     assert (logged[0]["op"], logged[0]["path"], logged[0]["reason"]) == ("DELETE", "*", "ui:reset")
@@ -182,12 +185,12 @@ def test_a_hand_edit_during_a_background_save_is_not_overwritten(monkeypatch):
     )
     monkeypatch.setattr(core_llm, "_client", client)
     saver = threading.Thread(
-        target=memory.save,
+        target=fold.save,
         args=([{"role": "user", "content": "I drink black coffee"}],))
     saver.start()
     assert entered.wait(timeout=5), "the save never reached the LLM call"
 
-    profile, reason = memory.edit({"op": "UPDATE", "path": "identity.name", "value": "Mihaly"})
+    profile, reason = m_ops.edit({"op": "UPDATE", "path": "identity.name", "value": "Mihaly"})
     saver.join(timeout=10)
 
     assert reason is None
@@ -209,7 +212,7 @@ def test_apply_ops_collects_the_same_reasons_it_prints(capsys):
         {"op": "ADD", "path": "identity.name", "value": "Mihaly"},   # this one lands
     ]
     rejected = []
-    profile, applied = memory.apply_ops(memory._empty_profile(), ops, rejected)
+    profile, applied = m_ops.apply_ops(store._empty_profile(), ops, rejected)
 
     assert len(applied) == 1 and profile["identity"]["name"] == "Mihaly"
     assert [r["op"] for r in rejected] == ops[:4]
@@ -220,7 +223,7 @@ def test_apply_ops_collects_the_same_reasons_it_prints(capsys):
 
 
 def test_apply_ops_without_a_collector_still_only_prints(capsys):
-    profile, applied = memory.apply_ops(memory._empty_profile(),
+    profile, applied = m_ops.apply_ops(store._empty_profile(),
                                         [{"op": "ADD", "path": "nope.k", "value": "v"}])
     assert applied == [] and "[Memory] rejected op" in capsys.readouterr().out
 
@@ -231,12 +234,12 @@ def test_apply_ops_without_a_collector_still_only_prints(capsys):
 def _random_op(rng: random.Random, profile: dict) -> dict:
     """A random op — valid or not — over every section and path form the editor can produce."""
     kind = rng.choice(["ADD", "ADD", "UPDATE", "UPDATE", "DELETE", "REPLACE", "NOOP"])
-    section = rng.choice(list(memory.SCALAR_SECTIONS + memory.LIST_SECTIONS) + ["hobbies"])
-    if section in memory.SCALAR_SECTIONS or section == "hobbies":
+    section = rng.choice(list(store.SCALAR_SECTIONS + store.LIST_SECTIONS) + ["hobbies"])
+    if section in store.SCALAR_SECTIONS or section == "hobbies":
         key = rng.choice(["name", "nickname", "location", "coffee", "k%d" % rng.randrange(5), ""])
         value = rng.choice(["Mihaly", "Budapest", "black", "Vienna", "  ", 42, None, {"x": 1}])
         return {"op": kind, "path": f"{section}.{key}" if key else section, "value": value}
-    key_field = memory.LIST_KEY.get(section, "name")
+    key_field = store.LIST_KEY.get(section, "name")
     index = rng.randrange(0, max(1, len(profile.get(section, [])) + 2))
     path = rng.choice([f"{section}[]", section, f"{section}[{index}]",
                        f"{section}[{index}].note"])
@@ -253,14 +256,14 @@ def test_fuzz_two_hundred_random_ops_keep_the_profile_valid():
     rng = random.Random(1616)
     applied = 0
     for _ in range(200):
-        profile, reason = memory.edit(_random_op(rng, memory.load_profile()))
+        profile, reason = m_ops.edit(_random_op(rng, store.load_profile()))
         applied += reason is None
 
-        reloaded = memory.load_profile()
-        assert reloaded == memory._normalise(reloaded)          # survives a round-trip
-        for section, cap in memory.CAPS.items():
+        reloaded = store.load_profile()
+        assert reloaded == store._normalise(reloaded)          # survives a round-trip
+        for section, cap in store.CAPS.items():
             assert len(reloaded[section]) <= cap
-        for section in memory.SCALAR_SECTIONS:
+        for section in store.SCALAR_SECTIONS:
             for key, history in reloaded[section].get("superseded", {}).items():
                 assert isinstance(key, str)
                 assert all(isinstance(v, str) for v in history)
@@ -282,7 +285,7 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact(monkeyp
     def hammer(tid: int):
         local = 0
         for i in range(25):
-            _, reason = memory.edit({"op": "ADD", "path": f"preferences.t{tid}_{i}", "value": "v"})
+            _, reason = m_ops.edit({"op": "ADD", "path": f"preferences.t{tid}_{i}", "value": "v"})
             local += reason is None
         with lock:
             applied.append(local)
@@ -292,7 +295,7 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact(monkeyp
     monkeypatch.setattr(core_llm, "_client", client)
     threads = [threading.Thread(target=hammer, args=(t,)) for t in range(4)]
     saver = threading.Thread(target=lambda: applied.append(
-        len(memory.save([{"role": "user", "content": "Anna is a colleague"}]))))
+        len(fold.save([{"role": "user", "content": "Anna is a colleague"}]))))
     for t in threads + [saver]:
         t.start()
     for t in threads + [saver]:
@@ -310,9 +313,9 @@ def test_four_threads_hammering_edits_during_a_save_keep_the_file_intact(monkeyp
 
 def test_has_unsaved_turns_tracks_the_session_buffer(monkeypatch):
     monkeypatch.setattr(conversation, "_session_turns", [])
-    assert llm.has_unsaved_turns() is False
+    assert conversation.has_unsaved_turns() is False
     monkeypatch.setattr(conversation, "_session_turns", [{"role": "user", "content": "hi"}])
-    assert llm.has_unsaved_turns() is True
+    assert conversation.has_unsaved_turns() is True
 
 
 def test_opening_the_memory_tab_saves_the_session_and_sends_two_snapshots(panel, monkeypatch):
@@ -322,7 +325,7 @@ def test_opening_the_memory_tab_saves_the_session_and_sends_two_snapshots(panel,
 
     def fake_save():
         calls.append(1)
-        memory.edit({"op": "ADD", "path": "preferences.coffee", "value": "black"})
+        m_ops.edit({"op": "ADD", "path": "preferences.coffee", "value": "black"})
 
     monkeypatch.setattr(conversation, "has_unsaved_turns", lambda: True)
     monkeypatch.setattr(conversation, "save_memory", fake_save)
@@ -353,11 +356,11 @@ def test_opening_the_memory_tab_during_a_turn_does_not_save(panel, monkeypatch):
     monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
 
     blocker = Blocker()
-    blocker.hold(chatbot.controller)
+    blocker.hold(panels.controller)
     try:
         reply = panel.send({"action": "get_memory"})
     finally:
-        blocker.free(chatbot.controller)
+        blocker.free(panels.controller)
     assert reply["type"] == "memory"
     assert calls == []
 
@@ -377,11 +380,11 @@ def test_save_now_refuses_while_a_turn_is_running(panel, monkeypatch):
     calls = []
     monkeypatch.setattr(conversation, "save_memory", lambda: calls.append(1))
     blocker = Blocker()
-    blocker.hold(chatbot.controller)
+    blocker.hold(panels.controller)
     try:
         reply = panel.send({"action": "save_memory"})
     finally:
-        blocker.free(chatbot.controller)
+        blocker.free(panels.controller)
     assert reply == {"type": "error", "scope": "memory", "text": "Wait until the reply finishes."}
     assert calls == []
 

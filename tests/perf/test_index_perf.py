@@ -8,12 +8,13 @@ import time
 import pytest
 
 from vault import index_db
-import wiki
+from vault import chunks as v_chunks
+from vault import search
 from vault import chunks as v_chunks
 from vault import store
 from tests.conftest import fake_model
 from tests.perf.make_vault import make_vault, queries
-import sources
+from ingest import pipeline
 
 pytestmark = pytest.mark.perf
 
@@ -33,21 +34,21 @@ def test_search_stays_fast_on_5k_pages_and_1k_sources(tmp_path, monkeypatch):
     made = make_vault(str(vault))
     monkeypatch.setattr(store, "WIKI_PATH", str(vault))
     index_db.close()
-    wiki.startup_check()
+    search.startup_check()
     size_mb = round(sum(p.stat().st_size for p in (vault / ".index").iterdir()) / 1e6, 1)
 
     asks = queries(200)
-    wiki.search(asks[0]), wiki.search_chunks(asks[0])          # warm the per-generation caches
-    chunk_ms = [timed(wiki.search_chunks, q, 3) for q in asks]
-    page_ms = [timed(wiki.search, q, 5) for q in asks]
-    hits = sum(bool(wiki.search_chunks(q, 3)) for q in asks[:20])
+    search.search(asks[0]), v_chunks.search_chunks(asks[0])          # warm the per-generation caches
+    chunk_ms = [timed(v_chunks.search_chunks, q, 3) for q in asks]
+    page_ms = [timed(search.search, q, 5) for q in asks]
+    hits = sum(bool(v_chunks.search_chunks(q, 3)) for q in asks[:20])
 
     spent = []
-    real = wiki.index_source
+    real = v_chunks.index_source
     monkeypatch.setattr(v_chunks, "index_source", lambda record: spent.append(timed(real, record)))
     text = "Extra handbook\n\n" + " ".join(queries(400, seed=7))
     with fake_model('{"title": "Extra handbook", "summary": "x", "entities": [], "topic": "t", "unreadable": false}', "[]"):
-        sources.ingest_upload(text.encode(), "extra.md")
+        pipeline.ingest_upload(text.encode(), "extra.md")
 
     print(f"\nPERF vault {made} index {size_mb} MB | p95 search_chunks {p95(chunk_ms):.1f} ms "
           f"(max {max(chunk_ms):.1f}) | p95 search {p95(page_ms):.1f} ms (max {max(page_ms):.1f}) | "

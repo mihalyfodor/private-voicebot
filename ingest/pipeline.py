@@ -27,23 +27,24 @@ import datetime as dt
 import os
 import re
 
-from core.formats import (Extracted, _decode, _downscale, _image_part, docx_text, eml_text, epub_text, ics_events,
-                          msg_text, pdf_text, pptx_text, sample_text, vtt_text, xlsx_text)
+from core.formats import (Extracted, _downscale, _image_part, docx_text, ics_events,
+                          sample_text)
 from memory import identity as m_identity
 from memory import ops as m_ops
-from memory import render
 from core import llm as core_llm
 from core import trace
 from core.untrusted import DOCUMENT_RULE, untrusted
 from core import vault_lock
 from vault.manifest import _manifest_append, _manifest_write, manifest_entries, manifest_find, sha256
 from vault import chunks
-from vault import digest as v_digest
-from vault import ingest as v_ingest
+from memory import wiki_ingest as v_ingest
 from vault import index as v_index
 from vault import pages as v_pages
 from vault import search as v_search
 from vault import store as v_store
+from core import util
+from core import formats as c_formats
+from vault import manifest as c_manifest
 
 log = trace.logger("Sources")
 
@@ -56,11 +57,10 @@ MAX_IMAGE_BYTES = 4 * 1024 * 1024       # png/jpg
 
 
 TEXT_EXTS = {".md": "md", ".markdown": "md", ".txt": "txt"}
-IMAGE_EXTS = {".png": "screenshot", ".jpg": "screenshot", ".jpeg": "screenshot"}
 DOC_EXTS = {".pdf": "pdf", ".eml": "email", ".msg": "email", ".ics": "calendar"}
 OFFICE_EXTS = {".docx": "docx", ".pptx": "pptx", ".xlsx": "xlsx", ".vtt": "transcript", ".epub": "epub"}
 #: extension -> the `kind` that lands in the source page's frontmatter
-KINDS = {**TEXT_EXTS, **IMAGE_EXTS, **DOC_EXTS, **OFFICE_EXTS}
+KINDS = {**TEXT_EXTS, **c_formats.IMAGE_EXTS, **DOC_EXTS, **OFFICE_EXTS}
 #: the kinds whose bytes are cheap to hold because the model only ever sees a sample
 LARGE_TEXT_EXTS = set(TEXT_EXTS) | set(OFFICE_EXTS) | {".pdf"}      # PRD 48: OneNote PDFs carry images
 
@@ -149,50 +149,22 @@ Reply with a JSON object and nothing else:
 Today is %s."""
 
 
-def raw_text(raw_rel: str, data: bytes) -> str:
-    """The whole extracted text of a stored text-kind raw file — nothing sampled out.
-
-    What the chunk index (PRD 32) reads; :func:`extract` samples it for the model. Images and
-    calendars have no text here ("").
-    """
-    ext = os.path.splitext(raw_rel)[1].lower()
-    if ext in IMAGE_EXTS or ext == ".ics":
-        return ""
-    if ext == ".pdf":
-        return pdf_text(data)
-    if ext == ".eml":
-        return eml_text(data)
-    if ext == ".msg":
-        return msg_text(v_store._path(raw_rel))
-    if ext == ".docx":
-        return docx_text(data)[0]
-    if ext == ".pptx":
-        return pptx_text(data)
-    if ext == ".xlsx":
-        return xlsx_text(data)
-    if ext == ".vtt":
-        return vtt_text(data)
-    if ext == ".epub":
-        return epub_text(data)
-    return _decode(data)
-
-
 def extract(raw_rel: str, data: bytes, kind: str = "") -> Extracted:
     """The text (or image part) of a stored raw file — "" means "nothing extractable"."""
     ext = os.path.splitext(raw_rel)[1].lower()
     full = v_store._path(raw_rel)
     kind = kind or KINDS.get(ext, "txt")
-    if ext in IMAGE_EXTS:
+    if ext in c_formats.IMAGE_EXTS:
         _downscale(full)
         return Extracted("", _image_part(full), kind)
     if ext == ".ics":
-        events = ics_events(data, today=dt.date.fromisoformat(render._today_iso()))
+        events = ics_events(data, today=dt.date.fromisoformat(util._today_iso()))
         text = "\n".join(f"{e['date']} {e['time']} {e['title']} — {', '.join(e['attendees'])}"
                          for e in events)
-        return Extracted(text, None, kind, render.tokens_est(text), render.tokens_est(text), events)
+        return Extracted(text, None, kind, util.tokens_est(text), util.tokens_est(text), events)
     if ext == ".docx":
         kind = docx_text(data)[1]
-    shown, shown_tokens, total_tokens = sample_text(raw_text(raw_rel, data))
+    shown, shown_tokens, total_tokens = sample_text(chunks.raw_text(raw_rel, data))
     return Extracted(shown, None, kind, shown_tokens, total_tokens)
 
 
@@ -241,7 +213,7 @@ def _source_body(title: str, summary: str, entities: list, fed: list, user_names
 def _write_source_page(rel: str, *, title: str, kind: str, raw_rel: str, digest: str,
                        summary: str, entities: list, fed: list, source: str,
                        user_names=(), tags=(), extra: dict | None = None) -> None:
-    today = render._today_iso()
+    today = util._today_iso()
     fm = {"type": "source", "name": title, "tags": list(tags), "source": source,
           "updated": today, "seen": today,
           "kind": kind, "raw": raw_rel, "sha256": digest, **(extra or {})}
@@ -264,7 +236,7 @@ def _write_meeting_page(rel: str, *, title: str, date: str, time: str, attendees
     Written here, not through the `new_page` op, because the op cannot carry `date` / `time` /
     `attendees` or the Decisions/Actions sections — the same arrangement the source page has.
     """
-    today = render._today_iso()
+    today = util._today_iso()
     links = []
     for name in attendees:
         link = _attendee_link(name, user_names)
@@ -292,7 +264,7 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
     """The meeting completion -> ``{title, date, attendees, project, decisions, actions,
     summary}``, tidied; None when the model cannot be reached or parsed."""
     try:
-        system = MEETING_SYSTEM % (m_identity.user_note(user_names), render._today_iso())
+        system = MEETING_SYSTEM % (m_identity.user_note(user_names), util._today_iso())
         raw = core_llm.complete(system, f"Filename/title: {title}\n\nTranscript:\n{text}", 900, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"meeting completion failed: {exc}")
@@ -310,8 +282,8 @@ def meeting_from_transcript(text: str, title: str, user_names=()) -> dict | None
         return [" ".join(str(v).split())[:300] for v in values if str(v).strip()][:limit]
 
     date = str(data.get("date") or "").strip()
-    if not _DROP_DATE.fullmatch(date):
-        date = render._today_iso()
+    if not c_manifest._DROP_DATE.fullmatch(date):
+        date = util._today_iso()
     return {
         "title": " ".join(str(data.get("title") or title or "Meeting").split())[:120],
         "date": date,
@@ -489,7 +461,7 @@ def summarise(kind: str, text: str, image_part, hint: str, title: str,
         content = [{"type": "text", "text": f"{header}\n\nSummarise this image."}, image_part]
     else:
         content = f"{header}\n\nDocument:\n{untrusted(text, title or kind)}"
-    system = SUMMARY_SYSTEM % (m_identity.user_note(user_names), render._today_iso())
+    system = SUMMARY_SYSTEM % (m_identity.user_note(user_names), util._today_iso())
     data = None
     for attempt in range(1, SUMMARY_ATTEMPTS + 1):
         try:
@@ -555,7 +527,7 @@ def propose_page_ops(source_rel: str, summary: dict, hint: str,
         rules = m_identity.user_note(user_names)
         if kind in PUBLISHED_KINDS:
             rules += "\n- " + PUBLISHED_NOTE
-        system = OPS_SYSTEM % (rules, render._today_iso())
+        system = OPS_SYSTEM % (rules, util._today_iso())
         raw = core_llm.complete(system, "\n\n".join(parts), 800, purpose="ingest")
     except Exception as exc:  # noqa: BLE001
         log.warning(f"page ops failed: {exc}")
@@ -589,7 +561,7 @@ def _rename_generic_raw(raw_rel: str, title: str) -> str:
     slug = v_store.slugify(title)
     if not is_generic_title(stem) or is_generic_title(title) or not slug:
         return raw_rel
-    date = _DROP_DATE.search(stem)
+    date = c_manifest._DROP_DATE.search(stem)
     new_rel = _free_path(folder, f"{date.group(1)}-{slug}" if date else slug, ext)
     os.replace(v_store._path(raw_rel), v_store._path(new_rel))
     return new_rel
@@ -598,7 +570,7 @@ def _rename_generic_raw(raw_rel: str, title: str) -> str:
 def is_generic_title(title: str) -> bool:
     """A name that says nothing about the content (`note`, `untitled`, a stamped `note 2026-…`)."""
     words = " ".join(str(title or "").lower().replace("_", " ").replace("-", " ").split())
-    words = _DROP_DATE.sub("", words).strip(" -:0123456789")
+    words = c_manifest._DROP_DATE.sub("", words).strip(" -:0123456789")
     return not words or words in GENERIC_TITLES
 
 
@@ -730,59 +702,28 @@ def file_bytes(data: bytes, raw_rel: str, kind: str, *, title: str = "", hint: s
         _stage(on_stage, "filing")
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
-                         hint=hint, page=page, source=source or f"user drop {render._today_iso()}",
+                         hint=hint, page=page, source=source or f"user drop {util._today_iso()}",
                          names=names)
         _manifest_append({"sha256": digest, "path": raw_rel, "kind": kind,
-                          "ingested_at": render._stamp("%H:%M:%S"),
+                          "ingested_at": util._stamp("%H:%M:%S"),
                           "page": v_store.wikilink(source_rel), "pages_touched": fed,
                           **({"pages": page_rels} if page_rels else {}), **(extra or {})})
         chunks.index_source(chunks.raw_chunks(raw_rel))   # PRD 32 chunk cache, built while the bytes are hot; PRD 53 index
         v_index.rebuild_index()
         v_index._log([f"filed [[{v_store.wikilink(source_rel)}]] from {raw_rel}"
                    + (f" -> {', '.join(fed)}" if fed else "")])
-        head = v_digest.head_sha()
+        head = v_store.head_sha()
         v_store._commit(f"wiki: filed {raw_rel}")
         trace.mark(path=v_store.wikilink(source_rel), title=page_title)
-        if v_digest.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
-            trace.mark(commit=v_digest.head_sha())
+        if v_store.head_sha() != head:                 # PRD 51: the run page's sha, only for a commit that happened
+            trace.mark(commit=v_store.head_sha())
         return {"path": v_store.wikilink(source_rel), "raw": raw_rel, "already": False,
                 "degraded": trace.marked("_degraded")}
 
 
-# --- the inbox (docs/25-sources-inbox.md) --------------------------------------------
-
-
-_DROP_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
-
-
-def _when(date: str, ingested_at: str) -> str:
-    """`2026-08-30 09:12` from the ISO stamp (which already carries the date); the drop date alone otherwise."""
-    if "T" in ingested_at:                       # full ISO stamp: it already carries the date
-        return ingested_at[:16].replace("T", " ")
-    return " ".join(part for part in (date, ingested_at) if part)
-
-
-def _source_meta(entry: dict) -> dict:
-    """One inbox row: the manifest line joined with its page's frontmatter."""
-    page_rel = f"{entry.get('page', '')}.md"
-    fm = v_store.parse_page(v_store._read(page_rel))[0] if v_store.page_exists(page_rel) else {}
-    match = _DROP_DATE.search(str(fm.get("source") or ""))
-    date = match.group(1) if match else str(fm.get("updated") or "")
-    return {
-        "sha": entry.get("sha256", ""),
-        "path": entry.get("page", ""),
-        "raw": entry.get("path", ""),
-        "kind": str(fm.get("kind") or entry.get("kind") or ""),
-        "title": str(fm.get("name") or os.path.basename(entry.get("page", ""))),
-        "when": _when(date, str(entry.get("ingested_at") or "")),
-        "fed": list(entry.get("pages_touched") or []),
-        "meeting": str(fm.get("meeting") or ""),
-    }
-
-
 def list_sources() -> list:
     """Every filed source, newest first (the manifest is append-only, so reversed = newest)."""
-    return [_source_meta(e) for e in reversed(manifest_entries())]
+    return [c_manifest._source_meta(e) for e in reversed(manifest_entries())]
 
 
 def _entry_or_raise(digest: str) -> dict:
@@ -814,10 +755,10 @@ def reingest(digest: str) -> dict:
         fed = _file_page(summary, extracted, raw_rel=raw_rel,
                          source_rel=source_rel, digest=digest, page_title=page_title,
                          hint="", page="",
-                         source=str(old_fm.get("source") or f"user drop {render._today_iso()}"),
+                         source=str(old_fm.get("source") or f"user drop {util._today_iso()}"),
                          names=names)
         fed = sorted(set(entry.get("pages_touched") or []) | set(fed))
-        stamp = render._stamp("%H:%M:%S")
+        stamp = util._stamp("%H:%M:%S")
         _manifest_write([{**e, "pages_touched": fed, "ingested_at": stamp}
                          if e.get("sha256") == digest else e for e in manifest_entries()])
         v_index.rebuild_index()
@@ -861,7 +802,7 @@ def _forget_targets(entry: dict) -> dict:
         if os.path.isdir(v_store._path(folder)):                        # its page images only: a stray file stays
             files |= {f"{folder}/{name}" for name in os.listdir(v_store._path(folder)) if _PAGE_IMAGE.fullmatch(name)}
     return {"page": entry["page"], "raw": raw_rel, "files": sorted(files),
-            "cleaned": cleaned, "title": _source_meta(entry)["title"]}
+            "cleaned": cleaned, "title": c_manifest._source_meta(entry)["title"]}
 
 
 #: `forget(expected=…)` found the plan changed since the user approved it (docs/52-approvals.md)
@@ -918,7 +859,7 @@ def forget(digest: str, expected: dict | None = None) -> dict:
 def _dated(slug: str) -> str:
     """`<today>-<slug>`; a slug that already starts with a date loses it (no double date)."""
     slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", slug)
-    return f"{render._today_iso()}-{v_store.slugify(slug)}"
+    return f"{util._today_iso()}-{v_store.slugify(slug)}"
 
 
 def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
@@ -928,12 +869,12 @@ def check_upload(filename: str, size: int, kind_hint: str = "file") -> tuple:
     and `ingest_upload` calls it again for the callers that never went through HTTP.
     """
     ext = os.path.splitext(filename or "")[1].lower()
-    if kind_hint == "paste_image" and ext not in IMAGE_EXTS:
+    if kind_hint == "paste_image" and ext not in c_formats.IMAGE_EXTS:
         ext = ".png"
     kind = KINDS.get(ext)
     if kind is None:
         raise IngestError(415, f"unsupported file type {ext or filename!r}")
-    limit = (MAX_IMAGE_BYTES if ext in IMAGE_EXTS
+    limit = (MAX_IMAGE_BYTES if ext in c_formats.IMAGE_EXTS
              else MAX_TEXT_BYTES if ext in LARGE_TEXT_EXTS else MAX_FILE_BYTES)
     if size > limit:
         raise IngestError(413, f"{filename} is larger than {limit // (1024 * 1024)} MB")
@@ -948,7 +889,7 @@ def ingest_upload(data: bytes, filename: str, *, kind_hint: str = "file", title:
     stem = title or os.path.splitext(os.path.basename(filename or ""))[0] or "drop"
     if is_generic_title(title):
         title = ""          # `note.txt`, `untitled`…: the summary's title names the page
-    folder = "raw/screens" if ext in IMAGE_EXTS else "raw/inbox"
+    folder = "raw/screens" if ext in c_formats.IMAGE_EXTS else "raw/inbox"
     raw_rel = f"{folder}/{_dated(stem)}{ext}"
     with trace.ingest(kind, raw=raw_rel, bytes=len(data)):
         return file_bytes(data, raw_rel, kind, title=title, hint=hint, page=page,
