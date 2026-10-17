@@ -8,6 +8,9 @@ from fastapi.testclient import TestClient
 
 import approvals
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech
 import llm
 from agent import conversation
 import memory
@@ -144,8 +147,8 @@ def test_the_reject_button_writes_nothing(morrowind):
 
 def test_the_resolve_action_goes_through_the_turn_worker(morrowind):
     """The WS round trip: `text_turn` proposes, `resolve {run_id, decision}` decides on the worker."""
-    chatbot.greeted = True
-    with patch.object(chatbot, "synthesize", fake_tts), TestClient(chatbot.app).websocket_connect("/ws") as ws:
+    panels.greeted = True
+    with patch.object(speech, "synthesize", fake_tts), TestClient(chatbot.app).websocket_connect("/ws") as ws:
         ws.send_json({"action": "text_turn", "text": "forget the Morrowind guide"})
         card = _receive(ws, "card")
         _played(ws)
@@ -421,8 +424,8 @@ def _vault_files() -> set:
 
 def test_a_reconnect_expires_the_old_sessions_pending(morrowind):
     """MAJOR 2: the evicted session's approval ends `expired` (via reconnect); the replay has no buttons."""
-    chatbot.greeted = True
-    with patch.object(chatbot, "synthesize", fake_tts):
+    panels.greeted = True
+    with patch.object(speech, "synthesize", fake_tts):
         client = TestClient(chatbot.app)
         with client.websocket_connect("/ws") as ws:
             ws.send_json({"action": "text_turn", "text": "forget the Morrowind guide"})
@@ -449,7 +452,7 @@ def test_an_empty_or_failed_utterance_clears_the_pending(morrowind, asr_text, as
         def boom(audio, prompt=None):
             raise RuntimeError("asr down")
         asr.transcribe = boom
-    with patch.object(chatbot, "asr", asr):
+    with patch.object(server_turns, "asr", asr):
         run_turn(chatbot.handle_utterance, sess, 2, np.zeros(10, dtype=np.float32))
     assert sess.pending is None and _decisions()[-1]["decision"] == "expired" and _still_there(morrowind)
 

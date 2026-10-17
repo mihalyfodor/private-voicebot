@@ -20,6 +20,9 @@ from starlette.websockets import WebSocketDisconnect
 import avatars
 from core import settings
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech as s_speech
 from tools import commands, registry
 import llm
 from agent import conversation
@@ -98,11 +101,11 @@ def test_scenario_1_two_utterances_run_sequentially(monkeypatch, loop):
         llm._conversation.append({"role": "assistant", "content": reply})
 
     monkeypatch.setattr(a_turn, "ask_events", fake_ask_events)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(chatbot, "asr", fake_asr(lambda a: f"q{int(a[0])}"))
-    monkeypatch.setattr(chatbot, "make_sender",
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
+    monkeypatch.setattr(server_turns, "asr", fake_asr(lambda a: f"q{int(a[0])}"))
+    monkeypatch.setattr(panels, "make_sender",
                         lambda lp, turn=None: lambda m: sent.append((turn, m["type"], m.get("value"))))
-    monkeypatch.setattr(chatbot, "session", sess)
+    monkeypatch.setattr(panels, "session", sess)
 
     chatbot.submit_turn(chatbot.handle_utterance, np.array([1.0], dtype=np.float32), loop)
     chatbot.submit_turn(chatbot.handle_utterance, np.array([2.0], dtype=np.float32), loop)
@@ -163,7 +166,7 @@ def test_scenario_4_bad_character_cards_report_an_error(monkeypatch):
 
 def test_scenario_5_second_connection_closes_the_first(monkeypatch):
     llm.reset()
-    monkeypatch.setattr(chatbot, "hands_free", True)
+    monkeypatch.setattr(panels, "hands_free", True)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws1:
         ws1.receive_json(); ws1.receive_json()
@@ -216,9 +219,9 @@ def test_playback_done_without_a_turn_is_treated_as_current():
 def test_scenario_7_playback_blocked_ends_the_wait(monkeypatch, loop):
     """Autoplay was blocked: the server goes idle instead of waiting out the 120 s timeout."""
     llm.reset()
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
     sent = []
-    monkeypatch.setattr(chatbot, "make_sender", lambda lp, turn=None: sent.append)
+    monkeypatch.setattr(panels, "make_sender", lambda lp, turn=None: sent.append)
 
     sess = Session(websocket=object())
     turn = sess.next_turn()
@@ -292,7 +295,7 @@ class _DeadSocket:
 def test_send_drops_the_socket_on_the_first_failure(monkeypatch, capsys):
     ws = _DeadSocket()
     sess = Session(websocket=ws)
-    monkeypatch.setattr(chatbot, "session", sess)
+    monkeypatch.setattr(panels, "session", sess)
     sess.playback_done.clear()
     _run(chatbot.send({"type": "state", "value": "idle"}))
     _run(chatbot.send({"type": "state", "value": "idle"}))
@@ -302,9 +305,9 @@ def test_send_drops_the_socket_on_the_first_failure(monkeypatch, capsys):
 
 
 def test_make_sender_skips_once_the_socket_is_dropped(monkeypatch):
-    monkeypatch.setattr(chatbot, "session", Session(websocket=None))
+    monkeypatch.setattr(panels, "session", Session(websocket=None))
     scheduled = []
-    monkeypatch.setattr(chatbot.asyncio, "run_coroutine_threadsafe",
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe",
                         lambda coro, loop: scheduled.append(coro))
     chatbot.make_sender(loop=None)({"type": "state", "value": "idle"})
     assert scheduled == []
@@ -381,9 +384,9 @@ def test_next_turn_starts_while_the_memory_save_is_still_running(monkeypatch):
 
 def test_periodic_memory_tells_the_ui_while_it_saves(monkeypatch):
     sent = []
-    monkeypatch.setattr(chatbot, "session", Session(websocket=object()))
-    monkeypatch.setattr(chatbot, "_loop", SimpleNamespace(is_running=lambda: True))
-    monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)
+    monkeypatch.setattr(panels, "session", Session(websocket=object()))
+    monkeypatch.setattr(panels, "_loop", SimpleNamespace(is_running=lambda: True))
+    monkeypatch.setattr(panels, "make_sender", lambda loop, turn=None: sent.append)
     monkeypatch.setattr(conversation, "save_memory", lambda: sent.append("saved"))
     chatbot._periodic_memory(5)
     seen = [m for m in sent if m == "saved" or m.get("type") == "memory_saving"]
@@ -464,7 +467,7 @@ def changes(ts: str = None) -> None:
 def brief(text: str = "what's new?", *replies, llm_up: bool = True) -> tuple:
     """One typed turn through `handle_text` at the gather-time stamp NOW: (sent, fake)."""
     fake = FakeClient(*replies)
-    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
+    with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts), \
             patch.object(render, "_stamp", lambda fmt: NOW), patch.object(services, "llm_ok", lambda: llm_up):
         sent = run_turn(chatbot.handle_text, Session(), 1, text)
     return sent, fake
@@ -486,7 +489,7 @@ def test_briefing_phrasings_start_a_briefing_and_small_talk_reaches_the_model():
     started, asked = [], []
     with patch.dict(registry._HANDLERS, {"briefing": lambda ctx: started.append(ctx.text)}), \
             patch.object(a_turn, "ask_events", lambda text, **kw: asked.append(text) or iter([("delta", "Fine.")])), \
-            patch.object(chatbot, "synthesize", fake_tts):
+            patch.object(s_speech, "synthesize", fake_tts):
         for text in ("what's new?", "Brief me.", "what did I miss", "/brief", "what's new with you"):
             chatbot.respond(Session(), 1, text, lambda msg: None)
     assert started == ["what's new?", "Brief me.", "what did I miss", "/brief"]
@@ -617,10 +620,10 @@ def test_a_file_source_tool_round_refreshes_the_wiki_panel(vault, monkeypatch):
     """The turn binds its context around the model call, so file_source's panel push reaches the socket."""
     from tests.conftest import fake_model, stream_chunks, tool_call_chunk
     sent = []
-    monkeypatch.setattr(chatbot, "session", Session(websocket=object()))
-    monkeypatch.setattr(chatbot, "_loop", SimpleNamespace(is_running=lambda: True))
-    monkeypatch.setattr(chatbot, "make_sender", lambda lp, turn=None: sent.append)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(panels, "session", Session(websocket=object()))
+    monkeypatch.setattr(panels, "_loop", SimpleNamespace(is_running=lambda: True))
+    monkeypatch.setattr(panels, "make_sender", lambda lp, turn=None: sent.append)
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
     monkeypatch.setattr(services, "llm_ok", lambda: True)
     monkeypatch.setattr("ingest.pipeline.ingest_note", lambda text, hint="": {"path": "sources/x", "raw": "raw/x"})
     args = '{"kind": "note", "ref": "buy milk"}'

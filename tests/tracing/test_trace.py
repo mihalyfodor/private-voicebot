@@ -10,6 +10,9 @@ import numpy as np
 import pytest
 
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech
 import llm
 from agent import conversation
 from agent import turn as a_turn
@@ -27,13 +30,13 @@ REPLY = f"[neutral] The {SENTINEL} plans look fine to me."
 
 
 def _typed(turn: int, text: str, client):
-    with patch.object(core_llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", client), patch.object(speech, "synthesize", fake_tts):
         return run_turn(chatbot.handle_text, Session(), turn, text)
 
 
 def _spoken(turn: int, text: str, client):
-    with patch.object(core_llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts), \
-            patch.object(chatbot, "asr", fake_asr(text)):
+    with patch.object(core_llm, "_client", client), patch.object(speech, "synthesize", fake_tts), \
+            patch.object(server_turns, "asr", fake_asr(text)):
         return run_turn(chatbot.handle_utterance, Session(), turn, np.zeros(10, dtype=np.float32))
 
 
@@ -271,7 +274,7 @@ def test_an_asr_failure_is_an_error_event_and_an_error_message(vault, prod_profi
     def broken(audio, prompt=None):
         raise RuntimeError(f"asr down {SENTINEL}")
 
-    with patch.object(chatbot, "asr", SimpleNamespace(transcribe=broken)):
+    with patch.object(server_turns, "asr", SimpleNamespace(transcribe=broken)):
         sent = run_turn(chatbot.handle_utterance, Session(), 6, np.zeros(10, dtype=np.float32))
     (err,) = trace_lines(kind="error")
     assert err["scope"] == "turn" and err["where"] == "asr" and err["exc_type"] == "RuntimeError"
@@ -285,8 +288,8 @@ def test_a_failed_background_memory_save_is_a_non_fatal_error_event(vault, prod_
         raise RuntimeError(f"model down {SENTINEL}")
 
     monkeypatch.setattr(conversation, "save_memory", broken)
-    monkeypatch.setattr(chatbot, "_push_saving", lambda on: None)
-    monkeypatch.setattr(chatbot, "push_memory", lambda **k: None)
+    monkeypatch.setattr(panels, "_push_saving", lambda on: None)
+    monkeypatch.setattr(panels, "push_memory", lambda **k: None)
     chatbot._periodic_memory(3)
     (err,) = trace_lines(kind="error")
     assert err["where"] == "memory_save" and err["fatal_for"] == "none" and err["exc_type"] == "RuntimeError"

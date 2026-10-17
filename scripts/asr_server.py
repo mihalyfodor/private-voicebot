@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import soundfile as sf
 from fastapi import FastAPI, HTTPException, Request
 
-import asr
+from server import asr
 
 app = FastAPI()
 

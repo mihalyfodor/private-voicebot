@@ -23,6 +23,9 @@ from fastapi.testclient import TestClient
 
 import avatars
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech as s_speech
 from vault import index_db
 import llm
 from agent import recall as a_recall
@@ -115,14 +118,14 @@ def reset_chatbot_session():
 
     Also waits for the turn worker to drain so a slow turn cannot bleed into the next test.
     """
-    chatbot.session = None
-    chatbot.greeted = True  # tests that want the greeting turn set this back to False
+    panels.session = None
+    panels.greeted = True  # tests that want the greeting turn set this back to False
     # The turn counter drives the periodic memory save; zero it so one test's turns cannot
     # push an unexpected `memory` snapshot into the next test's socket.
     chatbot.controller.completed = 0
     yield
     chatbot.controller.join_idle(timeout=5)
-    chatbot.session = None
+    panels.session = None
 
 
 @pytest.fixture(autouse=True)
@@ -305,7 +308,7 @@ class Panel:
 @pytest.fixture
 def panel():
     """A connected memory panel — the websocket the editor tests drive."""
-    chatbot.greeted = True
+    panels.greeted = True
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         yield Panel(ws)
@@ -524,9 +527,9 @@ def run_turn(fn, *args, via: str = "make_sender") -> list:
         sent.append(msg)
 
     if via == "send":
-        capture = patch.object(chatbot, "send", fake_send)
+        capture = patch.object(panels, "send", fake_send)
     else:
-        capture = patch.object(chatbot, "make_sender", lambda lp, turn=None: sent.append)
+        capture = patch.object(panels, "make_sender", lambda lp, turn=None: sent.append)
     with capture:
         loop = asyncio.new_event_loop()
         thread = threading.Thread(target=loop.run_forever, daemon=True)
@@ -544,7 +547,7 @@ def typed(text: str, reply: str = "[neutral] Sure.") -> tuple:
     from unittest.mock import patch
     from session import Session
     fake = StreamClient(reply)
-    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, text)
     return sent, fake
 
@@ -555,8 +558,8 @@ def spoken(text: str, reply: str = "[neutral] Sure.") -> tuple:
     import numpy as np
     from session import Session
     fake = StreamClient(reply)
-    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts), \
-            patch.object(chatbot, "asr", fake_asr(text)):
+    with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts), \
+            patch.object(server_turns, "asr", fake_asr(text)):
         sent = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
     return sent, fake
 
@@ -837,7 +840,7 @@ def briefing_run(monkeypatch, reply: str = "[happy] One new page, the bold plan.
         for n in (1, 2):
             wiki._log([f"lint: {n} finding"])
             wiki._commit("wiki: lint")
-    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(s_speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "what's new?")
     (start,) = trace_lines(kind="turn_start")
     cards = [m for m in sent if m["type"] == "card"]
@@ -867,8 +870,8 @@ def session_turn(sess, turn: int, text: str, origin: str = "typed", reply: str =
     approval's question and its answer are two turns of one session. The model is up and answers `reply`."""
     import numpy as np
     import services
-    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(chatbot, "synthesize", fake_tts), \
-            patch.object(services, "llm_ok", lambda: True), patch.object(chatbot, "asr", fake_asr(text)):
+    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(s_speech, "synthesize", fake_tts), \
+            patch.object(services, "llm_ok", lambda: True), patch.object(server_turns, "asr", fake_asr(text)):
         if origin == "typed":
             return run_turn(chatbot.handle_text, sess, turn, text)
         return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32))
@@ -877,7 +880,7 @@ def session_turn(sess, turn: int, text: str, origin: str = "typed", reply: str =
 def button_turn(fn, sess, turn: int, *args) -> list:
     """A queued turn function (`resolve_turn`, `propose_turn`) run as the TurnController runs it: inside
     its own `trace.turn`, with the fake TTS."""
-    with patch.object(chatbot, "synthesize", fake_tts), trace.turn(turn):
+    with patch.object(s_speech, "synthesize", fake_tts), trace.turn(turn):
         return run_turn(fn, sess, turn, *args)
 
 
@@ -930,8 +933,8 @@ def research_turn(text: str, *replies, origin: str = "typed", sess=None, turn: i
     import services
     from session import Session
     sess = sess or Session()
-    with fake_model(*replies) as fake, patch.object(chatbot, "synthesize", fake_tts), \
-            patch.object(services, "llm_ok", lambda: True), patch.object(chatbot, "asr", fake_asr(text)):
+    with fake_model(*replies) as fake, patch.object(s_speech, "synthesize", fake_tts), \
+            patch.object(services, "llm_ok", lambda: True), patch.object(server_turns, "asr", fake_asr(text)):
         if origin == "typed":
             return run_turn(chatbot.handle_text, sess, turn, text), fake
         return run_turn(chatbot.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32)), fake

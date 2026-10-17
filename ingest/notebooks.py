@@ -13,7 +13,7 @@ import os
 import tempfile
 
 from memory import render
-import remarkable
+from ingest import remarkable
 from core import formats
 from vault import manifest
 from ingest import pipeline

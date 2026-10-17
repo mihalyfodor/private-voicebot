@@ -11,6 +11,7 @@ import pytest
 from unittest.mock import patch
 
 import chatbot
+from server import turns
 import memory
 import sources
 import wiki
@@ -159,7 +160,7 @@ def test_forget_source_proposes_and_changes_nothing(inbox):
     """PRD 52: the action no longer deletes; it starts the approval (a turn) — nothing to confirm."""
     panel, filed = inbox
     sha = _sha(filed)
-    with patch.object(chatbot, "propose_turn") as propose:
+    with patch.object(turns, "propose_turn") as propose:
         panel.ws.send_json({"action": "forget_source", "sha": sha})
         panel.send({"action": "get_sources"})            # the action has been handled by now
         chatbot.controller.join_idle()

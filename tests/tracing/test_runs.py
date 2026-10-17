@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 import batch_import
 import chatbot
+from server import speech
 import llm
 from agent import conversation
 from agent import written
@@ -62,7 +63,7 @@ def test_a_briefing_is_a_run_with_three_steps_and_a_run_card(vault, monkeypatch)
 
 
 def test_a_chit_chat_turn_emits_no_run_event(vault):
-    with patch.object(core_llm, "_client", FakeClient("[happy] Hi!")), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", FakeClient("[happy] Hi!")), patch.object(speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "hello there")
     assert trace_lines(kind="run") == [] and trace_lines(kind="step") == []
     assert not [m for m in sent if m["type"] in ("card", "card_update")]
@@ -106,7 +107,7 @@ def _grounded_context():
 def test_a_write_up_whose_completion_raises_updates_its_card_to_failed(vault, prod_profile):
     _grounded_context()
     with patch.object(core_llm, "_client", FakeClient(RuntimeError(f"model died {SENTINEL}"))), \
-            patch.object(chatbot, "synthesize", fake_tts):
+            patch.object(speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "write it up")
     types = [m["type"] for m in sent]
     assert types.index("card") < types.index("card_update")
@@ -126,7 +127,7 @@ def test_a_write_up_whose_completion_raises_updates_its_card_to_failed(vault, pr
 def test_a_write_up_that_works_sends_its_markdown_on_the_update_and_replays_done(vault):
     _grounded_context()
     reply = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="# Key\n\n## A\nx\n\n## B\ny"))])
-    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", FakeClient(reply)), patch.object(speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "write it up")
     update = next(m for m in sent if m["type"] == "card_update")
     assert update["status"] == "done" and update["markdown"].startswith("# Key")
@@ -223,7 +224,7 @@ def test_a_briefing_that_fails_while_gathering_labels_the_gather_step(vault, mon
         raise RuntimeError("git gone")
 
     monkeypatch.setattr(digest, "changes_since", boom)
-    with patch.object(core_llm, "_client", FakeClient()), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", FakeClient()), patch.object(speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.handle_text, Session(), 1, "what's new?")
     (card,) = [m for m in sent if m["type"] == "card"]
     assert card["status"] == "failed"
@@ -231,7 +232,7 @@ def test_a_briefing_that_fails_while_gathering_labels_the_gather_step(vault, mon
 
 
 def _write_up(client) -> list:
-    with patch.object(core_llm, "_client", client), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", client), patch.object(speech, "synthesize", fake_tts):
         return run_turn(chatbot.handle_text, Session(), 1, "write it up")
 
 

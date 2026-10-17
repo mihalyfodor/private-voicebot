@@ -18,6 +18,9 @@ from fastapi.testclient import TestClient
 from session import Session
 
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech as s_speech
 from tools import commands
 import llm
 import memory
@@ -52,9 +55,9 @@ def grounded_turn(origin: str = "user", reply: str = OFFER_REPLY) -> RawStreamCl
 def turn(text: str, responses: list, spoken: bool = False) -> list:
     """One typed (or spoken) turn through chatbot with the queued fake responses; the messages sent."""
     fake = RawStreamClient(responses)
-    patches = [patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts)]
+    patches = [patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts)]
     if spoken:
-        patches.append(patch.object(chatbot, "asr", fake_asr(text)))
+        patches.append(patch.object(server_turns, "asr", fake_asr(text)))
     with patches[0], patches[1]:
         if spoken:
             with patches[2]:
@@ -245,7 +248,7 @@ def card(vault, fallout):
 
 def test_save_card_files_a_note_with_provenance_in_one_commit(card):
     before = len(commits())
-    chatbot.greeted = True
+    panels.greeted = True
     with TestClient(chatbot.app).websocket_connect("/ws") as ws:
         collect(ws, "state")
         ws.send_json({"action": "save_card", "id": card["id"], "folder": "notes"})
@@ -341,7 +344,7 @@ def test_new_topic_clears_the_last_card(card):
 
 
 def test_reconnect_replays_the_card_as_a_card(card):
-    chatbot.greeted = True
+    panels.greeted = True
     with TestClient(chatbot.app).websocket_connect("/ws") as ws:
         got = collect(ws, "hands_free")
     replayed = [m for m in got if m["type"] in ("transcript", "card")]

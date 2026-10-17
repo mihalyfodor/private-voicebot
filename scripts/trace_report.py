@@ -16,7 +16,7 @@ import sys
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from runs import read  # noqa: E402 — the events reader lives with the run pages (docs/51-run-cards.md)
+from agent.runs import read  # noqa: E402 — the events reader lives with the run pages (docs/51-run-cards.md)
 
 UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 DASH = "–"

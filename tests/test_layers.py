@@ -4,16 +4,14 @@ import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LAYERS = ("core", "vault", "memory", "ingest", "tools", "agent", "server")   # bottom -> top; "root" sits above all
-SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db", "wiki"}    # root modules that only re-export a new home; app code may not import them
+SHIMS = {"tracing", "untrusted", "vault_lock", "sources", "notebooks", "batch_import", "index_db", "wiki", "llm", "chatbot", "runs", "approvals", "research", "remarkable", "avatars", "characters", "session", "services", "asr", "vad", "backdrops", "splitter", "fillers"}    # root modules that only re-export a new home; app code may not import them
 SKIP_DIRS = {"tests", "scripts", "eval", ".venv", "docs", "static", ".claude", "__pycache__", "logs", "characters"}
 
 # (importer path, imported top-level module) pairs still pointing upward. Keyed on the module, not its layer, so a
 # new upward import in the same file fails. May only shrink (docs/50-modular-layout.md).
 ALLOWED = {
-    # step 5: the moved modules still import root modules; each pair goes when its target moves (remarkable 11)
-    ("ingest/notebooks.py", "remarkable"),
-    # steps 6-8: vault/ modules still import memory (a layer above them: tokens_est, _today_iso, user-page guards; the
-    # step 12 cleanup moves those helpers down) and llm (steps 9-10)
+    # vault/ modules still import memory (a layer above them: tokens_est, _today_iso, user-page guards); step 12 moves
+    # those helpers down
     ("vault/store.py", "memory"),
     ("vault/index.py", "memory"),
     ("vault/pages.py", "memory"),
@@ -22,13 +20,6 @@ ALLOWED = {
     ("vault/ingest.py", "memory"),
     ("vault/bridge.py", "memory"),
     ("vault/focus.py", "agent"),     # step 12: `tools_registered` reads the live agent.prompt.TOOLS list (the eval harness empties it)
-    # steps 9-10: agent/ still imports avatars (root, no step moves it: the prompt and the persona swap read the current
-    # avatar) and splitter (step 11 moves it to server/, so `EMOTIONS` / `strip_tag` must go down first)
-    ("agent/prompt.py", "avatars"),
-    ("agent/prompt.py", "splitter"),
-    ("agent/conversation.py", "avatars"),
-    ("agent/conversation.py", "splitter"),
-    ("agent/written.py", "splitter"),
     # step 7: vault code reading ingest's source pages / the batch guard (the PRD's expected vault -> ingest pairs)
     ("vault/chunks.py", "ingest"),
     ("vault/digest.py", "ingest"),

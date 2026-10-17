@@ -8,7 +8,8 @@ import chatbot
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 DOC = open(os.path.join(ROOT, "docs/protocol.md")).read()
-SERVER = open(os.path.join(ROOT, "chatbot.py")).read()
+SERVER = "".join(open(os.path.join(d, f)).read() for d, _, fs in sorted(os.walk(os.path.join(ROOT, "server")))
+                 for f in sorted(fs) if f.endswith(".py"))
 CLIENT = open(os.path.join(ROOT, "static/app.js")).read()
 
 
@@ -23,7 +24,7 @@ def test_every_action_is_documented():
 
 def test_every_server_message_type_is_documented():
     sent = set(re.findall(r'"type": "([a-z_]+)"', SERVER))
-    assert sent, "no message literals found in chatbot.py"
+    assert sent, "no message literals found in server/"
     missing = sorted(t for t in sent if not documented(t))
     assert missing == [], f"message types missing from docs/protocol.md: {missing}"
 

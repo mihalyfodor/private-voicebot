@@ -31,7 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 # WIKI_PATH names — before a Sandbox swaps the path. Point it at a path that does not exist first.
 os.environ["WIKI_PATH"] = os.path.join(tempfile.gettempdir(), f"voicebot-eval-{os.getpid()}", "no-vault")
 
-import avatars  # noqa: E402
+from core import avatars  # noqa: E402
 from vault import index_db
 from agent import conversation as a_conversation
 from agent import turn as a_turn
@@ -43,7 +43,7 @@ from ingest import pipeline  # noqa: E402
 from core import settings, trace  # noqa: E402
 from vault import lint
 from vault import store
-from splitter import strip_tag  # noqa: E402
+from core.emotions import strip_tag  # noqa: E402
 
 CATEGORIES = (
     "single-hop",

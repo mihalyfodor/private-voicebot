@@ -86,7 +86,8 @@ def test_set_verbosity_persists_and_rebuilds_prompt():
 def test_ws_set_verbosity_broadcasts(monkeypatch):
     from fastapi.testclient import TestClient
     import chatbot
-    chatbot.greeted = True
+    from server import panels
+    panels.greeted = True
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()  # hands_free

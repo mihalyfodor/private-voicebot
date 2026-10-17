@@ -2,10 +2,10 @@
 import re
 from agent import fold
 from memory import identity
-import avatars
+from core import avatars
 from core import trace
 from core import llm as core_llm
-from splitter import strip_tag
+from core.emotions import strip_tag
 from agent import context as a_context
 from agent import prompt as a_prompt
 from agent import recall as a_recall

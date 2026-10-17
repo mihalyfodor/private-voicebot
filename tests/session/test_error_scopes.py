@@ -5,6 +5,7 @@ The server half drives one action per scope through the Panel fixture (which its
 scope on every `error` it sees); the client half asserts on tests/app_fixture.mjs.
 """
 import chatbot
+from server.actions import memory as s_memory
 from tests.conftest import Blocker
 
 
@@ -37,7 +38,7 @@ def test_intake_scope(panel, monkeypatch):
     """An exception inside "Re-ingest last session" is the intake slot's, tagged with its action."""
     def boom():
         raise RuntimeError("oMLX is down")
-    monkeypatch.setattr(chatbot, "_ingest_now", boom)
+    monkeypatch.setattr(s_memory, "_ingest_now", boom)
     reply = panel.send({"action": "wiki_ingest"})
     assert reply == {"type": "error", "scope": "intake", "text": "Something went wrong (RuntimeError).", "action": "wiki_ingest"}
 

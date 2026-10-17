@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 import chatbot
+from server import panels
+from server import speech as s_speech
 import llm
 from agent import conversation
 from session import Session
@@ -48,12 +50,12 @@ def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
         def __getattr__(self, name):
             raise AssertionError("LLM should not be called during greet()")
 
-    monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(s_speech, "AVATAR", FAKE_AVATAR)
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
     monkeypatch.setattr(core_llm, "_client", BoomClient())
 
     sent = []
-    monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: sent.append)
+    monkeypatch.setattr(panels, "make_sender", lambda loop, turn=None: sent.append)
 
     sess = Session(websocket=None)  # no socket → no playback wait
     chatbot.greet(sess, sess.next_turn(), SimpleNamespace())
@@ -68,8 +70,8 @@ def test_greet_does_not_call_llm_and_records_greeting(monkeypatch):
 def test_greet_messages_carry_the_turn_id(monkeypatch):
     """Every state/speech/speech_end/assistant-transcript message is tagged with its turn."""
     llm.reset()
-    monkeypatch.setattr(chatbot, "AVATAR", FAKE_AVATAR)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(s_speech, "AVATAR", FAKE_AVATAR)
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
 
     sess = Session(websocket=None)
     sent = run_turn(chatbot.greet, sess, sess.next_turn(), via="send")
@@ -89,7 +91,7 @@ def test_reload_characters_ws_action(monkeypatch):
     monkeypatch.setattr(avatars, "reload", lambda: fake_profile)
     monkeypatch.setattr(avatars, "set_current", lambda key: fake_profile)
     monkeypatch.setattr(conversation, "set_avatar", lambda: None)
-    monkeypatch.setattr(chatbot, "_filler_wavs", {})
+    monkeypatch.setattr(s_speech, "_filler_wavs", {})
 
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:

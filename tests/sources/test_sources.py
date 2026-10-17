@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 import batch_import
 import chatbot
+from server import panels
 import memory
 import notebooks
 import sources
@@ -357,7 +358,7 @@ def test_raw_files_are_never_listed_as_pages(vault, fake, monkeypatch):
 @pytest.fixture
 def http(vault, memory_sandbox, fake):
     """A TestClient with an open panel websocket, so `wiki` pushes can be observed."""
-    chatbot.greeted = True
+    panels.greeted = True
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         yield client, ws

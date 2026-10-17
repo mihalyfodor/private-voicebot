@@ -6,7 +6,7 @@ from core import llm as core_llm
 from vault import chunks as v_chunks
 from vault import digest as v_digest
 from vault import focus as v_focus
-from splitter import strip_tag
+from core.emotions import strip_tag
 from core.untrusted import untrusted
 from agent import offers
 from agent import prompt as a_prompt

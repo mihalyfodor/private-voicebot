@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 
 import asr
 import chatbot
+from server import turns as server_turns
 from agent import turn as a_turn
 import services
 from tests.conftest import spoken, typed
@@ -193,7 +194,7 @@ def test_a_failed_completion_asks_for_an_immediate_reprobe():
 
 
 def test_a_failed_remote_asr_call_asks_for_an_immediate_reprobe():
-    with patch.object(chatbot, "asr", SimpleNamespace(transcribe=lambda a, prompt=None: "", last_error="down")):
+    with patch.object(server_turns, "asr", SimpleNamespace(transcribe=lambda a, prompt=None: "", last_error="down")):
         from tests.conftest import run_turn
         from session import Session
         import numpy as np

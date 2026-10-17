@@ -2,6 +2,7 @@
 from unittest.mock import patch
 
 import chatbot
+from server import speech
 import memory
 import sources
 from core import llm as core_llm
@@ -30,7 +31,7 @@ def test_an_ingest_a_memory_save_and_a_typed_turn_share_one_fake(vault):
     with fake_model(summary_json("Falcon"), "[]",            # ingest: summary, page ops
                     "[]", "[]",                              # memory save: profile ops, wiki page ops
                     "[neutral] Sure.") as fake, \
-            patch.object(chatbot, "synthesize", fake_tts):   # the typed turn's streamed reply
+            patch.object(speech, "synthesize", fake_tts):   # the typed turn's streamed reply
         filed = sources.ingest_note("Falcon is amber.")
         assert memory.save([{"role": "user", "content": "Anna is a colleague"}]) == []
         sent = run_turn(chatbot.handle_text, Session(), 1, "hi")

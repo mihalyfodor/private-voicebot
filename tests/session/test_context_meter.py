@@ -13,6 +13,9 @@ from fastapi.testclient import TestClient
 from tools import commands, registry
 
 import chatbot
+from server import turns as server_turns
+from server import panels
+from server import speech as s_speech
 import llm
 from agent import conversation
 from agent import context as a_context
@@ -177,7 +180,7 @@ def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memor
     assert "new_topic" in chatbot.ACTIONS
     three_turns()
     with patch.object(core_llm, "_client", FakeClient("[neutral] Falcon and the deploy.")), \
-            patch.object(chatbot, "synthesize", fake_tts):
+            patch.object(s_speech, "synthesize", fake_tts):
         sent = run_turn(chatbot.new_topic_turn, Session(), 1)
     kinds = [m["type"] for m in sent]
     assert kinds.index("thread") < kinds.index("speech") < kinds.index("context")
@@ -191,7 +194,7 @@ def test_new_topic_action_sends_thread_then_context(seeded_vault, recorded_memor
 def new_topic_turn_via(fn, *args) -> tuple:
     """A typed / spoken turn whose model call is the (non-streamed) summary: (sent, fake)."""
     fake = FakeClient("[neutral] Falcon and the deploy.")
-    with patch.object(core_llm, "_client", fake), patch.object(chatbot, "synthesize", fake_tts):
+    with patch.object(core_llm, "_client", fake), patch.object(s_speech, "synthesize", fake_tts):
         sent = run_turn(fn, Session(), 1, *args)
     return sent, fake
 
@@ -208,7 +211,7 @@ def test_typed_new_topic_and_slash_new_take_the_new_topic_path(seeded_vault, rec
 
 def test_spoken_new_topic_takes_the_new_topic_path(seeded_vault, recorded_memory):
     three_turns()
-    with patch.object(chatbot, "asr", fake_asr("new topic")):
+    with patch.object(server_turns, "asr", fake_asr("new topic")):
         sent, fake = new_topic_turn_via(chatbot.handle_utterance, np.zeros(10, dtype=np.float32))
     assert {"type": "transcript", "role": "user", "text": "new topic"} in sent
     assert {"type": "thread", "text": "Falcon and the deploy."} in sent
@@ -258,7 +261,7 @@ def test_reconnect_replays_the_stripped_conversation_not_the_session_turns(seede
     assert llm.get_session_turns() == [{"role": "user", "content": "one more question then"},
                                        {"role": "assistant", "content": "[neutral] Sure thing."}]
 
-    monkeypatch.setattr(chatbot, "greeted", True)
+    monkeypatch.setattr(panels, "greeted", True)
     with TestClient(chatbot.app).websocket_connect("/ws") as ws:
         got = []
         while True:

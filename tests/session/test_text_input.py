@@ -10,6 +10,8 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 import chatbot
+from server import turns as server_turns
+from server import speech as s_speech
 import llm
 from agent import turn as a_turn
 from session import Session
@@ -32,8 +34,8 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
         yield ("delta", "[happy] Answer.")
 
     monkeypatch.setattr(a_turn, "ask_events", fake_ask_events)
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
-    monkeypatch.setattr(chatbot, "asr", fake_asr("hello there"))
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
+    monkeypatch.setattr(server_turns, "asr", fake_asr("hello there"))
 
     spoken = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
     typed = run_turn(chatbot.handle_text, Session(), 1, "hello there")
@@ -49,7 +51,7 @@ def test_typed_turn_produces_the_same_events_as_a_spoken_one(monkeypatch):
 def test_text_turn_action_runs_a_turn_and_logs_it_as_typed(tmp_path, monkeypatch):
     """Scenario 1 end to end: `text_turn` → llm → a `typed` turn in the trace (PRD 49) → memory turns."""
     llm.reset()
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(s_speech, "synthesize", fake_tts)
     fake = StreamClient("[happy] Sure thing.")
 
     client = TestClient(chatbot.app)

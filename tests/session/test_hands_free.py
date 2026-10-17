@@ -5,13 +5,17 @@ from fastapi.testclient import TestClient
 
 from core import settings
 import chatbot
+from server import turns as server_turns
+from server import vad as server_vad
+from server import panels
+from server import turns
 from tests.conftest import Blocker, drain_initial, fake_asr
 
 
 @pytest.fixture(autouse=True)
 def reset_capture_state(monkeypatch):
     """hands_free is a persisted app setting (module-level); the rest lives on the session."""
-    monkeypatch.setattr(chatbot, "hands_free", False)
+    monkeypatch.setattr(panels, "hands_free", False)
     yield
 
 
@@ -61,7 +65,7 @@ def test_set_hands_free_true_persists_and_announces_and_reflects_in_config():
 
 
 def test_set_hands_free_false_sends_listening_idle(monkeypatch):
-    monkeypatch.setattr(chatbot, "hands_free", True)
+    monkeypatch.setattr(panels, "hands_free", True)
     client = TestClient(chatbot.app)
     with client.websocket_connect("/ws") as ws:
         drain_initial(ws)
@@ -71,11 +75,11 @@ def test_set_hands_free_false_sends_listening_idle(monkeypatch):
 
 
 def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
-    monkeypatch.setattr(chatbot, "hands_free", True)
-    monkeypatch.setattr(chatbot.vad, "Endpointer", FakeEndpointer)
-    monkeypatch.setattr(chatbot, "asr", fake_asr("hello there"))
+    monkeypatch.setattr(panels, "hands_free", True)
+    monkeypatch.setattr(server_vad, "Endpointer", FakeEndpointer)
+    monkeypatch.setattr(server_turns, "asr", fake_asr("hello there"))
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond",
+    monkeypatch.setattr(turns, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append((turn, text)))
 
     client = TestClient(chatbot.app)
@@ -100,12 +104,12 @@ def test_hands_free_binary_frames_drive_listening_and_utterance(monkeypatch):
 
 def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
     """Scenario 2: the endpointer is gated synchronously in the frame handler."""
-    monkeypatch.setattr(chatbot, "hands_free", True)
+    monkeypatch.setattr(panels, "hands_free", True)
     fake = FakeEndpointer()
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond",
+    monkeypatch.setattr(turns, "respond",
                         lambda sess, turn, text, send_sync: respond_calls.append(text))
-    monkeypatch.setattr(chatbot, "asr", fake_asr("should not run"))
+    monkeypatch.setattr(server_turns, "asr", fake_asr("should not run"))
 
     blocker = Blocker()
     client = TestClient(chatbot.app)
@@ -128,9 +132,9 @@ def test_hands_free_frames_gated_while_a_turn_runs(monkeypatch):
 
 def test_text_turn_runs_while_hands_free_is_on(monkeypatch):
     """PRD 24: typing works whatever the mic is doing — it is just another queued turn."""
-    monkeypatch.setattr(chatbot, "hands_free", True)
+    monkeypatch.setattr(panels, "hands_free", True)
     respond_calls = []
-    monkeypatch.setattr(chatbot, "respond",
+    monkeypatch.setattr(turns, "respond",
                         lambda sess, turn, text, send_sync, origin="user": respond_calls.append((text, origin)))
 
     client = TestClient(chatbot.app)

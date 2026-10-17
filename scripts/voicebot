@@ -43,7 +43,7 @@ OMLX_API_KEY=${OMLX_API_KEY:-}
 VOICEBOT_PY=${VOICEBOT_PY:-$ROOT/.venv/bin/python}
 if [ -z "${OMLX_ADMIN_PASSWORD:-}" ] && [ -x "$VOICEBOT_PY" ]; then
   # the same resolver the server uses (env first, then settings.json); quiet when it fails
-  OMLX_ADMIN_PASSWORD=$(cd "$ROOT" && "$VOICEBOT_PY" -m services --admin-password 2>/dev/null || true)
+  OMLX_ADMIN_PASSWORD=$(cd "$ROOT" && "$VOICEBOT_PY" -m server.services --admin-password 2>/dev/null || true)
 fi
 OMLX_ADMIN_PASSWORD=${OMLX_ADMIN_PASSWORD:-}
 ASR_URL=${ASR_URL:-http://127.0.0.1:8020}

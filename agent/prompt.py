@@ -2,11 +2,11 @@
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-import avatars
+from core import avatars
 from core import settings
 from core import trace
 from vault import focus as v_focus
-from splitter import EMOTIONS
+from core.emotions import EMOTIONS
 from tools import registry
 from tools import weather as _weather
 from core.untrusted import DOCUMENT_RULE

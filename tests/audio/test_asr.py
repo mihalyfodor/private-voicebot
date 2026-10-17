@@ -99,13 +99,15 @@ def test_transcribe_without_a_prompt_sends_no_initial_prompt(monkeypatch):
 
 def test_the_chat_path_hands_the_profile_names_to_the_asr(monkeypatch, memory_sandbox):
     import chatbot
+    from server import turns as server_turns
+    from server import panels
     import memory
 
     memory._write_profile(memory._normalise(
         {"identity": {"name": "Mihaly Fodor", "aliases": ["Misi"]}}))
     prompts = []
-    monkeypatch.setattr(chatbot, "asr", fake_asr(prompts=prompts))
-    monkeypatch.setattr(chatbot, "make_sender", lambda loop, turn=None: lambda msg: None)
+    monkeypatch.setattr(server_turns, "asr", fake_asr(prompts=prompts))
+    monkeypatch.setattr(panels, "make_sender", lambda loop, turn=None: lambda msg: None)
     chatbot.handle_utterance(SimpleNamespace(), 1, np.zeros(16000, dtype=np.float32), None)
     assert prompts == ["Names: Mihaly Fodor, Misi."]
 
@@ -164,6 +166,7 @@ def test_remote_backend_posts_wav_and_returns_the_same_shape(monkeypatch):
 
 def test_remote_backend_down_is_an_error_string_not_an_exception(monkeypatch, capsys):
     import chatbot
+    from server import speech
     from session import Session
     from tests.conftest import fake_tts, run_turn
 
@@ -176,7 +179,7 @@ def test_remote_backend_down_is_an_error_string_not_an_exception(monkeypatch, ca
     assert asr.transcribe(audio) == ""
     assert any(line.startswith("[ASR] ASR service") for line in capsys.readouterr().out.splitlines())
 
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(speech, "synthesize", fake_tts)
     sent = run_turn(chatbot.handle_utterance, Session(), 1, np.zeros(10, dtype=np.float32))
     assert [m["value"] for m in sent if m["type"] == "state"] == ["processing", "idle"]
     assert not [m for m in sent if m["type"] in ("transcript", "error")]

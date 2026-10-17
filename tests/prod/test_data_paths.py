@@ -7,6 +7,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import chatbot
+from server import speech
 import llm
 import memory
 from core import llm as core_llm
@@ -42,7 +43,7 @@ def test_every_state_path_follows_its_env_knob(tmp_path):
 def test_a_turn_a_memory_save_and_a_wiki_op_write_only_under_the_sandbox(tmp_path, monkeypatch):
     root_before = set(os.listdir(ROOT))
     llm.reset()
-    monkeypatch.setattr(chatbot, "synthesize", fake_tts)
+    monkeypatch.setattr(speech, "synthesize", fake_tts)
     fake = StreamClient("[happy] Sure thing.")
 
     client = TestClient(chatbot.app)
