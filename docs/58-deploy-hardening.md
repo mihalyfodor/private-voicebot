@@ -1,4 +1,4 @@
-Status: exploration
+Status: implementation
 
 # 58 — Deploy hardening: a status that tells the truth, backups that include memory, a headless typed turn
 
