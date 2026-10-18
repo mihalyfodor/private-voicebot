@@ -64,3 +64,17 @@ def test_client_routes_on_scope_not_view(r):
     assert r["error_wiki_while_on_memory"] == {"memory": "", "wiki": "bad path raw/x", "status": ""}
     assert r["error_memory_slot"] == "Wait until the reply finishes."
     assert r["error_settings_status"] == {"status": "unknown setting", "wiki": "bad path raw/x"}
+
+
+def test_unknown_action_gets_error_and_trace_event(panel, monkeypatch):
+    """PRD 58: a frame naming no known action answers instead of vanishing; the socket stays usable."""
+    seen = []
+    monkeypatch.setattr(ws.trace, "error", lambda *a, **k: seen.append((a, k)))
+    panel.ws.send_text('{"type": "text_turn"}')
+    reply = panel.ws.receive_json()
+    while reply["type"] != "error":
+        reply = panel.ws.receive_json()
+    assert reply == {"type": "error", "scope": "settings", "text": "unknown action None"}
+    assert "unknown action None" in str(seen[0][0][2])
+    ok = panel.send({"action": "set_verbosity", "value": "bogus"})
+    assert ok["type"] == "error" and ok["scope"] == "settings"

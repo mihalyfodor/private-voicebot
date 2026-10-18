@@ -143,9 +143,9 @@ only". File:line list is in PRD 49 §Out of scope. Effort S–M.
 
 ## 8. First prod setup (the user's)
 
-Done 2026-10-17 (image voicebot:d7b9c73, redeployed as voicebot:ad33ad4 the same day); redeployed 2026-10-18 as voicebot:6ac666e (PRDs 56 + 57); the backup launchd job is not yet loaded. Before: `~/.voicebot` did not exist and everything ran as the dev process on :8011. Data folder renamed to ~/.voicebot/data 2026-10-17. Steps in docs/deploy.md:
-ASR plist → `scripts/prod.sh migrate` (moves the real vault) → build → up; then the backup plist. Do this after PRD 49
-so prod starts with the prod trace profile from day one.
+Done 2026-10-17 (image voicebot:d7b9c73, redeployed as voicebot:ad33ad4 the same day); redeployed 2026-10-18 as voicebot:6ac666e (PRDs 56 + 57). Before: `~/.voicebot` did not exist and everything ran as the dev process on :8011. Data folder renamed to ~/.voicebot/data 2026-10-17. Steps in docs/deploy.md.
+
+USER TODO: the backup launchd agent is not loaded (`scripts/install_launchd.sh backup`); until then backups are hand-run (`scripts/prod.sh backup`, also part of `deploy`). Decided 2026-10-18: not now.
 
 ## 9. PRD 50 — Modular layout (done 2026-10-17)
 

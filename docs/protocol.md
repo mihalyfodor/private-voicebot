@@ -13,7 +13,7 @@ fails when either side names something this file does not.
 
 ## Client → server (`{"action": ...}`)
 
-Unknown actions are ignored. An exception inside a handler comes back as `error` (scope from the
+An unknown action (or a frame with no `action`) answers `error` (settings, `action` = what was sent) and a trace error event; the socket stays open. An exception inside a handler comes back as `error` (scope from the
 action name, plus `action`).
 
 | action | fields | replies |

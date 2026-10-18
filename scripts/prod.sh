@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Prod lifecycle (docs/40-docker-prod.md, docs/deploy.md):
 #   prod.sh build | up | down | logs | status | migrate | backup | restore <archive> <bundle> <dir> | start | stop
+#           | turn [text] | deploy
+# up waits for the healthcheck; status waits up to 60 s and prints version/busy from /api/config;
+# turn sends one typed turn (scripts/turn.py); deploy = backup, build, idle check, down, up, version check, trace errors (PRD 58).
 # Env: DATA (default ~/.voicebot/data), TAG (image tag; default latest), PROD_PORT (default 8010),
 #      PROJECT (compose project; default voicebot), BACKUP_DIR (default ~/.voicebot/backups),
-#      KEEP (backups kept, 7), MIN_FREE_MB (2048), MAX_TOTAL_MB (5120), FORCE=1 (back up even if the vault head is unchanged).
+#      KEEP (backups kept, 7), MIN_FREE_MB (2048), MAX_TOTAL_MB (5120), FORCE=1 (back up even if vault head + memory/settings are unchanged).
 # start/stop delegate to scripts/voicebot (docs/41-service-health.md), which also brings up oMLX/ASR/colima.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,13 +41,55 @@ cmd_build() {
 cmd_up() {
   [ -f "$DATA/.env" ] || { echo "$DATA/.env missing — run prod.sh migrate first" >&2; exit 1; }
   mkdir -p "$DATA/memory" "$DATA/secrets" "$DATA/logs"
-  compose up -d
+  compose up -d --wait --wait-timeout 150 || { compose ps >&2; exit 1; }
   echo "http://localhost:$PROD_PORT"
 }
 
+warn_if_agent_missing() {  # a warning, never a failure; skipped off-mac and under launchd itself
+  if command -v launchctl > /dev/null 2>&1 && [ -z "${XPC_SERVICE_NAME:-}" ]; then
+    launchctl list com.voicebot.backup > /dev/null 2>&1 || echo "warning: backup agent not loaded — scripts/install_launchd.sh backup" >&2
+  fi
+  return 0
+}
+
 cmd_status() {
+  local json
   compose ps
-  curl -fsS "http://127.0.0.1:$PROD_PORT/api/config" && echo
+  warn_if_agent_missing
+  wait_for "http://127.0.0.1:$PROD_PORT/api/config" 60
+  json=$(curl -fsS "http://127.0.0.1:$PROD_PORT/api/config")
+  echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("version=%s busy=%s" % (d.get("version"), str(d.get("busy")).lower()))'
+  echo "$json"
+}
+
+# Mechanical part of the deploy checklist (docs/deploy.md). Each step runs in a fresh bash so its own exit/set -e hold.
+deploy_fail() { echo "deploy: FAILED at step: $1" >&2; exit 1; }
+deploy_step() { echo "deploy: $1"; }
+cmd_deploy() {
+  local tag json busy version self=(env "TAG=$TAG_ARG" bash "$0")
+  deploy_step "check git"
+  [ -z "$(git -C "$ROOT" status --porcelain)" ] || deploy_fail "git tree is dirty"
+  [ "$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)" = main ] || deploy_fail "not on branch main"
+  deploy_step "backup"
+  FORCE=1 "${self[@]}" backup || deploy_fail backup
+  deploy_step "build"
+  tag=${TAG_ARG:-$(git -C "$ROOT" describe --always --dirty)}
+  case $tag in *-dirty*) deploy_fail "build (dirty tag $tag)" ;; esac
+  "${self[@]}" build || deploy_fail build
+  deploy_step "idle check"
+  json=$(curl -fsS "http://127.0.0.1:$PROD_PORT/api/config" 2> /dev/null || true)
+  busy=$(echo "$json" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("busy", False)).lower())' 2> /dev/null || echo false)
+  [ "$busy" != true ] || deploy_fail "idle check (a turn is in flight)"
+  deploy_step "down"
+  compose down || deploy_fail down
+  deploy_step "up"
+  "${self[@]}" up || deploy_fail up
+  deploy_step "version check"
+  version=$(curl -fsS "http://127.0.0.1:$PROD_PORT/api/config" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version"))') || deploy_fail "version check"
+  [ "$version" = "$tag" ] || deploy_fail "version check (running $version, built $tag)"
+  deploy_step "trace errors"
+  "$ROOT/.venv/bin/python" "$ROOT/scripts/trace_report.py" "$DATA/logs/events.jsonl" --since 10m --errors || deploy_fail "trace errors"
+  echo "deploy: done ($tag)"
 }
 
 # One-time: gather the checkout's state and the vault into $DATA. Refuses to overwrite anything.
@@ -68,7 +113,7 @@ cmd_migrate() {
   echo "done: $DATA"
 }
 
-# Guards live here so manual and scheduled runs share them: lock, skip when the vault head is unchanged,
+# Guards live here so manual and scheduled runs share them: lock, skip when vault head + memory/settings are unchanged,
 # rotate (leaving room for the new pair so KEEP is the total afterwards), free-space and total-size caps.
 backup_log() {  # backup_log <ok|skip|fail> <text>
   mkdir -p "$DATA/logs"
@@ -78,14 +123,16 @@ backup_log() {  # backup_log <ok|skip|fail> <text>
 backup_fail() { echo "backup: $1" >&2; backup_log fail "$1"; exit 1; }
 
 cmd_backup() {
-  local stamp head free total est pat
+  local stamp head state free total est pat
   stamp=$(date +%Y%m%d-%H%M%S)
   mkdir -p "$BACKUP_DIR"
   mkdir "$BACKUP_DIR/.lock" 2> /dev/null || backup_fail "another run holds $BACKUP_DIR/.lock"
   trap 'rmdir "$BACKUP_DIR/.lock"' EXIT
   head=$(git -C "$DATA/llm-wiki" rev-parse HEAD)
-  if [ "${FORCE:-}" != 1 ] && [ "$(cat "$BACKUP_DIR/.last-head" 2> /dev/null)" = "$head" ]; then
-    echo "backup: no new vault commit since last backup, skipping"; backup_log skip "head ${head:0:8} unchanged"; return 0
+  warn_if_agent_missing
+  state="$head $({ cat "$DATA"/memory/* "$DATA/settings.json" 2> /dev/null || true; } | shasum -a 256 | cut -d' ' -f1)"
+  if [ "${FORCE:-}" != 1 ] && [ "$(cat "$BACKUP_DIR/.last-state" 2> /dev/null)" = "$state" ]; then
+    echo "backup: nothing changed since last backup, skipping"; backup_log skip "state unchanged"; return 0
   fi
   rm -f "$BACKUP_DIR"/*.tmp   # leftovers of a killed run
   for pat in 'voicebot-data-*.tgz' 'llm-wiki-*.bundle'; do
@@ -99,7 +146,7 @@ cmd_backup() {
   git -C "$DATA/llm-wiki" bundle create "$bundle.tmp" --all
   tar czf "$tgz.tmp" -C "$DATA" --exclude='./llm-wiki/raw/.index' --exclude='./llm-wiki/.index' .
   mv "$bundle.tmp" "$bundle"; mv "$tgz.tmp" "$tgz"
-  echo "$head" > "$BACKUP_DIR/.last-head"
+  echo "$state" > "$BACKUP_DIR/.last-state"
   echo "$tgz"; echo "$bundle"
   backup_log ok "$tgz $bundle"
 }
@@ -133,5 +180,7 @@ case ${1:-} in
            cmd_restore "$2" "$3" "$4" ;;
   start)   exec "$ROOT/scripts/voicebot" start "${@:2}" ;;
   stop)    exec "$ROOT/scripts/voicebot" stop "${@:2}" ;;
-  *) echo "usage: prod.sh build|up|down|logs|status|migrate|backup|restore <archive> <bundle> <dir>|start|stop" >&2; exit 1 ;;
+  turn)    exec "$ROOT/.venv/bin/python" "$ROOT/scripts/turn.py" --port "$PROD_PORT" "${@:2}" ;;
+  deploy)  cmd_deploy ;;
+  *) echo "usage: prod.sh build|up|down|logs|status|migrate|backup|restore <archive> <bundle> <dir>|start|stop|turn [text]|deploy" >&2; exit 1 ;;
 esac

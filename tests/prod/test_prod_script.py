@@ -117,7 +117,7 @@ def test_backup_first_run_writes_archives_marker_and_log(tmp_path):
     assert out.returncode == 0, out.stderr
     assert len(_files(backups, "voicebot-data-*.tgz")) == 1
     assert len(_files(backups, "llm-wiki-*.bundle")) == 1
-    assert (backups / ".last-head").read_text().strip()
+    assert (backups / ".last-state").read_text().strip()
     assert " | ok | " in _log(data)[-1]
     assert not list(backups.glob("*.tmp"))
 
@@ -169,18 +169,110 @@ def test_backup_held_lock_exits_and_keeps_lock(tmp_path):
 
 
 @needs_git
-def test_backup_skips_unchanged_head_then_runs_after_new_commit(tmp_path):
+def test_backup_skips_when_nothing_changed_then_runs_after_new_commit(tmp_path):
     env, _, backups, vault = _seed(tmp_path)
     assert _backup(env).returncode == 0
     again = _backup(env)
     assert again.returncode == 0
     assert "skipping" in again.stdout
+    assert "state unchanged" in _log(env_data(env))[-1]
     assert len(_files(backups, "*.tgz")) == 1
     _commit(vault, "two")
     subprocess.run(["sleep", "1"])                              # names carry second-resolution stamps
     assert _backup(env).returncode == 0
     assert len(_files(backups, "*.tgz")) == 2
     assert not (backups / ".lock").exists()
+
+
+def env_data(env):
+    return __import__("pathlib").Path(env["DATA"])
+
+
+def _shim(tmp_path, **scripts):
+    """A PATH-first dir of fake executables: _shim(tmp_path, docker="exit 0")."""
+    d = tmp_path / "shims"
+    d.mkdir(exist_ok=True)
+    for name, body in scripts.items():
+        (d / name).write_text("#!/bin/bash\n" + body + "\n")
+        (d / name).chmod(0o755)
+    return str(d) + os.pathsep + os.environ["PATH"]
+
+
+@needs_git
+def test_backup_runs_when_memory_changed_with_same_head(tmp_path):
+    env, data, backups, _ = _seed(tmp_path)
+    (data / "memory").mkdir()
+    (data / "memory" / "memory.json").write_text("{}")
+    assert _backup(env).returncode == 0
+    (data / "memory" / "memory.json").write_text('{"a": 1}')
+    subprocess.run(["sleep", "1"])
+    assert _backup(env).returncode == 0
+    assert len(_files(backups, "*.tgz")) == 2
+
+
+@needs_git
+def test_backup_skips_when_nothing_changed(tmp_path):
+    env, data, backups, _ = _seed(tmp_path)
+    (data / "memory").mkdir()
+    (data / "memory" / "memory.json").write_text("{}")
+    assert _backup(env).returncode == 0
+    again = _backup(env)
+    assert again.returncode == 0 and "skipping" in again.stdout
+    assert len(_files(backups, "*.tgz")) == 1
+    assert "state unchanged" in _log(data)[-1]
+
+
+@needs_git
+def test_backup_warns_when_agent_not_loaded(tmp_path):
+    env, _, backups, _ = _seed(tmp_path)
+    env = dict(env, PATH=_shim(tmp_path, launchctl="exit 1"))
+    env.pop("XPC_SERVICE_NAME", None)
+    out = _backup(env)
+    assert out.returncode == 0, out.stderr
+    assert "backup agent not loaded" in out.stderr
+    assert len(_files(backups, "*.tgz")) == 1
+
+
+@needs_git
+def test_backup_quiet_under_launchd(tmp_path):
+    env, *_ = _seed(tmp_path)
+    env = dict(env, PATH=_shim(tmp_path, launchctl="exit 1"), XPC_SERVICE_NAME="com.voicebot.backup")
+    out = _backup(env)
+    assert out.returncode == 0, out.stderr
+    assert "warning" not in out.stderr
+
+
+def _deploy_env(tmp_path, status="", describe="abc123", branch="main", config=None):
+    env, data, backups, _ = _seed(tmp_path)
+    real_git = shutil.which("git")
+    git = (f'case "$*" in *"status --porcelain"*) printf %s "{status}";; *describe*) echo {describe};;'
+           f' *--abbrev-ref*) echo {branch};; *) exec {real_git} "$@";; esac')
+    curl = f"echo '{config}'" if config else "exit 22"
+    path = _shim(tmp_path, git=git, docker="exit 0", curl=curl, launchctl="exit 0")
+    return dict(env, PATH=path), data
+
+
+def _deploy(env):
+    return subprocess.run(["bash", PROD_SH, "deploy"], env=env, capture_output=True, text=True)
+
+
+@needs_git
+def test_deploy_refuses_dirty_tree_and_dirty_tag(tmp_path):
+    env, _ = _deploy_env(tmp_path, status=" M file")
+    out = _deploy(env)
+    assert out.returncode == 1 and "deploy:" in out.stderr and "dirty" in out.stderr
+    (tmp_path / "second").mkdir()
+    env, _ = _deploy_env(tmp_path / "second", describe="abc-dirty")
+    out = _deploy(env)
+    assert out.returncode == 1 and "deploy:" in out.stderr and "dirty tag" in out.stderr
+
+
+@needs_git
+def test_deploy_refuses_when_busy(tmp_path):
+    env, _ = _deploy_env(tmp_path, config='{"busy": true, "version": "x"}')
+    out = _deploy(env)
+    assert out.returncode == 1
+    assert "idle check" in out.stderr
 
 
 @pytest.mark.skipif(shutil.which("plutil") is None, reason="plutil is not installed")

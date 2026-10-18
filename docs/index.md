@@ -185,6 +185,7 @@ voicebot/
 │   ├── classification_rules.example.py
 │   ├── remarkable_server.py  # PRD 47b: host push service — POST /push {title, markdown|pdf} → `cupsfilter` text→PDF → tablet `POST /upload`; GET /health; 127.0.0.1:8021 (`REMARKABLE_PORT`, tablet `REMARKABLE_URL`); 400 bad input, 503 tablet unreachable
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
+│   ├── turn.py          # PRD 58: headless typed turn over the websocket (prod.sh turn): prints the assistant reply, exit 1 on error/timeout
 │   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
 │   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API (password from .env, else the one saved in Settings)
 │   ├── install_launchd.sh      # renders a launchd template (__ROOT__/__HOME__ → this checkout) into ~/Library/LaunchAgents and loads it
@@ -295,6 +296,7 @@ voicebot/
 │   │   ├── test_remarkable_sync.py     # PRD 47 scenarios 1–4: scripts/remarkable_sync.py pull against `fake_remarkable` + `fake_ingest` (conftest) — folder/notebook filter, state, nothing new, replaces, device/app down, one failure, OCR helper stub paths; skipped without pdftoppm
 │   │   ├── test_prod_script.py         # prod.sh migrate moves state into DATA (refuses twice), backup guards/rotation, plist lint, bash -n, docker compose config
 │   │   ├── test_voicebot_script.py     # PRD 41 scenario 5: scripts/voicebot against stubbed colima/omlx/launchctl/docker/curl — start touches only what is down, stop order, --all, status --dev, the Settings password used for the admin login when the env is unset
+│   │   ├── test_turn_script.py         # PRD 58: scripts/turn.py against a scripted websocket server: reply printed, error, timeout
 │   │   └── test_docker.py              # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`); PRD 41 scenario 6: the amber banner data while the host ASR service is stopped
 │   ├── eval/                 # PRD 55 retrieval bench
 │   │   └── test_retrieval_bench.py     # PRD 55 phase 1: RRF golden, the precision gate, question-set quirks, embedding cache by text, the /v1/embeddings contract (local stub server), table shape on a tiny vault with a stub embedder, embed-server-down, latency

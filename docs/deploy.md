@@ -42,13 +42,12 @@ scripts/prod.sh up                 # http://localhost:8010 (healthcheck: `docker
 ## Before a prod deploy
 
 1. On `main`, `git status` clean, `scripts/check.sh` green in this session (quote the counts); `git push origin main` (the user pushes; the AI never pushes).
-2. `scripts/prod.sh backup` (`FORCE=1` if the vault head is unchanged); confirm a new `.tgz` and `.bundle` in `BACKUP_DIR`.
-3. `launchctl list | grep voicebot` shows asr and backup (and remarkable if used).
-4. `scripts/prod.sh build`: the printed tag is the commit, not `-dirty`.
-5. Let the app finish saving memory (idle, no turn in flight), then `scripts/prod.sh down` (`stop_grace_period` 90 s covers the shutdown save).
-6. `scripts/prod.sh up && scripts/prod.sh status`: healthy, and the first `start` event in `$DATA/logs/events.jsonl` names the commit.
-7. `scripts/trace_report.py $DATA/logs/events.jsonl --since 1h --errors` exits 0 after one typed turn.
-8. Update `docs/roadmap.md` with the deployed commit.
+2. `scripts/prod.sh status` prints `version=<running commit> busy=false` and no "backup agent not loaded" warning (else `scripts/install_launchd.sh backup`, or accept hand-run backups).
+3. `scripts/prod.sh deploy` (the user runs it): backup (`FORCE=1`), build (refuses a `-dirty` tag), refuses while `busy`, `down`, `up --wait`, checks that `/api/config` `version` equals the built tag, then `trace_report.py --since 10m --errors`. Stops at the first failing step and names it.
+4. `scripts/prod.sh turn` sends one typed turn ("what time is it" unless given) and exits 0 when it completes. It lands in the real session and memory, which is why the default text is content-free.
+5. Update `docs/roadmap.md` with the deployed commit.
+
+Rollback: `TAG=<previous commit> scripts/prod.sh up` (the previous image is still on the machine; `docker images voicebot`).
 
 ## Daily
 
@@ -70,17 +69,19 @@ user to run when a service is down.
 
 | command | what it does |
 |---|---|
-| `scripts/prod.sh up` / `down` | start / stop the container (`restart: unless-stopped` survives reboots; `down` waits up to 90 s, `stop_grace_period`, so the shutdown memory save can finish) |
+| `scripts/prod.sh up` / `down` | start / stop the container; `up` returns once the healthcheck passes (up to 150 s) (`restart: unless-stopped` survives reboots; `down` waits up to 90 s, `stop_grace_period`, so the shutdown memory save can finish) |
 | `scripts/prod.sh logs` | follow the container log |
 | `scripts/trace_report.py $DATA/logs/events.jsonl --since 24h` | turns, ingests and errors from the event trace (PRD 49; `--errors` exits 1 when any) |
-| `scripts/prod.sh status` | `compose ps` + `/api/config` |
+| `scripts/prod.sh status` | `compose ps`, waits up to 60 s for the app, then `version=<commit> busy=<true/false>` + the `/api/config` JSON; warns when the backup launchd agent is not loaded |
+| `scripts/prod.sh deploy` | the mechanical part of "Before a prod deploy" in one run (backup, build, busy check, down, up, version check, error trace) |
+| `scripts/prod.sh turn [text]` | one headless typed turn over the WebSocket (`scripts/turn.py`); exit 1 on an `error` message or after 180 s |
 | `scripts/prod.sh build && scripts/prod.sh up` | roll a new `main` into prod |
-| `scripts/prod.sh backup` | `git bundle --all` of the vault + `tar.gz` of `DATA` into `~/.voicebot/backups/`; keeps the newest `KEEP` (default 7) of each; skips when the vault head is unchanged; refuses below `MIN_FREE_MB` free or above `MAX_TOTAL_MB` total; one line per run in `DATA/logs/backup.log` |
+| `scripts/prod.sh backup` | `git bundle --all` of the vault + `tar.gz` of `DATA` into `~/.voicebot/backups/`; keeps the newest `KEEP` (default 7) of each; skips when the vault head and the memory + settings contents are unchanged (`.last-state`); the tgz contains `.env` and `secrets/`, so keep backups on this machine; refuses below `MIN_FREE_MB` free or above `MAX_TOTAL_MB` total; one line per run in `DATA/logs/backup.log` |
 | `scripts/prod.sh restore <tgz> <bundle> <dir>` | untar into `<dir>`, verify the bundle, serve it from a throwaway container on `:8012`, then tear it down |
 
 Env knobs: `DATA` (default `~/.voicebot/data`), `TAG` (image tag), `PROD_PORT` (host port),
 `PROJECT` (compose project), `BACKUP_DIR`, `RESTORE_PORT`, `KEEP` (7), `MIN_FREE_MB` (2048),
-`MAX_TOTAL_MB` (5120), `FORCE=1` (back up even if the vault head is unchanged).
+`MAX_TOTAL_MB` (5120), `FORCE=1` (back up even if nothing changed).
 
 ## When something is down
 

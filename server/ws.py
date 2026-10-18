@@ -182,6 +182,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     handler = ACTIONS.get(msg.get("action"))
                     if handler:
                         await handler(sess, msg, loop)
+                    else:
+                        action = msg.get("action")
+                        trace.error("ws", "ws", ValueError(f"unknown action {action!r}"), fatal_for="none")
+                        await panels._error("settings", f"unknown action {action!r}", action=action)
             except WebSocketDisconnect:
                 raise
             except Exception as e:

@@ -91,6 +91,8 @@ async def api_config():
         # session state the UI mirrors
         "hands_free": panels.hands_free,
         "verbosity": a_prompt.current_verbosity(),
+        # what deploys check: which build is running, and whether a turn is in flight (PRD 58)
+        "version": trace._version(), "busy": panels.is_busy(),
         # read-only facts shown in the Settings view
         "stale_days": dict(m_store.STALE_DAYS),
         "calendar_horizon_days": formats.calendar_horizon_days(),

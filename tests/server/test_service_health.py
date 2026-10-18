@@ -354,3 +354,11 @@ def test_model_unload_with_omlx_down_reports_it():
     with patch.object(requests, "Session", lambda: down):
         with pytest.raises(services.AdminError, match="not answering"):
             services.model_op("unload")
+
+
+def test_api_config_has_version_and_busy(monkeypatch):
+    """PRD 58: a deploy reads which build runs and whether a turn is in flight."""
+    monkeypatch.setenv("VOICEBOT_VERSION", "t123")
+    body = TestClient(app.app).get("/api/config").json()
+    assert body["version"] == "t123"
+    assert body["busy"] is False
