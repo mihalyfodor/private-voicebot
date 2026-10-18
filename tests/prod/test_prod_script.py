@@ -226,7 +226,7 @@ def test_backup_skips_when_nothing_changed(tmp_path):
 def test_backup_warns_when_agent_not_loaded(tmp_path):
     env, _, backups, _ = _seed(tmp_path)
     env = dict(env, PATH=_shim(tmp_path, launchctl="exit 1"))
-    env.pop("XPC_SERVICE_NAME", None)
+    env["XPC_SERVICE_NAME"] = "0"   # what interactive mac shells set
     out = _backup(env)
     assert out.returncode == 0, out.stderr
     assert "backup agent not loaded" in out.stderr
@@ -273,6 +273,16 @@ def test_deploy_refuses_when_busy(tmp_path):
     out = _deploy(env)
     assert out.returncode == 1
     assert "idle check" in out.stderr
+
+
+@needs_git
+def test_deploy_continues_when_busy_key_missing(tmp_path):
+    env, data = _deploy_env(tmp_path, config='{"version":"x"}')
+    (data / ".env").write_text("")                  # lets `up` reach the version check
+    out = _deploy(env)
+    assert "busy unknown" in out.stderr
+    assert out.returncode == 1
+    assert "FAILED at step: version check" in out.stderr
 
 
 @pytest.mark.skipif(shutil.which("plutil") is None, reason="plutil is not installed")

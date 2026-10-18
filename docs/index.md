@@ -186,7 +186,7 @@ voicebot/
 │   ├── remarkable_server.py  # PRD 47b: host push service — POST /push {title, markdown|pdf} → `cupsfilter` text→PDF → tablet `POST /upload`; GET /health; 127.0.0.1:8021 (`REMARKABLE_PORT`, tablet `REMARKABLE_URL`); 400 bad input, 503 tablet unreachable
 │   ├── asr_server.py    # PRD 40: host ASR service — POST /transcribe (wav) → {text, segments}, GET /health; 127.0.0.1:8020
 │   ├── turn.py          # PRD 58: headless typed turn over the websocket (prod.sh turn): prints the assistant reply, exit 1 on error/timeout
-│   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
+│   ├── prod.sh          # PRD 40: build | up | down | logs | status | migrate | backup | restore | turn | deploy (env DATA, TAG, PROD_PORT, PROJECT); start | stop delegate to voicebot
 │   ├── voicebot         # PRD 41: start [--dev] | stop [--all] [--dev] | status [--dev] — checklist start (only what is down), stop = compose down + ASR unload + model unload via the oMLX admin API (password from .env, else the one saved in Settings)
 │   ├── install_launchd.sh      # renders a launchd template (__ROOT__/__HOME__ → this checkout) into ~/Library/LaunchAgents and loads it
 │   └── launchd/com.voicebot.asr.plist, com.voicebot.backup.plist, com.voicebot.remarkable.plist   # LaunchAgents: asr_server.py, daily prod.sh backup, remarkable_server.py
@@ -294,7 +294,7 @@ voicebot/
 │   │   ├── test_data_paths.py          # every state path follows its env knob; a turn + memory save + wiki op write only under the sandbox
 │   │   ├── test_remarkable_server.py   # PRD 47b scenarios 1–2, 5 (service half): scripts/remarkable_server.py against `fake_remarkable` (upload name/type/bytes, 150-line render, bad input 400, tablet down 503); `serve_push` helper
 │   │   ├── test_remarkable_sync.py     # PRD 47 scenarios 1–4: scripts/remarkable_sync.py pull against `fake_remarkable` + `fake_ingest` (conftest) — folder/notebook filter, state, nothing new, replaces, device/app down, one failure, OCR helper stub paths; skipped without pdftoppm
-│   │   ├── test_prod_script.py         # prod.sh migrate moves state into DATA (refuses twice), backup guards/rotation, plist lint, bash -n, docker compose config
+│   │   ├── test_prod_script.py         # prod.sh migrate moves state into DATA (refuses twice), backup guards/rotation, deploy refusals + busy handling, state marker, backup-agent warning, plist lint, bash -n, docker compose config
 │   │   ├── test_voicebot_script.py     # PRD 41 scenario 5: scripts/voicebot against stubbed colima/omlx/launchctl/docker/curl — start touches only what is down, stop order, --all, status --dev, the Settings password used for the admin login when the env is unset
 │   │   ├── test_turn_script.py         # PRD 58: scripts/turn.py against a scripted websocket server: reply printed, error, timeout
 │   │   └── test_docker.py              # scenarios 6–8 for real: build + boot (healthcheck, uid, read-only), typed/spoken turns via host oMLX/ASR, backup/restore round trip (marker `docker`); PRD 41 scenario 6: the amber banner data while the host ASR service is stopped
@@ -369,7 +369,7 @@ voicebot/
     ├── 55-hybrid-measurement.md # PRD: BM25 vs embeddings vs RRF hybrid measured on a synthetic vault; adopt only on numbers; measured, not adopted (done)
     ├── 56-session-boundaries.md # PRD: no clock in the prompt + rebuild on profile change, idle (10 min) and disconnect memory saves, new thread on the first turn of a new day, "new topic" answers before it folds (done)
     ├── 57-context-hygiene.md    # PRD: old tool results stubbed before any turn is dropped; page focus only when the question points at the page (done)
-    └── 58-deploy-hardening.md   # PRD: status/up wait for health, version + busy in /api/config, prod.sh turn, unknown ws actions answer, backups see memory, backup-agent warning, prod.sh deploy (implementation)
+    └── 58-deploy-hardening.md   # PRD: status/up wait for health, version + busy in /api/config, prod.sh turn, unknown ws actions answer, backups see memory, backup-agent warning, prod.sh deploy (done)
 ```
 
 ## Active PRDs

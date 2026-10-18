@@ -1,4 +1,4 @@
-Status: implementation
+Status: done (2026-10-18)
 
 # 58 — Deploy hardening: a status that tells the truth, backups that include memory, a headless typed turn
 
@@ -114,7 +114,7 @@ launchd agent has been missing since the first setup without anything noticing. 
 - Chose a warning for the missing agent over a hard failure: a hand-run backup must never be refused for a launchd reason.
 
 ## Risks
-- `--wait` needs Compose ≥ 2.20; the installed version is 5.6. Mitigation: `tests/prod/test_compose_file_validates` already requires a daemon; the flag is checked there.
+- `--wait` needs Compose ≥ 2.20; the installed version is 5.6. Mitigation: `tests/prod/test_compose_file_validates` already requires a daemon; Compose 5.6.0 lists `--wait` in `up --help` (checked 2026-10-18).
 - `turn` leaves a "what time is it" turn in the real session. Mitigation: documented; it is also the smallest possible turn.
 - `shasum` over `memory/*` costs nothing at this size but would need a cap if memory grew large. Accepted.
 

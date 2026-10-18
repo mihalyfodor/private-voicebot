@@ -44,7 +44,7 @@ scripts/prod.sh up                 # http://localhost:8010 (healthcheck: `docker
 1. On `main`, `git status` clean, `scripts/check.sh` green in this session (quote the counts); `git push origin main` (the user pushes; the AI never pushes).
 2. `scripts/prod.sh status` prints `version=<running commit> busy=false` and no "backup agent not loaded" warning (else `scripts/install_launchd.sh backup`, or accept hand-run backups).
 3. `scripts/prod.sh deploy` (the user runs it): backup (`FORCE=1`), build (refuses a `-dirty` tag), refuses while `busy`, `down`, `up --wait`, checks that `/api/config` `version` equals the built tag, then `trace_report.py --since 10m --errors`. Stops at the first failing step and names it.
-4. `scripts/prod.sh turn` sends one typed turn ("what time is it" unless given) and exits 0 when it completes. It lands in the real session and memory, which is why the default text is content-free.
+4. `scripts/prod.sh turn` sends one typed turn ("what time is it" unless given) and exits 0 when it completes. It lands in the real session and memory, which is why the default text is content-free. It takes over the session, so an open browser tab shows "opened in another tab — reload to use here".
 5. Update `docs/roadmap.md` with the deployed commit.
 
 Rollback: `TAG=<previous commit> scripts/prod.sh up` (the previous image is still on the machine; `docker images voicebot`).

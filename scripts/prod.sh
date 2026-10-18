@@ -45,8 +45,8 @@ cmd_up() {
   echo "http://localhost:$PROD_PORT"
 }
 
-warn_if_agent_missing() {  # a warning, never a failure; skipped off-mac and under launchd itself
-  if command -v launchctl > /dev/null 2>&1 && [ -z "${XPC_SERVICE_NAME:-}" ]; then
+warn_if_agent_missing() {  # a warning, never a failure; skipped off-mac and under the backup agent itself (interactive mac shells set XPC_SERVICE_NAME=0)
+  if command -v launchctl > /dev/null 2>&1 && [ "${XPC_SERVICE_NAME:-}" != com.voicebot.backup ]; then
     launchctl list com.voicebot.backup > /dev/null 2>&1 || echo "warning: backup agent not loaded — scripts/install_launchd.sh backup" >&2
   fi
   return 0
@@ -77,9 +77,13 @@ cmd_deploy() {
   case $tag in *-dirty*) deploy_fail "build (dirty tag $tag)" ;; esac
   "${self[@]}" build || deploy_fail build
   deploy_step "idle check"
-  json=$(curl -fsS "http://127.0.0.1:$PROD_PORT/api/config" 2> /dev/null || true)
-  busy=$(echo "$json" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("busy", False)).lower())' 2> /dev/null || echo false)
-  [ "$busy" != true ] || deploy_fail "idle check (a turn is in flight)"
+  if json=$(curl -fsS "http://127.0.0.1:$PROD_PORT/api/config" 2> /dev/null); then   # curl failure = container down = idle
+    busy=$(echo "$json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(str(d["busy"]).lower() if "busy" in d else "unknown")' 2> /dev/null) || deploy_fail "idle check (/api/config is not JSON)"
+    case $busy in
+      true) deploy_fail "idle check (a turn is in flight)" ;;
+      unknown) echo "deploy: busy unknown (image without /api/config.busy), continuing" >&2 ;;
+    esac
+  fi
   deploy_step "down"
   compose down || deploy_fail down
   deploy_step "up"

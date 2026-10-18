@@ -158,7 +158,7 @@ def test_ws_set_backdrop_persists_and_survives_avatar_switch():
     assert client.get("/api/config").json()["backdrop"] == key
 
 
-def test_unknown_action_is_ignored_and_the_socket_stays_open():
+def test_unknown_action_gets_an_error_and_the_socket_stays_open():    # PRD 58: answered, not dropped
     from server import app
     from agent import conversation
     conversation.reset()                                                  # nothing to replay on connect
@@ -167,5 +167,7 @@ def test_unknown_action_is_ignored_and_the_socket_stays_open():
         assert [m["type"] for m in drain_initial(ws)] == ["hands_free", "state"]
         ws.send_json({"action": "set_avatar", "key": "wanko"})
         ws.send_json({"action": "set_backdrop", "key": "none"})
+        assert ws.receive_json() == {"type": "error", "scope": "settings", "text": "unknown action 'set_avatar'",
+                                     "action": "set_avatar"}
         assert ws.receive_json() == {"type": "backdrop", "key": "none"}
     assert "avatar" not in settings.load_settings()
