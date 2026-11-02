@@ -10,12 +10,10 @@ from agent import approvals
 from server import app
 from server import turns as server_turns
 from server import ws as m_ws
-from server import turns as server_turns
 from server import panels
 from server import speech
 from agent import conversation
 from agent import written
-from agent import conversation
 from memory import ops
 from ingest import notebooks as ingest_notebooks
 from agent import runs
@@ -25,8 +23,6 @@ from vault import store
 from server.session import Session
 from tests.conftest import (MORROWIND, SENTINEL, button_turn, commits, fake_tts, read, seed, session_turn,
                             spoken_lines, trace_lines, trace_text)
-from ingest import notebooks as ingest_notebooks
-from ingest import pipeline
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 

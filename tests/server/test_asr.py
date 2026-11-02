@@ -99,7 +99,6 @@ def test_transcribe_without_a_prompt_sends_no_initial_prompt(monkeypatch):
 
 def test_the_chat_path_hands_the_profile_names_to_the_asr(monkeypatch, memory_sandbox):
     from server import turns as server_turns
-    from server import turns as server_turns
     from server import panels
     from memory import store
 

@@ -7,8 +7,6 @@ from vault import index as v_index
 from vault import pages
 from vault import search
 from vault import store
-from vault import index as v_index
-from vault import store
 from tests.perf.make_vault import make_vault
 
 TODAY = date(2026, 10, 16)

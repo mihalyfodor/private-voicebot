@@ -26,12 +26,9 @@ from vault import chunks as v_chunks
 from vault import focus
 from vault import search
 from vault import store
-from vault import chunks as v_chunks
-from tests.conftest import (FALLOUT_SECTIONS, SKYRIM_SECTIONS, FakeClient, both, faq_text,  # noqa: F401
-                            fallout, file_faq, seeded_vault, send_setting, summary_json, vault)
+from tests.conftest import FALLOUT_SECTIONS, SKYRIM_SECTIONS, FakeClient, faq_text, file_faq, send_setting, summary_json
 from tools import run_tool
 from core import llm as core_llm
-from ingest import pipeline
 from core import toolset
 
 

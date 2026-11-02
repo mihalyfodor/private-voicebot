@@ -18,12 +18,9 @@ from agent import offers
 from agent import prompt as a_prompt
 from agent import recall
 from agent import turn as a_turn
-from agent import turn as a_turn
-from agent import prompt as a_prompt
 from core import util
 from vault import chunks as m_chunks
-from tests.conftest import FakeClient, ask_turn, last_user, r, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401
-from tests.conftest import fallout, both  # noqa: F401  (fixtures)
+from tests.conftest import FakeClient, ask_turn, last_user, stream_chunks, tool_call_chunk
 from core import llm as core_llm
 from core import toolset
 

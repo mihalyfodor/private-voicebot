@@ -8,7 +8,6 @@ import subprocess
 import pytest
 
 from tests.conftest import ROOT
-from tests.prod.test_remarkable_server import push_service  # noqa: F401  (the fixture)
 
 PROD_SH = os.path.join(ROOT, "scripts", "prod.sh")
 GIT_ID = ["-c", "user.name=t", "-c", "user.email=t@t"]

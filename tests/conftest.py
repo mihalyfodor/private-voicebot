@@ -1,4 +1,5 @@
 import sys, os
+import io
 import contextlib
 import copy
 import functools
@@ -25,15 +26,11 @@ from core import avatars
 from server import app
 from server import panels
 from server import turns as server_turns
-from server import turns as server_turns
-from server import panels
 from server import speech as s_speech
 from vault import index_db
 from agent import conversation
 from agent import recall as a_recall
 from agent import turn as m_turn
-from agent import recall as a_recall
-from memory import store as m_store
 from memory import store as m_store
 from ingest import pipeline
 from vault import manifest
@@ -42,7 +39,6 @@ from core import settings, trace
 from vault import index as m_index
 from vault import pages as m_pages
 from vault import search
-from vault import store
 from vault import store
 from tools import gmail as gmail_tool
 
@@ -937,3 +933,23 @@ def research_turn(text: str, *replies, origin: str = "typed", sess=None, turn: i
         if origin == "typed":
             return run_turn(server_turns.handle_text, sess, turn, text), fake
         return run_turn(server_turns.handle_utterance, sess, turn, np.zeros(10, dtype=np.float32)), fake
+
+
+def docx_bytes(blocks: list) -> bytes:
+    """`blocks`: ("h1", text) / ("h2", text) / ("p", text) / ("table", rows) in order."""
+    import docx
+
+    doc = docx.Document()
+    for kind, value in blocks:
+        if kind == "table":
+            table = doc.add_table(rows=len(value), cols=len(value[0]))
+            for r, row in enumerate(value):
+                for c, cell in enumerate(row):
+                    table.cell(r, c).text = cell
+        elif kind.startswith("h"):
+            doc.add_heading(value, level=int(kind[1]))
+        else:
+            doc.add_paragraph(value)
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()

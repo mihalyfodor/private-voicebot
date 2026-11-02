@@ -10,7 +10,6 @@ import pytest
 from vault import index_db
 from vault import chunks as v_chunks
 from vault import search
-from vault import chunks as v_chunks
 from vault import store
 from tests.conftest import fake_model
 from tests.perf.make_vault import make_vault, queries

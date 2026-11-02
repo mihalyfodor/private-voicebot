@@ -11,12 +11,9 @@ import pytest
 
 from server import panels
 from server import turns as server_turns
-from server import turns as server_turns
-from server import panels
 from server import speech
 from agent import turn as a_turn
 from agent import conversation
-from agent import turn as a_turn
 from agent import written
 from core import llm as core_llm
 from core import trace

@@ -7,9 +7,6 @@ from types import SimpleNamespace
 from agent import context as a_context
 from agent import conversation
 from agent import turn as a_turn
-from agent import conversation
-from agent import turn as a_turn
-from agent import context as a_context
 from agent import prompt
 from tests.conftest import FakeClient, stream_chunks as _chunks, tool_call_chunk as _tc_chunk
 from core import llm as core_llm
@@ -146,7 +143,6 @@ def test_memory_load_caps_the_profile_block(monkeypatch, tmp_path):
     from memory import identity
     from memory import store
     from memory import render
-    from memory import store
     path = tmp_path / "memory.json"
     profile = store._empty_profile()
     profile["identity"] = {"name": "Mihaly"}

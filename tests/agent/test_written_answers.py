@@ -21,8 +21,6 @@ from server import app
 from server import panels
 from server import turns as server_turns
 from server import ws as m_ws
-from server import turns as server_turns
-from server import panels
 from server import speech as s_speech
 from tools import registry
 from agent import conversation
@@ -34,9 +32,7 @@ from agent import written as m_written
 from core import util
 from vault import pages
 from vault import store
-from tests.conftest import (FakeClient, commits, fake_asr, fake_tts, last_user, read,  # noqa: F401
-                            run_turn, stream_chunks, vault)
-from tests.conftest import fallout  # noqa: F401  (fixtures)
+from tests.conftest import FakeClient, commits, fake_asr, fake_tts, last_user, read, run_turn, stream_chunks
 from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")

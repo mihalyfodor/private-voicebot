@@ -17,7 +17,7 @@ import pytest
 from vault import store
 from vault import chunks as v_chunks
 from eval import retrieval_bench as rb
-from tests.conftest import file_faq, vault  # noqa: F401
+from tests.conftest import file_faq
 
 
 @pytest.fixture(autouse=True)

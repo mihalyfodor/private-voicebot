@@ -16,11 +16,9 @@ from core import util as c_util
 from memory import ops as m_ops
 from memory import render as m_render
 from memory import store
-from memory import render as m_render
 from eval import harness
 from tests.conftest import FakeClient, audit_log, days_ago, empty_profile, on_disk, seed
 from core import llm as core_llm
-from core import util as c_util
 
 TODAY = date.today().isoformat()
 

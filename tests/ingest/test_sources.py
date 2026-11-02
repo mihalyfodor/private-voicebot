@@ -23,39 +23,14 @@ from vault import index
 from vault import lint
 from vault import pages as m_pages
 from vault import store
-from vault import store
-from tests.conftest import (SENTINEL, FakeClient, commits, notebook_pages, pdf_bytes, png_bytes, read, trace_lines,  # noqa: F401 — fixture
-                            trace_text, vault, write_page)
+from tests.ingest.conftest import OPS, SUMMARY, prompts
+from tests.conftest import SENTINEL, FakeClient, commits, notebook_pages, pdf_bytes, png_bytes, read, trace_lines, trace_text, write_page
 from core import llm as core_llm
-from core import formats
-from ingest import batch as ingest_batch
-from ingest import pipeline
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
 
 # --------------------------------------------------------------------------- fixtures
-
-
-@pytest.fixture
-def fake(monkeypatch):
-    """A FakeClient wired in as the module's client: summary call first, page ops second."""
-    client = FakeClient(SUMMARY, OPS)
-    monkeypatch.setattr(core_llm, "_client", client)
-    return client
-
-
-SUMMARY = json.dumps({
-    "title": "Falcon status",
-    "summary": "Project Falcon is amber; the load test showed 940 ms p99.",
-    "entities": [{"name": "Anna", "type": "person"}, {"name": "Falcon", "type": "project"}],
-    "unreadable": False,
-})
-
-OPS = json.dumps([
-    {"op": "new_page", "path": "projects/falcon", "type": "project", "name": "Falcon",
-     "summary": "Platform project, amber."},
-])
 
 
 def raw_files() -> list:
@@ -68,11 +43,6 @@ def raw_files() -> list:
             if not name.startswith(".") and rel != manifest.MANIFEST and "/.index/" not in rel:
                 found.append(rel)
     return sorted(found)
-
-
-def prompts(client: FakeClient) -> list:
-    """The user content of every completion the client was asked for."""
-    return [call["messages"][1]["content"] for call in client.calls]
 
 
 EML = """From: Anna Kovacs <anna@example.com>

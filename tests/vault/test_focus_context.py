@@ -16,12 +16,10 @@ from tools import commands
 from agent import conversation
 from agent import recall as a_recall
 from agent import turn as m_turn
-from agent import recall as a_recall
 from core import util
 from memory import store
 from vault import chunks
 from tests.conftest import FakeClient, last_user, spoken, typed, write_page
-from tests.conftest import fallout  # noqa: F401  (fixtures)
 from core.untrusted import DOCUMENT_RULE
 from core import llm as core_llm
 

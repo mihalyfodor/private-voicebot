@@ -20,14 +20,12 @@ from agent import offers
 from agent import prompt as m_prompt
 from agent import recall
 from agent import turn as a_turn
-from agent import turn as a_turn
 from core import util
 from ingest import pipeline
 from vault import chunks
 from vault import search
-from tests.conftest import (FakeClient, ask_turn, deltas, last_user, seeded_vault,  # noqa: F401
-                            stream_chunks, tool_call_chunk, write_page)
-from tests.conftest import both, fallout, summary_json  # noqa: F401  (fixtures)
+from tests.conftest import FakeClient, ask_turn, deltas, last_user, stream_chunks, tool_call_chunk, write_page
+from tests.conftest import summary_json
 from core import llm as core_llm
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")

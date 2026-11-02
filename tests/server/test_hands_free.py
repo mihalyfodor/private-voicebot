@@ -8,7 +8,6 @@ from server import app
 from server import panels
 from server import turns as server_turns
 from server import vad as server_vad
-from server import panels
 from server import turns
 from tests.conftest import Blocker, drain_initial, fake_asr
 

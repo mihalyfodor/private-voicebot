@@ -5,7 +5,6 @@ import pytest
 from core import settings
 from agent import conversation
 from agent import prompt as a_prompt
-from agent import prompt as a_prompt
 
 
 @pytest.fixture(autouse=True)

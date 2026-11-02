@@ -21,13 +21,9 @@ from agent import offers
 from agent import prompt as a_prompt
 from agent import recall as a_recall
 from agent import turn as a_turn
-from agent import turn as a_turn
-from agent import prompt as a_prompt
-from agent import recall as a_recall
 from tools import registry, run_tool
 from tools import wikipedia
-from tests.conftest import FakeClient, seeded_vault, stream_chunks, tool_call_chunk  # noqa: F401 — fixture
-from tests.conftest import fallout, both  # noqa: F401  (fixtures)
+from tests.conftest import FakeClient, stream_chunks, tool_call_chunk
 from core import llm as core_llm
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]

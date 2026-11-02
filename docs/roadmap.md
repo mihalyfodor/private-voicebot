@@ -199,12 +199,10 @@ Housekeeping backlog (audit 2026-10-17):
 - FastAPI lifespan migration: two `on_event` sites (`server/app.py:40`, `:54`); run the shutdown save via `asyncio.to_thread`
 - Pin docker requirements: `requirements-docker.lock` from a known-good build (dev is py3.14, the image py3.12)
 - Host launchd jobs (asr, backup, remarkable) run from the dev checkout (templates render its path via scripts/install_launchd.sh): keep the checkout on `main`, or install from a separate clone
-- Backup only triggers on a new vault HEAD: memory / settings changes alone are skipped
-- Five cross-test fixture imports to move into `conftest.py` (`tests/prod/test_prod_script.py:11`, `tests/ingest/test_office_formats.py:28`,
-  `tests/ingest/test_sources_inbox.py:22`, `tests/server/test_remarkable_push.py:16`, `tests/e2e/test_sources.py:150`), so the F811 ignore
-  in `ruff.toml` can go (`docs/process.md` forbids them)
-- `.env.example` is missing `REMARKABLE_PUSH_URL`, `START_HINT`, `OMLX_ADMIN_PASSWORD`, `WIKI_RELATED_TOKENS`, `DEV_PORT`, `PROD_PORT`
-- `docs/reviews/2026-08-29-architecture.md` needs a status line per finding (#9, #10, #11 still open)
+- Done 2026-11-02 (housekeeping sweep): fixture imports moved into per-layer `conftest.py` files and the F811 ignore dropped;
+  `.env.example` complete and guarded by `tests/test_env_example.py`; status per finding in `docs/reviews/2026-08-29-architecture.md`
+  (#7 #8 #10 partly, #9 lifespan in progress, #11 by design, #12 vault git failures still invisible). The backup marker already
+  covered memory/settings since PRD 58.
 
 ## Dropped
 

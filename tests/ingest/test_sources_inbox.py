@@ -18,8 +18,8 @@ from vault import manifest
 from vault import lint
 from vault import pages
 from vault import store
-from tests.conftest import FakeClient, commits, read, vault  # noqa: F401 — fixture
-from tests.ingest.test_sources import OPS, SUMMARY, fake  # noqa: F401 — fixture
+from tests.conftest import FakeClient, commits, read
+from tests.ingest.conftest import OPS, SUMMARY
 from core import llm as core_llm
 
 RE_SUMMARY = json.dumps({

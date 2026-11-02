@@ -20,7 +20,6 @@ from ingest import pipeline
 from vault import index
 from vault import search
 from vault import store
-from vault import store
 from tests.conftest import fake_model
 
 SYLLABLES = ("ka", "lo", "mi", "ner", "sto", "pha", "dun", "rel", "vi", "gor", "tal", "shi", "bra", "en",

@@ -9,11 +9,10 @@ import pytest
 from server import turns
 from agent import conversation
 from agent import written
-from agent import conversation
 from ingest import remarkable
 from server.session import Session
 from tests.conftest import _serve, button_turn, free_port, session_turn, spoken_lines, trace_lines
-from tests.prod.test_remarkable_server import RENDER, serve_push
+from tests.prod.conftest import RENDER, serve_push
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 

@@ -8,7 +8,6 @@ from server import app
 from server import panels
 from server import speech
 from server import turns as server_turns
-from server import turns as server_turns
 from server import turns
 from server.session import Session
 from tests.conftest import fake_asr, fake_tts, run_turn

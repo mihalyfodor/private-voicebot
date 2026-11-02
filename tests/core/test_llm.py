@@ -7,7 +7,7 @@ from agent import fold
 from ingest import pipeline
 from core import llm as core_llm
 from server.session import Session
-from tests.conftest import fake_model, fake_tts, run_turn, summary_json, trace_lines, vault  # noqa: F401 — fixture
+from tests.conftest import fake_model, fake_tts, run_turn, summary_json, trace_lines
 
 
 def test_complete_is_one_plain_call_at_temperature_zero():

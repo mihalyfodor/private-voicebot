@@ -147,7 +147,7 @@ def test_a_dropped_docx_lands_in_sources_with_its_kind(page, shot, server):
     No model is running behind the e2e server, so the page is filed as unreadable — the raw
     file, the manifest line and the `docx` kind chip are what this checks.
     """
-    from tests.ingest.test_office_formats import docx_bytes
+    from tests.conftest import docx_bytes
     _, vault = server
     data = docx_bytes([("h1", "Falcon plan"), ("p", "Go-live is September 15."),
                        ("table", [["Risk", "Owner"], ["load test", "Bob"]])])

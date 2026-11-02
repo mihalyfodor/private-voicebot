@@ -17,10 +17,9 @@ from agent import offers
 from agent import prompt
 from agent import recall as a_recall
 from agent import written
-from agent import recall as a_recall
 from vault import chunks
 from vault import store
-from tests.conftest import ask_turn, deltas, fallout, last_user, trace_lines  # noqa: F401  (fixtures)
+from tests.conftest import ask_turn, deltas, last_user, trace_lines
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")
 

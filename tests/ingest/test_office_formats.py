@@ -24,8 +24,8 @@ from vault import manifest
 from vault import lint
 from vault import pages
 from vault import store
-from tests.conftest import FakeClient, commits, r, read, send_setting, vault  # noqa: F401 — fixtures
-from tests.ingest.test_sources import SUMMARY, fake, prompts  # noqa: F401 — fixture
+from tests.conftest import FakeClient, commits, docx_bytes, read, send_setting
+from tests.ingest.conftest import SUMMARY, prompts
 from core import llm as core_llm
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
@@ -33,26 +33,6 @@ TODAY = util.today_iso()
 
 
 # --------------------------------------------------------------------------- fixture builders
-
-
-def docx_bytes(blocks: list) -> bytes:
-    """`blocks`: ("h1", text) / ("h2", text) / ("p", text) / ("table", rows) in order."""
-    import docx
-
-    doc = docx.Document()
-    for kind, value in blocks:
-        if kind == "table":
-            table = doc.add_table(rows=len(value), cols=len(value[0]))
-            for r, row in enumerate(value):
-                for c, cell in enumerate(row):
-                    table.cell(r, c).text = cell
-        elif kind.startswith("h"):
-            doc.add_heading(value, level=int(kind[1]))
-        else:
-            doc.add_paragraph(value)
-    buf = io.BytesIO()
-    doc.save(buf)
-    return buf.getvalue()
 
 
 def pptx_bytes(slides: list) -> bytes:

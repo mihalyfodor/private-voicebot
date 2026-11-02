@@ -6,7 +6,6 @@ import pytest
 
 from agent import research
 from vault import chunks as v_chunks
-from vault import chunks as v_chunks
 from tests.conftest import judge_reply, research_run
 
 pytestmark = pytest.mark.usefixtures("fresh_llm")

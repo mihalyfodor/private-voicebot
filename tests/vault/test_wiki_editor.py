@@ -18,7 +18,6 @@ from vault import lint
 from vault import pages
 from vault import search
 from vault import store
-from vault import store
 from tests.conftest import commits, read
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")

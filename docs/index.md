@@ -212,8 +212,10 @@ voicebot/
 ├── tests/                # one folder per layer (core, vault, memory, ingest, tools, agent, server) plus tracing, prod, e2e, eval, perf; shared fixtures live in conftest.py (see the DX note in process.md)
 │   ├── conftest.py              # sandboxes (wiki/settings/memory paths — WIKI_PATH also set to a missing tmp path before the app import, PRD 53 —, the search index closed per test, chatbot session, `core.llm._client` restored), the one fake model
 │   │                            # client `FakeClient` + `fake_model` (patched at core.llm._client), vault helpers (vault, seeded_vault, commits, read, write_page), the generated FAQ
-│   │                            # sources (`fallout`, `both`, faq_text, file_faq, summary_json), turn helpers
+│   │                            # sources (`fallout`, `both`, faq_text, file_faq, summary_json), turn helpers, `docx_bytes`
 │   │                            # (fake_tts, run_turn, typed, spoken), Panel, send_setting, and the node client fixture run once per session
+│   ├── ingest/conftest.py       # the `fake` fixture (FakeClient(SUMMARY, OPS) at core.llm._client) + SUMMARY / OPS / prompts for the ingest tests
+│   ├── prod/conftest.py         # `push_service` fixture, `serve_push`, `RENDER` skip marker for the remarkable push service tests
 │   ├── app_fixture.mjs          # boots static/app.js in node on a DOM/WS/audio/PIXI shim and prints one JSON of results
 │   │                            # (companion re-parent, typed turn, mute, thumbs, avatar cues, wiki editor, palette, sources chips/intake
 │   │                            # titles/horizon field, intake batch, context meter, error scopes, written cards); its header documents the hooks
@@ -222,6 +224,7 @@ voicebot/
 │   ├── fixtures/index_text_golden.txt  # PRD 53: `wiki.index_text()` on the `both` vault, byte for byte
 │   ├── perf/                    # PRD 53 scenario 10 (+ PRD 55 `--prose` option for make_vault.py: `python -m tests.perf.make_vault OUT --prose`), marker `perf` (deselected by default): make_vault.py = the shared seeded synthetic-vault generator (`make_vault(path, pages=5000, sources_n=1000, seed=0)` + `queries(n)`; PRDs 54/55 reuse it), test_index_perf.py = p95 search_chunks < 50 ms, search < 20 ms, one-source update < 200 ms (+ the live battery comparison, skipped)
 │   ├── fixtures/routing_questions.json  # PRD 37 calibration set: 8 general / 8 filed / 8 precise / 4 personal questions with the expected route
+│   ├── test_env_example.py      # every env var the Python code reads is in .env.example (ignore set: PATH) and every key there is still read
 │   ├── test_index.py            # every tests/**/test_*.py and docs/NN-*.md is listed here with its current status
 │   ├── test_protocol_doc.py     # docs/protocol.md names every ACTIONS key, every `"type"` chatbot.py sends and every type app.js handles — and nothing else; PRD 52 scenario 9: the `resolve`, `forget_source` and `card_update` rows
 │   ├── test_layers.py           # PRD 50: layer ratchet — app code imports only downward (`ALLOWED` of (importer, imported module) pairs may only shrink), no imports of the root shims, stale allow-list entries fail

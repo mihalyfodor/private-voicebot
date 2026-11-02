@@ -19,9 +19,6 @@ from vault import index
 from vault import pages as m_pages
 from vault import search as v_search
 from vault import store
-from vault import chunks as v_chunks
-from vault import search as v_search
-from vault import store
 from tests.conftest import ROOT, commits, file_faq, read, trace_lines
 from core import util
 from vault import __main__ as vault_cli

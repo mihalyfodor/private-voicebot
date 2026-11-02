@@ -25,8 +25,6 @@ from vault import lint
 from vault import pages as m_pages
 from vault import search
 from vault import store
-from memory import wiki_ingest as v_ingest
-from vault import store
 from core import llm as core_llm
 from tests.conftest import FakeClient, commits, log_ops, read, seed, write_page
 from core import toolset

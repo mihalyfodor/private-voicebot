@@ -5,9 +5,7 @@ from fastapi.testclient import TestClient
 from server import app
 from server import panels
 from server import turns
-from server import panels
 from server import speech as s_speech
-from agent import conversation
 from agent import conversation
 from server.session import Session
 from tests.conftest import drain_initial, fake_tts, run_turn
