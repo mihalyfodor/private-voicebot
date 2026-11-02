@@ -20,7 +20,7 @@ Status: partly — one primitive exists (`vault/store.normalise_path(user=)`, `F
 8. MED — docker blockers: mlx-whisper/sips/Kokoro paths (macOS), origin allow-list uses server PORT (chatbot.py:850), open_browser, obsidian:// links, ~/llm-wiki default. Cheap now: ALLOWED_ORIGINS env.
 Status: partly — `ALLOWED_ORIGINS` env (server/ws.py:133) and dev-by-default vault path (core/config.py:7) done; `open_browser` (server/app.py:136) and obsidian:// links remain
 9. LOW-MED — chatbot.py:351-357 _on_shutdown does blocking LLM calls on the loop. Fix: to_thread + lifespan.
-Status: open — next housekeeping item (lifespan migration), see docs/roadmap.md
+Status: resolved (lifespan + asyncio.to_thread, server/app.py, 2026-11-02)
 10. LOW-MED — dead avatar-switch actions (set_avatar, switch_greet, listing) still exposed; hands_free/verbosity state triplicated.
 Status: partly — the WS `set_avatar`/`switch_greet`/listing actions are gone (PRD 23, not in server/ws.py ACTIONS); `hands_free` state still lives in settings.json + `panels.hands_free` and an internal `conversation.set_avatar` remains; roadmap backlog keeps it open
 11. LOW — app.js 2600 lines single scope; split into ES modules when next touched.

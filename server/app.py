@@ -3,6 +3,7 @@ import os
 import asyncio
 from core import trace
 import threading
+from contextlib import asynccontextmanager
 import webbrowser
 from agent import conversation as a_conversation
 from agent import prompt as a_prompt
@@ -34,10 +35,6 @@ STATIC_DIR = os.path.join(config.ROOT, "static")
 # ---------------------------------------------------------------- app
 
 
-app = FastAPI()
-
-
-@app.on_event("startup")
 async def _on_startup():
     """The search index's consistency check (docs/53-scalable-index.md): an edit made while the app
     was down, or a write that missed its hook, is repaired before the first turn."""
@@ -51,13 +48,22 @@ async def _on_startup():
         log.info(f"search index: repaired {repaired} documents")
 
 
-@app.on_event("shutdown")
 async def _on_shutdown():
     """Runs on graceful shutdown (SIGTERM/SIGINT/UI shutdown) — the place session memory is saved."""
     try:
-        a_conversation.save_memory()
+        await asyncio.to_thread(a_conversation.save_memory)   # blocking LLM work: keep it off the loop
     except Exception as e:
         panels._memory_failed(e)
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    await _on_startup()
+    yield
+    await _on_shutdown()
+
+
+app = FastAPI(lifespan=_lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
