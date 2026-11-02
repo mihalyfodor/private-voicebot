@@ -14,6 +14,8 @@ def test_cmd_k_type_a_page_enter_opens_it_in_the_wiki(page, shot):
     page.keyboard.press("Meta+k")
     page.wait_for_selector("#palette:not([hidden])")
     assert page.evaluate("document.activeElement.id") == "palette-input"
+    # the page list arrives in its own `wiki` message after the status line: wait for it or the palette only has the search row
+    page.wait_for_function("typeof wikiPages !== 'undefined' && wikiPages && wikiPages.length > 0", timeout=10_000)
     page.keyboard.type("atlas")
     first = page.locator(".palette-row").first
     assert first.locator(".palette-label").inner_text() == "Atlas"
