@@ -938,8 +938,8 @@ function renderRecallMinScore(score) {
   recallMinScoreEl.value = String(recallMinScore);
 }
 recallMinScoreEl.onchange = () => {
-  const score = parseFloat(recallMinScoreEl.value);
-  if (!Number.isFinite(score) || score < 0) { renderRecallMinScore(); return; }   // revert a bad entry
+  const score = parseFloat(recallMinScoreEl.value.replace(',', '.'));
+  if (!Number.isFinite(score) || score < 0 || score > 20) { renderRecallMinScore(); return; }   // revert a bad entry
   sendAction({ action: 'set_setting', key: 'recall_min_score', value: score });
 };
 
@@ -2708,6 +2708,7 @@ function connect() {
 
   ws.onopen = () => {
     // The server replays the whole conversation on every (re)connect: start from an empty page.
+    currentTurn = 0;           // a restarted server numbers its turns from 1 again
     historyEl.replaceChildren();
     cards.clear();
     cardEls.clear();

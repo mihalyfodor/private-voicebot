@@ -202,6 +202,11 @@ Housekeeping backlog (audit 2026-10-17):
   (#7 #8 #10 partly, #9 resolved: lifespan + `asyncio.to_thread` shutdown save, #11 by design, #12 vault git failures still invisible). The backup marker already
   covered memory/settings since PRD 58. FastAPI lifespan migration done (`server/app.py`, shutdown save via `asyncio.to_thread`). Review-backlog pass the same day: layer test sees relative + dynamic
   imports; push service caps request bodies (`REMARKABLE_MAX_BODY_MB`, 413); Settings reMarkable-row filter tested; v_ aliases renamed m_/a_. README rewritten (memory, vault, prod, development).
+  Small-findings pass (same day): first connect sends `state thinking` before the canned greeting (a fast first message no longer
+  lands above it); the client resets its turn id on reconnect (a server restart no longer leaves the UI busy for 120 s); vault git
+  failures are tallied in `vault.store.GIT_FAILURES` and lead the lint list (review #12); recall threshold is a text input with a
+  decimal keyboard (Chromium ignores `lang` for number formatting) accepting a comma; Settings number inputs dark; intake toast
+  clears the footer; layer test handles `import_module(name=…)` and relative literals; `.env.example` reverse check needs a real read site.
 
 ## Dropped
 

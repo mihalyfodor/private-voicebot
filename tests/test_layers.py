@@ -47,16 +47,30 @@ def _relative_names(rel: str, node: ast.ImportFrom) -> list:
     return [".".join(base + [a.name]) for a in node.names]
 
 
+def _literal(node):
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value else None
+
+
 def _dynamic_target(node: ast.Call):
-    """The literal module name of importlib.import_module("x") / __import__("x"), else None (a non-literal can't be known)."""
+    """The literal module name of importlib.import_module("x") / import_module(name="x") / __import__("x"), else None
+    (a non-literal can't be known). A relative literal (".x", "..x") resolves against a literal package (second
+    positional or package=): level 1 is the package itself, each extra dot one level up. Without a package it is None."""
     f = node.func
     name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
-    if name not in ("import_module", "__import__") or not node.args:
+    if name not in ("import_module", "__import__"):
         return None
-    a = node.args[0]
-    if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value and not a.value.startswith("."):
-        return a.value
-    return None
+    kw = {k.arg: k.value for k in node.keywords}
+    target = _literal(node.args[0] if node.args else kw.get("name"))
+    if target is None or not target.startswith("."):
+        return target
+    package = _literal(node.args[1] if len(node.args) > 1 else kw.get("package"))
+    if name != "import_module" or not package:
+        return None
+    dots = len(target) - len(target.lstrip("."))
+    parts = package.split(".")
+    if dots - 1 >= len(parts):
+        return None
+    return ".".join(parts[:len(parts) - (dots - 1)] + [target[dots:]])
 
 
 def check(root: str, allowed: set, shims=SHIMS, deleted=DELETED) -> list:
@@ -71,8 +85,8 @@ def check(root: str, allowed: set, shims=SHIMS, deleted=DELETED) -> list:
                 names = [node.module]
             elif isinstance(node, ast.ImportFrom) and node.level > 0:
                 names = _relative_names(rel, node)
-            elif isinstance(node, ast.Call) and _dynamic_target(node):
-                names = [_dynamic_target(node)]
+            elif isinstance(node, ast.Call) and (dyn := _dynamic_target(node)):
+                names = [dyn]
             else:
                 continue
             for name in names:
@@ -143,6 +157,21 @@ def test_dunder_import_literal_upward_import_is_named_with_line(tmp_path):
                             "vault/store.py": "def f(n):\n    __import__(n)\n    return __import__(\"server\")\n"})
     found = check(root, set())
     assert len(found) == 1 and found[0].startswith("vault/store.py:3:")
+
+
+def test_import_module_keyword_name_upward_import_is_named_with_line(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "", "server/__init__.py": "", "server/app.py": "",
+                            "vault/store.py": "import importlib\n\ndef f():\n    return importlib.import_module(name=\"server\")\n"})
+    found = check(root, set())
+    assert len(found) == 1 and found[0].startswith("vault/store.py:4:")
+
+
+def test_import_module_relative_literal_with_package_upward_import_is_named(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "", "server/__init__.py": "", "server/app.py": "",
+                            "vault/store.py": "import importlib\n\ndef f():\n    return importlib.import_module(\".app\", \"server\")\n",
+                            "vault/other.py": "import importlib\nimportlib.import_module(\".app\", package=\"server\")\n"})
+    found = check(root, set())
+    assert len(found) == 2 and found[0].startswith("vault/other.py:2:") and found[1].startswith("vault/store.py:4:")
 
 
 def test_stale_allow_list_entry_fails():

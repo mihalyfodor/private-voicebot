@@ -36,7 +36,8 @@ REINDEX_HINT = " — run `python -m vault reindex`"
 
 
 def lint() -> list:
-    """Findings, worst first: per page broken links, missing from the search index, bad frontmatter,
+    """Findings, worst first: a `vault git: N failed commands` line when git has failed this run
+    (store.GIT_FAILURES), then per page broken links, missing from the search index, bad frontmatter,
     size, a `source: raw/…` whose file is gone; then index rows whose page is gone (both mean
     `python -m vault reindex`), raw files nothing cites, then duplicate names. `index.md` is a capped
     human view (200 lines), so it is not what a page is checked against (docs/53-scalable-index.md).
@@ -48,6 +49,9 @@ def lint() -> list:
     if not store.exists():
         return []
     findings = []
+    if store.GIT_FAILURES["count"]:
+        n = store.GIT_FAILURES["count"]
+        findings.append(f"vault git: {n} failed command{'s' * (n != 1)} this run (last: {store.GIT_FAILURES['last']})")
     cited, labels = set(), []
     paths = store.page_paths()
     known = {store.wikilink(rel) for rel in paths} | {store.wikilink(r) for r in store.RESERVED}
@@ -97,7 +101,8 @@ def lint_and_log() -> list:
     findings = lint()
     if findings:
         store.ensure_vault()
-        summary = f"lint: {len(findings)} finding{'s' if len(findings) != 1 else ''} ({findings[0]})"
+        lead = next((f for f in findings if not f.startswith("vault git")), findings[0])   # the git line is process-wide, not a page finding
+        summary = f"lint: {len(findings)} finding{'s' if len(findings) != 1 else ''} ({lead})"
         v_index._log([summary])
         store._commit("wiki: lint")
     return findings

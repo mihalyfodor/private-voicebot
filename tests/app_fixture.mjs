@@ -186,7 +186,7 @@ const audio = { decodes: 0, plays: 0 };
 class AudioContextStub {
   constructor() { this.state = 'running'; this.destination = {}; this.audioWorklet = { addModule: async () => {} }; }
   createAnalyser() { return { fftSize: 0, connect() {}, getFloatTimeDomainData() {} }; }
-  createBufferSource() { audio.plays += 1; return { connect() {}, start() {}, onended: null }; }
+  createBufferSource() { audio.plays += 1; const src = { connect() {}, start() {}, onended: null }; audio.last = src; return src; }
   createMediaStreamSource() { return { connect() {} }; }
   decodeAudioData() { audio.decodes += 1; return Promise.resolve({}); }
   resume() { return Promise.resolve(); }
@@ -468,7 +468,7 @@ results.emotion_unknown = t.emotion();
 // ---- shutdown: forced idle_04 + the lid closing
 motionCalls.length = 0;
 t.showShutdownScreen();
-results.shutdown_motion = t.motions();
+results.shutdown_motion = [...t.motions()];   // a copy: later scenarios keep appending to the live log
 results.shutdown_cue = t.cue();
 
 // ---- scenario 4: backdrop thumbs send the same payload as the settings chips
@@ -693,6 +693,28 @@ socket.sent.length = 0;
 t.recallMinScore.value = '1.5';
 t.recallMinScore.dispatch('change');
 results.recall_sent = [...socket.sent];
+socket.sent.length = 0;
+t.recallMinScore.value = '3,5';            // a comma-decimal keyboard
+t.recallMinScore.dispatch('change');
+results.recall_threshold_comma = socket.sent.filter(m => m.action === 'set_setting').map(m => m.value);
+
+// ---- reconnect to a restarted server: its turn ids start over, so the page must too, or
+//      playback_done carries the old high turn and the server ignores it (120 s busy)
+const wasMuted = t.muted;
+if (wasMuted) { doc.activeElement = doc.body; t.keydown('Space'); }   // unmuted: the reply plays through the stub
+t.recv({ type: 'speech', emotion: 'happy', turn: 12, wav: btoa('RIFFfake') });
+socket.onclose({ code: 1006 });
+socket.onopen();
+socket.sent.length = 0;
+t.recv({ type: 'speech', emotion: 'happy', turn: 1, wav: btoa('RIFFfake') });
+t.recv({ type: 'speech_end', turn: 1 });
+for (let i = 0; i < 20; i++) {              // drain whatever is queued: finish each stub clip in turn
+  await new Promise(r => setImmediate(r));
+  const done = audio.last && audio.last.onended;
+  if (done) { audio.last.onended = null; done(); }
+}
+results.playback_done_turn_after_reconnect = socket.sent.filter(m => m.action === 'playback_done').map(m => m.turn);
+if (wasMuted) { doc.activeElement = doc.body; t.keydown('Space'); }
 
 results.verbosity_note = (html.match(/id="verbosity-desc"[^>]*>([^<]*)</) || [])[1] || '';
 // ---- PRD 36: a three-file batch is posted one file at a time, rows show their state, Cancel

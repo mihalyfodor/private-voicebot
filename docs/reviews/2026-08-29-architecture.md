@@ -26,6 +26,6 @@ Status: partly — the WS `set_avatar`/`switch_greet`/listing actions are gone (
 11. LOW — app.js 2600 lines single scope; split into ES modules when next touched.
 Status: open — by design (roadmap backlog): static/app.js still one scope, ES-module split when next touched
 12. LOW — vault git failures invisible (wiki.py:127-141,211). Fix: count failures, surface in lint list.
-Status: open — `vault/store._git` only logs failures (vault/store.py:131); no failure count, nothing in the lint list
+Status: resolved (vault.store.GIT_FAILURES surfaced by vault.lint, 2026-11-02)
 
 Top 3 to act on now: A = finding 4 (test sandbox), B = finding 1 (no lost turns), C = findings 2+3 (save off worker + vault_lock).

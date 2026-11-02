@@ -125,3 +125,23 @@ def test_new_connection_releases_the_previous_playback_wait():
             assert panels.session is not first
             assert first.playback_done.is_set()
             assert first.websocket is None
+
+
+def test_first_connect_is_busy_until_the_greeting_plays(monkeypatch):
+    """The first connect sends `state thinking` itself, before the greet turn is queued (the page
+    must not sit idle meanwhile); a later connect gets `state idle`."""
+    conversation.reset()
+    events = []
+
+    async def fake_send_state(sess, value):
+        events.append(("state", value))
+
+    monkeypatch.setattr(panels, "greeted", False)
+    monkeypatch.setattr(panels, "send_state", fake_send_state)
+    monkeypatch.setattr(panels, "submit_turn", lambda fn, loop: events.append(("submit", fn)))
+
+    client = TestClient(app.app)
+    for _ in range(2):
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()  # hands_free
+    assert events == [("state", "thinking"), ("submit", turns.greet), ("state", "idle")]

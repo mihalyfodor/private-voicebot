@@ -58,7 +58,7 @@ action name, plus `action`).
 
 `state`, `speech` and `speech_end` (and the assistant `transcript`) carry `turn`; the client adopts the
 turn id from `state` and answers `playback_done` with it. On connect the server replays what the model
-holds: the conversation's `transcript`s (bare user text, PRD 39), any `thread` divider and any written `card` (PRD 43), then sends `hands_free` and either greets (a turn) or sends `state` idle.
+holds: the conversation's `transcript`s (bare user text, PRD 39), any `thread` divider and any written `card` (PRD 43), then sends `hands_free` and either sends `state` idle, or (the first connect after a server start) sends `state` thinking and then greets (a turn).
 
 | type | fields | consumed by (app.js) |
 |---|---|---|

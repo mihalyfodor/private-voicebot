@@ -348,6 +348,45 @@ def test_the_index_block_is_trimmed_to_its_budget(vault, memory_sandbox, monkeyp
 # --------------------------------------------------------------- 6. lint
 
 
+def _git_fails_on(monkeypatch, verb, code=128, stdout="", stderr="fatal: boom\nhint"):
+    """`git <verb>` dies; every other git call succeeds (architecture review #12)."""
+    import subprocess
+    real = subprocess.run
+
+    def fake(cmd, *a, **k):
+        if verb in cmd:
+            return subprocess.CompletedProcess(cmd, code, stdout, stderr)
+        return real(cmd, *a, **k)
+    monkeypatch.setattr(subprocess, "run", fake)
+
+
+def test_lint_surfaces_vault_git_failures_first(vault, monkeypatch):
+    v_pages.apply_page_ops([a_page()], "s")
+    _git_fails_on(monkeypatch, "commit", stderr="fatal: unable to auto-detect\nhint")
+    store._commit("one")
+    store._commit("two")
+
+    findings = lint.lint()
+    assert findings[0] == "vault git: 2 failed commands this run (last: fatal: unable to auto-detect)"
+
+
+def test_nothing_to_commit_is_not_a_failure(vault, monkeypatch):
+    _git_fails_on(monkeypatch, "commit", code=1, stdout="nothing to commit, working tree clean", stderr="")
+    store._commit("x")
+    assert store.GIT_FAILURES["count"] == 0
+    assert not [f for f in lint.lint() if f.startswith("vault git")]
+
+
+def test_a_git_timeout_is_counted_with_a_short_message(vault, monkeypatch):
+    import subprocess
+
+    def boom(cmd, *a, **k):
+        raise subprocess.TimeoutExpired(cmd, 20)
+    monkeypatch.setattr(subprocess, "run", boom)
+    store._git("commit", "-m", "x", quiet=True)
+    assert store.GIT_FAILURES == {"count": 1, "last": "git commit timed out after 20s"}
+
+
 def test_lint_flags_a_broken_link_and_a_page_missing_from_the_index(vault):
     v_pages.apply_page_ops([a_page()], "s")
     store._write("people/anna.md", read("people/anna.md") + "\n- see [[projects/ghost]]\n")

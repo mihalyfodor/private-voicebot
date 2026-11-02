@@ -712,7 +712,7 @@ main.run { display: block; position: static; }
 
 /* bottom-left of the workspace: out of the way of every view's own content */
 #intake-toast {
-  position: absolute; left: 22px; bottom: 14px; z-index: 9;
+  position: absolute; left: 22px; bottom: 86px; z-index: 9;   /* above the status/vault-path footer */
   max-width: 55%; padding: 6px 12px; border-radius: 999px;
   background: rgba(20,20,22,0.95); border: 1px solid #3a3a3a;
   font-size: 11px; letter-spacing: 0.05em; color: #cfe2f7; white-space: nowrap;
@@ -773,6 +773,12 @@ main.run { display: block; position: static; }
   color: #8fb4dd; word-break: break-all;
 }
 .set-head.danger { color: #b06060; }
+.set-ctl input[type=number], .set-ctl input[inputmode=decimal] {
+  font: inherit; font-size: 13px; color: #ececec; padding: 4px 8px; width: 72px;
+  background: rgba(20,20,22,0.75); border: 1px solid #333; border-radius: 8px; outline: none;
+  color-scheme: dark;
+}
+.set-ctl input[type=number]:focus, .set-ctl input[inputmode=decimal]:focus { border-color: #4a90d9; }
 .set-ctl .verbosity-control { width: 220px; height: auto; padding: 0; }
 .set-ctl .chip-grid { padding: 0; }
 #decay-list { display: flex; flex-wrap: wrap; gap: 4px; }

@@ -1,6 +1,8 @@
 """PRD 52 scenario 7: the approval card in the client (static/app.js via tests/app_fixture.mjs,
 docs/52-approvals.md) — Approve / Reject on an awaiting card, disabled until the answer, a replay
 without live buttons, and the Sources view's Forget without `confirm()`."""
+import re
+from pathlib import Path
 
 
 def test_an_awaiting_card_shows_the_proposal_with_approve_and_reject(r):
@@ -49,3 +51,11 @@ def test_a_stale_click_turns_its_card_expired_without_buttons(r):
 
 def test_a_turn_error_disarms_the_forget_toast(r):
     assert r["toast_after_turn_error"] == ""
+
+
+def test_recall_threshold_is_a_text_input_with_a_decimal_keyboard():
+    html = (Path(__file__).resolve().parents[2] / "static" / "index.html").read_text()
+    tag = re.search(r"<input[^>]*id=\"recall-min-score\"[^>]*>", html).group(0)
+    assert 'type="text"' in tag and 'inputmode="decimal"' in tag
+    horizon = re.search(r"<input[^>]*id=\"calendar-horizon\"[^>]*>", html).group(0)
+    assert 'type="number"' in horizon

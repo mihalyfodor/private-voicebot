@@ -230,6 +230,7 @@ def test_live_text_turn(page, shot):
     if not omlx_up():
         pytest.skip("oMLX not reachable on localhost:8000")
     wait_idle(page)
+    page.wait_for_function("document.querySelectorAll('#history .msg.assistant').length >= 1")  # the greeting lands first
     page.fill("#composer-input", "Say hello in one short sentence.")
     page.keyboard.press("Enter")
     seen = set()

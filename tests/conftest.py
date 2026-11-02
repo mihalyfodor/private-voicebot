@@ -59,6 +59,12 @@ def wiki_sandbox(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def reset_git_failures():
+    """The vault git failure tally is process-wide; no test inherits another's count."""
+    store.GIT_FAILURES.update(count=0, last="")
+
+
+@pytest.fixture(autouse=True)
 def file_sandbox(monkeypatch, tmp_path):
     """No test may touch the real settings.json, trace logs or memory files.
 

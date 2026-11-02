@@ -125,6 +125,7 @@ async def _on_connect(sess: Session, loop):
     await panels.send({"type": "hands_free", "value": panels.hands_free})
     if not panels.greeted:
         panels.greeted = True
+        await panels.send_state(sess, "thinking")  # busy from connect, not only once the greet is picked up
         panels.submit_turn(s_turns.greet, loop)
     else:
         await panels.send_state(sess, "idle")

@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import subprocess
+import threading
 from vault import index_db
 from core import config, util, trace
 
@@ -120,20 +121,44 @@ decisions.md — one `## YYYY-MM-DD <title>` section per decision.
 """
 
 
+GIT_FAILURES = {"count": 0, "last": ""}   # process-lifetime tally; vault.lint surfaces it (review #12)
+_GIT_FAILURES_LOCK = threading.Lock()      # _git runs on the hook thread and the turn worker
+_GIT_NOOP = ("nothing to commit", "nothing added to commit", "did not match any files")
+
+
+def _git_failed(message: str) -> None:
+    with _GIT_FAILURES_LOCK:
+        GIT_FAILURES["count"] += 1
+        GIT_FAILURES["last"] = message[:120]
+
+
 def _git(*args, quiet: bool = False):
-    """Run git inside the vault, quietly. A missing or unhappy git prints, never raises."""
+    """Run git inside the vault. A missing or unhappy git is logged and counted, never raised.
+
+    `quiet` only mutes the log line: a failure still counts, unless git says there was nothing to do.
+    """
+    verb = args[0] if args else ""
     try:
         result = subprocess.run(
             ["git", "-c", "user.name=llm-wiki", "-c", "user.email=llm-wiki@localhost", *args],
             cwd=WIKI_PATH, capture_output=True, text=True, timeout=20,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        log.info(f"git {args[0] if args else ''} failed: {exc}")
+    except subprocess.TimeoutExpired:
+        log.info(f"git {verb} timed out after 20s")
+        _git_failed(f"git {verb} timed out after 20s")
         return None
-    if result.returncode != 0 and not quiet:
+    except (OSError, subprocess.SubprocessError) as exc:
+        log.info(f"git {verb} failed: {exc}")
+        _git_failed(str(exc).strip().splitlines()[0] if str(exc).strip() else type(exc).__name__)
+        return None
+    if result.returncode != 0:
+        output = (result.stdout or "") + "\n" + (result.stderr or "")
+        if any(noop in output for noop in _GIT_NOOP):
+            return result
         message = (result.stderr or result.stdout or "").strip().splitlines()
-        if message:
-            log.info(f"git {args[0] if args else ''}: {message[0]}")
+        _git_failed(message[0] if message else f"exit {result.returncode}")
+        if message and not quiet:
+            log.info(f"git {verb}: {message[0]}")
     return result
 
 

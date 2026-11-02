@@ -182,3 +182,12 @@ def test_memory_actions_rebuild_the_system_prompt_and_a_rejected_edit_does_not(v
 
     panel.send({"action": "memory_reset"})
     assert "Misi2" not in _system() and "Mihaly" not in _system()
+
+
+def test_reconnect_resets_the_turn_counter(r):
+    """A restarted server numbers turns from 1; playback_done must carry the new id, not the old 12."""
+    assert r["playback_done_turn_after_reconnect"] == [1]
+
+
+def test_recall_threshold_accepts_a_decimal_comma(r):
+    assert r["recall_threshold_comma"] == [3.5]
