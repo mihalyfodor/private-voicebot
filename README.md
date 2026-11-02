@@ -1,12 +1,14 @@
 # Voicebot
 
-A local voice assistant with memory, real-time tools and an animated Live2D avatar that lip-syncs to speech. Runs entirely on your machine — no cloud LLM.
+A local voice assistant with memory, a markdown wiki, real-time tools and an animated Live2D avatar that lip-syncs to speech. Runs on your machine, no cloud LLM.
 
-**Stack:** Whisper (`mlx-whisper`, in-process STT) + Silero VAD → oMLX/Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) → Kokoro (TTS) → Live2D avatar in the browser, served on port 8011 (the prod container owns 8010).
+**Stack:** Silero VAD + Whisper speech recognition (`mlx-whisper`) -> oMLX / Gemma 4 (OpenAI-compatible API on `http://localhost:8000/v1`, key `omlx`) -> Kokoro TTS -> Live2D avatar in the browser. Dev serves on port 8011, the prod container on 8010.
 
-**Avatar:** **Wanko**, an upbeat dog office assistant, with her own voice, persona and expressions. The menu also lets you pick a **backdrop** behind her.
+Speech recognition has two backends (`ASR_BACKEND` in `.env.example`): `mlx` runs `mlx-whisper` inside the app (the code default, used in dev); `remote` posts audio to a host ASR service, `scripts/asr_server.py` on :8020 (what the prod container uses).
 
-**Built-in tools:** current time, weather (open-meteo), BBC world news headlines + article detail, Gmail inbox — each plays a short spoken filler ("Let me check outside...") the moment it's called, so the wait feels natural.
+**Avatar:** Wanko, an upbeat dog office assistant, with her own voice, persona and expressions. The menu lets you pick a backdrop behind her.
+
+**Tools:** time, weather (open-meteo), BBC news headlines and article detail, Gmail inbox, Wikipedia, and the wiki (search, read page, read source, file a source). Each plays a short spoken filler the moment it is called. Typed or spoken commands: `/new` (new topic), `/brief` (what changed), `/write` (write the answer up), `/research <question>`, "save that", "find <page>".
 
 ## Requirements
 
@@ -50,35 +52,54 @@ Type in the composer (**Enter** sends, **Shift+Enter** newline) or turn the mic 
 
 Wanko is the only avatar; anything else in `AVATAR` or in `settings.json` (gitignored) quietly resolves back to her. Her persona lives in `characters/wanko.yaml`. `KOKORO_VOICE` / `KOKORO_SPEED` in `.env` override the current avatar's default voice/speed if set. Client-side avatar behaviour (model, framing, expression mapping) lives in `PROFILES` at the top of `static/app.js`; emotion→expression tuning is in the same file's `CONFIG`.
 
-**Email triage dashboard:**
-```bash
-source .venv/bin/activate
-python3 scripts/email_classification.py   # opens browser automatically
-```
-
-Fetches your Gmail inbox, classifies each email via local LLM (category, urgency, confidence), and streams results to a browser dashboard. Click ▲/▼ to adjust urgency or the category badge to change category — corrections are remembered and applied automatically on future runs. Requires Gmail API credentials (`credentials.json`) in the project root.
-
 ## Weather configuration
 
-Weather uses [open-meteo](https://open-meteo.com) (no API key). Set your location via env vars before running:
-
-```bash
-export LOCATION_NAME="Seychelles"
-export LOCATION_LAT=-4.6796
-export LOCATION_LON=55.4920
-export LOCATION_TIMEZONE="Indian/Mahe"
-```
-
-Defaults to Seychelles if unset. Enjoy the tropical weather reports.
+Weather uses [open-meteo](https://open-meteo.com), no API key. Set the location in `.env` (default Seychelles): `LOCATION_NAME`, `LOCATION_LAT`, `LOCATION_LON`, `LOCATION_TIMEZONE`.
 
 ## Memory
 
-Conversations are summarized and saved to `shortmem.txt` on exit. This file is loaded on next startup as background context. It is gitignored — personal to your machine.
+The assistant keeps a structured user profile, not a transcript. Every `MEMORY_SAVE_EVERY` completed turns (default 5) and on shutdown, the session is folded into the profile: the model proposes operations, Python validates and applies them, and a reflection pass cleans up every few saves. Stale entries decay. The profile lives in `memory.json` with its change log `memory_ops.jsonl` under `MEMORY_DIR` (the repo root in dev, `~/.voicebot/data/memory` in prod). It is injected into the system prompt as a `<user_profile>` block (token budget `MEMORY_BUDGET_TOKENS`) and is editable in the Memory view. `shortmem.txt` is the old format, read once to migrate. All of it is gitignored and personal to your machine.
+
+## Wiki / vault
+
+The wiki is an Obsidian-style markdown vault at `WIKI_PATH` (dev default `~/llm-wiki-dev`; prod sets it explicitly, so dev never touches the real vault). The app:
+
+- edits it in the Wiki view;
+- ingests documents into it: drop a PDF, DOCX and similar files in Sources, sync reMarkable notebooks, or file a folder with `scripts/ingest_batch.py`;
+- searches it with a SQLite BM25 index at `<vault>/.index/` (rebuild with `python -m vault reindex`, only while the app is stopped);
+- uses it for recall in chat when a question calls for it.
+
+## Prod (Docker)
+
+Prod is a pinned image built from `main`, with all state under `~/.voicebot/data` and the UI on `http://localhost:8010`. oMLX and the ASR service stay native on the host (ASR via launchd, `scripts/install_launchd.sh asr`).
+
+```bash
+scripts/prod.sh build | up | down | status | logs | backup | restore <tgz> <bundle> <dir> | deploy | turn [text]
+scripts/voicebot start | stop | status   # the whole stack: colima, oMLX, model, ASR service, container (--dev for the checkout)
+```
+
+Setup, migration and the release checklist are in [docs/deploy.md](docs/deploy.md).
+
+## Development
+
+```bash
+scripts/check.sh      # the only check command: node --check, DOM fixture, ruff, pytest (no oMLX needed)
+scripts/smoke.py      # headless smoke: e2e, one live turn, screenshots to /tmp/smoke/
+git config core.hooksPath scripts/hooks   # once per clone (commit-msg hook)
+```
+
+Layers, each with its tests under `tests/<layer>/`: `core/` (config, LLM client, tracing), `vault/` (the wiki and its index), `memory/` (profile), `ingest/` (documents in), `tools/` (the model's tools), `agent/` (turns, recall, fold), `server/` (FastAPI and WebSocket). The browser client is `static/`, helper scripts are in `scripts/`. Logs go to `logs/events.jsonl` in dev (read with `scripts/trace_report.py`).
+
+[docs/index.md](docs/index.md) has the full folder tree, all test commands (live, e2e, docker, perf) and the WebSocket protocol link. [docs/process.md](docs/process.md) is the process.
+
+## Also in the repo
+
+`scripts/email_classification.py`: a standalone Gmail triage dashboard (local LLM classifies, you correct). Needs `credentials.json` in the project root.
 
 ## Licensing
 
-The Live2D sample model (Wanko) and Cubism Core, and the backdrop images, are downloaded by `scripts/fetch_assets.sh` and are gitignored — they are not committed to this repo. Backdrops are Pixabay Content License images; credit is shown in-app.
+The Live2D sample model (Wanko), Cubism Core and the backdrop images are downloaded by `scripts/fetch_assets.sh` and are gitignored, not committed. Backdrops are Pixabay Content License images; credit is shown in-app.
 
 ## Development process
 
-This project follows the [side-project-sdlc](https://github.com/mihalyfodor/side-project-sdlc) — a lightweight 3-phase process (Exploration → Implementation → Refactoring) for building personal apps with AI assistance.
+This project follows the [side-project-sdlc](https://github.com/mihalyfodor/side-project-sdlc), a lightweight 3-phase process (Exploration, Implementation, Refactoring) for building personal apps with AI assistance. See [docs/process.md](docs/process.md).
