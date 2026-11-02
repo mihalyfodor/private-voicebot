@@ -31,7 +31,7 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
 - `scripts/remarkable_server.py`: stdlib `ThreadingHTTPServer` bound to `127.0.0.1:$REMARKABLE_PORT` (8021),
   no auth beyond loopback (Docker reaches it via host.docker.internal like ASR). Endpoints: `GET /health` ->
   `{"ok":true}`; `POST /push` JSON `{title, markdown}` (or `{title, pdf: base64}`) -> `{ok, pages, name}`; errors
-  JSON `{ok:false, error}` with 503 when the tablet is unreachable, 400 on bad input.
+  JSON `{ok:false, error}` with 503 when the tablet is unreachable, 400 on bad input, 411/413 on missing/oversized bodies (`REMARKABLE_MAX_BODY_MB`, default 20).
 - Rendering: `title\n\nbody` written as plain text to a temp file, then `cupsfilter -m application/pdf file`
   (probed: present at /usr/sbin/cupsfilter; a `# T / body` file gave a PDF whose `pdftotext` returns both lines).
   Markdown is left as monospaced text: no styling, no images, tables as typed. Page count from `pdftotext`/`pdfinfo`
@@ -54,6 +54,7 @@ PRD 51 (run cards: `card`/`card_update`, run page); it adds the `push` entry to 
 - Approval + run card over fire-and-forget: a push puts a file on a device, so it follows PRD 52/51 like any write.
 - Card-only target (no open-page), 2026-10-17: simplify; the open wiki page is out of scope.
 - URL unset = off, prod opts in via .env (2026-10-17): compose carries no default; add `REMARKABLE_PUSH_URL=http://host.docker.internal:8021` to `$DATA/.env`. Unset = no command, no row, one "not configured" line.
+- Request bodies capped at REMARKABLE_MAX_BODY_MB (20) so a loopback client cannot make the service buffer arbitrary input.
 - Chose a local page estimate shown with "~" in the proposal, exact count only in the run card, over rendering twice.
 - Cut (2026-10-17) the Vision OCR helper and the daily-pull plist: simplify over completeness; `ocr_bin()` keeps
   returning "" when no binary is installed, which the pull path already handles.

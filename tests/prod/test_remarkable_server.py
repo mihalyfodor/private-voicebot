@@ -1,5 +1,6 @@
 """PRD 47b scenarios 1-2 and 5 (service half): scripts/remarkable_server.py against the fake tablet."""
 import base64
+import http.client
 import json
 import os
 import subprocess
@@ -32,6 +33,37 @@ def test_push_refuses_browsers_and_non_json(push_service):
         with pytest.raises(urllib.error.HTTPError) as err:
             urllib.request.urlopen(req, timeout=10)
         assert err.value.code == code
+
+
+def _raw_post(push_service, length=None, origin=None):
+    host, port = push_service.removeprefix("http://").split(":")
+    conn = http.client.HTTPConnection(host, int(port), timeout=10)
+    conn.putrequest("POST", "/push")
+    conn.putheader("Content-Type", "application/json")
+    if origin:
+        conn.putheader("Origin", origin)
+    if length is not None:
+        conn.putheader("Content-Length", length)
+    conn.endheaders(b'{"title": "x", "markdown": "x"}')
+    resp = conn.getresponse()
+    reply = json.loads(resp.read())
+    conn.close()
+    return resp.status, reply
+
+
+def test_push_refuses_oversized_or_unsized_bodies_without_reading(push_service, fake_remarkable):
+    status, reply = _raw_post(push_service, "999999999999")
+    assert status == 413 and reply["ok"] is False and "body too large (max 20 MB)" in reply["error"]
+    status, reply = _raw_post(push_service, "abc")
+    assert status == 400 and reply == {"ok": False, "error": "bad Content-Length"}
+    status, reply = _raw_post(push_service, "-5")
+    assert status == 400 and reply["error"] == "bad Content-Length"
+    status, reply = _raw_post(push_service)
+    assert status == 411 and reply == {"ok": False, "error": "Content-Length required"}
+    # check order: a browser Origin is refused before the length is looked at
+    status, _ = _raw_post(push_service, "999999999999", origin="http://evil.example")
+    assert status == 403
+    assert fake_remarkable.uploads == []
 
 
 def test_health(push_service):

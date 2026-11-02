@@ -36,6 +36,29 @@ def _modules(root: str, shims) -> list:
     return found
 
 
+def _relative_names(rel: str, node: ast.ImportFrom) -> list:
+    """Absolute module names a relative import points at. Level 1 is the module's own package; each extra level goes one up."""
+    base = rel.split("/")[:-1]
+    base = base[:len(base) - (node.level - 1)] if node.level > 1 else base
+    if node.level - 1 > len(rel.split("/")[:-1]):
+        return []   # climbs out of the repo: not an app import
+    if node.module:
+        return [".".join(base + [node.module])]
+    return [".".join(base + [a.name]) for a in node.names]
+
+
+def _dynamic_target(node: ast.Call):
+    """The literal module name of importlib.import_module("x") / __import__("x"), else None (a non-literal can't be known)."""
+    f = node.func
+    name = f.id if isinstance(f, ast.Name) else f.attr if isinstance(f, ast.Attribute) else None
+    if name not in ("import_module", "__import__") or not node.args:
+        return None
+    a = node.args[0]
+    if isinstance(a, ast.Constant) and isinstance(a.value, str) and a.value and not a.value.startswith("."):
+        return a.value
+    return None
+
+
 def check(root: str, allowed: set, shims=SHIMS, deleted=DELETED) -> list:
     problems, observed = [], set()
     for rel, layer in _modules(root, shims):
@@ -46,6 +69,10 @@ def check(root: str, allowed: set, shims=SHIMS, deleted=DELETED) -> list:
                 names = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 names = [node.module]
+            elif isinstance(node, ast.ImportFrom) and node.level > 0:
+                names = _relative_names(rel, node)
+            elif isinstance(node, ast.Call) and _dynamic_target(node):
+                names = [_dynamic_target(node)]
             else:
                 continue
             for name in names:
@@ -89,6 +116,33 @@ def test_function_local_upward_import_is_named_with_line(tmp_path):
                             "server/__init__.py": "", "server/app.py": ""})
     found = check(root, set())
     assert len(found) == 1 and found[0].startswith("vault/store.py:2:")
+
+
+def test_relative_upward_import_is_named_with_line(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "", "vault/store.py": "x = 1\nfrom ..server import app\n",
+                            "vault/other.py": "from .. import server\n", "server/__init__.py": "", "server/app.py": ""})
+    found = check(root, set())
+    assert len(found) == 2 and found[0].startswith("vault/other.py:1:") and found[1].startswith("vault/store.py:2:")
+
+
+def test_relative_sibling_import_is_allowed(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "from . import store\nfrom .store import f\n", "vault/store.py": "from . import other\n",
+                            "vault/other.py": "", "server/__init__.py": "", "server/app.py": "from ..vault import store\n"})
+    assert check(root, set()) == []
+
+
+def test_importlib_literal_upward_import_is_named_with_line(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "", "server/__init__.py": "", "server/app.py": "",
+                            "vault/store.py": "import importlib\n\ndef f(n):\n    importlib.import_module(n)\n    return importlib.import_module(\"server.app\")\n"})
+    found = check(root, set())
+    assert len(found) == 1 and found[0].startswith("vault/store.py:5:")
+
+
+def test_dunder_import_literal_upward_import_is_named_with_line(tmp_path):
+    root = _tree(tmp_path, {"vault/__init__.py": "", "server/__init__.py": "", "server/app.py": "",
+                            "vault/store.py": "def f(n):\n    __import__(n)\n    return __import__(\"server\")\n"})
+    found = check(root, set())
+    assert len(found) == 1 and found[0].startswith("vault/store.py:3:")
 
 
 def test_stale_allow_list_entry_fails():

@@ -653,9 +653,9 @@ def archive(section: str, index) -> tuple:
             return profile, {"path": f"{section}[{index}]", "reason": f"{section}[{index}] does not exist"}
         entry = entries[index]
         try:
-            from memory import bridge as v_bridge
+            from memory import bridge as m_bridge
 
-            page, reason = v_bridge.archive_entry(section, entry)
+            page, reason = m_bridge.archive_entry(section, entry)
         except Exception as exc:  # noqa: BLE001
             page, reason = None, str(exc)
         if reason:
@@ -676,9 +676,9 @@ def pull(path: str, section: str) -> tuple:
         return store.load_profile(), {"path": path, "reason": f"cannot pull into {section}"}
     with store._LOCK:
         try:
-            from memory import bridge as v_bridge
+            from memory import bridge as m_bridge
 
-            entry, reason = v_bridge.entry_from_page(path, section)
+            entry, reason = m_bridge.entry_from_page(path, section)
         except Exception as exc:  # noqa: BLE001
             entry, reason = None, str(exc)
         if reason:

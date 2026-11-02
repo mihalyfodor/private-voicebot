@@ -26,6 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import remarkable_sync as sync
 
+# A PDF arrives base64 inside the JSON (4/3 overhead): 20 MB of body is a ~15 MB PDF, far above a note or a scan.
+MAX_BODY = int(os.getenv("REMARKABLE_MAX_BODY_MB", "20")) * 1024 * 1024
 HOST = "127.0.0.1"     # loopback only: Docker reaches it through host.docker.internal, the LAN does not
 
 
@@ -124,8 +126,19 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(403, {"ok": False, "error": "browser requests are not accepted"})
         if not (self.headers.get("Content-Type") or "").startswith("application/json"):
             return self._send(415, {"ok": False, "error": "Content-Type must be application/json"})
+        raw_length = self.headers.get("Content-Length")
+        if raw_length is None:
+            return self._send(411, {"ok": False, "error": "Content-Length required"})
         try:
-            payload = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            length = int(raw_length)
+        except ValueError:
+            length = -1
+        if length < 0:
+            return self._send(400, {"ok": False, "error": "bad Content-Length"})
+        if length > MAX_BODY:
+            return self._send(413, {"ok": False, "error": f"body too large (max {MAX_BODY // 1024 // 1024} MB)"})
+        try:
+            payload = json.loads(self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError
         except ValueError:

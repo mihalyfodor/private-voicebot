@@ -223,6 +223,15 @@ def test_client_banner_hides_when_both_are_ok_and_settings_rows_show_dots_and_ti
     assert all(row["dot"] == "svc-dot ok" for row in r["svc_rows_ok"])
 
 
+def test_client_remarkable_row_only_shows_when_the_services_message_carries_it(r):
+    without = {row["name"] for row in r["svc_rows_without_remarkable"]}
+    assert {"LLM", "Voice input"} <= without and "reMarkable push" not in without
+    with_rm = {row["name"]: row for row in r["svc_rows_with_remarkable"]}
+    assert {"LLM", "Voice input"} <= set(with_rm)
+    rm = with_rm["reMarkable push"]
+    assert rm["dot"] == "svc-dot ok" and "ready" in rm["value"]
+
+
 def test_client_backend_down_banner_on_close_1006_but_not_on_a_takeover(r):
     b = r["svc_backend_down"]
     assert not b["hidden"] and b["cls"] == "down"

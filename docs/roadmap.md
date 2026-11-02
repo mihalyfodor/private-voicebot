@@ -201,7 +201,8 @@ Housekeeping backlog (audit 2026-10-17):
 - Done 2026-11-02 (housekeeping sweep): fixture imports moved into per-layer `conftest.py` files and the F811 ignore dropped;
   `.env.example` complete and guarded by `tests/test_env_example.py`; status per finding in `docs/reviews/2026-08-29-architecture.md`
   (#7 #8 #10 partly, #9 resolved: lifespan + `asyncio.to_thread` shutdown save, #11 by design, #12 vault git failures still invisible). The backup marker already
-  covered memory/settings since PRD 58. FastAPI lifespan migration done (`server/app.py`, shutdown save via `asyncio.to_thread`).
+  covered memory/settings since PRD 58. FastAPI lifespan migration done (`server/app.py`, shutdown save via `asyncio.to_thread`). Review-backlog pass the same day: layer test sees relative + dynamic
+  imports; push service caps request bodies (`REMARKABLE_MAX_BODY_MB`, 413); Settings reMarkable-row filter tested; v_ aliases renamed m_/a_.
 
 ## Dropped
 

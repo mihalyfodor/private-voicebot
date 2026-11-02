@@ -849,6 +849,14 @@ t.recv({ type: 'services', hint: 'scripts/voicebot start',
          asr: { ok: true, label: 'ASR :8020', detail: 'answering', checked: '2026-08-30T10:11:43' } });
 results.svc_both_ok = banner();
 results.svc_rows_ok = svcRows();
+// the reMarkable row (PRD 47b) only exists while the services message carries a `remarkable` entry
+const okSvc = { llm: { ok: true, label: 'oMLX :8000', detail: 'model g loaded', checked: '2026-08-30T10:11:42' },
+                asr: { ok: true, label: 'ASR :8020', detail: 'answering', checked: '2026-08-30T10:11:43' } };
+t.recv({ type: 'services', hint: 'scripts/voicebot start', ...okSvc });
+results.svc_rows_without_remarkable = svcRows();
+t.recv({ type: 'services', hint: 'scripts/voicebot start', ...okSvc,
+         remarkable: { ok: true, label: 'push :8021', detail: 'ready', checked: '2026-08-30T10:11:44' } });
+results.svc_rows_with_remarkable = svcRows();
 t.closeSocket(1006);
 results.svc_backend_down = banner();
 t.closeSocket(4000);                                   // a takeover is not "backend down"

@@ -4,7 +4,7 @@ from agent import fold
 from core import trace
 from core import llm as core_llm
 from vault import chunks as v_chunks
-from agent import digest as v_digest
+from agent import digest as a_digest
 from vault import focus as v_focus
 from core.emotions import strip_tag
 from core.untrusted import untrusted
@@ -219,20 +219,20 @@ def _digest_text(digest: dict) -> str:
     """The digest as plain lines for the recap prompt, capped like the card."""
     lines = []
     for change in ("new", "edited", "deleted"):
-        titles, extra = v_digest.capped([p["title"] for p in digest["pages"] if p["change"] == change])
+        titles, extra = a_digest.capped([p["title"] for p in digest["pages"] if p["change"] == change])
         if titles:
             more = f" (+{extra} more)" if extra else ""
             lines.append(f"Pages {change}: " + ", ".join(titles) + more)
     if digest["chat_pages"]:
         lines.append(f"Pages noted from our chats: {len(digest['chat_pages'])} ("
-                     + ", ".join(v_focus.page_title(p) or p for p in v_digest.capped(digest["chat_pages"])[0]) + ")")
+                     + ", ".join(v_focus.page_title(p) or p for p in a_digest.capped(digest["chat_pages"])[0]) + ")")
     if digest["sources"]:
         lines.append("New sources: " + ", ".join(
-            f"{v_focus.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in v_digest.capped(digest["sources"])[0]))
+            f"{v_focus.page_title(s['page']) or s['page']} ({s['kind'] or 'file'})" for s in a_digest.capped(digest["sources"])[0]))
     mem = digest["memory"]
-    if v_digest.memory_total(digest):
+    if a_digest.memory_total(digest):
         lines.append(f"Memory: {mem['added']} added, {mem['updated']} updated, {mem['removed']} removed"
-                     + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {v_digest.memory_value(e['value'])}"
+                     + "".join(f"; e.g. {e['op'].lower()} {e['path']}: {a_digest.memory_value(e['value'])}"
                                for e in mem["examples"]))
     return "\n".join(lines)
 
@@ -245,7 +245,7 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
 
     a_conversation._deeper_offer = None
     block = untrusted(_digest_text(digest), "briefing")
-    prompt = BRIEFING_PROMPT.format(when=v_digest.briefing_when(digest["since"]))
+    prompt = BRIEFING_PROMPT.format(when=a_digest.briefing_when(digest["since"]))
     items = len(digest["pages"]) + len(digest["chat_pages"])
     with trace.span("briefing", items=items, sources=len(digest["sources"])):
         resp = core_llm.completion(
@@ -257,13 +257,13 @@ def briefing(digest: dict, user_text: str = "what's new?", origin: str = "user")
         raise ValueError("the model wrote nothing")
     if not offers.ends_with_offer(reply):
         reply += " " + a_prompt.DEEPER_OFFERS[0]
-    card_md = v_digest.briefing_card(digest)
+    card_md = a_digest.briefing_card(digest)
     titles = [p["title"] for p in digest["pages"]]
     a_conversation._conversation.append({"role": "user", "content": user_text})
     a_conversation._conversation.append({"role": "assistant", "content": reply})
     a_conversation._session_turns.append({"role": "assistant", "content":
                            f"{fold.STAND_INS[1]}{len(digest['pages']) + len(digest['chat_pages'])} pages, "
-                           f"{len(digest['sources'])} sources, {v_digest.memory_total(digest)} memory changes"})
+                           f"{len(digest['sources'])} sources, {a_digest.memory_total(digest)} memory changes"})
     a_conversation._last_context = {"question": user_text, "extra": block, "tools": [], "reply": reply, "sources": [],
                      "pages": titles, "card": card_md}
     return reply, card_md

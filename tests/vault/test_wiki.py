@@ -15,14 +15,14 @@ from memory import identity
 from memory import ops as m_ops
 from memory import render
 from memory import store as m_store
-from agent import digest as m_digest
+from agent import digest as a_digest
 from memory import bridge
-from memory import wiki_ingest as v_ingest
+from memory import wiki_ingest as m_ingest
 from vault import chunks
 from vault import focus
-from vault import index as m_index
+from vault import index as v_index
 from vault import lint
-from vault import pages as m_pages
+from vault import pages as v_pages
 from vault import search
 from vault import store
 from core import llm as core_llm
@@ -63,7 +63,7 @@ def test_ensure_vault_is_idempotent(vault):
 
 def test_nothing_is_created_at_import(wiki_sandbox):
     """Reading the index of a vault that isn't there must not bring one into existence."""
-    assert m_index.index_text() == ""
+    assert v_index.index_text() == ""
     assert lint.pages() == []
     assert lint.lint() == []
     assert not os.path.exists(store.WIKI_PATH)
@@ -73,7 +73,7 @@ def test_nothing_is_created_at_import(wiki_sandbox):
 
 
 def test_new_page_writes_frontmatter_and_sections(vault):
-    applied, rejected = m_pages.apply_page_ops([a_page()], "session 2026-08-29")
+    applied, rejected = v_pages.apply_page_ops([a_page()], "session 2026-08-29")
     assert (len(applied), rejected) == (1, [])
 
     fm, body = store.parse_page(read("people/anna.md"))
@@ -87,8 +87,8 @@ def test_new_page_writes_frontmatter_and_sections(vault):
 
 
 def test_append_note_adds_a_dated_bullet_under_notes(vault):
-    m_pages.apply_page_ops([a_page()], "s")
-    m_pages.apply_page_ops([{"op": "append_note", "path": "people/anna",
+    v_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([{"op": "append_note", "path": "people/anna",
                           "text": "moved to the release team"}], "session x")
     _, body = store.parse_page(read("people/anna.md"))
     notes = body.split("## Notes")[1].split("## Related")[0]
@@ -96,9 +96,9 @@ def test_append_note_adds_a_dated_bullet_under_notes(vault):
 
 
 def test_set_field_touches_only_frontmatter(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     before_body = store.parse_page(read("people/anna.md"))[1]
-    applied, _ = m_pages.apply_page_ops([{"op": "set_field", "path": "people/anna",
+    applied, _ = v_pages.apply_page_ops([{"op": "set_field", "path": "people/anna",
                                        "key": "tags", "value": ["team", "release"]}], "s")
     fm, body = store.parse_page(read("people/anna.md"))
     assert applied and fm["tags"] == ["team", "release"] and body == before_body
@@ -106,10 +106,10 @@ def test_set_field_touches_only_frontmatter(vault):
 
 def test_set_field_can_set_status_on_a_project_page(vault, memory_sandbox):
     """PRD 19 gives project pages a `status`; it must be settable and must survive a pull."""
-    m_pages.apply_page_ops([{"op": "new_page", "path": "projects/falcon", "type": "project",
+    v_pages.apply_page_ops([{"op": "new_page", "path": "projects/falcon", "type": "project",
                           "name": "Falcon", "summary": "The platform rewrite."}], "s")
 
-    applied, rejected = m_pages.apply_page_ops([{"op": "set_field", "path": "projects/falcon",
+    applied, rejected = v_pages.apply_page_ops([{"op": "set_field", "path": "projects/falcon",
                                               "key": "status", "value": "amber"}], "s")
 
     assert applied and rejected == []
@@ -121,8 +121,8 @@ def test_set_field_can_set_status_on_a_project_page(vault, memory_sandbox):
 
 def test_a_page_without_a_status_does_not_grow_one(vault):
     """`status` is optional: only project pages that were given one carry the key."""
-    m_pages.apply_page_ops([a_page()], "s")
-    m_pages.apply_page_ops([{"op": "append_note", "path": "people/anna", "text": "hi"}], "s")
+    v_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([{"op": "append_note", "path": "people/anna", "text": "hi"}], "s")
 
     assert "status:" not in read("people/anna.md")
 
@@ -136,7 +136,7 @@ def test_ensure_vault_never_rewrites_an_edited_schema(vault):
 
 
 def test_add_decision_appends_a_dated_section(vault):
-    m_pages.apply_page_ops([{"op": "add_decision", "title": "deploy on Fridays",
+    v_pages.apply_page_ops([{"op": "add_decision", "title": "deploy on Fridays",
                           "text": "Ship at 10:00, Anna runs it."}], "session 2026-08-29")
     text = read("decisions.md")
     assert f"## {util.today_iso()} deploy on Fridays" in text
@@ -145,11 +145,11 @@ def test_add_decision_appends_a_dated_section(vault):
 
 
 def test_link_adds_a_wikilink_once(vault):
-    m_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The platform rewrite.")], "s")
+    v_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The platform rewrite.")], "s")
     op = {"op": "link", "path": "people/anna", "target": "projects/atlas"}
-    assert m_pages.apply_page_ops([op], "s")[0]
+    assert v_pages.apply_page_ops([op], "s")[0]
     assert "[[projects/atlas]]" in read("people/anna.md")
-    applied, rejected = m_pages.apply_page_ops([op], "s")     # second time is a no-op
+    applied, rejected = v_pages.apply_page_ops([op], "s")     # second time is a no-op
     assert applied == [] and "already links" in rejected[0]["reason"]
 
 
@@ -165,11 +165,11 @@ def test_link_adds_a_wikilink_once(vault):
     ({"op": "burn_it_down", "path": "people/anna"}, "unknown op"),
 ])
 def test_invalid_ops_are_rejected_and_change_nothing(vault, op, expect):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     before = {rel: read(rel) for rel in ("index.md", "log.md", "people/anna.md", "decisions.md")}
     commits_before = len(commits())
 
-    applied, rejected = m_pages.apply_page_ops([op], "s")
+    applied, rejected = v_pages.apply_page_ops([op], "s")
 
     assert applied == []
     assert expect in rejected[0]["reason"]
@@ -178,29 +178,29 @@ def test_invalid_ops_are_rejected_and_change_nothing(vault, op, expect):
 
 
 def test_new_page_on_an_existing_page_is_rejected(vault):
-    m_pages.apply_page_ops([a_page()], "s")
-    applied, rejected = m_pages.apply_page_ops([a_page(summary="different")], "s")
+    v_pages.apply_page_ops([a_page()], "s")
+    applied, rejected = v_pages.apply_page_ops([a_page(summary="different")], "s")
     assert applied == [] and "already exists" in rejected[0]["reason"]
     assert "different" not in read("people/anna.md")
 
 
 def test_oversized_note_is_rejected(vault):
-    m_pages.apply_page_ops([a_page()], "s")
-    applied, rejected = m_pages.apply_page_ops(
+    v_pages.apply_page_ops([a_page()], "s")
+    applied, rejected = v_pages.apply_page_ops(
         [{"op": "append_note", "path": "people/anna", "text": "x" * 601}], "s")
     assert applied == [] and "600 characters" in rejected[0]["reason"]
 
 
 def test_append_to_an_oversized_page_is_rejected(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     store._write("people/anna.md", read("people/anna.md") + "\nfiller " * 4000)
-    applied, rejected = m_pages.apply_page_ops(
+    applied, rejected = v_pages.apply_page_ops(
         [{"op": "append_note", "path": "people/anna", "text": "one more"}], "s")
     assert applied == [] and "20 kB" in rejected[0]["reason"]
 
 
 def test_a_missing_source_falls_back_to_the_batch_default(vault):
-    m_pages.apply_page_ops([a_page()], "session 2026-08-29")
+    v_pages.apply_page_ops([a_page()], "session 2026-08-29")
     assert "source: session 2026-08-29" in read("people/anna.md")
 
 
@@ -215,7 +215,7 @@ def test_a_batch_makes_one_commit_and_one_log_line_per_op(vault):
         {"op": "append_note", "path": "people/anna", "text": "runs the release"},
         {"op": "add_decision", "title": "deploy on Fridays", "text": "Ship at 10:00."},
     ]
-    applied, rejected = m_pages.apply_page_ops(ops, "session 2026-08-29")
+    applied, rejected = v_pages.apply_page_ops(ops, "session 2026-08-29")
 
     assert len(applied) == 4 and rejected == []
     assert len(commits()) == commits_before + 1
@@ -231,14 +231,14 @@ def test_a_batch_makes_one_commit_and_one_log_line_per_op(vault):
 
 
 def test_index_is_a_pure_function_of_the_pages(vault):
-    m_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The rewrite.")], "s")
+    v_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The rewrite.")], "s")
     first = read("index.md")
     store._write("index.md", "# Index\n\ngarbage\n")
-    assert m_index.rebuild_index() == first
+    assert v_index.rebuild_index() == first
 
 
 def test_a_partly_bad_batch_applies_the_good_ops(vault):
-    applied, rejected = m_pages.apply_page_ops([a_page(), {"op": "append_note", "path": "nope/x", "text": "y"}], "s")
+    applied, rejected = v_pages.apply_page_ops([a_page(), {"op": "append_note", "path": "nope/x", "text": "y"}], "s")
     assert len(applied) == 1 and len(rejected) == 1
     assert store.page_exists("people/anna.md")
 
@@ -247,7 +247,7 @@ def test_a_partly_bad_batch_applies_the_good_ops(vault):
 
 
 def test_search_ranks_the_decisions_page_first(vault):
-    m_pages.apply_page_ops([
+    v_pages.apply_page_ops([
         a_page(),
         a_page("projects/atlas", "Atlas", "The platform rewrite, unrelated to shipping."),
         {"op": "add_decision", "title": "deploy on Fridays",
@@ -259,20 +259,20 @@ def test_search_ranks_the_decisions_page_first(vault):
 
 
 def test_search_returns_at_most_k_hits_and_nothing_for_a_miss(vault):
-    m_pages.apply_page_ops([a_page(f"people/p{i}", f"P{i}", "colleague") for i in range(7)], "s")
+    v_pages.apply_page_ops([a_page(f"people/p{i}", f"P{i}", "colleague") for i in range(7)], "s")
     assert len(search.search("colleague")) == 5
     assert search.search("submarine") == []
 
 
 def test_search_sees_a_page_edited_on_disk(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     assert search.search("kayaking") == []
     store._write("people/anna.md", read("people/anna.md") + "\n- she is into kayaking\n")
     assert [h["path"] for h in search.search("kayaking")] == ["people/anna"]
 
 
 def test_read_page_truncates_at_four_kb(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     store._write("people/anna.md", read("people/anna.md") + "\n" + "long " * 2000)
     text = chunks.read_page("people/anna")
     assert text.endswith(store.TRUNCATED)
@@ -287,7 +287,7 @@ def test_read_page_reports_an_unknown_path(vault):
 def test_the_tools_wrap_search_and_read(vault):
     from tools import run_tool
 
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     assert "people/anna:" in run_tool("search_wiki", {"query": "colleague platform"})
     assert "# Anna" in run_tool("read_page", {"path": "people/anna"})
     assert run_tool("search_wiki", {"query": "submarine"}) == "no matching wiki pages"
@@ -297,7 +297,7 @@ def test_the_tools_wrap_search_and_read(vault):
 
 
 def test_load_injects_the_wiki_index(vault, memory_sandbox):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     prompt = identity.load("BASE")
     assert "<wiki_index>" in prompt and "[[people/anna]]" in prompt
     assert "read_page" in prompt and "search_wiki" in prompt
@@ -314,7 +314,7 @@ def test_the_tool_hint_is_dropped_when_the_tools_are_not_registered(vault, memor
     tool call at the user.
     """
 
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     monkeypatch.setattr(toolset, "TOOLS", [])
 
     prompt = identity.load("BASE")
@@ -338,7 +338,7 @@ def test_an_empty_vault_adds_no_block(vault, memory_sandbox):
 
 
 def test_the_index_block_is_trimmed_to_its_budget(vault, memory_sandbox, monkeypatch):
-    m_pages.apply_page_ops([a_page(f"people/p{i}", f"Person number {i}", "a colleague of the user")
+    v_pages.apply_page_ops([a_page(f"people/p{i}", f"Person number {i}", "a colleague of the user")
                          for i in range(40)], "s")
     monkeypatch.setattr(store, "WIKI_INDEX_TOKENS", 50)
     block = identity.load("BASE").split("<wiki_index>")[1].split("</wiki_index>")[0]
@@ -349,7 +349,7 @@ def test_the_index_block_is_trimmed_to_its_budget(vault, memory_sandbox, monkeyp
 
 
 def test_lint_flags_a_broken_link_and_a_page_missing_from_the_index(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     store._write("people/anna.md", read("people/anna.md") + "\n- see [[projects/ghost]]\n")
     search._db().drop_page("people/anna.md")           # a write that missed its hook (PRD 53)
 
@@ -367,7 +367,7 @@ def test_lint_flags_a_broken_link_and_a_page_missing_from_the_index(vault):
 def test_lint_checks_the_search_index_not_the_capped_index_md(vault):
     """PRD 53 scenario 5: 250 pages are no lint finding; index.md stays at 200 lines; a page on
     disk the index lacks, and an index row whose page is gone, are reported."""
-    m_pages.apply_page_ops([a_page(f"notes/n{i:03d}", f"Note {i:03d}", f"Note number {i}.")
+    v_pages.apply_page_ops([a_page(f"notes/n{i:03d}", f"Note {i:03d}", f"Note number {i}.")
                          for i in range(250)], "s")
     assert len(store.page_paths()) == 250
     assert not [f for f in lint.lint() if "index" in f]
@@ -388,7 +388,7 @@ def test_lint_flags_missing_frontmatter_keys(vault):
 
 
 def test_lint_and_log_only_writes_when_there_are_findings(vault):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     before = read("log.md")
     assert lint.lint_and_log() == []
     assert read("log.md") == before
@@ -403,7 +403,7 @@ def test_lint_and_log_only_writes_when_there_are_findings(vault):
 
 def stamped(rel, source, name="Anna", extra=""):
     write_page(rel, name, "\n## Summary\nx\n", source, extra)
-    m_index.rebuild_index()
+    v_index.rebuild_index()
 
 
 def test_lint_ignores_sources_that_are_not_raw_paths(vault):
@@ -468,10 +468,10 @@ def test_lint_and_log_commits_a_duplicate_name_and_the_wiki_message_lists_it(wik
 
 
 def test_related_context_lists_non_source_hits_and_is_empty_without_any(vault):
-    assert m_index.related_context("Falcon launch") == ""
+    assert v_index.related_context("Falcon launch") == ""
     write_page("projects/falcon", "Falcon", "\n## Summary\nThe Falcon launch project.\n")
     write_page("sources/falcon-plan", "Falcon plan", "\n## Summary\nFalcon launch plan.\n")
-    block = m_index.related_context("Falcon launch", k=5)
+    block = v_index.related_context("Falcon launch", k=5)
     assert block.startswith("Existing related pages (update these rather than duplicating):")
     assert "- projects/falcon: Falcon — The Falcon launch project." in block
     assert "sources/" not in block
@@ -481,7 +481,7 @@ def test_related_context_stays_within_its_token_cap(vault):
     for i in range(50):
         write_page(f"projects/falcon-{i}", f"Falcon launch {i}",
                    "\n## Summary\n" + "Falcon launch details. " * 20 + "\n")
-    block = m_index.related_context("Falcon launch", k=50)
+    block = v_index.related_context("Falcon launch", k=50)
     assert block and util.tokens_est(block) <= store.RELATED_TOKENS
 
 
@@ -489,12 +489,12 @@ def test_session_ingest_names_a_page_the_index_cut(vault, monkeypatch):
     for i in range(10):
         write_page(f"people/p{i}", f"Person number {i}", "\n## Summary\na colleague of the user\n")
     write_page("projects/zephyr", "Zephyr", "\n## Summary\nThe Zephyr rollout.\n")
-    m_index.rebuild_index()
+    v_index.rebuild_index()
     monkeypatch.setattr(store, "WIKI_INDEX_TOKENS", 40)
     client = FakeClient("[]")
 
     monkeypatch.setattr(core_llm, "_client", client)
-    v_ingest.ingest([{"role": "user", "content": "the Zephyr rollout slipped a week"}])
+    m_ingest.ingest([{"role": "user", "content": "the Zephyr rollout slipped a week"}])
 
     user = client.calls[0]["messages"][1]["content"]
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
@@ -517,7 +517,7 @@ def test_session_ingest_over_320_pages_updates_zephyr_from_the_map(memory_sandbo
                                      "text": "The Zephyr budget slipped a week."}]))
     monkeypatch.setattr(core_llm, "_client", client)
 
-    applied = v_ingest.ingest([{"role": "user", "content": "the Zephyr budget rollout slipped a week"}])
+    applied = m_ingest.ingest([{"role": "user", "content": "the Zephyr budget rollout slipped a week"}])
 
     user = client.calls[0]["messages"][1]["content"]
     index_part, block = user.split("Index:\n")[1].split("Existing related pages", 1)
@@ -540,7 +540,7 @@ def test_ingest_files_the_ops_the_model_proposes(vault, monkeypatch):
     commits_before = len(commits())
 
     monkeypatch.setattr(core_llm, "_client", client)
-    applied = v_ingest.ingest(TURNS)
+    applied = m_ingest.ingest(TURNS)
 
     assert len(applied) == 2
     assert store.page_exists("people/anna.md")
@@ -558,7 +558,7 @@ def test_ingest_of_garbage_changes_nothing(vault, content, monkeypatch):
     commits_before = len(commits())
 
     monkeypatch.setattr(core_llm, "_client", FakeClient(content))
-    assert v_ingest.ingest(TURNS) == []
+    assert m_ingest.ingest(TURNS) == []
 
     assert {rel: read(rel) for rel in before} == before
     assert len(commits()) == commits_before
@@ -567,14 +567,14 @@ def test_ingest_of_garbage_changes_nothing(vault, content, monkeypatch):
 
 def test_ingest_survives_a_broken_client(vault, capsys, monkeypatch):
     monkeypatch.setattr(core_llm, "_client", FakeClient(RuntimeError("connection refused")))
-    assert v_ingest.ingest(TURNS) == []
+    assert m_ingest.ingest(TURNS) == []
     assert "ingest failed" in capsys.readouterr().out
 
 
 def test_ingest_skips_the_call_for_an_empty_transcript(vault, monkeypatch):
     client = FakeClient("[]")
     monkeypatch.setattr(core_llm, "_client", client)
-    assert v_ingest.ingest([]) == []
+    assert m_ingest.ingest([]) == []
     assert client.calls == []
 
 
@@ -592,7 +592,7 @@ def test_save_ingests_after_the_profile_ops(memory_sandbox, wiki_sandbox, monkey
 
 
 def test_a_wiki_failure_never_loses_the_profile_save(memory_sandbox, wiki_sandbox, monkeypatch):
-    monkeypatch.setattr(v_ingest, "ingest", lambda *a: (_ for _ in ()).throw(RuntimeError("disk on fire")))
+    monkeypatch.setattr(m_ingest, "ingest", lambda *a: (_ for _ in ()).throw(RuntimeError("disk on fire")))
     ops = json.dumps([{"op": "ADD", "path": "identity.name", "value": "Mihaly"}])
 
     monkeypatch.setattr(core_llm, "_client", FakeClient(ops))
@@ -621,7 +621,7 @@ def test_archive_files_a_person_and_marks_the_entry_stale(vault, memory_sandbox)
 
 def test_archive_appends_to_an_existing_page(vault, memory_sandbox):
 
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     seed(people=[{"name": "Anna", "rel": "colleague", m_store.SEEN_FIELD: "2026-01-05"}])
 
     _, error = m_ops.archive("people", 0)
@@ -670,7 +670,7 @@ def test_pull_reports_an_unknown_page(vault, memory_sandbox):
 
 def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox, monkeypatch):
     monkeypatch.setattr(core_llm, "_client", FakeClient(json.dumps([a_page()])))
-    v_ingest.ingest(TURNS)
+    m_ingest.ingest(TURNS)
     assert "Anna" in read("index.md")
 
     # the user opens the page in Obsidian and corrects it
@@ -680,11 +680,11 @@ def test_a_user_edit_reaches_the_next_ingest_and_the_index(vault, memory_sandbox
 
     client = FakeClient("[]")
     monkeypatch.setattr(core_llm, "_client", client)
-    v_ingest.ingest(TURNS)
+    m_ingest.ingest(TURNS)
     context = client.calls[0]["messages"][1]["content"]
     assert "Anna Kovacs" in context
 
-    m_index.rebuild_index()
+    v_index.rebuild_index()
     assert "Anna Kovacs" in read("index.md")
 
 
@@ -698,7 +698,7 @@ def wiki_panel(vault, panel):
 
 
 def test_get_wiki_lists_pages_with_lint_and_vault(wiki_panel):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     msg = wiki_panel.send({"action": "get_wiki"})
     assert msg["type"] == "wiki"
     assert msg["vault"] == store.WIKI_PATH
@@ -709,7 +709,7 @@ def test_get_wiki_lists_pages_with_lint_and_vault(wiki_panel):
 
 
 def test_read_wiki_page_returns_text_and_links(wiki_panel):
-    m_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The rewrite."),
+    v_pages.apply_page_ops([a_page(), a_page("projects/atlas", "Atlas", "The rewrite."),
                          {"op": "link", "path": "people/anna", "target": "projects/atlas"}], "s")
     msg = wiki_panel.send({"action": "read_wiki_page", "path": "people/anna"})
     assert msg["type"] == "wiki_page" and msg["path"] == "people/anna"
@@ -718,7 +718,7 @@ def test_read_wiki_page_returns_text_and_links(wiki_panel):
 
 
 def test_wiki_note_appends_and_refreshes_both_panes(wiki_panel):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     page, listing = wiki_panel.send_many(
         {"action": "wiki_note", "path": "people/anna", "text": "she prefers async standups"}, 2)
     assert page["type"] == "wiki_page" and listing["type"] == "wiki"
@@ -741,7 +741,7 @@ def test_archive_memory_action_replies_with_memory_and_wiki(wiki_panel):
 
 
 def test_pull_wiki_action_replies_with_memory_and_wiki(wiki_panel):
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     mem, listing = wiki_panel.send_many(
         {"action": "pull_wiki", "path": "people/anna", "section": "people"}, 2)
     assert mem["type"] == "memory"
@@ -767,7 +767,7 @@ def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys, monkeypa
     client = FakeClient(ops)
 
     monkeypatch.setattr(core_llm, "_client", client)
-    applied = v_ingest.ingest(TURNS)
+    applied = m_ingest.ingest(TURNS)
 
     assert [op["path"] for op in applied] == ["people/anna"]
     assert not store.page_exists("people/michael.md")
@@ -779,7 +779,7 @@ def test_ingest_never_opens_a_people_page_about_the_user(vault, capsys, monkeypa
 def test_the_ingest_prompt_says_so_even_with_an_empty_profile(vault, monkeypatch):
     client = FakeClient("[]")
     monkeypatch.setattr(core_llm, "_client", client)
-    v_ingest.ingest(TURNS)
+    m_ingest.ingest(TURNS)
     assert identity.NO_USER_NOTE in client.calls[0]["messages"][0]["content"]
 
 
@@ -792,7 +792,7 @@ def test_a_page_filed_mid_session_reaches_the_next_turn(vault, memory_sandbox):
     conversation._conversation.append({"role": "user", "content": "hi"})
     assert "[[people/anna]]" not in conversation._conversation[0]["content"]
 
-    m_pages.apply_page_ops([a_page()], "s")
+    v_pages.apply_page_ops([a_page()], "s")
     conversation.refresh_context()
 
     assert "[[people/anna]]" in conversation._conversation[0]["content"]
@@ -812,7 +812,7 @@ def at(monkeypatch, when: str) -> None:
 
 def test_briefing_lists_only_the_pages_changed_after_the_cutoff(vault, monkeypatch):
     at(monkeypatch, "2026-10-09T09:00:00")
-    m_pages.apply_page_ops([a_page(), a_page("projects/falcon", "Falcon"), a_page("notes/old", "Old")], "seed")
+    v_pages.apply_page_ops([a_page(), a_page("projects/falcon", "Falcon"), a_page("notes/old", "Old")], "seed")
     at(monkeypatch, "2026-10-11T09:00:00")
     write_page("people/anna", "Anna", "Runs the Friday deploy.\n")
     store._commit("wiki: edited people/anna")
@@ -820,23 +820,23 @@ def test_briefing_lists_only_the_pages_changed_after_the_cutoff(vault, monkeypat
     store._commit("wiki: created notes/plan")
     os.remove(os.path.join(store.WIKI_PATH, "notes/old.md"))
     store._commit("wiki: tidy notes/old")
-    m_pages.apply_page_ops([a_page("people/ben", "Ben")], "session 2026-10-11")
-    m_index._log(["lint: 1 finding"])
+    v_pages.apply_page_ops([a_page("people/ben", "Ben")], "session 2026-10-11")
+    v_index._log(["lint: 1 finding"])
     store._commit("wiki: lint")
 
-    digest = m_digest.changes_since(CUTOFF)
+    digest = a_digest.changes_since(CUTOFF)
 
     assert {(p["path"], p["title"], p["change"]) for p in digest["pages"]} == {
         ("notes/plan", "Plan", "new"), ("people/anna", "Anna", "edited"), ("notes/old", "old", "deleted")}
     assert digest["chat_pages"] == ["people/ben"]
     paths = [p["path"] for p in digest["pages"]] + digest["chat_pages"]
     assert not any(p in ("index", "log", "schema") or p.startswith(("raw/", "sources/")) for p in paths)
-    assert digest["since"] == CUTOFF and not m_digest.digest_empty(digest)
+    assert digest["since"] == CUTOFF and not a_digest.digest_empty(digest)
 
 
 def test_briefing_with_git_missing_has_no_pages(wiki_sandbox):
-    digest = m_digest.changes_since(CUTOFF)
-    assert digest["pages"] == [] and digest["chat_pages"] == [] and m_digest.digest_empty(digest)
+    digest = a_digest.changes_since(CUTOFF)
+    assert digest["pages"] == [] and digest["chat_pages"] == [] and a_digest.digest_empty(digest)
 
 
 def test_briefing_counts_later_sources_and_memory_ops_but_not_hand_edits(vault):
@@ -865,14 +865,14 @@ def test_briefing_counts_later_sources_and_memory_ops_but_not_hand_edits(vault):
     ]
     log_ops(*ops)
 
-    digest = m_digest.changes_since(CUTOFF)
+    digest = a_digest.changes_since(CUTOFF)
 
     assert [(s["page"], s["kind"], s["at"]) for s in digest["sources"]] == [
         ("sources/b", "pdf", "2026-10-11T08:00:00"), ("sources/old-split", "text", "2026-10-11T09:30:00")]
     mem = digest["memory"]
     assert (mem["added"], mem["updated"], mem["removed"]) == (2, 1, 0)
     assert [(e["op"], e["path"]) for e in mem["examples"]] == [("ADD", "people[]"), ("ADD", "preferences.coffee")]
-    card = m_digest.briefing_card(digest)
+    card = a_digest.briefing_card(digest)
     assert "## Sources\n- [[sources/b]] · pdf\n" in card and "## Pages" not in card
     assert "## Memory\n- 2 added, 1 updated, 0 removed\n" in card and "Wife · spouse" in card
 
@@ -882,7 +882,7 @@ def test_the_briefing_card_caps_a_section_at_eight_items():
                                          for i in range(10)],
               "chat_pages": ["people/a", "people/b", "people/c"], "sources": [],
               "memory": {"added": 0, "updated": 0, "removed": 0, "examples": []}}
-    card = m_digest.briefing_card(digest)
+    card = a_digest.briefing_card(digest)
     pages = card.split("## Pages\n", 1)[1]
     assert pages.count("- edited: [[notes/p") == 8 and "- +2 more" in pages
     assert "- notes from our chats: [[people/a]], [[people/b]] (+1)" in pages
@@ -894,21 +894,21 @@ def test_the_briefing_card_caps_a_section_at_eight_items():
 def test_briefing_when_reads_like_speech(delta, expected):
     from datetime import date, timedelta
     day = date.today() - timedelta(days=delta)
-    got = m_digest.briefing_when(f"{day.isoformat()}T14:05:09")
+    got = a_digest.briefing_when(f"{day.isoformat()}T14:05:09")
     assert got == (expected or f"{day.day} {day.strftime('%b')}")
 
 
 def test_the_users_own_editor_saves_and_saved_cards_are_not_news(vault, monkeypatch):
     at(monkeypatch, "2026-10-09T09:00:00")
-    m_pages.apply_page_ops([a_page()], "seed")
+    v_pages.apply_page_ops([a_page()], "seed")
     at(monkeypatch, "2026-10-11T09:00:00")
     text = read("people/anna.md")
-    assert m_pages.save_page("people/anna", text + "\nMore.\n", store.etag(text))[1] is None
-    assert m_pages.create_page("notes/mine")[1] is None
-    assert m_pages.save_card("notes/2026-10-11-briefing-11-oct", "Briefing 11 Oct", "# Briefing 11 Oct\n", [])[1] is None
-    m_pages.apply_page_ops([a_page("projects/falcon", "Falcon")], "seed")
+    assert v_pages.save_page("people/anna", text + "\nMore.\n", store.etag(text))[1] is None
+    assert v_pages.create_page("notes/mine")[1] is None
+    assert v_pages.save_card("notes/2026-10-11-briefing-11-oct", "Briefing 11 Oct", "# Briefing 11 Oct\n", [])[1] is None
+    v_pages.apply_page_ops([a_page("projects/falcon", "Falcon")], "seed")
 
-    digest = m_digest.changes_since(CUTOFF)
+    digest = a_digest.changes_since(CUTOFF)
 
     assert [(p["path"], p["change"]) for p in digest["pages"]] == [("projects/falcon", "new")]
     assert digest["chat_pages"] == []

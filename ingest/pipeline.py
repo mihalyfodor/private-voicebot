@@ -35,7 +35,7 @@ from core.untrusted import DOCUMENT_RULE, untrusted
 from core import vault_lock
 from vault.manifest import _manifest_append, _manifest_write, manifest_entries, manifest_find, sha256
 from vault import chunks
-from memory import wiki_ingest as v_ingest
+from memory import wiki_ingest as m_ingest
 from vault import index as v_index
 from vault import pages as v_pages
 from vault import search as v_search
@@ -385,7 +385,7 @@ def restrict_ops(ops, raw_rel: str, user_names=(), kind: str = "", people=None) 
     session ingest uses: a document mentioning their own (possibly misspelled) name must not
     grow a `people/` page about them.
     """
-    candidates, rejected = v_ingest.reject_user_pages(ops, user_names)
+    candidates, rejected = m_ingest.reject_user_pages(ops, user_names)
     if kind in PUBLISHED_KINDS and people is None:
         people = m_identity.people_names()
     kept = []

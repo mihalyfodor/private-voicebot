@@ -317,9 +317,9 @@ def _ingest_wiki(turns: list) -> list:
     if stand_ins_only(turns):                 # no self-feeding (docs/46-briefing.md)
         return []
     try:
-        from memory import wiki_ingest as v_ingest
+        from memory import wiki_ingest as m_ingest
 
-        return v_ingest.ingest(turns)
+        return m_ingest.ingest(turns)
     except Exception as exc:  # noqa: BLE001
         wiki_log.info(f"ingest error: {exc}")
         return []
